@@ -34,6 +34,7 @@ import { surveyTick } from './survey';
 import { marketTick } from './market';
 import { recruitTick } from './army';
 import { upkeepTick } from './upkeep';
+import { councilStep, vacancyEvent } from './council';
 import { settleHires } from './hire';
 import { dynastyStep } from './dynasty';
 import { settleWounds } from './infirmary';
@@ -155,6 +156,8 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // 3в. Содержание войска: жалованье из казны, долг, терпение и уход — голодом или
   // неуплатой, одной дверью. Долг, терпение и уход зреют по времени — при игроке и без него.
   upkeepTick(s, dt, hunger.army);
+  // 3г. Совет Ратуши (РТ-1): книга жалованья, уход неуплатой и конец службы по часам; опустевшее место — весть на стол.
+  for (const post of councilStep(s, dt)) raiseEvent(s, vacancyEvent(post));
 
   // 4. Мораль плавно стремится к целевой. Пока племя мёрзнет — вдвое быстрее.
   // Разбор морали — один на шаг: из него и цель морали, и причины недовольства стабильности (`sim/stability`).

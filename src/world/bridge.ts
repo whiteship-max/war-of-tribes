@@ -16,6 +16,7 @@ import {
   homeArmyPower,
   faithOf,
   fervour,
+  councilGift,
   intelKeen,
   mastersFoodPerDay,
   soldierFoodPerDay,
@@ -218,9 +219,10 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // Вера. В мир едут два числа и ни слова о храме: чем деревня верит — чтобы
     // сосед мог отнестись к ней прохладнее (`world/faith.faithAttitude`), — и
     // прибавка к стойкости от идущего обряда. Ни уклада, ни набожности, ни
-    // реликвии мир не видит: это дела прихода, а не карты.
+    // реликвии мир не видит: это дела прихода, а не карты. К обряду прибавляется
+    // Воевода совета Ратуши (РТ-1): стойкость одна, и мир не спрашивает, откуда она.
     faith: faithOf(s),
-    fervour: fervour(s),
+    fervour: fervour(s) + councilGift(s, 'marshal'),
     stock,
     stash,
     // Казна едет рядом со складом, а не в нём: платят из них разными дверями,

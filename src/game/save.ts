@@ -14,6 +14,7 @@ import { AWAY_AFTER, absence, awayGameSeconds, awaySeconds } from './sim/tick';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
+import { mergeCouncil } from './sim/council';
 import { dynastyStep, mergeRealm, newHouse, skillLine } from './sim/dynasty';
 import { adminNotice, creditTech, fateNotice, gateOf, levelName, techLevel } from './sim/tech';
 import { BRANCH_OF, WAR_FATES } from './data/realm';
@@ -486,6 +487,8 @@ export function deserialize(json: string): GameState | null {
       // Партия до родословной приезжает с пустой: вспоминать ушедших задним
       // числом не из чего, и версию это не поднимает.
       lineage: mergeLineage(data.lineage),
+      // Совет Ратуши (РТ-1) — по полям с проверкой; партия до совета приезжает без него, и версия не растёт.
+      council: mergeCouncil(data.council),
       seed: typeof data.seed === 'number' && Number.isFinite(data.seed) ? data.seed >>> 0 : base.seed,
       rolls: typeof data.rolls === 'number' && Number.isFinite(data.rolls) ? Math.max(0, Math.floor(data.rolls)) : 0,
       hires: typeof data.hires === 'number' && Number.isFinite(data.hires) ? Math.max(0, Math.floor(data.hires)) : 0,

@@ -57,6 +57,8 @@ import { MUTINY_EVENT, ORDER_TEXT } from './order';
 import { daysSpan } from '../span';
 import { addRes, amount, crowd, FameWord, fameWord, moraleWord, MoraleWord, moveFame, moveMorale, people } from './eventKit';
 import { CHAIN_SEASONS, TIDING, TIDINGS } from './tidings';
+import { ADVISOR_POSTS } from '../councilrules';
+import { vacancyDef } from '../sim/council';
 import { BOON_BY_ID, boonWords } from './boons';
 import { SEASON_DAYS } from './seasons';
 import { grantBoon } from '../sim/boons';
@@ -760,6 +762,8 @@ export const EVENTS: EventDef[] = [
   },
   ...revoltEvents(),
   ...crownEvents(),
+  // Пустое место в совете Ратуши (РТ-1): весть кладёт конец службы (`sim/tick`), случаем она не выпадает.
+  ...ADVISOR_POSTS.map(vacancyDef),
   {
     id: 'relic_offer',
     silence: 1,

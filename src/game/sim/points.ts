@@ -14,9 +14,23 @@
 import type { GameState, RealmBranch, RulerSkills } from '../types';
 import { DAY_LENGTH } from '../constants';
 import { POINTS_CAP, REALM_BRANCHES, pointsPerDay } from '../data/realm';
+import { ADVISOR_POSTS, POST_BRANCH, advisorPoints, rateWithCouncil } from '../councilrules';
 
 /** Сколько очков этого вида даёт правитель за игровой день. Пустого места у дома не бывает. */
 export const rulerRate = (s: GameState, branch: RealmBranch): number => pointsPerDay(s.realm?.ruler?.skills?.[branch] ?? 0);
+
+/** Сколько очков этого вида приносит советник его должности (РТ-1, `councilrules.POST_BRANCH`); места нет — ноль. */
+export function councilRate(s: GameState, branch: RealmBranch): number {
+  const post = ADVISOR_POSTS.find((p) => POST_BRANCH[p] === branch);
+  const a = post ? s.council?.seats?.[post] : undefined;
+  return a ? advisorPoints(a.level, a.trait) : 0;
+}
+
+/**
+ * Ставка вида за игровой день: правитель и советник его вида, **не выше лучшего правителя** (`councilrules.rateWithCouncil`).
+ * Смена советника меняет ставку — и поэтому, как смена правителя, перекладывает базу (`bank`) до неё (`sim/council`).
+ */
+export const branchRate = (s: GameState, branch: RealmBranch): number => rateWithCouncil(rulerRate(s, branch), councilRate(s, branch));
 
 /**
  * Сколько очков этого вида сейчас. Чистое чтение: партию не трогает, дважды подряд даёт
@@ -27,7 +41,7 @@ export function pointsOf(s: GameState, branch: RealmBranch): number {
   if (!r) return 0;
   const had = Math.max(0, r.points?.[branch] ?? 0);
   const since = Math.max(0, s.time - (r.pointsAt ?? 0));
-  return Math.min(POINTS_CAP, had + (rulerRate(s, branch) * since) / DAY_LENGTH);
+  return Math.min(POINTS_CAP, had + (branchRate(s, branch) * since) / DAY_LENGTH);
 }
 
 /** Все три вида разом — для карточки и для тестов. */
@@ -36,8 +50,8 @@ export const allPoints = (s: GameState): RulerSkills =>
 
 /**
  * Переложить базу: то, что накопилось к этой минуте, становится отложенным, и отсчёт
- * начинается заново. Зовут её ровно два события — трата и смена правителя (у нового своя
- * ставка), — и оба обязаны её звать: без неё прошлое считалось бы по новой ставке, а
+ * начинается заново. Зовут её трата и смена ставки — смена правителя (у нового своя ставка) и
+ * смена советника (РТ-1, `sim/council`), — и все обязаны её звать: без неё прошлое считалось бы по новой ставке, а
  * потолок тёк бы.
  *
  * Тот же приём, что `works.rebaseWood` и `bombard.reaim`: смена ставки не переписывает

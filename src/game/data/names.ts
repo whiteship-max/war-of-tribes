@@ -108,6 +108,19 @@ export function houseName(seed: number, born: number, faith: FaithId): string {
   return fullName(seed, born, faith, HOUSE_SALT, HOUSE_EPITHET_SALT);
 }
 
+/** Соли совета Ратуши (РТ-1): у просителей свой порядок имён и прозвищ, как у дома, — имена агентов и дома не едут. */
+const COUNCIL_SALT = 0x636f756e;
+const COUNCIL_EPITHET_SALT = 0x63657069;
+
+/**
+ * Имя просителя совета с номером кандидата `n` (`sim/council.candidateId`). Чистая функция, как `agentName`: тот же кандидат
+ * в том же окне зовётся одинаково на любом устройстве. Тёзок среди живых не допускает дверь совета (`sim/council`), шагая
+ * дальше по перестановке, как дом правителя.
+ */
+export function councilName(seed: number, n: number, faith: FaithId): string {
+  return fullName(seed, n, faith, COUNCIL_SALT, COUNCIL_EPITHET_SALT);
+}
+
 function fullName(seed: number, index: number, faith: FaithId, nameSalt: number, epithetSalt: number): string {
   const names = AGENT_NAMES[faith];
   const n = Math.max(0, Math.floor(index));

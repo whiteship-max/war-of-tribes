@@ -16,6 +16,7 @@ import { SEASON_META } from '@/game/data/seasons';
 import {
   activeBoons,
   bondedShare,
+  councilSeat,
   deedBonded,
   deedProduction,
   deedWorkers,
@@ -27,11 +28,16 @@ import {
   seasonModsFor,
   seasonOf,
   siegeYield,
+  stewardMult,
+  hallLevel,
   yearOf,
 } from '@/game/derived';
 import { REST_LABEL } from '@/ui/kit/breakdown';
+import { YARD_BY_JOB } from '@/game/data/yards';
+import { councilTier } from '@/game/councilrules';
+import { postTitle } from '@/game/data/council';
 
-export type OutputStepId = 'hands' | 'bonded' | 'level' | 'season' | 'boon' | 'morale' | 'faith' | 'decree' | 'siege' | 'rest';
+export type OutputStepId = 'hands' | 'bonded' | 'level' | 'season' | 'boon' | 'morale' | 'faith' | 'decree' | 'council' | 'siege' | 'rest';
 
 /** Строка разбора: что прибавило к выходу, со множителем или числом рук. `add` — по каждому ресурсу двора. */
 export interface OutputStep {
@@ -113,6 +119,9 @@ export function yardOutput(s: GameState, b: Building, deed?: JobId): YardOutput 
   times('morale', `Мораль ${Math.round(s.morale)}`, () => moraleOutputMult(s.morale));
   times('faith', faithDef(s)?.name ?? 'Вера', () => faithTilt(s).output);
   times('decree', decreeOf(s).name, () => decreeOf(s).output);
+  // Староста (РТ-1) множит добычу дворов — строкой с его именем, тем же множителем, что кладёт добро (`derived.stewardMult`).
+  const steward = councilSeat(s, 'steward');
+  if (steward && YARD_BY_JOB.has(job)) times('council', `${postTitle('steward', councilTier(hallLevel(s)))} ${steward.name}`, () => stewardMult(s));
   times('siege', 'Осада', (r) => siegeYield(s, r));
 
   // Остаток — дыра в разборе: строка «Прочее», которой быть не должно (тест).

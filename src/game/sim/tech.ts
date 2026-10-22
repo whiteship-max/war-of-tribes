@@ -45,7 +45,7 @@ import {
 import { asGame, type GameSec } from '../pace';
 import { gameSpan } from '../span';
 import { DAY_LENGTH } from '../constants';
-import { pointsOf, rulerRate, spend } from './points';
+import { branchRate, pointsOf, spend } from './points';
 import { log } from './log';
 
 /**
@@ -354,7 +354,7 @@ export function studyInfo(s: GameState, branch: RealmBranch): StudyInfo {
   const next = level < levelsOf(branch) ? level + 1 : 0;
   const price = next > 0 ? levelPrice(branch, next) : 0;
   const have = pointsOf(s, branch);
-  const rate = rulerRate(s, branch);
+  const rate = branchRate(s, branch);
   const short = Math.max(0, price - have);
   let blocked: string | null = null;
   if (!BRANCH_BUILT[branch]) blocked = `«${BRANCH_NAME[branch]}» ещё закрыто.`;

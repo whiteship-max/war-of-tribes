@@ -134,7 +134,7 @@ export interface SaleCheck {
 export function saleCheck(s: GameState, count: number): SaleCheck {
   const n = Math.max(1, Math.floor(count));
   const left = bondedSaleLeft(s);
-  const gold = bondedSalePrice() * n;
+  const gold = bondedSalePrice(s) * n;
   let blocked: string | null = null;
   if (underSiege(s)) blocked = SIEGE_NO_TRADE;
   else if (marketLevel(s) <= 0) blocked = ORDER_TEXT.market.noMarket;
@@ -153,7 +153,7 @@ export function sellBonded(s: GameState, count = 1): string | null {
   const check = saleCheck(s, count);
   if (check.blocked) return check.blocked;
   const gone = loseBonded(s, check.count);
-  const gold = bondedSalePrice() * gone;
+  const gold = bondedSalePrice(s) * gone;
   s.gold += gold;
   // Выручка — разовое дело описи: золото легло разом, мимо налога (`stats.windfalls`, docs/security.md, раздел 8).
   if (gold > 0) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;

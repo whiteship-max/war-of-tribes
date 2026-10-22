@@ -1,5 +1,7 @@
 // Производные величины от состояния: вместимость, скорости, модификаторы.
 import type {
+  Advisor,
+  AdvisorPost,
   Building,
   BuildingTypeId,
   TroopId,
@@ -75,6 +77,7 @@ import { surveyRadiusOf } from './data/survey';
 import { buildRateOf, defenseOf, hallBuildMult, headsFoodPerDay, heatingWood, housingOf, keenAt, towerSeatsAt, soldierFoodPerDay as soldierFoodAt, stashAt, storageOf, type Levels } from './build';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
+import { YARD_BY_JOB } from './data/yards';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
 import { DESERT_SHARE, MASTER_PAID_AS, UPKEEP_TEXT } from './data/upkeep';
@@ -115,6 +118,7 @@ import { daysSpan } from './span';
 import { BOON_BY_ID, type BoonDef } from './data/boons';
 import { MAX_AGENT_LEVEL } from './data/agents';
 import { STAB_STEP, stabClamp, stabOutputMult } from './stabrules';
+import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
 import type { IconName } from '@/ui/icons/alias';
 
 /** На здании идёт улучшение. */
@@ -417,7 +421,7 @@ export const taxOf = (s: GameState): TaxDef => TAX_BY_ID[s.tax] ?? TAX_BY_ID.non
  * (`marketTick` не пускает золото ниже нуля).
  */
 export const taxIncomePerDay = (s: GameState): number =>
-  taxOf(s).perPop * population(s) * TAX_PER_POP + faithGoldPerDay(s);
+  taxOf(s).perPop * population(s) * TAX_PER_POP * treasurerMult(s) + faithGoldPerDay(s);
 
 /**
  * Что даст и чего будет стоить налог `id` этому посёлку прямо сейчас — числами самой игры:
@@ -486,9 +490,10 @@ export const bondedSaleLeft = (s: GameState): number =>
 /**
  * Почём торговцы берут одного невольника. Всегда заметно ниже цены, по которой
  * они его приводят, и без роста за день: купить и тут же продать — это отдать
- * торговцам разницу, а не заработать на ней.
+ * торговцам разницу, а не заработать на ней. Казначей (РТ-1) выторговывает свою долю
+ * (`treasurerMult`) — выручка рынка, как и налог; до цены ввоза ей далеко и с ним.
  */
-export const bondedSalePrice = (): number => Math.floor(BONDED_GOOD.price * BONDED_SALE);
+export const bondedSalePrice = (s?: GameState): number => Math.floor(BONDED_GOOD.price * BONDED_SALE * (s ? treasurerMult(s) : 1));
 
 /** Во что обойдётся партия из `count` единиц. Считается поштучно. */
 export const marketCost = (s: GameState, def: GoodDef, count: number): number =>
@@ -807,7 +812,38 @@ export const mastersWagesPerDay = (s: GameState): number => mastersCount(s) * ma
  * из неё платит `sim/upkeep`, по ней «по средствам» решает, сколько ещё держать, и по ней же
  * уходят недоплаченные. Второй ведомости у мастеров нет.
  */
-export const wagesPerDay = (s: GameState): number => armyWagesPerDay(s) + mastersWagesPerDay(s);
+export const wagesPerDay = (s: GameState): number => armyWagesPerDay(s) + mastersWagesPerDay(s) + councilWagesPerDay(s);
+
+// ---------- Совет Ратуши (РТ-1) ----------
+//
+// Советник — не правитель и не житель: он служит за жалованье из той же ведомости и приносит пользу своей должности — Староста
+// к стройке и добыче, Казначей к налогу и торговле, Воевода к стойкости дружины (docs/city_v3.md, «Решения РТ-1»). Здесь —
+// только чтение: кто сидит и сколько это даёт, формулами `councilrules`; пишет совет одна дверь — `sim/council`.
+
+/** Уровень ратуши — по нему ступень совета (`councilrules.councilTier`); ратуши нет — 0. */
+export const hallLevel = (s: GameState): number => buildingOfType(s, 'town_hall')?.level ?? 0;
+
+/** Советник на должности; нет — `null`. */
+export const councilSeat = (s: GameState, post: AdvisorPost): Advisor | null => s.council?.seats?.[post] ?? null;
+
+/** Польза должности сейчас: доля (Староста, Казначей) или очки стойкости (Воевода); места нет — ноль. */
+export function councilGift(s: GameState, post: AdvisorPost): number {
+  const a = councilSeat(s, post);
+  return a ? giftOf(post, a.level, a.trait) : 0;
+}
+
+/** Множитель Старосты: стройка и добыча дворов. */
+export const stewardMult = (s: GameState): number => 1 + councilGift(s, 'steward');
+
+/** Множитель Казначея: налог и выручка рынка. */
+export const treasurerMult = (s: GameState): number => 1 + councilGift(s, 'treasurer');
+
+/** Жалованье совета за игровой день — та же ведомость, что войско и мастера (`wagesPerDay`). */
+export const councilWagesPerDay = (s: GameState): number =>
+  ADVISOR_POSTS.reduce((n, p) => {
+    const a = councilSeat(s, p);
+    return a ? n + advisorWage(a.level, a.trait) : n;
+  }, 0);
 
 /** Сколько войску причитается сейчас: в отсрочку приведённой партии — ничего. */
 export const wagesDue = (s: GameState): number => (s.time < (s.pay?.from ?? 0) ? 0 : wagesPerDay(s));
@@ -1098,7 +1134,8 @@ function cutBySiege(s: GameState, out: Resources): Resources {
 function deedYield(s: GameState, out: Resources, b: Building, job: JobId, mods: SeasonModifiers): void {
   // Постройка под обстрелом стоит фазу без работы (Р-5, `world/shelling`): её работники едят, но не дают ничего.
   if (s.siege?.idle?.includes(b.type)) return;
-  const mult = workerMultiplier(s, job, b, mods);
+  // Добыча дворов — под рукой Старосты (РТ-1): дела дворов (`YARD_BY_JOB`), а не горн и не мастерская.
+  const mult = workerMultiplier(s, job, b, mods) * (YARD_BY_JOB.has(job) ? stewardMult(s) : 1);
   addYield(out, job, deedWorkers(s, job), mult * freeShare(s));
   addYield(out, job, deedBonded(s, job), mult * bondedShare(s));
 }
@@ -1256,7 +1293,7 @@ export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
   // Невольники без места — на стройке, тем же трудом и на ту же долю, что в поле.
   const bonded = bondedIdle(s) * bondedShare(s);
   // Формула одна на игру и книгу стройки сервера (`game/build.buildRateOf`; потолок сервера — `buildCeil`).
-  return buildRateOf(idle, bonded, crafterBuildRate(s, mods), mods.build, buildingOfType(s, 'town_hall')?.level ?? 0);
+  return buildRateOf(idle, bonded, crafterBuildRate(s, mods), mods.build, buildingOfType(s, 'town_hall')?.level ?? 0, stewardMult(s));
 }
 
 /**
