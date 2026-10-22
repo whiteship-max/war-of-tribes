@@ -295,8 +295,8 @@
   font-weight: 600;
 }
 .es-tag.bad {
-  background: rgba(224, 107, 90, 0.18);
-  color: var(--bad);
+  background: rgba(224, 107, 90, 0.12);
+  color: #f2a497;
 }
 .es-go {
   font-style: normal;

@@ -11,6 +11,7 @@ import {
   seasonMods,
   storageCap,
   townHallBuildMult,
+  buildBoost,
 } from '../derived';
 import { BUILDER_RATE, RESOURCE_IDS } from '../constants';
 import { startUpgrade } from './actions';
@@ -364,7 +365,8 @@ describe('ратуша ускоряет стройку', () => {
     const share = crafterBuildShare(s);
     s.workers.crafter = 0;
     // Сняли ремесленников — они стали свободными руками: их простой труд вычитается отдельно.
-    const withoutShop = buildRate(s) - 10 * BUILDER_RATE * seasonMods(s).build * townHallBuildMult(s);
+    // Рука стройки сверх ратуши (Староста, цехи в силе — РТ-2: Мастерская третьего уровня поднимает цехи) — тем же множителем.
+    const withoutShop = buildRate(s) - 10 * BUILDER_RATE * seasonMods(s).build * townHallBuildMult(s) * buildBoost(s);
     expect(full - withoutShop).toBeCloseTo(share, 6);
     expect(share).toBeGreaterThan(crafterBuildRate({ ...s, workers: { ...s.workers, [shop.id]: 10 } }));
     // Панель мастерской пишет именно эту долю, а не голую выработку ремесленников. С UI-8 строки «Что даёт городу»

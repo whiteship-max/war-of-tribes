@@ -43,6 +43,7 @@ import {
   wagesPerDay,
   workerMultiplier,
   crafterHeadShare,
+  buildBoost,
 } from '../derived';
 import { upkeepTick } from './upkeep';
 import { hireMasters, mastersInfo, releaseMasters } from './masters';
@@ -109,7 +110,8 @@ describe('жалованье: одна формула и одна ведомос
           st.buildings.find((b) => b.type === 'town_hall')!.level = hallLevel;
         });
         const perWork = masterWage(s) / crafterHeadShare(s);
-        const perHand = wageOf(s, MASTER_PAID_AS) / (BUILDER_RATE * seasonMods(s).build * townHallBuildMult(s));
+        // Рука стройки — под той же рукой сверх ратуши, что и мастер (Староста, цехи в силе — `buildBoost`, РТ-2).
+        const perHand = wageOf(s, MASTER_PAID_AS) / (BUILDER_RATE * seasonMods(s).build * townHallBuildMult(s) * buildBoost(s));
         expect(perWork, `день ${day}, ратуша ${hallLevel}`).toBeCloseTo(perHand, 12);
       }
     }

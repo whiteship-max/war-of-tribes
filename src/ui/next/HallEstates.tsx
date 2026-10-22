@@ -15,6 +15,7 @@ import { estateGiftPrice, estatesNow } from '@/game/derived';
 import { giftBlock, giftEstate, grantBlock, grantPrivilege, revokeBlock, revokePrivilege } from '@/game/sim/estates';
 import { hintSeen, hintsOff, markHint } from '@/game/sim/hints';
 import { asGame } from '@/game/pace';
+import { dec } from '@/game/num';
 import { Icon } from '@/ui/icons/Icon';
 import { Btn } from '@/ui/kit/Btn';
 import { SheetPage } from '@/ui/kit/SheetPage';
@@ -326,7 +327,7 @@ function EstateSheet({ e, onClose }: { e: EstateId; onClose: () => void }) {
 
           <h4>Влияние: откуда</h4>
           <p className="es-note">
-            {inf.halls.map((h) => `${h.name} ${h.level}`).join(', ')} — средний уровень {inf.mean.toFixed(1).replace('.', ',')}
+            {inf.halls.map((h) => `${h.name} ${h.level}`).join(', ')} — средний уровень {dec(inf.mean, 1)}
             {inf.priv > 0 ? `; привилегии — ${inf.privShare} % власти` : ''}. Всего {Math.round(n.infl)} %.
           </p>
         </SheetPage>

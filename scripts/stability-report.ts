@@ -502,7 +502,7 @@ function printEstates(m: EstatesMeasure, evens: Even[]): void {
   console.log(`  Ровная игра без привилегий (Ц1, ${DAYS} игр. дн.): влияние ведущего сословия и специализация (от ${ESTATE_SPECIAL} %), перевес (от ${ESTATE_DOMINANT} %)`);
   for (const e of evens) {
     const mean = e.lead.reduce((t, v) => t + v, 0) / Math.max(1, e.lead.length);
-    const types = Object.entries(e.types).map(([k, v]) => `${ESTATE_META[k as EstateId].city} ${v}`).join(', ') || '—';
+    const types = Object.entries(e.types).map(([k, v]) => `${ESTATE_META[k as EstateId].kind} ${v}`).join(', ') || '—';
     console.log(`    сид ${e.seed}: ведущее в среднем ${pct(mean)}, наибольшее ${pct(Math.max(...e.lead))}; специализация ${e.special} из ${e.lead.length} дней (${types}); перевес ${e.dominant} дней`);
   }
   console.log('');
@@ -514,7 +514,7 @@ function printEstates(m: EstatesMeasure, evens: Even[]): void {
     const minus = 100 * ESTATE_MINUS[e] * p.minus;
     console.log(
       `    ${ESTATE_META[e].name.padEnd(13)} влияние ${pct(p.infl)}, лояльность ${p.loyalty.toFixed(1)}, сила×лояльность ${p.plus.toFixed(4)}, сила ${p.minus.toFixed(4)}; ` +
-        `плюс +${plus.toFixed(2)} %, минус −${minus.toFixed(2)} % при записанных ${ESTATE_PLUS[e]} / ${ESTATE_MINUS[e]}; выведено ${d.plus[e]} / ${d.minus[e]}; «${ESTATE_META[e].city}» ${p.special.toFixed(0)} из ${p.days.toFixed(0)} дней`,
+        `плюс +${plus.toFixed(2)} %, минус −${minus.toFixed(2)} % при записанных ${ESTATE_PLUS[e]} / ${ESTATE_MINUS[e]}; выведено ${d.plus[e]} / ${d.minus[e]}; «${ESTATE_META[e].kind}» ${p.special.toFixed(0)} из ${p.days.toFixed(0)} дней`,
     );
   }
   if (m.neglect.length > 0) {

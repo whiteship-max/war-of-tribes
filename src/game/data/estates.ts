@@ -16,8 +16,8 @@ export interface EstateMeta {
   of: string;
   /** Герб — значок набора ЗН-1. */
   icon: IconName;
-  /** Специализация города, где сословие держит перевес влияния. */
-  city: string;
+  /** Специализация города, где сословие держит перевес влияния: «Торговый город». */
+  kind: string;
   /** Привилегии по порядку дарования. */
   priv: readonly [string, string];
   /** Чем сословие берёт дар: золото, крестьяне — хлеб. */
@@ -32,7 +32,7 @@ export const ESTATE_META: Readonly<Record<EstateId, EstateMeta>> = {
     to: 'купечеству',
     of: 'купечества',
     icon: ico('est-merchants'),
-    city: 'Торговый город',
+    kind: 'Торговый город',
     priv: ['Торговые пошлины', 'Городское право'],
     gift: 'gold',
   },
@@ -41,7 +41,7 @@ export const ESTATE_META: Readonly<Record<EstateId, EstateMeta>> = {
     to: 'цехам',
     of: 'цехов',
     icon: ico('est-guilds'),
-    city: 'Ремесленный центр',
+    kind: 'Ремесленный центр',
     priv: ['Цеховая грамота', 'Право клейма'],
     gift: 'gold',
     many: true,
@@ -51,7 +51,7 @@ export const ESTATE_META: Readonly<Record<EstateId, EstateMeta>> = {
     to: 'крестьянству',
     of: 'крестьянства',
     icon: ico('est-peasants'),
-    city: 'Житница',
+    kind: 'Житница',
     priv: ['Общинные земли', 'Юрьев день'],
     gift: 'food',
   },
@@ -60,7 +60,7 @@ export const ESTATE_META: Readonly<Record<EstateId, EstateMeta>> = {
     to: 'рыцарству',
     of: 'рыцарства',
     icon: ico('est-knights'),
-    city: 'Военная цитадель',
+    kind: 'Военная цитадель',
     priv: ['Право меча', 'Рыцарский суд'],
     gift: 'gold',
   },
@@ -69,7 +69,7 @@ export const ESTATE_META: Readonly<Record<EstateId, EstateMeta>> = {
     to: 'духовенству',
     of: 'духовенства',
     icon: ico('est-clergy'),
-    city: 'Святой град',
+    kind: 'Святой град',
     priv: ['Церковный суд', 'Неприкосновенность храма'],
     gift: 'gold',
   },

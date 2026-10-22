@@ -65,8 +65,8 @@ describe('окно «Сословия»', () => {
     expect(n.infl, 'точка внутри: перевес').toBeGreaterThanOrEqual(ESTATE_DOMINANT);
     view(s);
     const html = renderToStaticMarkup(h(HallEstates));
-    expect(cityOf(s).name).toBe(ESTATE_META.merchants.city);
-    expect(html).toContain(ESTATE_META.merchants.city);
+    expect(cityOf(s).name).toBe(ESTATE_META.merchants.kind);
+    expect(html).toContain(ESTATE_META.merchants.kind);
     expect(html).toContain('es-card merchants dominant');
     const w = leverWords('merchants', n);
     expect(html).toContain(w.plus);

@@ -60,8 +60,8 @@ export function drainCeil(levels: Levels, pop: number, bonded: number, soldiers:
     food: headsFoodPerDay(people + Math.max(0, bonded) + masters, FOOD_MOD_MAX, 1) * Math.max(1, estates.food) + mouths * soldierFoodPerDay(FOOD_MOD_MAX, 1),
     wood: Math.max(heatingWood(people, 0, HEAT_MOD_MAX), heatingWood(0, people, HEAT_MOD_MAX)),
     // Жалованье совета Ратуши (РТ-1) — та же ведомость: подтверждённые советники (`watch.councilWage`).
-    // Рыцарство в силе (РТ-2) требует больше содержания: жалованье бойца — на его минус сверху.
-    gold: men * WAGE_MAX * Math.max(1, estates.wage) + masters * baseWage(MASTER_PAID_AS) * hands + (people + men) * GOLD_OUT_PER_POP_MAX + Math.max(0, council),
+    // Рыцарство в силе (РТ-2) требует больше содержания: жалованье бойца и мастера (он платится как боец) — на его минус сверху.
+    gold: (men * WAGE_MAX + masters * baseWage(MASTER_PAID_AS) * hands) * Math.max(1, estates.wage) + (people + men) * GOLD_OUT_PER_POP_MAX + Math.max(0, council),
   };
 }
 

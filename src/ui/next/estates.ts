@@ -115,7 +115,7 @@ export function cityOf(s: GameState): { lead: EstateId | null; name: string; inf
   const infl = Object.fromEntries(ESTATES.map((e) => [e, now[e].infl])) as Record<EstateId, number>;
   const lead = specialOf(infl);
   const top = ESTATES.reduce((a, b) => (infl[b] > infl[a] ? b : a));
-  return { lead, name: lead ? ESTATE_META[lead].city : EVEN_CITY, infl: infl[top], dominant: infl[top] >= ESTATE_DOMINANT ? top : null };
+  return { lead, name: lead ? ESTATE_META[lead].kind : EVEN_CITY, infl: infl[top], dominant: infl[top] >= ESTATE_DOMINANT ? top : null };
 }
 
 /** Слагаемое разбора: подпись, число, значок. */

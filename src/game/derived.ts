@@ -779,7 +779,9 @@ export const feastSeconds = (): number => FEAST_DAYS * DAY_LENGTH;
  * дешевле тут делать не от чего.
  */
 export function wageShare(s: GameState): number {
-  const tax = taxOf(s).perPop * TAX_PER_POP;
+  // Налог — тем же, чем его собирает казна (`taxIncomePerDay`: Казначей и сословия), иначе доля закята в жалованье и в сборе
+  // разошлась бы, и мусульманский город держал бы войска не столько же, сколько соседи.
+  const tax = taxOf(s).perPop * TAX_PER_POP * treasurerMult(s) * estateGoldMult(s);
   const faith = faithTilt(s).goldPerPop;
   if (faith >= 0 || tax + faith <= 0) return 1;
   return Math.min(1, (tax + faith) / tax);
@@ -792,13 +794,12 @@ export function wageShare(s: GameState): number {
  */
 export { baseWage, wageGear } from './battle/price';
 
-export const troopWage = (s: GameState, troop: TroopId): number => baseWage(troop) * wageShare(s);
-
 /**
- * Жалованье бойца этого вида за игровой день, золотом: ставка (`troopWage`) и содержание, которого требует рыцарство в силе
- * (РТ-2, минус рыцарей — `estateWageMult`). Мастер — не боец: его цена считается от ставки без рыцарей (`masterWage`).
+ * Жалованье бойца этого вида за игровой день, золотом: ставка вида, доля веры (`wageShare`) и содержание, которого требует
+ * рыцарство в силе (РТ-2, минус рыцарей — `estateWageMult`). Мастер платится как боец-эталон (`masterWage`) — и рыцари
+ * дорожат его той же долей, как закят.
  */
-export const wageOf = (s: GameState, troop: TroopId): number => troopWage(s, troop) * estateWageMult(s);
+export const wageOf = (s: GameState, troop: TroopId): number => baseWage(troop) * wageShare(s) * estateWageMult(s);
 
 /**
  * Сколько рук даёт стройке один наёмный мастер: его ставка (`CRAFTER_BUILD` под множителем
@@ -820,7 +821,7 @@ export function masterHands(s: GameState, mods: SeasonModifiers = seasonMods(s))
  * свойство, на котором стоит спор: **единица стройки, купленная мастером, стоит ровно столько, во
  * сколько стройке обходится боец**, — и закят, множащий жалованье бойца, множит её той же долей.
  */
-export const masterWage = (s: GameState): number => troopWage(s, MASTER_PAID_AS) * masterHands(s);
+export const masterWage = (s: GameState): number => wageOf(s, MASTER_PAID_AS) * masterHands(s);
 
 /** Жалованье войска за игровой день. Новобранцев на учениях оно не касается. */
 export const armyWagesPerDay = (s: GameState): number =>
@@ -1403,8 +1404,14 @@ export function mastersBuildShare(s: GameState, mods: SeasonModifiers = seasonMo
 export function crafterHeadShare(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   const shop = buildingOfType(s, 'workshop');
   if (!shop) return 0;
-  return CRAFTER_BUILD * workerMultiplier(s, 'crafter', shop, mods) * mods.build * townHallBuildMult(s);
+  return CRAFTER_BUILD * workerMultiplier(s, 'crafter', shop, mods) * mods.build * townHallBuildMult(s) * buildBoost(s);
 }
+
+/**
+ * Рука стройки сверх ратуши: Староста совета (РТ-1) и цехи в силе (РТ-2) — тем же множителем, что у `buildRate`
+ * (`build.buildRateOf`, не ниже единицы): доля Мастерской и мастеров в панели — ровно та, что они прибавляют к стройке.
+ */
+export const buildBoost = (s: GameState): number => Math.max(1, stewardMult(s) * guildsMult(s));
 
 /**
  * Множитель скорости стройки от уровня ратуши: +`TOWN_HALL_BUILD_STEP` за уровень сверх первого.
@@ -1426,7 +1433,7 @@ export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
   const bonded = bondedIdle(s) * bondedShare(s);
   // Формула одна на игру и книгу стройки сервера (`game/build.buildRateOf`; потолок сервера — `buildCeil`).
   // Цехи в силе (РТ-2) множат стройку той же дверью, что Староста: потолок сервера — тот же множитель (`build.buildCeil`).
-  return buildRateOf(idle, bonded, crafterBuildRate(s, mods), mods.build, buildingOfType(s, 'town_hall')?.level ?? 0, stewardMult(s) * guildsMult(s));
+  return buildRateOf(idle, bonded, crafterBuildRate(s, mods), mods.build, buildingOfType(s, 'town_hall')?.level ?? 0, buildBoost(s));
 }
 
 /**
@@ -1437,7 +1444,7 @@ export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
  * этого вклада обязана давать полную скорость.
  */
 export const crafterBuildShare = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number =>
-  crafterBuildRate(s, mods) * mods.build * townHallBuildMult(s);
+  crafterBuildRate(s, mods) * mods.build * townHallBuildMult(s) * buildBoost(s);
 
 export function canAfford(s: GameState, cost: Partial<Record<ResourceId, number>>): boolean {
   for (const r of RESOURCE_IDS) if ((cost[r] ?? 0) > s.resources[r]) return false;

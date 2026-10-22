@@ -13,6 +13,7 @@ import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import { QUESTS } from '../data/quests';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN_UNGEARED } from '../data/upkeep';
 import { TAX_PER_POP } from '../data/policy';
+import { hallEstate } from '../estaterules';
 import { MIX } from '../../../scripts/autopilot';
 import {
   armySize,
@@ -383,7 +384,9 @@ describe('закят: воин не наёмник, а долг', () => {
           s.pop = 400;
           s.tax = tax;
           s.faith.id = faith;
-          s.buildings.find((b) => b.type === 'church')!.level = level;
+          // Город ровный (РТ-2): постройки всех сословий того же уровня, что храм, — духовенство не в силе, и десятина
+          // сословия не мешает мерить закят.
+          for (const b of s.buildings) if (hallEstate(b.type)) b.level = level;
           return s;
         };
         const m = village('islam');

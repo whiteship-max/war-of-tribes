@@ -18,7 +18,7 @@ import { cancelRefund, upgradeCost, upgradeWork } from './labour';
 import { createInitialState } from './state';
 import { deserialize, serialize, loadFold } from './save';
 import { prodCeil } from './build';
-import { buildingOfType, deedProduction, deedSlots, levelsOf, productionPerDay, workerMultiplier } from './derived';
+import { buildingOfType, deedProduction, deedSlots, levelsOf, peasantsMult, productionPerDay, workerMultiplier } from './derived';
 import { assignWorker } from './sim/workers';
 import { MERGED_INTO, foldLevels, foldSites, foldTown, keptType, oldUpgradeCost } from './yardmerge';
 
@@ -193,7 +193,8 @@ describe('цена и добыча — бит в бит прежние у тог
         expect(deedSlots(b), `${y.job} ${level}: места`).toBe(level * SLOTS_PER_LEVEL);
         expect(assignWorker(s, b.id, 7, y.job)).toBeNull();
         const made = deedProduction(s, b, y.job);
-        const mult = workerMultiplier(s, y.job, b);
+        // Уровень двора двигает влияние крестьянства (РТ-2): его множитель дворов — тот же, что кладёт добро.
+        const mult = workerMultiplier(s, y.job, b) * peasantsMult(s);
         for (const r of RESOURCE_IDS) expect(made[r], `${y.job} ${level} ${r}`).toBeCloseTo(7 * (y.yield[r] ?? 0) * mult, 9);
         // Соседнее дело того же двора от этих рук не работает.
         for (const other of jobsOf(y.building).filter((j) => j !== y.job)) {

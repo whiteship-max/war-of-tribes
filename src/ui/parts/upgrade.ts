@@ -35,7 +35,7 @@ import {
   deedSlots,
   defense,
   deedsOf,
-  faithTilt,
+  armyResolve,
   feastInfo,
   forgeRate,
   healShare,
@@ -258,7 +258,9 @@ const GAUGES: Gauge[] = [
   { id: 'output', read: (s) => jobMultiplier(s, 'woodcutter', STILL), say: grow('к выработке всех рабочих') },
   { id: 'learning', read: (s) => surveyInfo(s).learning, say: grow('к скорости разведки округи') },
   { id: 'growth', read: (s) => popGrowth(s).faith, say: grow('к приросту жителей') },
-  { id: 'fervour', read: (s) => faithTilt(s).fervour, say: more('к стойкости дружины в обряд') },
+  // Стойкость — та, что уезжает в бой во время обряда (`derived.armyResolve`): наклон веры храма, Воевода и сословия в силе
+  // (РТ-2: Статуя поднимает рыцарство, постройки купечества режут его долю) — числом, которое получит мир.
+  { id: 'fervour', read: (s) => armyResolve({ ...s, faith: { ...s.faith, riteUntil: s.time + 1 } }), say: more('к стойкости дружины в обряд') },
 ];
 
 /**
