@@ -224,7 +224,7 @@ function Buy({ def }: { def: GoodDef }) {
       {bonded && (
         <>
           <h3>
-            Продать торговцам <span className="muted">по {bondedSalePrice()} {unitWord(def)}, сегодня ещё {sale.left}</span>
+            Продать торговцам <span className="muted">по {bondedSalePrice(s)} {unitWord(def)}, сегодня ещё {sale.left}</span>
           </h3>
           <Steps value={m} max={saleRoom} spare={Math.max(0, saleRoom - m)} step={10} names={{ less: 'Меньше', more: 'Больше' }} onChange={(d) => setSell(Math.max(1, m + d))} />
           <div className="mk-act">

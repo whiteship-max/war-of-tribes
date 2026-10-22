@@ -18,19 +18,21 @@ import {
 } from '../constants';
 import { FREE_JOBS } from '../data/jobs';
 import {
-  bondedCount,
   bondedIdle,
   bondedTotal,
+  deedBonded,
+  deedWorkers,
+  estateGrowthMult,
   faithTilt,
   foodConsumptionPerDay,
   freeJobCount,
   housingCapacity,
   idleCount,
   rationOf,
-  workerCount,
 } from '../derived';
 import type { SeasonModifiers } from '../data/seasons';
 import { log } from './log';
+import { staffedDeeds } from './workers';
 
 /** Прибавляет людей в посёлок. Возвращает, сколько прибавилось. */
 export function addPop(s: GameState, n: number): number {
@@ -62,12 +64,9 @@ export function losePop(s: GameState, n: number): number {
     }
   }
   while (left > 0) {
-    const staffed = s.buildings
-      .filter((b) => workerCount(s, b.id) > 0)
-      .sort((a, b) => workerCount(s, b.id) - workerCount(s, a.id));
-    if (staffed.length === 0) break;
-    const b = staffed[0];
-    s.workers[b.id] = workerCount(s, b.id) - 1;
+    const job = staffedDeeds(s, (j) => deedWorkers(s, j))[0];
+    if (!job) break;
+    s.workers[job] = deedWorkers(s, job) - 1;
     left -= 1;
   }
   return gone;
@@ -90,7 +89,7 @@ export function addBonded(s: GameState, n: number): number {
 
 /**
  * Убирает невольников из посёлка. Первыми уходят те, кто на стройке, потом с
- * мест — с самого многолюдного здания: так уведённые не оставляют одну
+ * мест — с самого многолюдного дела: так уведённые не оставляют одну
  * каменоломню пустой, пока в поле толпа.
  */
 export function loseBonded(s: GameState, n: number): number {
@@ -100,14 +99,11 @@ export function loseBonded(s: GameState, n: number): number {
   left -= Math.min(left, bondedIdle(s));
   s.bonded = bondedTotal(s) - gone;
   while (left > 0) {
-    const staffed = s.buildings
-      .filter((b) => bondedCount(s, b.id) > 0)
-      .sort((a, b) => bondedCount(s, b.id) - bondedCount(s, a.id));
-    if (staffed.length === 0) break;
-    const b = staffed[0];
-    const next = bondedCount(s, b.id) - 1;
-    if (next > 0) s.bondedWork[b.id] = next;
-    else delete s.bondedWork[b.id];
+    const job = staffedDeeds(s, (j) => deedBonded(s, j))[0];
+    if (!job) break;
+    const next = deedBonded(s, job) - 1;
+    if (next > 0) s.bondedWork[job] = next;
+    else delete s.bondedWork[job];
     left -= 1;
   }
   return gone;
@@ -151,6 +147,11 @@ export interface GrowthInfo {
    */
   faith: number;
   /**
+   * Сословия (РТ-2): крестьянство в силе прибавляет рождений, рыцарство — отнимает (`derived.estateGrowthMult`); единица —
+   * сословия прироста не трогают. Как вера — только у прироста, не у ухода.
+   */
+  estates: number;
+  /**
    * Основа — прирост без множителей: от числа жителей (`POP_GROWTH_PER_DAY`). `perDay` — она под множителями, и разбор «в
    * день» жителей (`ui/next/hudTips`) пишет каждый множитель тем, что он прибавил к набранному.
    */
@@ -178,21 +179,22 @@ export function popGrowth(s: GameState, mods?: SeasonModifiers): GrowthInfo {
   const foodDays = s.resources.food / Math.max(1, eat);
   const food = Math.max(0, Math.min(1, foodDays / GROWTH_FOOD_DAYS));
   const ration = rationOf(s).growth;
+  const estates = estateGrowthMult(s);
   const base = POP_GROWTH_PER_DAY * (s.pop + POP_GROWTH_BASE);
 
   // Люди уходят вне зависимости от жилья и запасов: их держит не крыша, а вождь.
   if (morale < 0) {
     // Уходящих вера не удерживает: она прибавляет к росту, а не гасит убыль, —
     // иначе высокий храм отменял бы цену низкой морали.
-    return { perDay: base * morale, morale, housing, food, faith, base, ration, blocked: 'Мораль слишком низкая, жители уходят.' };
+    return { perDay: base * morale, morale, housing, food, faith, estates, base, ration, blocked: 'Мораль слишком низкая, жители уходят.' };
   }
-  const perDay = base * morale * housing * food * ration * faith;
+  const perDay = base * morale * housing * food * ration * faith * estates;
   let blocked: string | null = null;
   if (ration <= 0) blocked = 'На скудном пайке город не растёт.';
   else if (housing <= 0) blocked = 'Нет свободного жилья.';
   else if (food <= 0.01) blocked = 'Нет запаса еды.';
   else if (morale <= 0.01) blocked = 'Мораль слишком низкая.';
-  return { perDay, morale, housing, food, faith, base, ration, blocked };
+  return { perDay, morale, housing, food, faith, estates, base, ration, blocked };
 }
 
 /** Шаг прироста: накапливает дробную часть, целые головы применяет сразу. */

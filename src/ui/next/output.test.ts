@@ -1,25 +1,21 @@
-// Выход двора с разбором (docs/ui_v2.md, раздел 2: «каждая цифра объяснима»; UI-2): строки разбора складываются в тот же
-// выход, что кладёт добро на склад (`buildingProduction`), и строки «Прочее» нет.
+// Выход дела двора с разбором (docs/ui_v2.md, раздел 2: «каждая цифра объяснима»; UI-2; ЗД-1 — по делу): строки разбора
+// складываются в тот же выход, что кладёт добро на склад (`deedProduction`), и строки «Прочее» нет.
 //
 // Область правила — двор с руками на местах: без рук складывать нечего, и тест прошёл бы даром. Каждый множитель выработки хоть в одной партии набора не равен единице — иначе выпавший из разбора
 // множитель не дал бы остатка и прошёл бы молча (правило 11); это утверждение стоит в самом тесте.
 import { describe, expect, it } from 'vitest';
-import type { BuildingTypeId, GameState } from '@/game/types';
+import type { BuildingTypeId, GameState, JobId } from '@/game/types';
 import { createInitialState } from '@/game/state';
-import { BUILDINGS } from '@/game/data/buildings';
+import { YARDS } from '@/game/data/yards';
 import { BOONS } from '@/game/data/boons';
 import { SEASON_SECONDS } from '@/game/data/seasons';
-import { buildingOfType, buildingProduction } from '@/game/derived';
+import { buildingOfType, buildingProduction, deedProduction } from '@/game/derived';
 import { REST_LABEL } from '@/ui/kit/breakdown';
 import { OUTPUT_EPS, yardOutput, type OutputStepId } from './output';
-import { yieldsOf } from './hall';
-
-const YARDS = BUILDINGS.map((d) => d.id).filter((t) => yieldsOf(t).length > 0);
-
-/** Партия набора: двор с руками и одним из рычагов выработки, сдвинутым с единицы. */
+/** Партия набора: дело двора с руками и одним из рычагов выработки, сдвинутым с единицы. */
 interface Case {
   name: string;
-  set: (s: GameState, type: BuildingTypeId) => void;
+  set: (s: GameState, type: BuildingTypeId, job: JobId) => void;
 }
 
 const season = (i: number) => (s: GameState): void => {
@@ -46,34 +42,31 @@ const CASES: Case[] = [
   },
   {
     name: 'вести на профессию двора',
-    set: (s, t) => {
-      const job = BUILDINGS.find((d) => d.id === t)!.job!;
+    set: (s, _t, job) => {
       s.boons = BOONS.filter((b) => b.jobs?.[job] !== undefined).map((b) => ({ id: b.id, until: s.time + 1e6 }));
     },
   },
   { name: 'осада', set: (s) => void (s.siege = { byName: 'Альфа', until: s.time + 1e6 }) },
   {
     name: 'невольники на местах',
-    set: (s, t) => {
-      const b = buildingOfType(s, t)!;
+    set: (s, _t, job) => {
       s.bonded = 6;
-      s.bondedWork = { ...(s.bondedWork ?? {}), [b.id]: 4 };
+      s.bondedWork = { ...(s.bondedWork ?? {}), [job]: 4 };
     },
   },
   {
     name: 'всё разом',
-    set: (s, t) => {
+    set: (s, t, job) => {
       for (const c of ['ур. 6', 'зима второго года', 'мораль 15', 'указ «порядок»', 'вера с постами', 'вести на профессию двора', 'осада', 'невольники на местах'])
-        CASES.find((x) => x.name === c)!.set(s, t);
+        CASES.find((x) => x.name === c)!.set(s, t, job);
     },
   },
 ];
 
-function party(type: BuildingTypeId, c: Case): GameState {
+function party(type: BuildingTypeId, job: JobId, c: Case): GameState {
   const s = createInitialState(7);
-  const b = buildingOfType(s, type)!;
-  s.workers = { ...s.workers, [b.id]: 5 };
-  c.set(s, type);
+  s.workers = { ...s.workers, [job]: 5 };
+  c.set(s, type, job);
   return s;
 }
 
@@ -83,16 +76,16 @@ describe('выход двора с разбором складывается в 
     expect(yardOutput(createInitialState(7), buildingOfType(createInitialState(7), 'houses')!)).toBeNull();
   });
 
-  it('строки — тот же выход, что `buildingProduction`, без строки «Прочее»; каждый множитель в наборе не единица', () => {
+  it('строки — тот же выход, что `deedProduction`, без строки «Прочее»; каждый множитель в наборе не единица', () => {
     const seen = new Set<OutputStepId>();
     let checked = 0;
     let live = 0;
-    for (const type of YARDS) {
+    for (const { building: type, job } of YARDS) {
       for (const c of CASES) {
-        const s = party(type, c);
+        const s = party(type, job, c);
         const b = buildingOfType(s, type)!;
-        const out = yardOutput(s, b)!;
-        const prod = buildingProduction(s, b);
+        const out = yardOutput(s, b, job)!;
+        const prod = deedProduction(s, b, job);
         // Область: руки на местах — строка рук есть и не ноль. Выход может быть и нулём (осада не пускает за едой,
         // `SIEGE_FOOD_YIELD`), и это не даром: строки рук и осады обязаны тогда погасить друг друга.
         expect(out.steps.some((st) => st.id === 'hands' && out.res.some((r) => (st.add[r] ?? 0) > OUTPUT_EPS)), `${type}, ${c.name}: руки`).toBe(true);
@@ -116,8 +109,8 @@ describe('выход двора с разбором складывается в 
   });
 
   it('множитель в строке — тот, что записан: вклад строки — набранное до неё × (множитель − 1)', () => {
-    const s = party('farm', CASES.find((c) => c.name === 'всё разом')!);
-    const out = yardOutput(s, buildingOfType(s, 'farm')!)!;
+    const s = party('farm', 'farmer', CASES.find((c) => c.name === 'всё разом')!);
+    const out = yardOutput(s, buildingOfType(s, 'farm')!, 'farmer')!;
     let run = 0;
     for (const st of out.steps) {
       const add = st.add.food ?? 0;
@@ -127,11 +120,27 @@ describe('выход двора с разбором складывается в 
     expect(run).toBeCloseTo(out.total.food!, 6);
   });
 
+  it('двор с двумя делами (ЗД-1): выход здания — сумма выходов дел, и у каждого дела — свои руки', () => {
+    const s = createInitialState(7);
+    const farm = buildingOfType(s, 'farm')!;
+    s.workers = { ...s.workers, farmer: 6, herder: 3 };
+    const all = buildingProduction(s, farm);
+    const field = deedProduction(s, farm, 'farmer');
+    const pen = deedProduction(s, farm, 'herder');
+    // Точка внутри области: оба дела работают, и у загона есть шкуры, которых поле не даёт.
+    expect(field.food).toBeGreaterThan(0);
+    expect(pen.hides).toBeGreaterThan(0);
+    expect(field.hides).toBe(0);
+    for (const r of ['food', 'hides'] as const) expect(all[r]).toBeCloseTo(field[r] + pen[r], 9);
+    // Чужое дело у здания не считается: охота — не дело Фермы.
+    expect(deedProduction(s, farm, 'hunter').food).toBe(0);
+  });
+
   it('без рук строк нет, выход ноль', () => {
     const s = createInitialState(7);
-    const b = buildingOfType(s, 'quarry')!;
-    s.workers = { ...s.workers, [b.id]: 0 };
-    const out = yardOutput(s, b)!;
+    const b = buildingOfType(s, 'mine')!;
+    s.workers = { ...s.workers, stonecutter: 0 };
+    const out = yardOutput(s, b, 'stonecutter')!;
     expect(out.steps).toEqual([]);
     expect(out.total.stone).toBe(0);
   });

@@ -321,6 +321,19 @@ function DispatchCardNew({
             </button>
           </>
         )}
+        {/* Пустое место в совете (РТ-1): выбирают в Ратуше, где видны лица, черты и цена, — весть ведёт туда. */}
+        {d.council && (
+          <button
+            className="nx-ans"
+            onClick={() => {
+              useGame.getState().setTownTab('council');
+              goTo({ kind: 'building', type: 'town_hall' });
+            }}
+          >
+            <b>Ратуша</b>
+            <small>Просители и совет</small>
+          </button>
+        )}
       </div>
       {d.silence && <p className="nx-msilence">{d.silence}</p>}
       <button className="nx-mback" onClick={onBack}>

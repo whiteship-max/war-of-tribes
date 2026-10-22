@@ -100,7 +100,7 @@ function keepBusy(s: GameState): void {
   for (const r of RESOURCE_IDS) s.resources[r] = cap;
   s.morale = 100;
   const shop = buildingOfType(s, 'workshop');
-  if (shop) s.workers[shop.id] = Math.min(buildingSlots(shop), Math.max(0, s.pop - 2));
+  if (shop) s.workers.crafter = Math.min(buildingSlots(shop), Math.max(0, s.pop - 2));
   const now = currentSite(s);
   // Последние пять минут честный игрок ускоряет даром (`sim/gems.rushFree`) — без сервера.
   if (now && rushPrice(now) === 0) rushFree(s, now.id);

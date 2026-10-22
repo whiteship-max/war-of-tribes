@@ -36,6 +36,7 @@ export const LINE_HELP: Record<string, string> = {
   ration: 'Скудный паёк злит голодных долей урезанного, щедрый — успокаивает.',
   order: 'Невольников больше, чем держит надзор: ропот идёт к мятежу невольников.',
   pay: 'Дружина терпит до срока Статуи, потом бойцы начинают уходить.',
+  clergy: 'Духовенство в силе учит терпению: налог злит податных меньше.',
 };
 
 /** Куда ведёт «Где изменить» — дверь набора (`kit/nav.goTo`). */
@@ -49,19 +50,21 @@ export const GO_SOURCE: Record<StabGo, Source> = {
   market: { kind: 'building', type: 'market' },
   tech: { kind: 'realm', view: 'tech' },
   mail: { kind: 'realm', view: 'decisions' },
+  estates: { kind: 'estates' },
 };
 
 /** Подпись двери: «Где изменить: Указы». */
 export const GO_WORD: Record<StabGo, string> = {
   decrees: 'Указы',
   storage: 'Склад',
-  build: 'Стройка',
+  build: 'Здания',
   faith: 'Вера',
   army: 'Казармы',
   order: 'Порядок',
   market: 'Рынок',
   tech: 'Технологии',
   mail: 'Вести',
+  estates: 'Сословия',
 };
 
 /** Первая подсказка раздела (docs/onboarding.md): что такое стабильность — три строки. */

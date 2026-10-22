@@ -7,6 +7,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChambersLife } from '@/render/chambers/life';
 import type { FaithId } from '@/game/types';
+import { useGame } from '@/game/store';
+import { councilSeat } from '@/game/derived';
+import { titleOf } from '@/game/sim/council';
 import type { Court } from './court';
 import { advisorOpening, says, type News } from './tidings';
 import { speechSeconds } from './plate';
@@ -86,6 +89,9 @@ export function HeraldPlate({ life, court, faith, onDone }: { life: ChambersLife
 export const ADVISOR_NAME: Record<FaithId, string> = { catholic: 'Мэтр Годфруа', orthodox: 'Боярин Ставр', islam: 'Визирь Абу Сахль', pagan: 'Старейшина Вилкас' };
 
 export function AdvisorPlate({ life, court, faith, onDone }: { life: ChambersLife; court: Court; faith: FaithId; onDone: () => void }) {
+  // С докладом приходит старший советник совета Ратуши — Староста (Бургомистр), если место занято (РТ-1); нет — советник покоев.
+  const chief = useGame((g) => councilSeat(g.s, 'steward'));
+  const title = useGame((g) => titleOf(g.s, 'steward'));
   const rep = court.report;
   const lines = rep?.lines ?? [];
   const open = says(advisorOpening(lines), faith);
@@ -109,8 +115,8 @@ export function AdvisorPlate({ life, court, faith, onDone }: { life: ChambersLif
   return (
     <div className="ch-talk ch-court" role="dialog" aria-label="Доклад советника">
       <div className="ch-talk-head">
-        <b>{ADVISOR_NAME[faith]}</b>
-        <small>советник, с докладом</small>
+        <b>{chief ? chief.name : ADVISOR_NAME[faith]}</b>
+        <small>{chief ? `${title.toLowerCase()}, с докладом` : 'советник, с докладом'}</small>
         <button
           className="ch-talk-x"
           onClick={() => {

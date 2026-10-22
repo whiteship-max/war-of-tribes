@@ -1,21 +1,29 @@
 // Подсказки окна постройки нового интерфейса — чистые функции (правило 18: числа — из функций игры, тест
 // сверяет строку с ними, `building.test.ts`).
-import type { Building, GameState, ResourceId } from '@/game/types';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import type { Building, GameState, JobId, ResourceId } from '@/game/types';
+import { BUILDING_BY_ID, jobsOf } from '@/game/data/buildings';
 import { ORDER_TEXT } from '@/game/data/order';
+import { JOB_BY_ID } from '@/game/data/jobs';
+import { YARD_BY_JOB } from '@/game/data/yards';
 import {
   bondedCount,
   buildingHousing,
-  buildingProduction,
   buildingSlots,
   buildingStat,
   buildingTitle,
+  deedHands,
+  deedProduction,
+  deedSlots,
+  deedWorkers,
   handsCount,
   idleCount,
+  isOutsideWall,
   townHallBuildMult,
   workerCount,
 } from '@/game/derived';
-import { RESOURCE_IDS } from '@/game/constants';
+import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { breakdown } from '@/ui/kit/breakdown';
+import { yardOutput } from './output';
 import { dec } from '@/game/num';
 import type { UpgradeGain } from '@/ui/parts/upgrade';
 import { count } from '@/ui/parts/plural';
@@ -27,11 +35,16 @@ import type { TipContent } from './tip';
  */
 export function buildingFacts(s: GameState, b: Building): string | null {
   const slots = buildingSlots(b);
+  const jobs = jobsOf(b.type);
+  // Двор с двумя делами — руки по делам (ЗД-1): «Поле 4/12 · Загон 0/12»; места у каждого дела свои.
+  if (slots > 0 && jobs.length > 1) {
+    return jobs.map((job) => `${YARD_BY_JOB.get(job)?.deed ?? JOB_BY_ID[job].name} ${deedHands(s, job)}/${deedSlots(b)}`).join(' · ');
+  }
   if (slots > 0) {
     // Невольники стоят на тех же местах: занятые места — это все руки, а не одни вольные.
     const bonded = bondedCount(s, b.id);
     return bonded > 0
-      ? `Рабочих: ${handsCount(s, b.id)}/${slots} · ${ORDER_TEXT.bondedIcon} ${bonded}`
+      ? `Рабочих: ${handsCount(s, b.id)}/${slots} · ${ORDER_TEXT.bondedName.toLowerCase()} ${bonded}`
       : `Рабочих: ${workerCount(s, b.id)}/${slots}`;
   }
   const facts: string[] = [];
@@ -54,12 +67,17 @@ export function buildingFacts(s: GameState, b: Building): string | null {
 export function buildingTip(s: GameState, b: Building): TipContent {
   const def = BUILDING_BY_ID[b.type];
   const now = buildingFacts(s, b);
+  const body = now ? `${def.description} ${now[0].toUpperCase()}${now.slice(1)}.` : def.description;
   return {
     title: buildingTitle(s, b.type),
     lore: def.flavor,
-    body: now ? `${def.description} ${now[0].toUpperCase()}${now.slice(1)}.` : def.description,
+    // Двор за стеной — словом здесь, меткой «за стеной» в шапке окна: прорвавшийся набег разгоняет его людей.
+    body: isOutsideWall(b.type) ? `${body} ${OUTSIDE_WORDS}` : body,
   };
 }
+
+/** Что значит «за стеной» — одна фраза на подсказку постройки. */
+export const OUTSIDE_WORDS = 'Двор за стеной: прорвавшийся набег разгонит людей.';
 
 /**
  * Подсказка по значку рабочих: сколько занято из скольких, сколько свободных рук в племени, дадут ли что-то
@@ -74,14 +92,42 @@ export function workerTip(job: string, hands: number, slots: number, free: numbe
 }
 
 /**
- * Выработка постройки в день сейчас и с ещё одним рабочим — под шагом «+1 / +10» (отзыв тестеров 11.10, docs/feedback.md:
- * «непонятно, что добавляется»). Обе — `buildingProduction` (правило 18): «с ещё одним» — то же состояние, где на этом
- * месте на одного вольного больше. `more` нет — добавить нельзя (мест или свободных рук нет). Пусто — работа постройки
- * не ложится на склад (стройка, кузня, найм): строки нет.
+ * Выработка дела в день сейчас и с ещё одним рабочим — под шагом «+1 / +10» (отзыв тестеров 11.10, docs/feedback.md:
+ * «непонятно, что добавляется»). Обе — `deedProduction` (правило 18): «с ещё одним» — то же состояние, где на этом
+ * деле на одного вольного больше. `more` нет — добавить нельзя (мест или свободных рук нет). Пусто — работа постройки
+ * не ложится на склад (стройка, кузня, найм): строки нет. Дело не названо — первое дело постройки.
  */
-export function workerYield(s: GameState, b: Building): { id: ResourceId; now: number; more: number | null }[] {
-  const now = buildingProduction(s, b);
-  const room = buildingSlots(b) - handsCount(s, b.id);
-  const more = room > 0 && idleCount(s) > 0 ? buildingProduction({ ...s, workers: { ...s.workers, [b.id]: workerCount(s, b.id) + 1 } }, b) : null;
+export function workerYield(s: GameState, b: Building, deed?: JobId): { id: ResourceId; now: number; more: number | null }[] {
+  const job = deed ?? jobsOf(b.type)[0];
+  if (!job) return [];
+  const now = deedProduction(s, b, job);
+  const room = deedSlots(b) - deedHands(s, job);
+  const more = room > 0 && idleCount(s) > 0 ? deedProduction({ ...s, workers: { ...s.workers, [job]: deedWorkers(s, job) + 1 } }, b, job) : null;
   return RESOURCE_IDS.filter((r) => now[r] > 0.005 || (more?.[r] ?? 0) > 0.005).map((r) => ({ id: r, now: now[r], more: more ? more[r] : null }));
+}
+
+/**
+ * Разбор выработки дела в день — подсказкой по строке «В день» у двора с двумя делами (ЗД-1): таблицы выхода под каждым
+ * делом окну не по росту, и разбор встаёт по касанию. Строки — шаги `yardOutput` (руки, уровень, сезон, вести, мораль,
+ * вера, указ, осада), итог — `deedProduction`; второй ресурс дела — вторым разбором. `null` — дело не добывает.
+ */
+export function deedTip(s: GameState, b: Building, job: JobId): TipContent | null {
+  const out = yardOutput(s, b, job);
+  if (!out) return null;
+  const deed = YARD_BY_JOB.get(job)?.deed ?? JOB_BY_ID[job].name;
+  const one = (r: ResourceId): TipContent =>
+    breakdown({
+      title: `${deed}: ${RESOURCE_META[r].name.toLowerCase()} в день`,
+      total: out.total[r] ?? 0,
+      parts: out.steps.map((st) => ({ label: st.label, value: st.add[r] ?? 0 })),
+      sumLabel: 'Итого',
+    });
+  const [main, second] = out.res;
+  const tip = one(main);
+  if (out.steps.length === 0) return { ...tip, body: 'Нет рабочих. Поставь людей на места.' };
+  if (second) {
+    const more = one(second);
+    return { ...tip, more: { title: more.title, rows: more.rows ?? [], sum: more.sum } };
+  }
+  return tip;
 }

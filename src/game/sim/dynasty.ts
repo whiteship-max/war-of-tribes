@@ -15,6 +15,7 @@
 // Возраст не тикает — он выводится из тех же часов деревни и той же формулы, что возраст
 // агента (`sim/agents.ageAt`): второй правды о том, как стареет человек, в игре нет.
 import type { FaithId, GameState, HousePerson, RealmState, Ruler, RulerSkills } from '../types';
+import { ADVISOR_POSTS } from '../councilrules';
 import { AGENT_AGE0, AGENT_YEAR, RETIRE_AGE, RETIRE_WARN } from '../data/agents';
 import { ADMIN_LEVELS, DIPLO_LEVELS, MAX_RULER_SKILL, MIN_RULER_SKILL, POINTS_CAP, REALM_BRANCHES, SKILL_NAME, WAR_LEVELS, startingPoints } from '../data/realm';
 import { AGENT_EPITHETS, AGENT_NAMES, houseName } from '../data/names';
@@ -66,8 +67,8 @@ export const rulerRestAt = (s: GameState): number => {
 export const rulerAging = (s: GameState): boolean => rulerAge(s) >= RETIRE_WARN;
 
 /**
- * Имена живых поимённых людей: четыре места агентов и двое в доме. По этому списку
- * проверяется, что тёзок среди живых не бывает, и он же не даёт дому взять занятое имя.
+ * Имена живых поимённых людей: четыре места агентов, двое в доме и совет Ратуши (РТ-1). По этому списку
+ * проверяется, что тёзок среди живых не бывает, и он же не даёт дому и совету взять занятое имя.
  */
 export function livingNames(s: GameState): string[] {
   const out: string[] = [];
@@ -76,6 +77,11 @@ export function livingNames(s: GameState): string[] {
     if (p && !p.vacant && p.name) out.push(p.name);
   }
   for (const p of [s.realm?.ruler, s.realm?.heir]) if (p?.name) out.push(p.name);
+  // Совет Ратуши (РТ-1) — третий источник поимённых: тёзки советнику дом не выставит.
+  for (const post of ADVISOR_POSTS) {
+    const a = s.council?.seats?.[post];
+    if (a?.name) out.push(a.name);
+  }
   return out;
 }
 

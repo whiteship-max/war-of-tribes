@@ -110,6 +110,30 @@ function bootMinifyPlugin(): Plugin {
  */
 const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
   {
+    // Карта мира (РТ-2, docs/stability.md, «РТ-2»: первая загрузка не растёт от сословий) — своим куском по кнопке низа;
+    // код подтягивается в фоне, когда замок встал, в простое и не на медленной сети (`boot/warm`, `ui/map/chunks`, РТ-2б).
+    name: 'карта мира',
+    door: /\/src\/ui\/map\/WorldMap\.tsx$/,
+    owns: [/\/src\/ui\/map\/WorldMap\.tsx$/],
+  },
+  {
+    // «Рейтинг» и «Молва края» (РТ-1) — окна кнопок карты; подтягиваются в фоне следом за картой (РТ-2б).
+    name: 'рейтинг',
+    door: /\/src\/ui\/map\/Rating\.tsx$/,
+    owns: [/\/src\/ui\/map\/Rating\.tsx$/],
+  },
+  {
+    name: 'молва края',
+    door: /\/src\/ui\/map\/Feed\.tsx$/,
+    owns: [/\/src\/ui\/map\/Feed\.tsx$/],
+  },
+  {
+    // Тело окна «Скоро зима» (РТ-2б) — к своему часу или в фоне после замка; страж слоя модалок (`WinterModal`) — в первой.
+    name: 'окно зимы',
+    door: /\/src\/ui\/WinterBody\.tsx$/,
+    owns: [/\/src\/ui\/WinterBody\.tsx$/],
+  },
+  {
     // Замеры с телефонов (docs/telemetry.md): в первую загрузку едет только счёт кадров (`perf/telemetry`), а сборка пачки
     // и описание устройства — своим куском после старта (бюджет задания Г-1: не больше 2 КБ к первой загрузке).
     name: 'пачка замеров',
@@ -294,6 +318,19 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     name: 'город: погода',
     door: /\/src\/render\/city\/precip\.ts$/,
     owns: [/\/src\/render\/city\/precip\.ts$/],
+  },  {
+    // Совет Ратуши (РТ-1, docs/city_v3.md): окно совета, просители, найм и слова окна — кусок нового вида (`ui/next`, его тянет
+    // ратуша); шагу партии нужен только сидящий (`sim/council`), он в первой загрузке.
+    name: 'совет: просители',
+    door: /\/src\/ui\/next\/index\.ts$/,
+    owns: [/\/src\/ui\/next\/HallCouncil\.tsx$/, /\/src\/game\/sim\/candidates\.ts$/, /\/src\/game\/data\/councilWords\.ts$/],
+  },
+  {
+    // Рейтинг и молва края на карте (РТ-1, в зачёт первой загрузки): окна по кнопке; лента и точка новых (`map/feedState`) — в
+    // главном куске.
+    name: 'карта: рейтинг и молва',
+    door: /\/src\/ui\/map\/(Rating|Feed)\.tsx$/,
+    owns: [/\/src\/ui\/map\/(Rating|Feed|feedWords)\.tsx?$/],
   },
 ];
 

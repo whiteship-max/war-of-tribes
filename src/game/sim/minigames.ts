@@ -17,7 +17,7 @@ import type { GameState, ResourceId } from '../types';
 import { RESOURCE_IDS, RESOURCE_META } from '../constants';
 import { productionPerDay, storageCap } from '../derived';
 import { gameDaysOfMs } from '../pace';
-import { YARDS } from '../data/yards';
+import { YARD_BY_JOB } from '../data/yards';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_BY_ID, MINIGAME_COST, MINIGAME_SHARE, MINIGAMES, type MinigameId } from '../data/minigames';
 import { mixSeed } from './random';
 import { log } from './log';
@@ -61,12 +61,12 @@ export function minigameSeed(s: GameState, id: MinigameId): number {
 }
 
 /**
- * Доли запасов у игры — пропорция выработки её двора (`data/yards.ts`), в сумме единица. «Ягоды» — вся еда навеса
- * собирателей; «Скот» — еда и шкуры загона, как их даёт пастух.
+ * Доли запасов у игры — пропорция выработки её дела (`data/yards.ts`), в сумме единица. «Ягоды» — вся еда сбора
+ * Охотничьего двора; «Скот» — еда и шкуры загона Фермы, как их даёт пастух.
  */
 export function minigameShares(id: MinigameId): Haul {
-  const yard = YARDS.find((y) => y.building === MINIGAME_BY_ID[id].yard);
-  if (!yard) throw new Error(`${id}: двора ${MINIGAME_BY_ID[id].yard} нет в YARDS`);
+  const yard = YARD_BY_JOB.get(MINIGAME_BY_ID[id].deed);
+  if (!yard) throw new Error(`${id}: дела ${MINIGAME_BY_ID[id].deed} нет в YARDS`);
   const total = RESOURCE_IDS.reduce((n, r) => n + (yard.yield[r] ?? 0), 0);
   const out: Haul = {};
   for (const r of RESOURCE_IDS) {

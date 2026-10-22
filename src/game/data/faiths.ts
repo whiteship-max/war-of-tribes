@@ -211,7 +211,7 @@ export const FAITHS: FaithDef[] = [
     feasts: {
       spring: { name: 'Йоре', icon: 'season-spring', text: 'Выгоняют скот на первую траву и будят землю после зимы.' },
       summer: { name: 'Раса', icon: 'ui-herb', text: 'Самая короткая ночь. Венки и костры на холмах.' },
-      autumn: { name: 'Дожинки', icon: 'bld-farm', text: 'Последний сноп вносят в дом, и пир идёт, пока он стоит в углу.' },
+      autumn: { name: 'Дожинки', icon: 'job-farmer', text: 'Последний сноп вносят в дом, и пир идёт, пока он стоит в углу.' },
       winter: { name: 'Куче', icon: 'ui-candle', text: 'Солнцеворот. За столом оставляют место для тех, кого нет.' },
     },
   },

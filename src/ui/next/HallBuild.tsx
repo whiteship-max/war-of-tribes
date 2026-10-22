@@ -21,7 +21,7 @@ import { create } from 'zustand';
 import { useState } from 'react';
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { BUILDING_BY_ID, jobsOf } from '@/game/data/buildings';
 import {
   buildQueue,
   buildRate,
@@ -54,14 +54,37 @@ import { Table, type Col } from '@/ui/kit/Table';
 import { goTo } from '@/ui/kit/nav';
 import { showInCity } from './show';
 import { toBuilding } from '@/ui/kit/sources';
-import { WorkerRow } from './BuildingNew';
+import { Deeds, WorkerRow } from './BuildingNew';
 import { buildingFacts, buildingTip } from './buildingTips';
 import { Confirm } from './Confirm';
 import { rate } from './hudTips';
 import { HALL_GROUPS, HALL_SORTS, hallTiles, nextSort, sortTiles, type HallGroup, type HallSort, type HallTile } from './hall';
 import { yardOutput, type YardOutput } from './output';
 
-/** Что показано: группа и порядок. Живёт, пока жива партия на экране: вернулся в ратушу — вид тот же. */
+/**
+ * «Здания» низа (РТ-1, docs/city_v3.md, «Решения РТ-1»): окно всех построек — сетка, очередь стройки и лист постройки,
+ * прежде жившие вкладкой «Стройка» в ратуше. Перенесено без потерь: та же сетка (`HallBuild`), а ратуша стала своим зданием
+ * с советом. Шапка — сколько построек и сколько из них можно улучшить, числом сетки (`hall.hallTiles`).
+ */
+export function BuildingsPanel() {
+  const s = useGame((g) => g.s);
+  const closeSheet = useGame((g) => g.closeSheet);
+  const tiles = hallTiles(s);
+  const ready = tiles.filter((t) => t.state === 'ready').length;
+  return (
+    <SheetPage
+      icon="nav-buildings"
+      title="Здания"
+      sub={`построек ${tiles.length} · ${ready > 0 ? `можно улучшить ${ready}` : 'улучшать нечего'}`}
+      about={() => ({ title: 'Здания', body: 'Все постройки города: уровень, руки, выход и стройка. Касание плитки — рабочие, выход с разбором, цена и «Улучшить».' })}
+      onClose={closeSheet}
+    >
+      <HallBuild />
+    </SheetPage>
+  );
+}
+
+/** Что показано: группа и порядок. Живёт, пока жива партия на экране: вернулся в «Здания» — вид тот же. */
 export const useHallView = create<{ group: HallGroup | 'all'; sort: HallSort; setGroup: (g: HallGroup | 'all') => void; setSort: (s: HallSort) => void }>(
   (set) => ({
     group: 'all',
@@ -213,7 +236,9 @@ export function HallCard({ id, onClose }: { id: number; onClose: () => void }) {
   const def = BUILDING_BY_ID[b.type];
   const top = b.level >= maxLevelFor(b.type);
   const gains = !top && !isSite(b) ? upgradeGains(s, b, b.level + 1) : null;
-  const out = yardOutput(s, b);
+  // У двора с двумя делами разбор выхода — по делу, касанием по строке «В день» (`Deeds`): две таблицы листу не по росту.
+  const many = jobsOf(b.type).length > 1;
+  const out = many ? null : yardOutput(s, b);
   // Окно этой постройки уже открыто под листом (ратуша в ратуше) — двери в него нет.
   const here = sheet?.kind === 'building' && sheet.id === b.id;
 
@@ -242,7 +267,7 @@ export function HallCard({ id, onClose }: { id: number; onClose: () => void }) {
           }
           foot={here ? <OwnFoot b={b} /> : <UpgradeFoot b={b} />}
         >
-          <WorkerRow b={b} gains={gains} />
+          {many ? <Deeds b={b} gains={gains} /> : <WorkerRow b={b} gains={gains} />}
           {out ? <OutputTable out={out} /> : <Facts b={b} />}
           {gains && <div className="hall-gain">{gainText(gains)}</div>}
         </SheetPage>

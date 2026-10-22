@@ -1,15 +1,16 @@
 // Последствия походов для племени. Мир считает исход боя сам; сюда приезжает
 // готовый итог, и племя применяет его к себе. Про карту, соседей и координаты
 // эта сторона по-прежнему ничего не знает.
-import type { Building, BuildingTypeId, EquipmentId, GameState, LogEntry, ResourceId } from '../types';
+import type { BuildingTypeId, EquipmentId, GameState, LogEntry, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
-import { BUILDING_BY_ID } from '../data/buildings';
+import { BUILDING_BY_ID, jobsOf } from '../data/buildings';
+import { YARD_BY_JOB } from '../data/yards';
+import { keptType } from '../merged';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
 import {
-  bondedCount,
   buildingOfType,
   buildingTitle,
-  handsCount,
+  deedHands,
   homeArmy,
   idleCount,
   isOutsideWall,
@@ -173,8 +174,9 @@ export interface LevelLoss {
 export function fallBuildings(s: GameState, fallen: { id: string; from: number; to: number }[]): LevelLoss[] {
   const out: LevelLoss[] = [];
   for (const f of fallen) {
-    const type = f.id as BuildingTypeId;
-    if (FALL_SPARED.includes(type)) continue;
+    // Участь, выбранная до объединения дворов (ЗД-1), может назвать прежнюю постройку — уровень теряет её двор.
+    const type = keptType(f.id);
+    if (!type || FALL_SPARED.includes(type)) continue;
     const b = buildingOfType(s, type);
     const drop = Math.max(0, Math.floor(f.from - f.to));
     if (!b || drop <= 0) continue;
@@ -202,8 +204,8 @@ export function levelLossText(s: GameState, lost: LevelLoss[], struck = lost.len
 /** То, что уехало в отчёт мира (`Report.fallen`), — теми же словами, что в летописи. */
 export function fallenText(s: GameState, fallen: { id: string; from: number; to: number }[]): string {
   const lost: LevelLoss[] = fallen
-    .filter((f) => f.to < f.from)
-    .map((f) => ({ type: f.id as BuildingTypeId, from: f.from, to: f.to }));
+    .filter((f) => f.to < f.from && keptType(f.id) !== null)
+    .map((f) => ({ type: keptType(f.id)!, from: f.from, to: f.to }));
   return levelLossText(s, lost, fallen.length);
 }
 
@@ -245,31 +247,35 @@ export function takeArms(s: GameState, arms: number): Partial<Record<EquipmentId
  * укреплений помимо кражи со склада, и цена того, что производство вынесено
  * наружу. Что именно стоит снаружи, знает `isOutsideWall`, а не план поселения.
  *
- * Разор устроен так: работники разбегаются по всем разорённым дворам — двор
- * стоит, пока игрок не вернёт туда людей. Уровней набег здесь не снимает: у
+ * Разор устроен так: работники разбегаются по всем разорённым делам дворов — дело стоит, пока игрок не вернёт туда
+ * людей. Бьёт набег **по делам, а не по зданиям** (ЗД-1): поле и загон — два двора работы, как были два прежних здания,
+ * и от объединения в одну Ферму разор не стал ни шире, ни уже. Уровней набег здесь не снимает: у
  * падения уровней один источник — участь взятого города (`fallBuildings`), а
  * разбежавшиеся работники — последствие боя у стены, а не участи.
  */
 export function sackOutskirts(s: GameState, severity: number): string[] {
   const hurt = Math.max(0, Math.min(1, severity));
   if (hurt <= 0) return [];
-  // Дворов трогается от одного до трёх — по тому, насколько плохо кончился бой.
+  // Дел трогается от одного до трёх — по тому, насколько плохо кончился бой.
   const count = 1 + Math.floor(hurt * 2.99);
   // Цель выбирается не случайно: чужие идут туда, где людно, — там и добро,
   // и работа. При равенстве вперёд идёт двор постарше. Людно — это все руки на
   // местах: невольники в поле стоят там же, где вольные.
-  const yards: Building[] = s.buildings
+  const deeds = s.buildings
     .filter((b) => isOutsideWall(b.type))
-    .sort((a, b) => handsCount(s, b.id) - handsCount(s, a.id) || b.level - a.level);
+    .flatMap((b) => jobsOf(b.type).map((job) => ({ b, job })))
+    .sort((x, y) => deedHands(s, y.job) - deedHands(s, x.job) || y.b.level - x.b.level);
 
   const names: string[] = [];
-  for (const b of yards.slice(0, count)) {
-    if (handsCount(s, b.id) === 0) continue;
-    s.workers[b.id] = 0;
+  for (const { b, job } of deeds.slice(0, count)) {
+    if (deedHands(s, job) === 0) continue;
+    delete s.workers[job];
     // Невольников набег не уводит — уводит их только ступень участи, уводящая
-    // людей. Со двора их сгоняет так же, как вольных: двор стоит, пока их не вернут.
-    if (bondedCount(s, b.id) > 0) delete s.bondedWork[b.id];
-    names.push(BUILDING_BY_ID[b.type].name);
+    // людей. С места их сгоняет так же, как вольных: дело стоит, пока их не вернут.
+    delete s.bondedWork[job];
+    const yard = YARD_BY_JOB.get(job);
+    const name = BUILDING_BY_ID[b.type].name;
+    names.push(jobsOf(b.type).length > 1 && yard ? `${name}: ${yard.deed.toLowerCase()}` : name);
   }
   return names;
 }

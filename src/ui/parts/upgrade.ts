@@ -21,7 +21,7 @@
 //   о том, что она уже полна, говорят справка о морали и храм;
 // - того, кто сейчас стоит на местах: места и работа на них меряются так, будто
 //   их заняли, — иначе у пустого двора уровень «ничего бы не давал».
-import type { Building, GameState } from '@/game/types';
+import type { Building, GameState, JobId } from '@/game/types';
 import { DAY_LENGTH, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { GOOD_BY_ID } from '@/game/data/market';
 import type { SeasonModifiers } from '@/game/data/seasons';
@@ -32,8 +32,10 @@ import {
   buildingSlots,
   caravanSeconds,
   crafterBuildRate,
+  deedSlots,
   defense,
-  faithTilt,
+  deedsOf,
+  armyResolve,
   feastInfo,
   forgeRate,
   healShare,
@@ -256,22 +258,38 @@ const GAUGES: Gauge[] = [
   { id: 'output', read: (s) => jobMultiplier(s, 'woodcutter', STILL), say: grow('к выработке всех рабочих') },
   { id: 'learning', read: (s) => surveyInfo(s).learning, say: grow('к скорости разведки округи') },
   { id: 'growth', read: (s) => popGrowth(s).faith, say: grow('к приросту жителей') },
-  { id: 'fervour', read: (s) => faithTilt(s).fervour, say: more('к стойкости дружины в обряд') },
+  // Стойкость — та, что уезжает в бой во время обряда (`derived.armyResolve`): наклон веры храма, Воевода и сословия в силе
+  // (РТ-2: Статуя поднимает рыцарство, постройки купечества режут его долю) — числом, которое получит мир.
+  { id: 'fervour', read: (s) => armyResolve({ ...s, faith: { ...s.faith, riteUntil: s.time + 1 } }), say: more('к стойкости дружины в обряд') },
 ];
+
+/**
+ * Как руки встают на дела здания (ЗД-1): `fill` — по порядку, первое дело до своих мест, остаток на второе; `each` — по
+ * `hands` на каждое дело (так меряется «один рабочий»: у двора с двумя делами — по одному на поле и в загоне); названное
+ * дело — руки только на нём, прочие стоят, как стояли.
+ */
+type Spread = JobId | 'fill' | 'each';
 
 /**
  * Посёлок, где у здания другой уровень и на его местах стоят `hands` вольных, —
  * и больше ничего не отличается. `hands` не задан — люди остаются, как стояли.
  * Уровень ставится так же, как его ставит конец стройки: число и пустые леса.
  */
-function variant(s: GameState, b: Building, level: number, hands?: number): { s: GameState; b: Building } {
+function variant(s: GameState, b: Building, level: number, hands?: number, spread: Spread = 'fill'): { s: GameState; b: Building } {
   const building: Building = { ...b, level, work: 0, workRequired: 0 };
   const buildings = s.buildings.map((x) => (x.id === b.id ? building : x));
   if (hands === undefined) return { s: { ...s, buildings }, b: building };
-  return {
-    s: { ...s, buildings, workers: { ...s.workers, [b.id]: hands }, bondedWork: { ...s.bondedWork, [b.id]: 0 } },
-    b: building,
-  };
+  const workers = { ...s.workers };
+  const bondedWork = { ...s.bondedWork };
+  const jobs = spread === 'fill' || spread === 'each' ? deedsOf(b.type) : [spread];
+  let left = hands;
+  jobs.forEach((job, i) => {
+    const n = spread !== 'fill' ? hands : i === jobs.length - 1 ? left : Math.min(left, deedSlots(building));
+    workers[job] = n;
+    bondedWork[job] = 0;
+    left -= n;
+  });
+  return { s: { ...s, buildings, workers, bondedWork }, b: building };
 }
 
 /**
@@ -300,10 +318,10 @@ function workOf(s: GameState, b: Building): number[] {
   ];
 }
 
-/** Что дают `hands` человек на местах здания этого уровня: разница с пустыми местами. */
-function handsWork(s: GameState, b: Building, level: number, hands: number): number[] {
-  const on = variant(s, b, level, hands);
-  const off = variant(s, b, level, 0);
+/** Что дают `hands` человек на местах здания этого уровня (раскладка по делам — `Spread`): разница с пустыми местами. */
+function handsWork(s: GameState, b: Building, level: number, hands: number, spread: Spread = 'fill'): number[] {
+  const on = variant(s, b, level, hands, spread);
+  const off = variant(s, b, level, 0, spread);
   const a = workOf(on.s, on.b);
   const z = workOf(off.s, off.b);
   return a.map((v, i) => v - z[i]);
@@ -318,21 +336,21 @@ const EPS = 1e-9;
  */
 export function levelLiftsHand(s: GameState, b: Building): boolean {
   if (buildingSlots(b) <= 0) return false;
-  const low = handsWork(s, b, 1, 1);
-  const high = handsWork(s, b, 2, 1);
+  const low = handsWork(s, b, 1, 1, 'each');
+  const high = handsWork(s, b, 2, 1, 'each');
   return low.some((v, i) => v > EPS && Math.abs(high[i] - v) > EPS);
 }
 
 /**
- * Дадут ли что-нибудь свободные места здания, если их занять. У двора — всегда;
+ * Дадут ли что-нибудь свободные места здания (или одного его дела), если их занять. У двора — всегда;
  * у храма, где служители уже упёрлись в потолок, — нет, и панель не должна звать
  * туда людей. Меряется тем же трудом, что кнопка.
  */
-export function spareSlotsHelp(s: GameState, b: Building, hands: number): boolean {
-  const slots = buildingSlots(b);
+export function spareSlotsHelp(s: GameState, b: Building, hands: number, job?: JobId): boolean {
+  const slots = job ? deedSlots(b) : buildingSlots(b);
   if (hands >= slots) return false;
-  const full = handsWork(s, b, b.level, slots);
-  const now = handsWork(s, b, b.level, hands);
+  const full = handsWork(s, b, b.level, slots, job ?? 'fill');
+  const now = handsWork(s, b, b.level, hands, job ?? 'fill');
   return full.some((v, i) => v - now[i] > EPS);
 }
 
@@ -347,9 +365,10 @@ function workGains(s: GameState, b: Building, to: number): UpgradeGain[] {
   if (slotsNext <= 0) return [];
   const out: UpgradeGain[] = [];
 
-  // Один работник на двух уровнях. Главная величина — та, что сдвинулась сильнее.
-  const one = handsWork(s, b, b.level, 1);
-  const oneNext = handsWork(s, b, to, 1);
+  // Один работник на двух уровнях — на каждом деле по одному: у двора с двумя делами уровень множит оба (ЗД-1), и шкуры
+  // загона — тот же «каждый рабочий +N %», а не прибавка мест числом. Главная величина — та, что сдвинулась сильнее.
+  const one = handsWork(s, b, b.level, 1, 'each');
+  const oneNext = handsWork(s, b, to, 1, 'each');
   let lift = 0;
   let main = -1;
   one.forEach((v, i) => {
@@ -363,8 +382,9 @@ function workGains(s: GameState, b: Building, to: number): UpgradeGain[] {
 
   const added = slotsNext - slotsNow;
   if (added > 0) {
-    const full = handsWork(s, b, to, slotsNext);
-    const old = handsWork(s, b, to, slotsNow);
+    // Места меряются по делам: у двора с двумя делами у каждого свои (ЗД-1) — полные места дела против нынешних.
+    const full = handsWork(s, b, to, deedSlots({ ...b, level: to }), 'each');
+    const old = handsWork(s, b, to, deedSlots(b), 'each');
     const gain = full.map((v, i) => v - old[i]);
     if (gain.some((g) => g > EPS)) {
       // Что места дают сверх «каждый рабочий +N %»: у служителей уровень не

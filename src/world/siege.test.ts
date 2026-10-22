@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { worldDays } from '@/game/pace';
 import { BLOCKADE_YIELD, RESOURCE_IDS, SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
-import { productionPerDay, underSiege } from '@/game/derived';
+import { productionPerDay, underSiege, workerCount } from '@/game/derived';
 import { catchUp, tick } from '@/game/sim/tick';
 import { LocalWorld } from './local/LocalWorld';
 import { generateWorld } from './gen';
@@ -240,7 +240,7 @@ describe('осада: дебаф на выработку', () => {
   it('постройка под обстрелом (Р-5): стоит без работы, пока лежит в окне; прочие работают', () => {
     const under = besieged(createInitialState().time + 600);
     const a = productionPerDay(under);
-    const working = under.buildings.filter((b) => under.workers[b.id] ?? 0);
+    const working = under.buildings.filter((b) => workerCount(under, b.id) > 0);
     expect(working.length, 'точка внутри области: есть постройки с работниками').toBeGreaterThan(0);
     under.siege!.idle = working.map((b) => b.type);
     const b = productionPerDay(under);

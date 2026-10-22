@@ -7,6 +7,7 @@ import type { GameState } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
 import { gameDaysPerHour, gameSecondsOfMs } from '@/game/pace';
 import { breadCap } from '@/game/sim/siege';
+import { keptType } from '@/game/merged';
 import {
   bondedTotal,
   buildingOfType,
@@ -14,7 +15,7 @@ import {
   hiddenStash,
   homeArmyPower,
   faithOf,
-  fervour,
+  armyResolve,
   intelKeen,
   mastersFoodPerDay,
   soldierFoodPerDay,
@@ -217,9 +218,11 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // Вера. В мир едут два числа и ни слова о храме: чем деревня верит — чтобы
     // сосед мог отнестись к ней прохладнее (`world/faith.faithAttitude`), — и
     // прибавка к стойкости от идущего обряда. Ни уклада, ни набожности, ни
-    // реликвии мир не видит: это дела прихода, а не карты.
+    // реликвии мир не видит: это дела прихода, а не карты. К обряду прибавляется
+    // Воевода совета Ратуши (РТ-1) и сословия (РТ-2: рыцари прибавляют, купцы режут — `derived.armyResolve`): стойкость
+    // одна, и мир не спрашивает, откуда она.
     faith: faithOf(s),
-    fervour: fervour(s),
+    fervour: armyResolve(s),
     stock,
     stash,
     // Казна едет рядом со складом, а не в нём: платят из них разными дверями,
@@ -297,7 +300,8 @@ export function syncSiege(s: GameState, view: SiegeView | null, now: number): bo
   const ration = Boolean(view.ration);
   // Кольцо блокады и постройки под обстрелом (Р-5): решает мир, племя только живёт по ним.
   const ring = Boolean(view.blockade?.on);
-  const idle = [...(view.idle ?? [])].sort();
+  // Постройка под обстрелом, названная до объединения дворов (ЗД-1), — её двор.
+  const idle = [...new Set((view.idle ?? []).map((t) => keptType(t) ?? t))].sort();
   // Хлеб осаждённого города — хлеб окна (docs/siege_v2.md, 21.1): склад не держит больше его остатка.
   const capped = view.bread !== undefined && breadCap(s, view.bread);
   const same =

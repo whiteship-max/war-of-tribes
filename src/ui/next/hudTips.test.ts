@@ -387,7 +387,7 @@ describe('подсказка рисует кнопки построек над �
   it('кнопки — перед дверью окна; «Построить» — со словом; под окном с вопросом кнопок нет', async () => {
     const { TipView } = await import('./TipLayer');
     const s = createInitialState(7);
-    s.buildings = s.buildings.filter((b) => b.type !== 'pen');
+    s.buildings = s.buildings.filter((b) => b.type !== 'farm');
     const t = resTip(s, 'food', buildingOfType(s, 'storage')!.id, goer(s).go);
     const html = renderToStaticMarkup(h(TipView, { tip: { ...t, at: anchor }, view, busy: false, modal: false, hide: () => undefined }));
     const makersAt = html.indexOf('nx-tip-makers');

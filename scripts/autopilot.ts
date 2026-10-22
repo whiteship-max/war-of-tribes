@@ -28,7 +28,7 @@
 //   мира нет; так меряют сроки мятежа и ухода войска;
 // - **офлайн — это игрок, которого нет** (`away`), а не способ играть быстрее;
 // - **последствие без мира** (`land`) — участь, приложенная к копии посёлка.
-import type { BuildingTypeId, EquipmentId, GameState, JobId, ResourceId, TroopId } from '@/game/types';
+import type { AdvisorPost, BuildingTypeId, EquipmentId, EstateId, GameState, JobId, ResourceId, TroopId } from '@/game/types';
 import type { TaxId } from '@/game/data/policy';
 import type { FigureView, HomeEffect, MarchView, PlayerProfile, WorldPulse } from '@/world/types';
 import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
@@ -54,10 +54,15 @@ import { recruitCost, startRecruit } from '@/game/sim/army';
 import { forgeCost, startForge } from '@/game/sim/smithy';
 import { dismissSoldiers } from '@/game/sim/upkeep';
 import { hireMasters, mastersInfo } from '@/game/sim/masters';
+import { bestCandidate, hireAdvisor } from '@/game/sim/candidates';
+import { grantBlock, grantPrivilege } from '@/game/sim/estates';
+import { advisorWage } from '@/game/councilrules';
 import {
   armySize,
   buildingOfType,
   buildingSlots,
+  deedBuilding,
+  deedWorkers,
   foodConsumptionPerDay,
   forgeRate,
   handsCount,
@@ -68,12 +73,12 @@ import {
   productionPerDay,
   storageCap,
   taxIncomePerDay,
+  councilSeat,
   wageOf,
   wagesPerDay,
-  workerCount,
 } from '@/game/derived';
 import { RESOURCE_IDS } from '@/game/constants';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { jobsOf } from '@/game/data/buildings';
 import { EVENT_BY_ID } from '@/game/data/events';
 import { MUTINY_EVENT } from '@/game/data/order';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
@@ -186,8 +191,8 @@ export const SHARE: [JobId, number][] = [
   ['priest', 0.01],
 ];
 
-const jobBuilding = (s: GameState, job: JobId) =>
-  s.buildings.find((b) => BUILDING_BY_ID[b.type].job === job) ?? null;
+/** Постройка дела — одна дверь игры (`derived.deedBuilding`): у двора с двумя делами она общая (ЗД-1). */
+const jobBuilding = (s: GameState, job: JobId) => deedBuilding(s, job);
 
 /**
  * Сколько рук держит свободными племя в `pop` человек: пятую часть, не меньше двух, — стройка идёт их
@@ -208,11 +213,11 @@ export function staff(s: GameState): void {
     const b = jobBuilding(s, job);
     if (have > want) {
       const over = have - want;
-      if (b && workerCount(s, b.id) > 0) unassignWorker(s, b.id, over);
+      if (b && deedWorkers(s, job) > 0) unassignWorker(s, b.id, over, job);
       else changeFreeJob(s, job, -over);
     } else if (have < want) {
       const need = Math.min(want - have, idleCount(s) - spare);
-      if (need > 0 && b) assignWorker(s, b.id, need);
+      if (need > 0 && b) assignWorker(s, b.id, need, job);
     }
   }
 }
@@ -241,7 +246,7 @@ export function build(s: GameState, skip: readonly BuildingTypeId[] = []): void 
   const slots = s.buildings.reduce((n, b) => n + buildingSlots(b), 0);
   if (slots < s.pop) {
     const byJob = [...s.buildings]
-      .filter((b) => BUILDING_BY_ID[b.type].job && !skip.includes(b.type))
+      .filter((b) => jobsOf(b.type).length > 0 && !skip.includes(b.type))
       .sort((a, b) => a.level - b.level);
     for (const b of byJob) if (startUpgrade(s, b.id) === null) return;
   }
@@ -532,6 +537,23 @@ export function hireMastersByMeans(g: GameState): void {
   if (n > 0) hireMasters(g, n);
 }
 
+/**
+ * Совет Ратуши по средствам (РТ-1): на пустое место — лучший проситель (`sim/council.bestCandidate`), на занятое — проситель
+ * выше уровнем; берёт, если казна платит за найм и ведомость с ним не выше дохода казны — то же правило, что у найма войска и
+ * мастеров. Должности — по порядку списка: первые и сужают остальным. Найм — дверью совета, как в игре (`hireAdvisor`).
+ */
+export function keepCouncil(g: GameState, posts: readonly AdvisorPost[]): void {
+  for (const post of posts) {
+    const best = bestCandidate(g, post);
+    if (!best) continue;
+    const seated = councilSeat(g, post);
+    if (seated && best.level <= seated.level) continue;
+    const wages = wagesPerDay(g) - (seated ? advisorWage(seated.level, seated.trait) : 0) + best.wage;
+    if (wages > taxIncomePerDay(g) || g.gold < best.price) continue;
+    hireAdvisor(g, post, best.n);
+  }
+}
+
 /** По средствам: казна пуста, а жалованье больше дохода — распустить лишних, дорогих первыми. */
 function trim(g: GameState, l: Ledger): void {
   if (g.gold > 0 || wagesPerDay(g) <= taxIncomePerDay(g)) return;
@@ -613,6 +635,17 @@ export interface Player {
    * хотя ветвь учит: так и было у игрока до мастеров. Своего числа у ручки нет — она только порядок.
    */
   masters?: boolean;
+  /**
+   * Совет Ратуши (РТ-1): какие должности игрок держит занятыми — лучшим просителем, какого казна потянет; появился проситель
+   * выше уровнем — меняет. Нет — совета не держит: так и было у игрока до совета, и отчёты, что меряют без него, не едут
+   * (docs/city_v3.md, «Решения РТ-1»).
+   */
+  council?: readonly AdvisorPost[];
+  /**
+   * Опоры среди сословий (РТ-2): каждой — все её привилегии, как только можно (дверью `sim/estates.grantPrivilege`). Нет —
+   * привилегий не дарует: так и было у игрока до сословий, и ровная игра отчётов меряет город без опор (docs/stability.md, «РТ-2»).
+   */
+  estates?: readonly EstateId[];
   /** Налог, на который игрок переводит партию в первую минуту. Нет — налог партии как есть. */
   tax?: TaxId;
   /**
@@ -653,6 +686,8 @@ function decide(g: GameState, p: Player, l: Ledger): void {
   const draftsFirst = p.hire !== null && p.build !== false;
   if (p.staff && !draftsFirst) staff(g);
   if (p.build) build(g, p.build.skip);
+  if (p.council) keepCouncil(g, p.council);
+  if (p.estates) for (const e of p.estates) while (grantBlock(g, e) === null) grantPrivilege(g, e);
   p.also?.(g);
   if (p.hire) {
     staffSmithy(g);

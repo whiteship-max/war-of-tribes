@@ -3,20 +3,23 @@
 // Пятый припас переименован везде: склад, двор, кузница, лавка, рынок, указ админа и опись. Тесты держат три обещания:
 // уголь начисляется и тратится прежними дверями (выработка двора, кузница), лавка и сервер знают его под новым именем,
 // а старая партия и старый мир читаются, и кости в них становятся углём один к одному.
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { SAVE_VERSION, createInitialState } from './state';
-import { deserialize, enter, serialize } from './save';
+import { deserialize, enter, serialize, loadFold } from './save';
 import { bonesToCharcoal } from './charcoal';
 import { RESOURCE_IDS, RESOURCE_META } from './constants';
 import { YARDS } from './data/yards';
 import { EQUIPMENT_BY_ID } from './data/equipment';
 import { GOODS } from './data/market';
 import { SHOP_GOODS, shopPrice, GOOD_OF } from './gemrules';
-import { buildingOfType, productionPerDay, selfCost } from './derived';
+import { productionPerDay, selfCost } from './derived';
 import { startForge } from './sim/smithy';
 import { WORLD_SAVE_VERSION, parseWorldSave, createWorldSave } from '@/world/local/state';
 import { GEM_GOODS, STOCK_KEYS, readGemEntry, readGrant } from '../../netlify/lib/contract';
 import { parseGive, statsCsv } from '../../netlify/lib/commands';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 const noBones = (json: string): void => expect(json, 'имени bones в записи нет').not.toMatch(/bones/);
 
@@ -39,11 +42,10 @@ describe('уголь — пятый припас', () => {
 
   it('выработка: лесорубы кладут уголь, без них угля не прибывает', () => {
     const s = createInitialState(5);
-    const saw = buildingOfType(s, 'sawmill')!;
     s.workers = {};
     s.freeJobs = {};
     expect(productionPerDay(s).charcoal, 'нет лесорубов — нет угля').toBe(0);
-    s.workers[saw.id] = 6;
+    s.workers.woodcutter = 6;
     s.pop += 6;
     const day = productionPerDay(s);
     expect(day.charcoal).toBeGreaterThan(0);
@@ -94,7 +96,7 @@ describe('старые сохранения: кости становятся у�
     const s = createInitialState(9);
     const old = JSON.parse(serialize(s)) as Record<string, unknown> & { resources: Record<string, number> };
     // Граница области: ступень спрашивается только у партии младше 23-й, и в ней правда лежат кости.
-    expect(SAVE_VERSION).toBe(23);
+    expect(SAVE_VERSION).toBeGreaterThan(22);
     old.version = 22;
     const { charcoal: _, ...rest } = old.resources;
     old.resources = { ...rest, bones: 77 };

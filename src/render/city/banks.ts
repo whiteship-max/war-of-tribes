@@ -3,10 +3,11 @@
 // `Math.random`: их считают поток мира (`world.ts`), счёт бюджета (`budget.ts`) и тесты (`water.test.ts`).
 import type { Quality } from '../quality';
 import type { V3 } from './geom';
-import { distPoly, heightAt, insidePoly, RACE, RACE_HALF, RACE_LEVEL, raceRibbon, riverLevel, riverRibbon, riverX, RIVER_HALF, smoothPath, type CityPlan } from './layout';
+import { distPoly, heightAt, hillsAt, insidePoly, MINE_PORTAL, RACE, RACE_HALF, RACE_LEVEL, raceRibbon, riverLevel, riverRibbon, riverX, RIVER_HALF, smoothPath, type CityPlan } from './layout';
 import { fieldAt, openLand } from './ground';
-import { forestAt } from './nature';
-import { rnd, vnoise } from './noise';
+import { nearRoad } from './roads';
+import { forestAt, OLD_YARDS } from './nature';
+import { rnd, sstep, vnoise } from './noise';
 import { SHORE_CAP } from './spec';
 
 /** Середина мельничного ручья — та же ломаная, что у ленты воды (`layout.raceRibbon`). */
@@ -124,7 +125,54 @@ export function shoreItems(plan: CityPlan, q: Quality, seed = 4243): { reeds: Re
       }
     }
   }
-  return { reeds: thin(reeds, cap.reeds), stones: thin(stones, cap.stones), rocks: slopeRocks(plan, q, seed + 7) };
+  return { reeds: thin(reeds, cap.reeds), stones: thin(stones, cap.stones), rocks: [...slopeRocks(plan, q, seed + 7), ...ridgeStones(plan, q, seed + 13)] };
+}
+
+/** Сколько валунов у Шахты и на гряде по уровню (ЗД-2): модель и меш — те же, что у камней берега, вызова не прибавляют. */
+export const RIDGE_STONES: Record<Quality, number> = { low: 40, medium: 90, high: 150 };
+
+/**
+ * Валуны и осыпи Шахты и гряды (ЗД-2): по голым верхам холмов (`layout.hillsAt` выше полутора метров) гуще к вершине, и
+ * кругом двора Шахты — у края её поляны, не ближе восьми метров к устью; не на тропе и не в реке. Крупный шум собирает их
+ * гнёздами — осыпь, а не ровная россыпь.
+ */
+export function ridgeStones(plan: CityPlan, q: Quality, seed: number): Stone[] {
+  const cap = RIDGE_STONES[q];
+  const mine = plan.yards.find((y) => y.kind === 'mine');
+  const out: Stone[] = [];
+  const STEP = 3.2;
+  for (let j = 0; j <= 46; j++) {
+    for (let i = 0; i <= 18; i++) {
+      const x = -140 + i * STEP + (rnd(i, j, seed) - 0.5) * STEP;
+      const z = 76 + j * STEP + (rnd(i, j, seed + 1) - 0.5) * STEP;
+      const h = hillsAt(x, z);
+      const dp = Math.hypot(x - MINE_PORTAL.x, z - MINE_PORTAL.z);
+      const ring = mine ? Math.hypot(x - mine.x, z - mine.z) : Infinity;
+      // У двора — кольцо у края поляны; на гряде — по голому верху.
+      const nearYard = mine !== undefined && ring > mine.r - 6 && ring < mine.r + 4 && dp > 8;
+      if (h < 1.5 && !nearYard) continue;
+      if (mine && ring < mine.r - 6) continue;
+      const nest = vnoise(x / 14 + 7, z / 14 + 7, 1e6, seed + 2);
+      const want = nearYard ? 0.35 : Math.min(1, (h - 1.5) / 5) * (0.4 + nest * 0.9);
+      if (rnd(i, j, seed + 3) > want) continue;
+      if (Math.abs(x - riverX(z)) < RIVER_HALF + 4 || nearRoad(x, z, plan, 1.5)) continue;
+      const s = 0.3 + Math.pow(rnd(i, j, seed + 4), 1.8) * (nearYard ? 0.9 : 1.4);
+      out.push({ x, y: heightAt(x, z) - s * 0.3, z, rot: rnd(i, j, seed + 5) * Math.PI * 2, s });
+    }
+  }
+  return thin(out, cap);
+}
+
+/**
+ * Каменистая земля, 0..1 (ЗД-2): голые верхи холмов гряды и щебень у устья Шахты. Красит её шейдер земли каменной плитой
+ * (`material.groundMaterial`); в вершины сетки она едет знаком минус в канале грязи (`world.wetAndMud`) — грязь у ворот и
+ * конюшен и камень гряды не встречаются.
+ */
+export function rockAt(x: number, z: number): number {
+  const h = hillsAt(x, z);
+  const top = h > 0 ? sstep(2.5, 6.5, h) * (0.5 + vnoise(x / 9 + 2, z / 9 + 2, 1e6, 63) * 0.7) : 0;
+  const dp = Math.hypot(x - MINE_PORTAL.x, z - MINE_PORTAL.z);
+  return Math.min(1, Math.max(top, (1 - sstep(6, 16, dp)) * 0.85));
 }
 
 /**
@@ -151,6 +199,8 @@ export function slopeRocks(plan: CityPlan, q: Quality, seed: number): Stone[] {
       if (insidePoly({ x, z }, plan.wall) || insidePoly({ x, z }, plan.castleWall)) continue;
       if (distPoly({ x, z }, plan.wall, true) < 3 || distPoly({ x, z }, plan.castleWall, true) < 3) continue;
       if (!openLand(x, z, plan, 1) || fieldAt(x, z, plan) > 0 || forestAt(x, z, plan) > 0.6) continue;
+      // Где стояли рудник и каменоломня (до ЗД-1), камня нет: под гласисом замка там луг, дальше — перелесок (ЗД-2).
+      if (OLD_YARDS.some((o) => Math.hypot(x - o.x, z - o.z) < o.r)) continue;
       const s = 0.3 + Math.pow(rnd(i, j, seed + 4), 2.2) * 1.3;
       out.push({ x, y: heightAt(x, z) - s * 0.32, z, rot: rnd(i, j, seed + 5) * Math.PI * 2, s });
     }

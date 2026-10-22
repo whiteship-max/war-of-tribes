@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { BONDED_OUTPUT } from '@/game/constants';
 import { JOB_BY_ID } from '@/game/data/jobs';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { jobsOf } from '@/game/data/buildings';
 import { ORDER_TEXT } from '@/game/data/order';
 import {
   bondedCount,
@@ -20,6 +20,7 @@ import {
   buildingSlots,
   buildingTitle,
   currentSite,
+  deedBonded,
   workerCount,
 } from '@/game/derived';
 import { releaseBonded } from '@/game/sim/actions';
@@ -69,7 +70,7 @@ export function BondedPlaces() {
         </div>
       )}
       {places.map((b) => {
-        const job = BUILDING_BY_ID[b.type].job;
+        const jobs = jobsOf(b.type).filter((j) => deedBonded(s, j) > 0);
         return (
           <button className="card as-row" key={b.id} onClick={() => openBuilding(b.id)}>
             <div className="ico">
@@ -81,7 +82,7 @@ export function BondedPlaces() {
                 <span className="count">{bondedCount(s, b.id)}</span>
               </div>
               <div className="desc">
-                {job ? `${JOB_BY_ID[job].name} · ` : ''}вольных {workerCount(s, b.id)} · мест {buildingSlots(b)}
+                {jobs.length ? `${jobs.map((j) => JOB_BY_ID[j].name).join(', ')} · ` : ''}вольных {workerCount(s, b.id)} · мест {buildingSlots(b)}
               </div>
             </div>
           </button>
@@ -129,7 +130,13 @@ export function BondedRelease() {
           act((st) => releaseBonded(st, count));
         }}
       >
-        {armed ? 'Точно?' : `${ORDER_TEXT.bondedIcon} Отпустить ${count} из ${total}`}
+        {armed ? (
+          'Точно?'
+        ) : (
+          <>
+            <Icon name={ORDER_TEXT.bondedIcon} /> Отпустить {count} из {total}
+          </>
+        )}
       </button>
     </>
   );

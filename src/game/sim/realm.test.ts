@@ -1,8 +1,8 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
-import { deserialize, enter, serialize } from '../save';
+import { deserialize, enter, serialize, loadFold } from '../save';
 import { DAY_LENGTH, MAX_OFFLINE_DAYS } from '../constants';
 import {
   MAX_RULER_SKILL,
@@ -22,6 +22,9 @@ import { placeOpen, study } from './tech';
 import { nameAgents } from './agents';
 import { FIGURE_IDS } from '@/world/data/figures';
 import type { GameState } from '../types';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 /** Партия с известной верой: имена дому и местам агентов даёт первый же шаг, как в игре. */
 function party(seed = 7): GameState {
@@ -288,8 +291,8 @@ describe('ступень сохранения 16 → 17: у державы по�
     // пишет свою ступень, а не надеется на умолчания. Восемнадцатая — дипломатическая
     // ветвь, девятнадцатая — военная, двадцатая — участь покупной ступенью, двадцать первая —
     // административная ветвь и наёмные мастера, двадцать вторая — алмазы ушли на сервер (docs/gems.md), двадцать третья —
-    // кости стали углём (docs/economy.md).
-    expect(SAVE_VERSION).toBe(23);
+    // кости стали углём (docs/economy.md), двадцать четвёртая — дворы объединены (ЗД-1, docs/city_v3.md).
+    expect(SAVE_VERSION).toBe(24);
     // Сыгранная партия не отправляет правителя на покой первым же пульсом: он молод.
     expect(rulerAge(s!)).toBeCloseTo(AGENT_AGE0, 0);
     expect(s!.realm.ruler.bornAt, 'правление началось не в нулевую секунду').toBeGreaterThanOrEqual(s!.time);

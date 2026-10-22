@@ -207,9 +207,7 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
 
 /** Сколько земли вытоптано у двора: доля поляны и сила. */
 const YARD_TRAMPLE: Record<YardKind, [number, number]> = {
-  gathering: [0.75, 0.7],
   sawmill: [0.85, 0.8],
-  quarry: [0.95, 0.85],
   hunter_hut: [0.6, 0.6],
   mine: [0.85, 0.8],
   farm: [0.55, 0.55],

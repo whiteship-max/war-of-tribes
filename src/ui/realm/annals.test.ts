@@ -88,7 +88,8 @@ function party(): GameState {
   s.army.clubman = 30;
   s.log = [];
   setDecree(s, DECREES.find((d) => d.id !== s.decree)!.id);
-  startUpgrade(s, s.buildings.find((b) => b.type === 'farm')!.id);
+  // Стройка, которую новая партия может оплатить сразу: Ферма с ЗД-1 стоит цену поля и загона вместе.
+  expect(startUpgrade(s, s.buildings.find((b) => b.type === 'houses')!.id)).toBeNull();
   applyEffects(s, [GATE, PACT]);
   return s;
 }

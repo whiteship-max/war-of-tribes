@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import { RESOURCE_IDS } from '../constants';
-import { buildingOfType, productionPerDay, storageCap } from '../derived';
+import { productionPerDay, storageCap } from '../derived';
 import { deserialize, serialize } from '../save';
 import { setTimeScale, timeScale } from '../pace';
 import { DAY_MS } from '../time';
@@ -42,8 +42,7 @@ function town(herders = 6): GameState {
   const s = createInitialState();
   s.resources.food = 0;
   s.resources.hides = 0;
-  const pen = buildingOfType(s, 'pen');
-  if (pen) s.workers[pen.id] = herders;
+  s.workers.herder = herders;
   s.pop += herders;
   return s;
 }

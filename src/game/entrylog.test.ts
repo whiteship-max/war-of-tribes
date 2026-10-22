@@ -15,14 +15,17 @@
 // ступень 12 → 13 выводит сид партии из самой записи, и другая запись дала бы другого правителя.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from './state';
-import { MIN_SAVE_VERSION, adoptSave, loadGame, serialize } from './save';
+import { MIN_SAVE_VERSION, adoptSave, loadGame, serialize, loadFold } from './save';
 import { DAY_LENGTH, MAX_OFFLINE_DAYS } from './constants';
 import { LOG_MAX_DAYS } from './sim/log';
 import { POINTS_CAP, REALM_BRANCHES } from './data/realm';
 import { realMs } from './pace';
 import { resetClock, setServerTime } from '@/net/clock';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 const disk = new Map<string, string>();
 

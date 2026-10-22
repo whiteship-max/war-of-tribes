@@ -5,9 +5,9 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from './state';
-import { deserialize, enter, serialize } from './save';
+import { deserialize, enter, serialize, loadFold } from './save';
 import { PACE_TEXT } from './data/pace';
 import { serverNow } from '@/net/clock';
 import { DAY_LENGTH, MAX_OFFLINE_DAYS } from './constants';
@@ -22,6 +22,9 @@ import type { SiegeView } from '@/world/types';
 import { waitDays, waitEta, waitShort } from '@/ui/parts/wait';
 import { daysBoth, daysSpan } from './span';
 import { HOUR_MS } from './time';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const NOW = 1_700_000_000_000;

@@ -89,7 +89,7 @@ function guarded(): GameState {
 function busy(): GameState {
   const s = createInitialState(7);
   s.bonded = 12;
-  s.bondedWork[buildingOfType(s, 'farm')!.id] = 5;
+  s.bondedWork.farmer = 5;
   s.masters = 2;
   s.freeJobs.gatherer = 2;
   for (const r of Object.keys(s.resources) as (keyof typeof s.resources)[]) s.resources[r] = 5000;

@@ -12,7 +12,7 @@
 // ресурс; форма поэтому взята его, буква в букву, чтобы игрок читал её тем же взглядом.
 import { useGame } from '@/game/store';
 import { BRANCH_BUILT, BRANCH_LORE, BRANCH_NAME, POINTS_CAP, REALM_BRANCHES, levelPrice, levelsOf } from '@/game/data/realm';
-import { pointsOf, rulerRate } from '@/game/sim/points';
+import { branchRate, pointsOf } from '@/game/sim/points';
 import { levelName, study, studyInfo, techGains, techLevel } from '@/game/sim/tech';
 import { waitLeft } from '@/ui/parts/wait';
 import type { RealmBranch } from '@/game/types';
@@ -36,7 +36,7 @@ export function TechTab() {
 function Branch({ branch }: { branch: RealmBranch }) {
   const s = useGame((g) => g.s);
   const have = pointsOf(s, branch);
-  const rate = rulerRate(s, branch);
+  const rate = branchRate(s, branch);
   const level = techLevel(s, branch);
   const last = levelsOf(branch);
 

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import {
   buildRate,
@@ -11,6 +11,7 @@ import {
   seasonMods,
   storageCap,
   townHallBuildMult,
+  buildBoost,
 } from '../derived';
 import { BUILDER_RATE, RESOURCE_IDS } from '../constants';
 import { startUpgrade } from './actions';
@@ -35,8 +36,11 @@ import { DAILY_GAMES } from '../data/daily';
 import { SOCIAL_LINKS } from '../data/social';
 import { dailyReward } from './daily';
 import { tick } from './tick';
-import { deserialize, enter, serialize } from '../save';
+import { deserialize, enter, serialize, loadFold } from '../save';
 import { SAVE_VERSION } from '../state';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 /**
  * Алмазы в партии (docs/gems.md). Баланс и журнал — на сервере (`netlify/lib/gems.test.ts` держит начисление, повтор
@@ -353,15 +357,16 @@ describe('ратуша ускоряет стройку', () => {
     const shop = buildingOfType(s, 'workshop')!;
     shop.level = 3;
     s.pop = 200;
-    s.workers[shop.id] = 10;
+    s.workers.crafter = 10;
     // Точка внутри области: множитель ратуши не единица, ремесленники есть.
     expect(townHallBuildMult(s)).toBeGreaterThan(1);
     expect(crafterBuildRate(s)).toBeGreaterThan(0);
     const full = buildRate(s);
     const share = crafterBuildShare(s);
-    s.workers[shop.id] = 0;
+    s.workers.crafter = 0;
     // Сняли ремесленников — они стали свободными руками: их простой труд вычитается отдельно.
-    const withoutShop = buildRate(s) - 10 * BUILDER_RATE * seasonMods(s).build * townHallBuildMult(s);
+    // Рука стройки сверх ратуши (Староста, цехи в силе — РТ-2: Мастерская третьего уровня поднимает цехи) — тем же множителем.
+    const withoutShop = buildRate(s) - 10 * BUILDER_RATE * seasonMods(s).build * townHallBuildMult(s) * buildBoost(s);
     expect(full - withoutShop).toBeCloseTo(share, 6);
     expect(share).toBeGreaterThan(crafterBuildRate({ ...s, workers: { ...s.workers, [shop.id]: 10 } }));
     // Панель мастерской пишет именно эту долю, а не голую выработку ремесленников. С UI-8 строки «Что даёт городу»

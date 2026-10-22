@@ -20,7 +20,8 @@ import {
   STARVING_MORALE,
   VILLAGER_DEFENSE,
 } from '../constants';
-import { activeBoons, decreeOf, moraleBreakdown, mutinyOpen, orderState, payGraceDays, rationOf, riteMorale, taxOf } from '../derived';
+import { activeBoons, decreeOf, estatesNow, moraleBreakdown, mutinyOpen, orderState, payGraceDays, rationOf, riteMorale, taxOf } from '../derived';
+import { ESTATES, murmurOf } from '../estaterules';
 import { TAXES, type TaxId } from '../data/policy';
 import { SEASON_DAYS } from '../data/seasons';
 import { REALM_BRANCHES } from '../data/realm';
@@ -91,16 +92,30 @@ const stabPart = (s: GameState): Part[] => {
   return level === 0 ? [] : [{ id: 'stab', value: discontentOf(-STAB_STEP * level) }];
 };
 
+/**
+ * Сословия у податных (РТ-2, docs/stability.md, Р1.3 и Р1.5): проповедь духовенства гасит долю налога, а сословие с лояльностью
+ * ниже ровной ропщет своим именем — мерой влияния и того, насколько лояльность ниже. Своего мятежа у сословия нет: его ропот
+ * ведёт полосу податных к мятежу СБ-1.
+ */
+function estateParts(s: GameState, tax: number): Part[] {
+  const n = estatesNow(s);
+  const out: Part[] = [{ id: 'clergy', value: -tax * Math.min(1, n.clergy.plus) }];
+  for (const e of ESTATES) out.push({ id: `estate:${e}`, value: murmurOf(n[e].infl, n[e].loyalty) });
+  return out;
+}
+
 /** Причины недовольства податных — весом их просадки морали (docs/stability.md, 2.3). Ноль в список не идёт. */
 export function folkParts(s: GameState, mb: MoraleBreakdown = moraleBreakdown(s)): Part[] {
+  const tax = discontentOf(taxOf(s).moralePenalty);
   const raw: Part[] = [
-    { id: 'tax', value: discontentOf(taxOf(s).moralePenalty) },
+    { id: 'tax', value: tax },
     // Указ — что он сделал бы с моралью за сезон: своего веса у него нет.
     { id: 'decree', value: discontentOf(-decreeOf(s).moralePerDay * SEASON_DAYS) },
     { id: 'crowding', value: discontentOf(-moraleLine(mb, 'crowding')) },
     { id: 'freezing', value: discontentOf(-moraleLine(mb, 'freezing')) },
     { id: 'heresy', value: discontentOf(-moraleLine(mb, 'heresy')) },
     { id: 'rite', value: -discontentOf(riteMorale(s)) },
+    ...estateParts(s, tax),
   ];
   return [...raw.filter((p) => p.value !== 0), ...boonParts(s, 'folk'), ...stabPart(s)];
 }

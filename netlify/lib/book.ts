@@ -29,6 +29,7 @@ import { PIP_IDS } from '../../src/battle/index.js';
 import { SIEGE_PIPS_MAX } from '../../src/world/data/siegeroll.js';
 import { readCounts, warFallId, type AdminGrant, type Counts } from './contract.js';
 import type { WarFile } from './war.js';
+import { giftCeil } from '../../src/game/councilrules.js';
 
 /** Подтверждённое войско игрока на минуту `at`. `since` — когда сервер впервые встретил игрока. */
 export interface ArmyBook {
@@ -313,8 +314,13 @@ export const RESOLVE_MAX = Math.max(
 /** Потолок отметок полководца (`sim/agents.pipsAt`): кружок за каждый уровень сверх первого, не выше последнего. */
 export const PIPS_MAX = Math.max(0, MAX_AGENT_LEVEL - 1);
 
-/** Стойкость в пределах правил. */
-export const ruleResolve = (r: number): number => Math.min(RESOLVE_MAX, Math.max(0, r));
+/**
+ * Стойкость в пределах правил: обряд — не выше `RESOLVE_MAX`, сверх него — Воевода подтверждённого совета (`marshal`, РТ-1;
+ * не выше пользы лучшего Воеводы — `councilrules.giftCeil`) и рыцарство в силе (`knights`, РТ-2: потолок по подтверждённым
+ * уровням и привилегиям — `estaterules.estateCeil`).
+ */
+export const ruleResolve = (r: number, marshal = 0, knights = 0): number =>
+  Math.min(RESOLVE_MAX + Math.min(giftCeil('marshal'), Math.max(0, marshal)) + Math.max(0, knights), Math.max(0, r));
 
 /**
  * Отметки в пределах правил: только известные (`PIP_IDS`), целые, сумма не выше `PIPS_MAX` — сверх неё срезаются с конца.

@@ -17,9 +17,10 @@ export { WorldNew } from './WorldNew';
 export { ReportBodyNew } from './ReportNew';
 export { Trades } from './Trades';
 export { Treasury } from './Treasury';
-export { HallBuild } from './HallBuild';
-// Ратуша под сеткой: что даёт городу и дверь в «Указы» державы (UI-7, docs/ui_v2.md, 5.6).
+export { BuildingsPanel, HallBuild } from './HallBuild';
+// Ратуша: что даёт городу и дверь в «Указы» державы (UI-7, docs/ui_v2.md, 5.6); совет и разделы (РТ-1).
 export { HallGives } from './HallGives';
+export { HallCouncil } from './HallCouncil';
 // Рынок — прилавок таблицей выбора (UI-7, docs/ui_v2.md, 5.6).
 export { MarketNew } from './MarketNew';
 // «Дружина» с передачей (UI-4, docs/ui_v2.md, 5.3) — тем же куском: набор `kit` и подсказки верха, на которых она стоит, живут здесь.

@@ -5,9 +5,10 @@
 // Своей арифметики нет (правило 18): что даст вариант — поля записи (`DecreeDef`, `RationDef`) и `derived.taxQuote`;
 // сбор — `taxIncomePerDay` со своим слагаемым веры (`faithGoldPerDay`), жалованье — `upkeepInfo` (дружине и мастерам),
 // как у подсказки золота верха (`hudTips.goldTip`).
-import type { GameState } from '@/game/types';
-import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
-import { faithDef, faithGoldPerDay, taxIncomePerDay, taxQuote, upkeepInfo, wagesDue } from '@/game/derived';
+import type { EstateId, GameState } from '@/game/types';
+import { DECREES, RATIONS, TAXES, type DecreeId } from '@/game/data/policy';
+import { decreeBlock, estatesNow, faithDef, faithGoldPerDay, taxIncomePerDay, taxQuote, upkeepInfo, wagesDue } from '@/game/derived';
+import { leverWords } from '@/ui/next/estates';
 import { daysSpan } from '@/game/span';
 import { num } from '@/game/num';
 import { signed } from '@/ui/parts/signed';
@@ -41,9 +42,26 @@ export const TAX_COLS: readonly Col[] = [
   { key: 'output', title: 'Выработка', align: 'right', w: '88px' },
 ];
 
-/** Строки указа: что даст каждый — полями записи. */
+/** Строки указа короны: что даст каждый — полями записи. Указы сословий — своей таблицей (`estateDecreeCells`). */
 export function decreeCells(): { id: (typeof DECREES)[number]['id']; cells: Record<string, string> }[] {
-  return DECREES.map((d) => ({ id: d.id, cells: { name: d.name, output: pctCell(d.output), morale: perDayCell(d.moralePerDay) } }));
+  return DECREES.filter((d) => !d.estate).map((d) => ({ id: d.id, cells: { name: d.name, output: pctCell(d.output), morale: perDayCell(d.moralePerDay) } }));
+}
+
+export const ESTATE_DECREE_COLS: readonly Col[] = [
+  { key: 'name', title: 'Указ сословия · что даст' },
+  { key: 'loyalty', title: 'Лояльн.', align: 'right', w: '64px' },
+];
+
+/**
+ * Строки указов сословий (РТ-2, docs/stability.md, Р1.6): что даст указ — плюс сословия на копии партии с этим указом (та же
+ * мерка, `derived.estatesNow`), лояльность сословия и порог. Закрыт — строка гаснет, причина — тостом двери `setDecree`.
+ */
+export function estateDecreeCells(s: GameState): { id: DecreeId; estate: EstateId; open: boolean; gives: string; loyalty: number }[] {
+  return DECREES.filter((d) => d.estate).map((d) => {
+    const e = d.estate as EstateId;
+    const tried = estatesNow({ ...s, decree: d.id })[e];
+    return { id: d.id, estate: e, open: decreeBlock(s, d.id) === null, gives: leverWords(e, tried).plus, loyalty: estatesNow(s)[e].loyalty };
+  });
 }
 
 /** Строки пайка: еда, мораль, рождения — полями записи. */

@@ -2,12 +2,11 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
 import { Sheet } from './ui/Sheet';
-import { WinterModal } from './ui/WinterModal';
+import { WinterModal, winterUi } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
 import { PaceModal } from './ui/PaceModal';
 import { TutorialOverlay } from './ui/TutorialOverlay';
-import { WorldMap } from './ui/map/WorldMap';
 import { StartScreen, StartVeil } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
 import { Frozen } from './ui/parts/Frozen';
@@ -23,6 +22,8 @@ import { tutorialActive } from './game/data/tutorial';
 import { Leave } from './ui/parts/leave';
 import { openFromLink } from '@/ui/realm/golink';
 import { Crash } from './ui/Crash';
+import { warmAfter } from './boot/warm';
+import { MAP_CHUNKS, mapUi } from './ui/map/chunks';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -55,6 +56,11 @@ const SeasonPanel = lazy(() => import('./ui/panels/SeasonPanel').then((m) => ({ 
  * загрузке запасным видом, удалён (docs/ui_audit.md, 16). Четыре части — один кусок: `import` один и тот же.
  */
 const nextUi = () => import('./ui/next');
+/**
+ * Карта мира — своим куском (РТ-2: первая загрузка не растёт от сословий): открывается по кнопке, а её код вместе с
+ * «Рейтингом» и «Молвой края» подтягивается в фоне, когда замок встал и браузер простаивает (`boot/warm`, РТ-2б).
+ */
+const WorldMap = lazy(() => mapUi().then((m) => ({ default: m.WorldMap })));
 const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
 const Alerts = lazy(() => nextUi().then((m) => ({ default: m.Alerts })));
 const WarSigns = lazy(() => nextUi().then((m) => ({ default: m.WarSigns })));
@@ -82,6 +88,8 @@ const CampPanel = lazy(() => nextUi().then((m) => ({ default: m.CampPanel })));
 const BuildingPanel = lazy(() => nextUi().then((m) => ({ default: m.BuildingPanel })));
 const MoralePanel = lazy(() => nextUi().then((m) => ({ default: m.MoralePanel })));
 const OrderPanel = lazy(() => nextUi().then((m) => ({ default: m.OrderPanel })));
+/** «Здания» низа (РТ-1): сетка всех построек и очередь стройки — тем же куском, рядом с окном постройки. */
+const BuildingsPanel = lazy(() => nextUi().then((m) => ({ default: m.BuildingsPanel })));
 
 /**
  * Промыслы — мини-игры от первого лица — свой кусок, как предыстория: качается по кнопке входа, и пока игра идёт,
@@ -180,12 +188,21 @@ function SheetContent({ view }: { view: SheetView }) {
           <ArmyPanel />
         </Suspense>
       );
+    case 'buildings':
+      return (
+        <Suspense fallback={null}>
+          <BuildingsPanel />
+        </Suspense>
+      );
   }
 }
 
 export function App() {
   const ready = useGame((g) => g.ready);
   const sheet = useGame((g) => g.sheet);
+  // Окна-списки во всю высоту шторки (РТ-1): «Здания» — сетка всех построек, Ратуша — совет тремя карточками.
+  const hallId = useGame((g) => g.s.buildings.find((b) => b.type === 'town_hall')?.id ?? null);
+  const tallSheet = (sheet?.kind === 'tab' && sheet.tab === 'buildings') || (sheet?.kind === 'building' && sheet.id === hallId);
   const closeSheet = useGame((g) => g.closeSheet);
   const toast = useGame((g) => g.toast);
   const init = useGame((g) => g.init);
@@ -266,6 +283,12 @@ export function App() {
     if (ready) void bootWorld();
   }, [ready, bootWorld]);
 
+  // Карта, «Рейтинг», «Молва края» и окно зимы — кодом, без отрисовки: после входа в партию, когда замок встал целиком, в
+  // простое и не на медленной сети (`boot/warm`, РТ-2б). На медленной куски едут по касанию (зима — к своему часу).
+  useEffect(() => {
+    if (ready && started) return warmAfter([...MAP_CHUNKS, winterUi]);
+  }, [ready, started]);
+
   // Весть Telegram о предложении соседа ведёт кнопкой прямо к нему (ДП-1): когда игрок вошёл в партию и мир поднят.
   useEffect(() => {
     if (ready && started) openFromLink();
@@ -312,7 +335,9 @@ export function App() {
       {!prologue && !playing && <GameCanvas />}
       {mapOpen && (
         <Crash where="карта" onClose={closeMap}>
-          <WorldMap />
+          <Suspense fallback={null}>
+            <WorldMap />
+          </Suspense>
         </Crash>
       )}
       {!mapOpen && <Suspense fallback={null}><Hud /></Suspense>}
@@ -325,7 +350,7 @@ export function App() {
           ничего, и столбец возвращается на своё место сам. */}
       {!mapOpen && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
       {!mapOpen && <Suspense fallback={null}><WarSigns where="city" /></Suspense>}
-      <Sheet open={sheet !== null} onClose={closeSheet}>
+      <Sheet open={sheet !== null} onClose={closeSheet} tall={tallSheet}>
         {shown && (
           <Crash key={JSON.stringify(shown)} where={`шторка ${shown.kind}`} onClose={closeSheet} inline>
             <SheetContent view={shown} />

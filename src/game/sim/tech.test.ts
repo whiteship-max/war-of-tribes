@@ -8,9 +8,9 @@
 // - засчитывание — на партии, у которой место **есть**: на новой доказывать нечего.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
-import { deserialize, enter, serialize } from '../save';
+import { deserialize, enter, serialize, loadFold } from '../save';
 import {
   ADMIN_LEVELS,
   BRANCH_BUILT,
@@ -73,6 +73,9 @@ import { dynastyStep } from './dynasty';
 import { playerProfile } from '@/world/bridge';
 import { FATE_IDS } from '@/world/spoils';
 import type { EquipmentId, GameState } from '../types';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 /** Новая партия с названной верой: имена есть, ветви — на первом уровне. */
 function party(seed = 7): GameState {

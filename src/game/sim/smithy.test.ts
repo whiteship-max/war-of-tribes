@@ -174,7 +174,7 @@ describe('кузница: заказы', () => {
     startForge(s, 'sword', 3);
     for (let i = 0; i < 600 && s.equipment.sword === 0; i++) tick(s, 1);
     const b = forgeBuilding(s);
-    s.workers[b.id] = 0;
+    s.workers.smith = 0;
     const made = s.equipment.sword;
     expect(made).toBeGreaterThan(0);
     catchUp(s, 600, 1);

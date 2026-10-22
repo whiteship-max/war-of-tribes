@@ -7,10 +7,10 @@
 //   шестьдесят внутри окна: до пересечения уходов нет, после — ровно один;
 // - ступень 12 → 13 — сохранение, в котором `s.time` велик настолько, что без ступени
 //   все четверо были бы старше шестидесяти.
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
 import { creditTech } from './tech';
-import { deserialize, enter, rescaleXp, serialize } from '../save';
+import { deserialize, enter, rescaleXp, serialize, loadFold } from '../save';
 import { serverNow } from '@/net/clock';
 import { awayGameSeconds, catchUp, tick } from './tick';
 import { seeded } from './random';
@@ -23,6 +23,9 @@ import { applyEffects, playerProfile, syncAway } from '@/world/bridge';
 import { awayOf } from '@/world/muster';
 import { FIGURE_IDS } from '@/world/data/figures';
 import type { FigureView, MarchView, WorldPulse } from '@/world/types';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 const START = 1_700_000_000_000;
 /**

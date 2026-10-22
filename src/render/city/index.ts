@@ -16,7 +16,7 @@ import type { Site } from './sites';
 import { buildWater } from './water';
 import { buildShore } from './shore';
 import { waterLights } from './banks';
-import { MillWheel } from './mill';
+import { FarmView, MillWheel, growthCount } from './mill';
 import { LampRig, lampsToWorld } from '../glow/rig';
 import { LAMP_SPEC, type Lamp } from '../glow/lamps';
 export { CITY_SPEC, type CitySpec } from './spec';
@@ -92,6 +92,8 @@ export interface CityBuild {
   full: Promise<void>;
   /** Колесо лесопилки, что крутится, и брызги (docs/city.md, 16.4); на «Низком» — нет, колесо стоит в меше зданий. */
   mill: MillWheel | null;
+  /** Мельница Фермы — крылья крутятся — и рост усадьбы ступенями по уровню (ЗД-2). */
+  farm: FarmView | null;
   /**
    * Что город одалживает ролику осады и боя у города (docs/polish.md, П-6, `backdrop.ts`): уровень, план, карты покрытий и
    * земель; слои текстур — `uniforms.cityTex` (сначала мелкие, потом полные). Ролик их не освобождает.
@@ -170,6 +172,11 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   group.add(rig.group);
   const mill = w.wheel ? new MillWheel(w.wheel, new THREE.Mesh(geometryFrom(w.wheel.mesh), bMat)) : null;
   if (mill) group.add(mill.group);
+  const growth = w.growth;
+  const farm = w.sails
+    ? new FarmView(w.sails, new THREE.Mesh(geometryFrom(w.sails.mesh), bMat), growth ? new THREE.Mesh(geometryFrom(growth.mesh), bMat) : null, (level) => (growth ? growthCount(growth.tiers, level) : 0))
+    : null;
+  if (farm) group.add(farm.group);
 
   // Земля.
   const mapTex = new MapTexture(map, spec.map);
@@ -284,6 +291,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     },
     full,
     mill,
+    farm,
     share: { quality: q, plan, uniforms: u, map: mapTex, land: landTex },
   };
 }

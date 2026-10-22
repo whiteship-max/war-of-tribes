@@ -1097,6 +1097,161 @@
 .nx-wrow .stepper .n {
   display: none;
 }
+/* Дела двора (ЗД-1): каждое — своя плашка с рядом рабочих, выработкой и промыслами; два дела одно под другим. */
+.nx-deeds {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 6px;
+}
+/* «за стеной» в строке уровня шапки — двор, до которого дотягивается набег (полной фразой — в подсказке значка). */
+.nx-bout {
+  font-size: 12px;
+  line-height: 14px;
+  color: var(--warn);
+  white-space: nowrap;
+}
+.nx-btitle:has(.nx-bout) {
+  gap: 1px;
+}
+.nx-deed {
+  padding: 3px 4px 0;
+  border-radius: 12px;
+  border: 1px solid var(--m-plate-rim);
+  background: rgba(0, 0, 0, 0.14);
+  /* Шов по коже плашки (ЗН-2): дело — отдельное место работы, а не строка списка. */
+  outline: var(--m-stitch);
+  outline-offset: -3px;
+}
+.nx-deed .nx-wrow {
+  margin-bottom: 2px;
+}
+.nx-deed .nx-wgain {
+  margin: 0 0 2px;
+}
+.nx-deed .nx-wgain[role='button'] {
+  cursor: pointer;
+}
+.nx-deed .nx-wcount .nx-wlbl {
+  color: var(--text);
+  font-weight: 700;
+}
+.nx-deed .nx-wgain em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.nx-deed .nx-wgain em.up {
+  color: var(--good);
+}
+.nx-deed .nx-wgain em.down {
+  color: var(--warn);
+}
+/* Невольники в плашке дела — тонким рядом: шаг по одному, кнопки — в палец (ЗД-1). */
+.nx-brow {
+  padding: 0 4px;
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+.nx-brow .nx-wcount {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex: 1;
+}
+.nx-brow .nx-wcount .nx-wlbl {
+  display: inline;
+  color: var(--muted);
+  font-weight: 500;
+}
+.nx-bsteps {
+  display: flex;
+  gap: 4px;
+}
+.nx-bsteps button {
+  width: var(--tap);
+  height: var(--tap);
+  border-radius: 10px;
+  border: 1px solid var(--m-leather-rim);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  color: var(--text);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.nx-bsteps button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* Итог двора за день — под делами, одной строкой (ЗД-1). */
+.nx-dsum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  margin: 0;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.nx-dsum span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-dsum svg {
+  width: 15px;
+  height: 15px;
+}
+.nx-dtrades {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 2px;
+}
+.nx-dtrade {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--m-leather-rim);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nx-dtrade > svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.nx-dtrade small {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.nx-dtrade small svg {
+  width: 14px;
+  height: 14px;
+}
 
 /* ---------- Карта нового вида: табличка сверху, низ на пять мест ---------- */
 .nx-mtop {

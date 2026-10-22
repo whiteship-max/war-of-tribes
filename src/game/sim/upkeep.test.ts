@@ -4,15 +4,16 @@
 // симуляции при игроке (`tick`) или без него (`catchUp`), а не формулу рядом. Каждая
 // точка сначала утверждает, что она внутри области правила: казна пуста или полна,
 // войско сыто или голодно, долг есть или нет. Иначе тест проходил бы даром.
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import type { GameState, TroopId } from '../types';
 import { createInitialState, SAVE_VERSION } from '../state';
-import { deserialize, enter, serialize } from '../save';
+import { deserialize, enter, serialize, loadFold } from '../save';
 import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import { QUESTS } from '../data/quests';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS, WAGE_GEAR, WAGE_HEAD, WAGE_MAN_UNGEARED } from '../data/upkeep';
 import { TAX_PER_POP } from '../data/policy';
+import { hallEstate } from '../estaterules';
 import { MIX } from '../../../scripts/autopilot';
 import {
   armySize,
@@ -36,6 +37,9 @@ import { applyEffects, playerProfile, syncAway } from '@/world/bridge';
 import { awayOf } from '@/world/muster';
 import type { FigureView, HomeEffect, MarchView } from '@/world/types';
 import { troopTotal } from '../battle/kinds';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 const DT = 0.5;
 
@@ -380,7 +384,9 @@ describe('закят: воин не наёмник, а долг', () => {
           s.pop = 400;
           s.tax = tax;
           s.faith.id = faith;
-          s.buildings.find((b) => b.type === 'church')!.level = level;
+          // Город ровный (РТ-2): постройки всех сословий того же уровня, что храм, — духовенство не в силе, и десятина
+          // сословия не мешает мерить закят.
+          for (const b of s.buildings) if (hallEstate(b.type)) b.level = level;
           return s;
         };
         const m = village('islam');

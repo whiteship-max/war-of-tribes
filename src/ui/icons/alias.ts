@@ -7,15 +7,12 @@
 import type { DrawnIcon } from './generated';
 
 export const ALIAS = {
-  // Профессия — там, где она работает: строка «Рабочие» и окно постройки показывают один знак.
+  // Профессия — там, где она работает: строка «Рабочие» и окно постройки показывают один знак. У двора с двумя делами
+  // (ЗД-1) знак дела свой, а не здания: охота — олень, руда — кирка; сбор, камень, поле и загон нарисованы (`set.ts`).
   'job-idle': 'ui-hammer',
-  'job-gatherer': 'bld-gathering',
-  'job-hunter': 'bld-hunter_hut',
+  'job-hunter': 'ui-deer',
   'job-woodcutter': 'bld-sawmill',
-  'job-stonecutter': 'bld-quarry',
-  'job-miner': 'bld-mine',
-  'job-farmer': 'bld-farm',
-  'job-herder': 'bld-pen',
+  'job-miner': 'ui-pick',
   'job-crafter': 'bld-workshop',
   'job-smith': 'bld-smithy',
   'job-priest': 'ui-candle',
@@ -27,6 +24,10 @@ export const ALIAS = {
   'hud-pop': 'nav-people',
   'nav-quests': 'ui-scroll',
   'nav-townhall': 'bld-town_hall',
+  // Весть о пустом месте совета (РТ-1) — знаком своей должности.
+  'evt-council_steward': 'post-steward',
+  'evt-council_treasurer': 'post-treasurer',
+  'evt-council_marshal': 'post-marshal',
   'alert-starving': 'ui-bowl',
   'alert-freezing': 'season-winter',
   'alert-food': 'res-food',
@@ -68,6 +69,12 @@ export const ALIAS = {
   'decree-none': 'ui-handshake',
   'decree-order': 'ui-scales',
   'decree-freedom': 'ui-lute',
+  // Указы сословий (РТ-2) — гербом своего сословия.
+  'decree-fair_rights': 'est-merchants',
+  'decree-guild_charter': 'est-guilds',
+  'decree-commons': 'est-peasants',
+  'decree-tourney': 'est-knights',
+  'decree-gods_peace': 'est-clergy',
   'ration-lean': 'ui-bowl',
   'ration-normal': 'ui-stew',
   'ration-rich': 'ui-cauldron',
@@ -130,7 +137,23 @@ export const ALIAS = {
   'evt-cr_plague': 'ui-skull',
   'evt-cr_collector': 'ui-whiteflag',
   'evt-cr_interdict': 'ui-candle',
-  'evt-harvest_feast': 'bld-farm',
+  // Вести сословий (РТ-2) — гербом своего сословия: дар, жалоба и требование власти.
+  'evt-cr_es_gift_merchants': 'est-merchants',
+  'evt-cr_es_plea_merchants': 'est-merchants',
+  'evt-cr_es_power_merchants': 'est-merchants',
+  'evt-cr_es_gift_guilds': 'est-guilds',
+  'evt-cr_es_plea_guilds': 'est-guilds',
+  'evt-cr_es_power_guilds': 'est-guilds',
+  'evt-cr_es_gift_peasants': 'est-peasants',
+  'evt-cr_es_plea_peasants': 'est-peasants',
+  'evt-cr_es_power_peasants': 'est-peasants',
+  'evt-cr_es_gift_knights': 'est-knights',
+  'evt-cr_es_plea_knights': 'est-knights',
+  'evt-cr_es_power_knights': 'est-knights',
+  'evt-cr_es_gift_clergy': 'est-clergy',
+  'evt-cr_es_plea_clergy': 'est-clergy',
+  'evt-cr_es_power_clergy': 'est-clergy',
+  'evt-harvest_feast': 'job-farmer',
   'evt-fair': 'bld-market',
   'evt-spring_flood': 'ui-wave',
   'evt-silt': 'season-spring',
@@ -179,7 +202,7 @@ export const drawnOf = (name: string): string => (ALIAS as Record<string, string
  */
 export const FIRST_SCREEN: readonly IconName[] = [
   'res-wood', 'res-stone', 'res-food', 'res-hides', 'res-charcoal', 'res-copper', 'res-iron', 'res-gold', 'res-gem',
-  'nav-people', 'hud-army', 'hud-order', 'hud-map', 'ui-energy', 'bld-town_hall', 'ui-home', 'ui-mail', 'ui-scroll',
+  'nav-people', 'hud-army', 'hud-order', 'hud-map', 'ui-energy', 'nav-buildings', 'ui-home', 'ui-mail', 'ui-scroll',
   'mood-good', 'mood-mid', 'mood-bad',
   'season-spring', 'season-sun', 'season-autumn', 'season-winter', 'day-morning', 'day-evening', 'day-night',
   'alert-raid', 'alert-siege', 'stage-camp', 'ui-bowl', 'attn-idle', 'bld-smithy', 'ui-phone',

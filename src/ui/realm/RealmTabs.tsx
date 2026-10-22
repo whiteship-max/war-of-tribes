@@ -48,7 +48,9 @@ import { Table } from '@/ui/kit/Table';
 import { tipGo } from '@/ui/kit/nav';
 import { Btn } from '@/ui/kit/Btn';
 import { useChambers } from '@/ui/chambers/open';
-import { DECREE_COLS, RATION_COLS, TAX_COLS, decreeCells, incomeTip, rationCells, taxCells, wagesTip } from './decrees';
+import { DECREE_COLS, ESTATE_DECREE_COLS, RATION_COLS, TAX_COLS, decreeCells, estateDecreeCells, incomeTip, rationCells, taxCells, wagesTip } from './decrees';
+import { ESTATE_META } from '@/game/data/estates';
+import { LOYAL as ESTATE_LOYAL } from '@/game/estaterules';
 import { ChronLink } from './ChronLink';
 import { Cost } from '@/ui/parts/Cost';
 import { DailyPage } from '@/ui/parts/daily/DailyPage';
@@ -290,7 +292,34 @@ export function DecreesNew() {
           return { key: r.id, cells: { ...r.cells, name: named(iconName('decree', d.id), d.name) }, on: r.id === decree.id, pick: () => act((st) => setDecree(st, r.id)) };
         })}
       />
-      <p className="nx-pnote">{decreeLine(decree)}</p>
+      {/* Указы сословий (РТ-2): та же ячейка указа, открывает лояльность сословия — выбрать его значит снять указ короны. */}
+      <Table
+        label="Указы сословий"
+        cols={ESTATE_DECREE_COLS}
+        rows={estateDecreeCells(s).map((r) => {
+          const d = DECREES.find((x) => x.id === r.id)!;
+          return {
+            key: r.id,
+            cells: {
+              // Имя указа и что он даст — двумя строками: длинное имя («Ярмарочные привилегии») не режется.
+              name: (
+                <span className="kit-name">
+                  <Icon name={ESTATE_META[r.estate].icon} />
+                  <span className="nx-two">
+                    <span className="one-line">{d.name}</span>
+                    <small className="good one-line">{r.gives}</small>
+                  </span>
+                </span>
+              ),
+              loyalty: <span className={r.open ? 'good' : 'bad'}>{`${Math.floor(r.loyalty)}/${ESTATE_LOYAL}`}</span>,
+            },
+            on: r.id === decree.id,
+            dim: !r.open,
+            pick: () => act((st) => setDecree(st, r.id)),
+          };
+        })}
+      />
+      <p className="nx-pnote">{decree.estate ? `${decree.effect}. ${ESTATE_META[decree.estate].name} в силе перевеса, пока лояльность не ниже ${ESTATE_LOYAL}.` : decreeLine(decree)}</p>
 
       <Table
         label="Паёк"

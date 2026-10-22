@@ -3,9 +3,12 @@
 // Старое сохранение привозит их спредом, и `deserialize` их снимает (`save.DROPPED`) — без ступени и без роста
 // версии: читать их некому, а ехать дальше мёртвым полем они не должны. Каждое такое поле снимается целиком и
 // ничего вокруг себя не трогает.
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { SAVE_VERSION, createInitialState } from './state';
-import { deserialize, serialize } from './save';
+import { deserialize, serialize, loadFold } from './save';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 describe('сохранение: поля, которых партия больше не хранит', () => {
   it('расстановка обороны до поставки 2 читается, и поле снято: оборону раскладывает правило', () => {

@@ -4,7 +4,7 @@
 // в общем меше зданий.
 import * as THREE from 'three';
 import type { V3 } from './geom';
-import { RACE } from './layout';
+import { FARM_TIERS, RACE } from './layout';
 import { softDot } from './life';
 
 /** Скорость колеса, рад/с: обод (2.7 м) идёт около полутора метров в секунду — как вода в ручье. */
@@ -143,5 +143,105 @@ export class MillWheel {
     m.map?.dispose();
     m.dispose();
     this.spray.geometry.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Мельница Фермы (docs/city_v3.md, ЗД-2): крылья — свой меш из модели `outskirts.sails` и материала зданий; крутятся на всех
+// уровнях качества — это поворот меша, а не кадры. Скорость — от времени суток и тревоги: днём мелет, ночью медленнее, в
+// тревогу мельник ставит крылья. Скорость меняется плавно (`SAIL_EASE`): крылья разгоняются и встают, а не прыгают.
+
+/** Скорость крыльев днём, рад/с: около семи оборотов в минуту — мельница мелет не спеша. */
+export const SAIL_SPIN = 0.75;
+/** Ночью — эта доля дневной скорости: ветер стихает, мельник убрал часть полотна. */
+export const SAIL_NIGHT = 0.4;
+/** Постоянная разгона и торможения, с: за неё крылья проходят две трети пути к новой скорости. */
+export const SAIL_EASE = 2.5;
+/** Медленнее этого, рад/с, крылья уже стоят. */
+const SAIL_REST = 0.004;
+
+/** К какой скорости идут крылья: тревога — стоят, ночь (0..1) — медленнее дня. */
+export function sailTarget(night: number, alarm: number): number {
+  if (alarm > 0.5) return 0;
+  const n = Math.min(1, Math.max(0, night));
+  return SAIL_SPIN * (1 - (1 - SAIL_NIGHT) * n);
+}
+
+/** Ход крыльев: угол (рад, по кругу) и скорость сейчас. */
+export interface SailSpin {
+  angle: number;
+  speed: number;
+}
+
+/**
+ * Шаг крыльев на `dt` секунд к скорости `target`: скорость — к цели по экспоненте (`SAIL_EASE`), угол — по средней скорости
+ * шага. Шаг кадра не длиннее четверти секунды: после свёрнутой вкладки крылья не перескакивают.
+ */
+export function sailStep(s: SailSpin, target: number, dt: number): void {
+  const h = Math.min(0.25, Math.max(0, dt));
+  const v0 = s.speed;
+  s.speed += (target - s.speed) * (1 - Math.exp(-h / SAIL_EASE));
+  if (target === 0 && s.speed < SAIL_REST) s.speed = 0;
+  s.angle = (s.angle + ((v0 + s.speed) / 2) * h) % (Math.PI * 2);
+}
+
+/** Где крылья: ступица в мире и куда смотрит ось (вперёд рамки хутора). */
+export interface SailPose {
+  at: V3;
+  fx: number;
+  fz: number;
+}
+
+/** Сколько индексов меша роста рисовать на этом уровне Фермы: до последней открытой ступени (`layout.FARM_TIERS`). */
+export function growthCount(tiers: readonly number[], level: number): number {
+  let n = 0;
+  FARM_TIERS.forEach((from, k) => {
+    if (level >= from) n = tiers[k];
+  });
+  return n;
+}
+
+/**
+ * Мельница и рост усадьбы в сцене (ЗД-2): меш крыльев (поворот вокруг оси) и меш роста — рисует ступени до уровня Фермы
+ * (`outskirts.growthCount`).
+ */
+export class FarmView {
+  readonly group = new THREE.Group();
+  readonly spin: SailSpin = { angle: 0, speed: SAIL_SPIN };
+
+  constructor(
+    pose: SailPose,
+    readonly sails: THREE.Mesh,
+    readonly growth: THREE.Mesh | null,
+    private count: (level: number) => number,
+  ) {
+    sails.name = 'city-mill-sails';
+    sails.position.set(pose.at[0], pose.at[1], pose.at[2]);
+    sails.rotation.order = 'YXZ';
+    sails.rotation.y = -Math.atan2(pose.fz, pose.fx);
+    sails.castShadow = true;
+    sails.receiveShadow = true;
+    this.group.add(sails);
+    if (growth) {
+      growth.name = 'city-farm-growth';
+      growth.castShadow = true;
+      growth.receiveShadow = true;
+      this.group.add(growth);
+    }
+    this.setLevel(1);
+  }
+
+  /** Кадр: крылья — к скорости по часу и тревоге. */
+  update(dt: number, night: number, alarm: number): void {
+    sailStep(this.spin, sailTarget(night, alarm), dt);
+    this.sails.rotation.x = this.spin.angle;
+  }
+
+  /** Уровень Фермы: рост рисует ступени до него. */
+  setLevel(level: number): void {
+    if (!this.growth) return;
+    const n = this.count(level);
+    this.growth.geometry.setDrawRange(0, n);
+    this.growth.visible = n > 0;
   }
 }

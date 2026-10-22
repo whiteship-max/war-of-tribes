@@ -1,4 +1,4 @@
-import type { BuildingTypeId } from '../types';
+import type { JobId } from '../types';
 import { realTime } from '../pace';
 import { DAY_MS } from '../time';
 
@@ -15,10 +15,11 @@ export interface MinigameDef {
   /** Имя в строке промыслов и в карточке начала. */
   name: string;
   /**
-   * Двор, который игра повторяет: его выработка (`data/yards.ts`) задаёт, какие запасы игра даёт и в какой доле.
-   * Своей таблицы наград у игры нет — вторая разошлась бы с двором при первой правке.
+   * Дело двора, которое игра повторяет (ЗД-1: дело — профессия): его выработка (`data/yards.ts`) задаёт, какие запасы игра
+   * даёт и в какой доле. Своей таблицы наград у игры нет — вторая разошлась бы с двором при первой правке. Окно двора
+   * ставит игру под этим делом.
    */
-  yard: BuildingTypeId;
+  deed: JobId;
   /** Цель одной строкой — карточка начала. */
   goal: string;
   /** Кнопка входа: куда идти, а не «играть» — игра говорит о деле, а не о себе (docs/ui_audit.md, 4.1). */
@@ -45,13 +46,13 @@ export const MINIGAME_COST = 25;
 export const MINIGAME_SHARE = 1 / 12;
 
 export const MINIGAMES: readonly MinigameDef[] = [
-  { id: 'berries', name: 'Ягоды', yard: 'gathering', goal: 'Набери корзины спелых ягод', go: 'В лес' },
-  { id: 'herd', name: 'Скот', yard: 'pen', goal: 'Накорми загон до последней овцы', go: 'В загон' },
-  // Охота — двор охотников: мясо, шкуры и кости в его пропорции (docs/minigames.md, раздел 13).
-  { id: 'hunt', name: 'Охота', yard: 'hunter_hut', goal: 'Выследи и подстрели оленей', go: 'На охоту' },
-  // Рыбалка — двор собирателей: рыба — вольная еда, как ягоды и коренья, и своего двора у неё нет; доля — вся еда
+  { id: 'berries', name: 'Ягоды', deed: 'gatherer', goal: 'Набери корзины спелых ягод', go: 'В лес' },
+  { id: 'herd', name: 'Скот', deed: 'herder', goal: 'Накорми загон до последней овцы', go: 'В загон' },
+  // Охота — дело охотников Охотничьего двора: мясо и шкуры в его пропорции (docs/minigames.md, раздел 13).
+  { id: 'hunt', name: 'Охота', deed: 'hunter', goal: 'Выследи и подстрели оленей', go: 'На охоту' },
+  // Рыбалка — дело сбора: рыба — вольная еда, как ягоды и коренья, и своего дела у неё нет; доля — вся еда
   // (docs/minigames.md, раздел 17).
-  { id: 'fish', name: 'Рыбалка', yard: 'gathering', goal: 'Налови рыбы на уху и засолку', go: 'К воде' },
+  { id: 'fish', name: 'Рыбалка', deed: 'gatherer', goal: 'Налови рыбы на уху и засолку', go: 'К воде' },
 ];
 
 export const MINIGAME_BY_ID: Record<MinigameId, MinigameDef> = Object.fromEntries(MINIGAMES.map((g) => [g.id, g])) as Record<

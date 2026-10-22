@@ -1,5 +1,6 @@
 import type { ActiveEvent, GameState, LogEntry } from './types';
 import { bonesToCharcoal } from './charcoal';
+import type { PartyFold } from './yardmerge';
 import { DAY_LENGTH } from './constants';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS } from './data/upkeep';
 import { PACE_TEXT } from './data/pace';
@@ -13,6 +14,8 @@ import { AWAY_AFTER, absence, awayGameSeconds, awaySeconds } from './sim/tick';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
+import { mergeCouncil } from './sim/council';
+import { mergeEstates } from './sim/estates';
 import { dynastyStep, mergeRealm, newHouse, skillLine } from './sim/dynasty';
 import { adminNotice, creditTech, fateNotice, gateOf, levelName, techLevel } from './sim/tech';
 import { BRANCH_OF, WAR_FATES } from './data/realm';
@@ -92,7 +95,7 @@ const mergeProfile = (base: ProfileState, saved?: Partial<ProfileState>): Profil
  * отлучки, при входе (`enter`). Писать в летопись отсюда нельзя — строка встала
  * бы на минуту записи, и после суток отлучки её срезал бы возраст летописи.
  */
-function migrate(s: GameState, from: number, data: SavedState): void {
+function migrate(s: GameState, from: number, data: SavedState, fold: PartyFold | null = null): void {
   if (from >= SAVE_VERSION) return;
   // 8 → 9: профиля не было вовсе. Статистику задним числом взять неоткуда, и
   // она начинается с нулей; мощь и визитка, наоборот, выводятся из посёлка и
@@ -236,6 +239,32 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   // до слияния с новой партией (`deserialize` → `bonesToCharcoal`): иначе склад приехал бы с костями сбоку и стартовым
   // углём. Здесь — только строка игроку.
   if (from < 23) tell(s, 'Кости на складе пошли в уголь, один к одному. Уголь жгут лесорубы, и без него горн холоден.', 'info');
+  // 23 → 24: ресурсные дворы объединены (ЗД-1). Постройки, стройка, рабочие и невольники сведены ещё до слияния
+  // (`deserialize` → `yardmerge.foldParty`); здесь — возврат цены стройки, которую не на что перенести, дверью склада
+  // (`sim/pay.refund`, разовое дело описи), и строка игроку.
+  if (from < 24 && fold && door) door.settleParty(s, fold, (text, kind) => tell(s, text, kind));
+}
+
+/**
+ * Ступень 23 → 24 (`game/yardstep.ts`, правило — `game/yardmerge.ts`) — своей докачкой: она нужна только партии младше 24-й, а
+ * первая загрузка не должна расти ради тех, у кого старой партии нет. Подгружает её `loadFold` — вход (`loadGame`) и взятие
+ * серверной партии (`net/sync`) зовут его до чтения, если запись старше; без неё старая запись не читается (`deserialize` →
+ * null) и ничего не затирается.
+ */
+type FoldDoor = typeof import('./yardstep');
+let door: FoldDoor | null = null;
+
+/** Подгрузить ступень 23 → 24. Повторный вызов — та же. */
+export async function loadFold(): Promise<void> {
+  door ??= await import('./yardstep');
+}
+
+/** Версия записи без разбора всей строки: поле `version` пишет `serialize` первым. */
+const versionOf = (json: string): number => Number(/"version":\s*(\d+)/.exec(json)?.[1] ?? SAVE_VERSION);
+
+/** Готовность прочесть запись: партии младше 24-й нужна дверь перехода — подгрузить её до чтения. */
+export async function readyToRead(json: string): Promise<void> {
+  if (versionOf(json) < 24) await loadFold();
 }
 
 /**
@@ -380,6 +409,11 @@ export function deserialize(json: string): GameState | null {
     if (from < MIN_SAVE_VERSION || from > SAVE_VERSION) return null;
     // 22 → 23: кости — уголь. До слияния: ключ склада, рынка и трофея должен прийти уже новым (ступень — в `migrate`).
     if (from < 23) bonesToCharcoal(data);
+    // 23 → 24: дворы объединены (ЗД-1). До слияния: трёх построек больше нет, и назначения ложатся по делам — иначе
+    // слияние привезло бы постройки, которых в игре нет, и рабочих по номерам (ступень — в `migrate`).
+    // Двери нет — запись не читается, и ничего не затирается: её подгружает тот, кто читает (`readyToRead`).
+    if (from < 24 && !door) return null;
+    const fold = from < 24 && door ? door.foldParty(data as Record<string, unknown>) : null;
     const base = createInitialState();
     // Простое слияние: новые поля из createInitialState, остальное из сохранения.
     const s = {
@@ -454,6 +488,9 @@ export function deserialize(json: string): GameState | null {
       // Партия до родословной приезжает с пустой: вспоминать ушедших задним
       // числом не из чего, и версию это не поднимает.
       lineage: mergeLineage(data.lineage),
+      // Совет Ратуши (РТ-1) — по полям с проверкой; партия до совета приезжает без него, и версия не растёт.
+      council: mergeCouncil(data.council),
+      estates: mergeEstates(data.estates),
       seed: typeof data.seed === 'number' && Number.isFinite(data.seed) ? data.seed >>> 0 : base.seed,
       rolls: typeof data.rolls === 'number' && Number.isFinite(data.rolls) ? Math.max(0, Math.floor(data.rolls)) : 0,
       hires: typeof data.hires === 'number' && Number.isFinite(data.hires) ? Math.max(0, Math.floor(data.hires)) : 0,
@@ -473,7 +510,7 @@ export function deserialize(json: string): GameState | null {
       s.buildings.push({ id: s.nextId++, type: def.id, level: 1, work: 0, workRequired: 0 });
     }
     normalizeAssignments(s);
-    migrate(s, from, data);
+    migrate(s, from, data, fold);
     readFrom.set(s, from);
     // Летопись старого сохранения могла копиться по прежнему правилу «последние
     // 80 записей» и растянуться на полгода игрового времени. Приводим её к тому
@@ -553,6 +590,7 @@ export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
   // живые копии и спросит игрока — молча за него не выберет никто.
   const lifted = json ? null : await rescueFromCloud(KEY);
   const chosen = json ?? lifted;
+  if (chosen) await readyToRead(chosen);
   const read = chosen ? deserialize(chosen) : null;
   // Партия прошлой эпохи мира: сервер с тех пор стёрт (`/wipeworld ДА`), и её не загружают — ни с диска, ни из облака.
   // Начинается новая; старая строка на диске ляжет под первой же записью новой партии (docs/test_world.md).

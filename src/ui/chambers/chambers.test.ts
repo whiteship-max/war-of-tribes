@@ -17,14 +17,15 @@ import { __chambers } from './Chambers';
 (globalThis as { window?: unknown }).window ??= {};
 
 /** Задание владельца: письма → Вести, карта → Карта, свиток указов → Держава, список людей → Жители, перечень войска →
- *  Дружина, планы построек → Ратуша; кошель и печать — свои двери (Сокровищница, герб державы). */
+ *  Дружина, планы построек → Ратуша (с РТ-1 стройка — в «Зданиях», и планы ведут туда); кошель и печать — свои двери
+ *  (Сокровищница, герб державы). */
 const WANT: Record<DeskId, string> = {
   letters: 'Вести',
   map: 'Карта',
   decrees: 'Держава',
   people: 'Жители',
   army: 'Дружина',
-  plans: 'Ратуша',
+  plans: 'Здания',
   purse: 'Сокровищница',
   seal: 'Герб державы',
 };
@@ -43,10 +44,10 @@ function openWindow(): string | null {
   if (useTreasury.getState().open) return 'Сокровищница';
   if (r.open) return r.view === 'decisions' ? 'Вести' : r.view === 'government' ? 'Держава' : r.view === 'settings' ? 'Герб державы' : `держава: ${r.view}`;
   const sh = g.sheet;
-  if (sh?.kind === 'tab') return sh.tab === 'people' ? 'Жители' : sh.tab === 'army' ? 'Дружина' : `шторка: ${sh.tab}`;
+  if (sh?.kind === 'tab') return sh.tab === 'people' ? 'Жители' : sh.tab === 'army' ? 'Дружина' : sh.tab === 'buildings' ? 'Здания' : `шторка: ${sh.tab}`;
   if (sh?.kind === 'building') {
     const hall = buildingOfType(g.s, 'town_hall');
-    return hall && sh.id === hall.id && g.townTab === 'build' ? 'Ратуша' : `постройка ${sh.id}`;
+    return hall && sh.id === hall.id ? 'Ратуша' : `постройка ${sh.id}`;
   }
   return null;
 }

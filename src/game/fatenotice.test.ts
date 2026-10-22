@@ -7,9 +7,9 @@
 // Область названа в каждом тесте: партия и правда старая (версия младше двадцатой), участь у неё
 // и правда закрыта, — а там, где строка говорит об очках, очки и правда по ту или иную сторону
 // цены. Иначе «строка говорит правду» было бы зелёным при любой строке.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from './state';
-import { adoptSave, loadGame, serialize } from './save';
+import { adoptSave, loadGame, serialize, loadFold } from './save';
 import { fateOpen, studyInfo, techLevel } from './sim/tech';
 import { pointsOf, rulerRate } from './sim/points';
 import { levelPrice, WAR_CAPTIVES_LEVEL } from './data/realm';
@@ -17,6 +17,9 @@ import { gameSpan } from './span';
 import { DAY_LENGTH } from './constants';
 import { serverNow } from '@/net/clock';
 import type { GameState } from './types';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 const disk = new Map<string, string>();
 

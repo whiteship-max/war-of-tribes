@@ -5,6 +5,7 @@ import type { GameState } from '@/game/types';
 import type { IconName } from '@/ui/icons/alias';
 import { CROWN_RULES, crownStab } from '@/game/crownrules';
 import { CROWN_BY_ID, type Fx } from '@/game/data/crown';
+import { ESTATE_META } from '@/game/data/estates';
 import { BOON_BY_ID, boonWords } from '@/game/data/boons';
 import { RESOURCE_META } from '@/game/constants';
 import { stabName } from '@/game/data/stability';
@@ -52,7 +53,12 @@ export function fxLine(f: Fx): FxLine | null {
     case 'boon': {
       const b = BOON_BY_ID[f.id];
       if (!b) return null;
-      const worse = (b.folk ?? 0) > 0 || (b.hungry ?? 0) > 0 || Object.values(b.jobs ?? {}).some((m) => (m ?? 1) < 1) || (b.morale ?? 0) < 0;
+      const worse =
+        (b.folk ?? 0) > 0 ||
+        (b.hungry ?? 0) > 0 ||
+        Object.values(b.jobs ?? {}).some((m) => (m ?? 1) < 1) ||
+        (b.morale ?? 0) < 0 ||
+        Object.values(b.estates ?? {}).some((n) => (n ?? 0) < 0);
       return { icon: b.icon, tone: worse ? 'bad' : 'good', text: `${b.name}: ${boonWords(b).toLowerCase()} — ${daysSpan(b.days)}` };
     }
     case 'res':
@@ -78,6 +84,8 @@ export function fxLine(f: Fx): FxLine | null {
       const text = f.p >= 1 ? `Через ${when} — «${next?.title ?? ''}»` : `Риск ${Math.round(f.p * 100)} %: «${next?.title ?? ''}» через ${when}`;
       return { icon: good ? 'ui-dove' : 'ui-warning', tone: good ? 'good' : 'bad', text };
     }
+    case 'priv':
+      return { icon: ESTATE_META[f.e].icon, tone: 'good', text: `${ESTATE_META[f.e].name}: привилегия «${f.name}»` };
   }
 }
 

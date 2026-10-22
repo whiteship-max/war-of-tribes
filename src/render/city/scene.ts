@@ -7,7 +7,7 @@
 // Ленивый кусок: едет до игры (`main.tsx`) и кладёт свой класс в `SCENES`.
 import * as THREE from 'three';
 import type { BuildingTypeId, GameState, ResourceId } from '@/game/types';
-import { armySize, buildingAttention, buildingProduction, buildingTitle, population, productionPerDay, storageCap, type Attention } from '@/game/derived';
+import { armySize, buildingAttention, buildingProduction, buildingTitle, population, productionPerDay, storageCap, workerCount, type Attention } from '@/game/derived';
 import { RESOURCE_IDS } from '@/game/constants';
 import type { SmokeSource } from '../weather';
 import { hearCity } from '@/sound/ear';
@@ -642,6 +642,8 @@ export class CityScene extends TribeScene {
       this.garrison?.update(t, this.camera);
       // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
       c.mill?.update(t);
+      // Крылья мельницы Фермы: днём мелют, ночью медленнее, в тревогу стоят (ЗД-2).
+      c.farm?.update(dt, night, this.mood.alarm);
       // Суета судит о льде: на реке без льда утки и лодки остаются и зимой.
       this.bustle?.update(t, night, ice);
       if (this.deeds) {
@@ -889,7 +891,7 @@ export class CityScene extends TribeScene {
     const mourn = mournClock.observe(s);
     this.mood = (typeof location !== 'undefined' ? forcedMood(location.search) : null) ?? moodOf(s, this.threat, until, mourn);
     // Трактир и амбар живут своим распорядком, в храме служат внутри — у них работников у фасада нет.
-    const busy = s.buildings.filter((b) => (s.workers[b.id] ?? 0) > 0 && b.type !== 'tavern' && b.type !== 'storage' && b.type !== 'church').map((b) => b.type);
+    const busy = s.buildings.filter((b) => workerCount(s, b.id) > 0 && b.type !== 'tavern' && b.type !== 'storage' && b.type !== 'church').map((b) => b.type);
     const key = busy.join(',');
     if (key !== this.stationKey) {
       this.stationKey = key;
@@ -897,6 +899,10 @@ export class CityScene extends TribeScene {
       this.folk?.setStations(this.stations);
     }
     this.folk?.setMood(this.mood, lookOf(this.mood));
+    // Усадьба растёт с уровнем Фермы: житница и ульи, потом голубятня и хлев, стога и скот (ЗД-2).
+    const farm = s.buildings.find((b) => b.type === 'farm')?.level ?? 1;
+    this.town?.farm?.setLevel(farm);
+    this.folk?.setHerd(farm);
   }
 
   /** Группа здания — на главное место его постройки, значок — над крышей. */

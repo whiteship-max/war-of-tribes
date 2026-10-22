@@ -4,6 +4,7 @@ import { SCENES, setMarkerArt, type MarkerArt, type TribeScene } from '@/render/
 import { onSheet, sheetReady, symbolOf } from '@/ui/icons/sheet';
 import { bootDone, bootStage } from '@/boot/stage';
 import { afterPaint } from '@/boot/paint';
+import { castlePainted } from '@/boot/warm';
 import { probe } from '@/debug';
 import { diagnose, sceneLog, type Verdict } from '@/scenelog';
 import { SceneTrouble } from './SceneTrouble';
@@ -163,8 +164,13 @@ export function GameCanvas() {
       if (w.info !== was.info) scene.setRegion(homeRegion());
     });
     // Экран загрузки уходит не по «сцена создана», а по первому её кадру:
-    // между конструктором и картинкой лежит компиляция шейдеров.
-    if (first) void afterPaint(bootDone);
+    // между конструктором и картинкой лежит компиляция шейдеров. Тот же кадр — половина готовности замка, после
+    // которой в простое подтягиваются куски по кнопке (`boot/warm`, РТ-2б).
+    if (first)
+      void afterPaint(() => {
+        bootDone();
+        castlePainted();
+      });
     // Прибор подключается к живой сцене: без этого он честно говорит «не знаю».
     const wired = { vitals: () => scene.vitals(), revive: rebuild };
     sceneLog.attach(wired);

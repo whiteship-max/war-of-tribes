@@ -54,9 +54,8 @@ import { dropParties } from './party';
 import { dropSiegeMarks } from './siegemark';
 import { bakeAgent } from './agent';
 import { dropFigures } from './figures';
-import { Rating } from './Rating';
-import { Feed, useFeed } from './Feed';
-import { Legend } from './Legend';
+import { useFeed } from './feedState';
+import { feedUi, ratingUi } from './chunks';
 import { cameraBox, changedBesides, restAfter } from './still';
 import { inTelegram } from '@/telegram/webapp';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
@@ -73,6 +72,12 @@ const WarSigns = lazy(() => import('@/ui/next').then((m) => ({ default: m.WarSig
 // Кольцо значков над целью и меню дел (К-2): своими кусками — нужны только после касания места; первая загрузка не растёт.
 const RingLayer = lazy(() => import('./RingLayer'));
 const ActionMenu = lazy(() => import('./ActionMenu').then((m) => ({ default: m.ActionMenu })));
+// Легенда — своим куском: её открывают кнопкой, а первая загрузка держит потолок (ЗД-1, docs/handbook/bundle.md).
+const Legend = lazy(() => import('./Legend').then((m) => ({ default: m.Legend })));
+// Рейтинг и молва края — окна по кнопке: едут докачкой (РТ-1, в зачёт первой загрузки); лента и точка новых — в главном.
+// Их код подтягивается в фоне вместе с картой (`chunks.MAP_CHUNKS`, РТ-2б), а рисует их только кнопка.
+const Rating = lazy(() => ratingUi().then((m) => ({ default: m.Rating })));
+const Feed = lazy(() => feedUi().then((m) => ({ default: m.Feed })));
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
 const FREE_CAMERA = freeCamera();
@@ -839,10 +844,22 @@ export function WorldMap() {
           </div>
         )}
 
-      {ratingOpen && <Rating onClose={() => setRatingOpen(false)} />}
-      {feedOpen && <Feed feed={feed} onClose={() => setFeedOpen(false)} />}
+      {ratingOpen && (
+        <Suspense fallback={null}>
+          <Rating onClose={() => setRatingOpen(false)} />
+        </Suspense>
+      )}
+      {feedOpen && (
+        <Suspense fallback={null}>
+          <Feed feed={feed} onClose={() => setFeedOpen(false)} />
+        </Suspense>
+      )}
 
-      {legendOpen && <Legend stale={rosterOld ? roster.why || 'Соседи показаны по памяти.' : null} onClose={() => setLegendOpen(false)} />}
+      {legendOpen && (
+        <Suspense fallback={null}>
+          <Legend stale={rosterOld ? roster.why || 'Соседи показаны по памяти.' : null} onClose={() => setLegendOpen(false)} />
+        </Suspense>
+      )}
 
       {/* Низ — порталом в корень игры: как в городе, он стоит над шторкой (походы, карточка клетки), а не под
           ней, внутри слоя карты. */}

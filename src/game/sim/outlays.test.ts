@@ -33,6 +33,8 @@ const DOORS: Record<string, { why: Why[]; what: string }> = {
   'data/events.ts': { why: ['deed'], what: 'цена ответа на весть' },
   'data/eventKit.ts': { why: ['deed'], what: 'весть отнимает добро' },
   'sim/crown.ts': { why: ['deed'], what: 'ответ на весть державы отнимает золото (СБ-2)' },
+  'sim/candidates.ts': { why: ['outlay'], what: 'плата за найм советника за сезон вперёд (РТ-1)' },
+  'sim/estates.ts': { why: ['outlay'], what: 'дар сословию золотом (РТ-2)' },
 };
 
 function sources(dir: string): string[] {

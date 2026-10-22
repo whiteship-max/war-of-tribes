@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import type { Building, BuildingTypeId, FaithId, GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { DAY_LENGTH, RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
-import { BUILDINGS } from '@/game/data/buildings';
+import { BUILDINGS, jobsOf } from '@/game/data/buildings';
 import { GOOD_BY_ID } from '@/game/data/market';
 import { SEASON_SECONDS } from '@/game/data/seasons';
 import { SURVEY_MAX } from '@/game/data/survey';
@@ -79,7 +79,7 @@ function village(faith: FaithId | null, tweak: (s: GameState) => void = () => {}
   s.workers = {};
   for (const b of s.buildings) {
     const def = BUILDINGS.find((d) => d.id === b.type)!;
-    if (def.job) s.workers[b.id] = Math.floor((b.level * (def.slotsPerLevel ?? 12)) / 2);
+    for (const job of def.jobs ?? []) s.workers[job] = Math.floor((b.level * (def.slotsPerLevel ?? 12)) / 2);
   }
   s.army = { ...s.army, clubman: 40, spearman: 20, legionary: 6, rider: 12 };
   for (const r of RESOURCE_IDS) s.resources[r] = 2500;
@@ -208,9 +208,11 @@ function staffedWork(s: GameState, type: BuildingTypeId, level: number, want: nu
   const b = place(t, type, level);
   t.siege = null;
   t.pop = 100_000;
-  t.workers[b.id] = 0;
+  for (const job of jobsOf(b.type)) t.workers[job] = 0;
   t.bondedWork = {};
-  if (want > 0) assignWorker(t, b.id, want);
+  // По `want` на каждое дело (ЗД-1): у двора с двумя делами «один рабочий» — по одному на каждом, «полные места» — у каждого
+  // свои.
+  if (want > 0) for (const job of jobsOf(b.type)) assignWorker(t, b.id, want, job);
   const made = productionPerDay(t);
   return {
     hands: workerCount(t, b.id),
@@ -240,8 +242,10 @@ function expectedWork(s: GameState, type: BuildingTypeId, level: number): Map<st
   const oneNext = handsWork(s, type, level + 1, 1).work;
   const lift = one.map((v, i) => (v > 1e-9 ? Math.round((oneNext[i] / v - 1) * 100) : 0));
   if (capNext > capNow) {
+    // `staffedWork` ставит руки на каждое дело — нынешние места одного дела: все места поровну на дела.
+    const deals = Math.max(1, jobsOf(type).length);
     const full = handsWork(s, type, level + 1, capNext).work;
-    const old = handsWork(s, type, level + 1, capNow).work;
+    const old = handsWork(s, type, level + 1, capNow / deals).work;
     const gain = full.map((v, i) => v - old[i]);
     if (gain.some((g) => g > 1e-9)) {
       const flat = gain.map((g, i) => (lift[i] !== 0 ? 0 : shown(g))).filter((g) => g !== 0).map(Math.abs);
@@ -495,7 +499,7 @@ describe('рабочие и места', () => {
 
   it('вклад рабочего на L и L+1, замеренный игрой, — тот самый процент на кнопке; у служителей храма процента нет', () => {
     for (const [name, make] of [FIXTURES[0], FIXTURES[1]]) {
-      for (const def of BUILDINGS.filter((d) => d.job)) {
+      for (const def of BUILDINGS.filter((d) => d.jobs?.length)) {
         for (let level = 1; level < maxLevelFor(def.id); level++) {
           const s = make();
           const b = place(s, def.id, level);
@@ -539,7 +543,7 @@ describe('рабочие и места', () => {
     const siege = clone(spring);
     siege.siege = { byName: 'Логово', until: siege.time + 600 };
     expect(SIEGE_YIELD).toBeLessThan(1);
-    for (const def of BUILDINGS.filter((d) => d.job && d.outside)) {
+    for (const def of BUILDINGS.filter((d) => d.jobs?.length && d.outside)) {
       if (buildingOfType(spring, def.id)!.level >= maxLevelFor(def.id)) continue;
       const at = (st: GameState): string => {
         const b = buildingOfType(st, def.id)!;

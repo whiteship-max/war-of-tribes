@@ -27,14 +27,16 @@ Object.assign(ART, {
   'bld-town_hall': m.hall,
   'bld-houses': m.houses,
   'bld-storage': m.barn,
-  'bld-gathering': m.basket,
   'bld-sawmill': m.sawmill,
-  'bld-quarry': m.quarry,
+  // Объединённые дворы (ЗД-1): у здания свой знак, у каждого его дела — свой (docs/icons.md, «ЗД-1»).
   'bld-hunter_hut': m.lodge,
   'bld-mine': m.mine,
+  'bld-farm': m.windmill,
+  'job-gatherer': m.basket,
+  'job-stonecutter': m.quarry,
+  'job-farmer': m.sheaf,
+  'job-herder': m.pen,
   'bld-workshop': m.workshop,
-  'bld-farm': m.sheaf,
-  'bld-pen': m.pen,
   'bld-church': m.church,
   'bld-statue': m.statue,
   'bld-infirmary': m.mortar,
@@ -70,12 +72,18 @@ Object.assign(ART, {
   'troop-knight': () => [...place(m.lance(), { r: 28, s: 0.98, x: 3.4 }), ...m.bardedHead()],
   'troop-legionary': troop('ar', () => place(m.greatHelm(), { s: 0.5, o: [16, 16], x: -3.6, y: -3.4 }), m.halberd, { x: 6.4, s: 0.88 }),
   'troop-horse': () => m.horseHead('wd'),
+  // Должности совета Ратуши (РТ-1): бюст горожанина в шапке с предметом должности — ключ, кошель, стяг.
+  'post-steward': troop('ve', () => m.cap('ve'), m.key, { x: 8.2, y: 4.4, s: 0.7 }),
+  'post-treasurer': troop('pu', () => m.cap('pu'), m.pouch, { x: 7, y: 4.2, s: 0.68 }),
+  'post-marshal': troop('gu', m.bustHelm, m.banner, { x: 5.6, s: 0.76 }),
   'fig-scout': m.scoutFig,
   'fig-diplomat': m.diplomatFig,
   'fig-spy': m.spyFig,
   'fig-general': m.generalFig,
   'ui-person': () => m.person('or'),
   'nav-people': m.people,
+  // Низ «Здания» (РТ-1, docs/icons.md, «РТ-1»): дома и молот поверх — весь город и его стройка в одном знаке.
+  'nav-buildings': () => [...place(m.houses(), { s: 0.9, x: -1.4, y: -0.6 }), ...place(m.hammer(), { s: 0.56, r: 40, x: 8.2, y: 8.6 })],
   'ui-wolf': m.wolfHead,
   'ui-deer': m.deerHead,
   'ui-fish': m.fish,
@@ -112,6 +120,12 @@ Object.assign(ART, {
   // Раздел «Стабильность» в ряду державы (СБ-2б): колонна под короной — свой значок, не ячейки строки очков.
   'ui-stability': m.crownedPillar,
   'ui-pouch': m.pouch,
+  // Гербы сословий (РТ-2, docs/icons.md, «РТ-2»): щит своей финифти и фигура дела — кошель, молот, сноп, меч, свеча.
+  'est-merchants': () => [...m.heater('az'), ...place(m.pouch(), { s: 0.56, o: [16, 15], y: -0.6 })],
+  'est-guilds': () => [...m.heater('gu'), ...place(m.hammer(), { s: 0.56, r: 35, o: [16, 15], y: -0.6 })],
+  'est-peasants': () => [...m.heater('ve'), ...place(m.sheaf(), { s: 0.58, o: [16, 15], y: -0.6 })],
+  'est-knights': () => [...m.heater('sa'), ...place(m.sword(), { s: 0.6, r: 45, o: [16, 15], y: -0.6 })],
+  'est-clergy': () => [...m.heater('ar'), ...place(m.candle(), { s: 0.56, o: [16, 15], y: -0.6 })],
 });
 Object.assign(ART, {
   'ui-time': m.hourglass,

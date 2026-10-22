@@ -503,31 +503,34 @@ describe('подсказка рабочих окна постройки — чи
   // день сейчас и с ещё одним рабочим, обе — `buildingProduction` состояния, где на месте на одного больше.
   it('выработка под рядом: сейчас — `buildingProduction`; с ещё одним — её же, после `assignWorker`; некуда — без «→»', async () => {
     const { workerYield } = await import('./buildingTips');
-    const { buildingProduction, buildingSlots, idleCount, handsCount } = await import('@/game/derived');
+    const { deedProduction, deedSlots, deedHands, deedsOf, idleCount } = await import('@/game/derived');
     const { assignWorker } = await import('@/game/sim/actions');
     const s = createInitialState(7);
     let grows = 0;
+    // По делу (ЗД-1): у двора с двумя делами ряд у каждого свой, и «с ещё одним» — один на этом деле.
     for (const b of s.buildings) {
-      const rows = workerYield(s, b);
-      if (rows.length === 0) continue;
-      const now = buildingProduction(s, b);
-      for (const r of rows) expect(r.now, `${b.type} ${r.id}: сейчас`).toBe(now[r.id]);
-      const room = buildingSlots(b) - handsCount(s, b.id);
-      // Область: есть место и свободные руки — «→» есть и равно выработке после найма одного.
-      if (room > 0 && idleCount(s) > 0) {
-        const t = structuredClone(s);
-        expect(assignWorker(t, b.id, 1)).toBeNull();
-        const after = buildingProduction(t, t.buildings.find((x) => x.id === b.id)!);
-        for (const r of rows) expect(r.more, `${b.type} ${r.id}: с ещё одним`).toBeCloseTo(after[r.id], 9);
-        if (rows.some((r) => (r.more ?? 0) > r.now)) grows++;
-      } else for (const r of rows) expect(r.more).toBeNull();
+      for (const job of deedsOf(b.type)) {
+        const rows = workerYield(s, b, job);
+        if (rows.length === 0) continue;
+        const now = deedProduction(s, b, job);
+        for (const r of rows) expect(r.now, `${b.type} ${job} ${r.id}: сейчас`).toBe(now[r.id]);
+        const room = deedSlots(b) - deedHands(s, job);
+        // Область: есть место и свободные руки — «→» есть и равно выработке после найма одного.
+        if (room > 0 && idleCount(s) > 0) {
+          const t = structuredClone(s);
+          expect(assignWorker(t, b.id, 1, job)).toBeNull();
+          const after = deedProduction(t, t.buildings.find((x) => x.id === b.id)!, job);
+          for (const r of rows) expect(r.more, `${b.type} ${job} ${r.id}: с ещё одним`).toBeCloseTo(after[r.id], 9);
+          if (rows.some((r) => (r.more ?? 0) > r.now)) grows++;
+        } else for (const r of rows) expect(r.more).toBeNull();
+      }
     }
-    expect(grows, 'постройки, где ещё один рабочий прибавляет выработку, есть').toBeGreaterThan(2);
+    expect(grows, 'дела, где ещё один рабочий прибавляет выработку, есть').toBeGreaterThan(2);
     // Свободных рук нет — «→» нет нигде.
     const busy = structuredClone(s);
-    for (const b of busy.buildings) while (idleCount(busy) > 0 && assignWorker(busy, b.id, 99) === null);
+    for (const b of busy.buildings) for (const job of deedsOf(b.type)) while (idleCount(busy) > 0 && assignWorker(busy, b.id, 99, job) === null);
     expect(idleCount(busy), 'точка внутри области: рук не осталось').toBe(0);
-    for (const b of busy.buildings) for (const r of workerYield(busy, b)) expect(r.more).toBeNull();
+    for (const b of busy.buildings) for (const job of deedsOf(b.type)) for (const r of workerYield(busy, b, job)) expect(r.more).toBeNull();
   });
 });
 

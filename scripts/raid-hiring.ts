@@ -63,6 +63,7 @@ import { ORDER_UNREST, ORDER_WARN, RESOURCE_IDS } from '@/game/constants';
 import {
   armyPower,
   armySize,
+  bondedBusy,
   bondedIdle,
   bondedTotal,
   buildingSlots,
@@ -582,7 +583,7 @@ export async function capturedRun(a: { variant: Led; seed: number }): Promise<Ca
     hourly: (h, x) => {
       const i = CAPT_AT.indexOf(h);
       if (i < 0) return;
-      const busy = x.buildings.reduce((n, b) => n + (x.bondedWork[b.id] ?? 0), 0);
+      const busy = bondedBusy(x);
       hourly[i] = {
         bonded: bondedTotal(x),
         work: busy,

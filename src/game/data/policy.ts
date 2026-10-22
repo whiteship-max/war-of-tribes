@@ -2,8 +2,13 @@
 // Всё, что они меняют, лежит здесь: логика читает эту таблицу и нигде не считает
 // проценты сама. Последствия написаны словами прямо в `effect` — этот текст
 // стоит на кнопке, а не в подсказке: игрок выбирает, уже зная цену.
+import type { EstateId } from '../types';
 
-export type DecreeId = 'none' | 'order' | 'freedom';
+/**
+ * Указ: указ короны (без указа, «Твёрдая рука», «Вольный уклад») или указ сословия (РТ-2, docs/stability.md, Р1.6) — строки
+ * одной таблицы и один указ на город.
+ */
+export type DecreeId = 'none' | 'order' | 'freedom' | 'fair_rights' | 'guild_charter' | 'commons' | 'tourney' | 'gods_peace';
 export type TaxId = 'none' | 'moderate' | 'high';
 export type RationId = 'lean' | 'normal' | 'rich';
 
@@ -16,6 +21,11 @@ export interface DecreeDef {
   moralePerDay: number;
   /** Строка последствий — она же надпись на кнопке. */
   effect: string;
+  /**
+   * Указ сословия (РТ-2): открыт, пока сословие верно (`estaterules.LOYAL`), и даёт ему силу перевеса
+   * (`estaterules.DECREE_STRENGTH`) — его плюс и его минус. Своих чисел выработки и морали у него нет.
+   */
+  estate?: EstateId;
 }
 
 export const DECREES: DecreeDef[] = [
@@ -40,7 +50,16 @@ export const DECREES: DecreeDef[] = [
     moralePerDay: 0.5,
     effect: 'Праздники чаще, работа неспешнее',
   },
+  // ---------- Указы сословий (РТ-2) ----------
+  { id: 'fair_rights', name: 'Ярмарочные привилегии', output: 1, moralePerDay: 0, effect: 'Купцы правят торгом: золота больше, дружина мягче', estate: 'merchants' },
+  { id: 'guild_charter', name: 'Цеховой устав', output: 1, moralePerDay: 0, effect: 'Мастера по уставу: стройка быстрее, хлеба уходит больше', estate: 'guilds' },
+  { id: 'commons', name: 'Общинный обычай', output: 1, moralePerDay: 0, effect: 'Община сама ведёт поле: дворы богаче, налог скуднее', estate: 'peasants' },
+  { id: 'tourney', name: 'Рыцарский турнир', output: 1, moralePerDay: 0, effect: 'Рыцари в чести: дружина крепче, содержание дороже', estate: 'knights' },
+  { id: 'gods_peace', name: 'Божий мир', output: 1, moralePerDay: 0, effect: 'Церковь мирит город: налог злит меньше, десятина выше', estate: 'clergy' },
 ];
+
+/** Указ сословия этого сословия. */
+export const ESTATE_DECREE = Object.fromEntries(DECREES.flatMap((d) => (d.estate ? [[d.estate, d.id]] : []))) as Record<EstateId, DecreeId>;
 
 export const DECREE_BY_ID: Record<DecreeId, DecreeDef> = Object.fromEntries(
   DECREES.map((d) => [d.id, d]),

@@ -32,6 +32,7 @@ import { SEASON_META } from '@/game/data/seasons';
 import { seasonOf, yearOf } from '@/game/derived';
 import { crownLines, type FxLine } from './crownView';
 import { iconName } from '@/ui/icons/registry';
+import { vacancyPost } from '@/game/sim/council';
 
 export interface DispatchChoice {
   /** Номер варианта у события, «yes» / «no» у письма. */
@@ -101,6 +102,8 @@ export interface Dispatch {
   march?: boolean;
   /** Весть державы: окно своим видом — заставка, «что изменится» до выбора. */
   crown?: CrownCardView;
+  /** Весть совета о пустом месте (РТ-1): выбор нового — в Ратуше, в карточке дверь туда. */
+  council?: true;
 }
 
 /** Событие племени, ждущее ответа, — донесением. null — вид события неизвестен. */
@@ -135,6 +138,7 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
     silence: `Без ответа: ${quiet.label.toLowerCase()}${quietHint ? `. ${quietHint}` : ''}.`,
     warning: false,
     urgent: def.waits !== undefined,
+    ...(vacancyPost(def.id) ? { council: true as const } : {}),
     ...(crown
       ? { crown: { id: def.id, scene: crown.scene, kind: CROWN_RULES[def.id].kind, date: `${SEASON_META[seasonOf(ev.at)].name}, год ${yearOf(ev.at)}` } }
       : {}),

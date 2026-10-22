@@ -1,4 +1,4 @@
-import type { Building, BuildingTypeId, GameState } from './types';
+import type { Building, BuildingTypeId, GameState, JobId } from './types';
 import { partyNow } from '@/net/clock';
 import { START_POP } from './constants';
 import { BUILDINGS } from './data/buildings';
@@ -13,6 +13,12 @@ import { FIGURE_IDS } from '@/world/data/figures';
 
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
+ *
+ * Версия 24 — ресурсные дворы объединены (ЗД-1, docs/city_v3.md, «Решения ЗД-1»): Ферма и Загон — Ферма, Охотничий домик
+ * и Навес собирателей — Охотничий двор, Рудник и Каменоломня — Шахта; у двора два дела. Рабочие и невольники лежат по
+ * делу (`workers`, `bondedWork` — ключ профессия), а не по номеру постройки. Умолчания мало: трёх построек больше нет,
+ * уровень двора — больший из двух, стройка частей переносится или возвращает цену. Ступень — до слияния
+ * (`yardmerge.foldParty`), возврат и строка игроку — в `migrate`.
  *
  * Версия 23 — кости стали углём (решение владельца 10.10.2026, docs/economy.md): ресурс `bones` переименован в
  * `charcoal` везде, где лежит в партии, — склад, счёт рынка, караваны, трофей у ворот. Умолчания мало: слияние с новой
@@ -102,7 +108,7 @@ import { FIGURE_IDS } from '@/world/data/figures';
  * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 23;
+export const SAVE_VERSION = 24;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -222,19 +228,18 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     lastSaved: partyNow(),
   };
   for (const def of BUILDINGS) s.buildings.push(built(s, def.id));
-  const at = (type: BuildingTypeId): number => s.buildings.find((b) => b.type === type)!.id;
 
   // Хозяйство укомплектовано: еда, лес, камень, руда. Назначение — число людей
-  // в здании, а не список имён: люди одинаковы, разницу делает уровень постройки.
-  const crew: [BuildingTypeId, number][] = [
-    ['hunter_hut', 5],
-    ['farm', 4],
-    ['gathering', 4],
-    ['sawmill', 5],
-    ['quarry', 3],
-    ['mine', 2],
+  // на деле, а не список имён: люди одинаковы, разницу делает уровень постройки.
+  const crew: [JobId, number][] = [
+    ['hunter', 5],
+    ['farmer', 4],
+    ['gatherer', 4],
+    ['woodcutter', 5],
+    ['stonecutter', 3],
+    ['miner', 2],
   ];
-  for (const [type, n] of crew) s.workers[at(type)] = n;
+  for (const [job, n] of crew) s.workers[job] = n;
   // Остаток — свободные руки у костра: из них выйдут кузнецы, ремесленники и
   // первые бойцы. Сколько их, столько и видно на площади.
 

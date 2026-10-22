@@ -93,7 +93,7 @@ const H = vi.hoisted(() => ({
   reload: vi.fn(),
 }));
 
-vi.mock('@/game/save', () => ({ adoptSave: H.adoptSave }));
+vi.mock('@/game/save', () => ({ adoptSave: H.adoptSave, readyToRead: async () => undefined }));
 vi.mock('@/world/local/state', () => ({
   browserStorage: { read: () => H.local.world, write: H.worldWrite, clear: H.worldClear },
 }));
@@ -325,7 +325,7 @@ describe('взятая партия не затирается на переза�
     const second = await tab();
     await second.syncBoot(true);
     expect(second.mayWrite()).toBe(true);
-    second.useSync.getState().restoreSpare();
+    await second.useSync.getState().restoreSpare();
     expect(H.reload).toHaveBeenCalled();
     expect(second.mayWrite()).toBe(false);
   });
@@ -363,7 +363,7 @@ describe('отвергнутая партия достаётся из служе
     // Шаг третий: игрок вернул её.
     H.adoptSave.mockClear();
     H.worldWrite.mockClear();
-    second.useSync.getState().restoreSpare();
+    await second.useSync.getState().restoreSpare();
     expect(H.adoptSave).toHaveBeenCalledWith('наш день 41');
     expect(H.worldWrite).toHaveBeenCalledWith('наша карта');
     expect(H.reload).toHaveBeenCalled();

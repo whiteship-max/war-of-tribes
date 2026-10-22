@@ -31,7 +31,7 @@
  */
 import { create } from 'zustand';
 import { SAVE_HURRY_MS, SAVE_PUSH_MS, type ConflictResponse, type PullResponse, type PushResponse, type SaveCard, type SaveRecord } from '../../netlify/lib/contract';
-import { adoptSave } from '@/game/save';
+import { adoptSave, readyToRead } from '@/game/save';
 import type { GameState } from '@/game/types';
 import { browserStorage } from '@/world/local/state';
 import { tgInitData } from '@/telegram/webapp';
@@ -94,7 +94,7 @@ export interface SyncStore {
   /** Забрать ведение партии у другой вкладки. */
   takeOver: () => void;
   /** Вернуть отвергнутую партию. */
-  restoreSpare: () => void;
+  restoreSpare: () => Promise<void>;
   /** Забыть отвергнутую партию: игрок сказал, что она не нужна. */
   forgetSpare: () => void;
 }
@@ -202,7 +202,9 @@ const say = (state: SyncState, why: string): void => useSync.setState({ state, w
  * остаётся как было, а «отклонённая партия» из ниоткуда только сбивала бы с
  * толку — она и есть та, в которую игрок сейчас играет.
  */
-function adopt(record: SaveRecord, etag: string | null, spare: SaveRecord | null = null): void {
+async function adopt(record: SaveRecord, etag: string | null, spare: SaveRecord | null = null): Promise<void> {
+  // Серверная партия младше 24-й читается дверью перехода ЗД-1 — своей докачкой, до разбора (`save.readyToRead`).
+  await readyToRead(record.game);
   if (!adoptSave(record.game)) {
     say('offline', 'Сохранение из облака не читается. Партия на этом устройстве не тронута.');
     return;
@@ -247,7 +249,7 @@ async function push(baseEtag: string | null): Promise<void> {
       // рядом отвергнутой. Спрашивать здесь нечего, но и терять нечего тоже.
       const body = res.body as ConflictResponse | null;
       if (body?.record) {
-        adopt(body.record, body.etag, record);
+        await adopt(body.record, body.etag, record);
         return;
       }
       say('offline', WORDS.offline);
@@ -277,9 +279,11 @@ export const useSync = create<SyncStore>((set, get) => ({
     location.reload();
   },
 
-  restoreSpare: () => {
+  restoreSpare: async () => {
     const sp = get().spare;
     if (!sp) return;
+    // Отложенная копия могла лечь до 24-й версии — её читает дверь перехода ЗД-1, своей докачкой (`save.readyToRead`).
+    await readyToRead(sp.game);
     if (!adoptSave(sp.game)) return;
     leaving = true;
     if (sp.world) browserStorage.write(sp.world);
@@ -407,7 +411,7 @@ export async function syncBoot(hadLocal: boolean): Promise<void> {
     case 'adopt':
       // Своей партии на устройстве не было — данные чистили или это новое
       // устройство. Серверную можно брать без вопроса: спорить не с чем.
-      if (record) adopt(record, etag);
+      if (record) await adopt(record, etag);
       return;
     case 'continue':
       // На сервере лежит ровно то, что клали мы. Наша копия — её продолжение,
@@ -418,7 +422,7 @@ export async function syncBoot(hadLocal: boolean): Promise<void> {
       // Партии выросли врозь — играли с двух устройств. Правда лежит на
       // сервере; своя копия не пропадает, а ложится рядом отвергнутой и
       // достаётся в «Заданиях» → «Служебное».
-      if (record) adopt(record, etag, here);
+      if (record) await adopt(record, etag, here);
       return;
   }
 }

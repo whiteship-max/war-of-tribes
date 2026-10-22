@@ -206,8 +206,11 @@ const BEARD_TOP = [0.047, 0.052, 0.07, 0.09, 0.106, 0.124, 0.14] as const;
 /** Ряды бороды: доля строки листа (сверху вниз). */
 const BEARD_V = [0, 0.16, 0.38, 0.6, 0.8, 0.92, 1] as const;
 
-/** Точка бороды (чертёж головы): столбец, ряд 0…6. Верх — на коже, ниже — объём у подбородка, кончик, изнанка к шее. */
-export function beardPt(head: Head, th: number, row: number): V3 {
+/**
+ * Точка бороды (чертёж головы): столбец, ряд 0…6. Верх — на коже, ниже — объём у подбородка, кончик, изнанка к шее.
+ * `beard` — доля длины (облик совета, РТ-1): 1 — борода ЛЦ-5 точка в точку, меньше — короче и площе под подбородком.
+ */
+export function beardPt(head: Head, th: number, row: number, beard = 1): V3 {
   const a = Math.abs(th);
   const i = BEARD_TH.findIndex((t) => t >= a - 1e-9);
   const k = i <= 0 ? 0 : (a - BEARD_TH[i - 1]) / (BEARD_TH[i] - BEARD_TH[i - 1]);
@@ -215,7 +218,7 @@ export function beardPt(head: Head, th: number, row: number): V3 {
   // Перед — полнее и ниже, к бакенбарду — тонко и вплотную к щеке; низ — округлой лопатой (середина длиннее боков).
   const front = 1 - smooth(0.5, 1.34, a);
   const drop = 0.4 + 0.6 * (1 - smooth(0.4, 1.4, a));
-  const len = 0.09 - 0.05 * Math.min(1, a / 1.34) ** 1.5;
+  const len = (0.09 - 0.05 * Math.min(1, a / 1.34) ** 1.5) * beard;
   // Лопата: низ бороды шире подбородка — на сантиметр с каждой стороны.
   const wide = Math.sin(th) * 0.012 * (1 - smooth(1.2, 1.56, a));
   const lifted = (h: number, lift: number): V3 => {
@@ -236,7 +239,7 @@ export function beardPt(head: Head, th: number, row: number): V3 {
       return lifted(0.006, 0.006 + 0.015 * front);
     case 3:
       // Под подбородком борода круглится вперёд, к низу — назад: в профиль — дугой, не доской.
-      return [c0[0] * 1.02 + wide, c0[1] - 0.042 * drop, c0[2] + 0.017 * front];
+      return [c0[0] * 1.02 + wide, c0[1] - 0.042 * drop * Math.min(1, beard), c0[2] + 0.017 * front];
     case 4:
       // Низ — округлый: бока короче середины, кончик подобран назад.
       return [c0[0] * 0.84 + wide, c0[1] - len * drop, c0[2] - 0.006 * front];
@@ -247,10 +250,10 @@ export function beardPt(head: Head, th: number, row: number): V3 {
   }
 }
 
-function buildBeard(m: SkinMesh, head: Head): void {
+function buildBeard(m: SkinMesh, head: Head, beard: number): void {
   const b = SHEETS.beard;
   const cols = [...[...BEARD_TH].reverse().map((t) => -t), ...BEARD_TH.slice(1)];
-  const rows = BEARD_V.map((v, ri) => cols.map((th) => m.v(beardPt(head, th, ri), uvB(Math.min(511, (Math.abs(th) / BEARD_TH[BEARD_TH.length - 1]) * 511), b.y0 + 1 + v * (b.y1 - b.y0 - 2)), 0, 'beard')));
+  const rows = BEARD_V.map((v, ri) => cols.map((th) => m.v(beardPt(head, th, ri, beard), uvB(Math.min(511, (Math.abs(th) / BEARD_TH[BEARD_TH.length - 1]) * 511), b.y0 + 1 + v * (b.y1 - b.y0 - 2)), 0, 'beard')));
   m.strip(rows, false, (p) => [0, p[1] + 0.01, head.HZ - 0.02]);
 }
 
@@ -483,12 +486,12 @@ function buildArm(m: SkinMesh, sx: 1 | -1): void {
 }
 
 /** Собрать фигуру: голова (маска, волосы, уши, борода), шея и мантия, ворот, цепь с медальоном, руки. Ног нет. */
-export function buildAdvisorMesh(head: Head): SkinMesh {
+export function buildAdvisorMesh(head: Head, beard = 1): SkinMesh {
   const m = new SkinMesh(advisorSkeleton(head));
   head.build(m);
   buildCap(m, head);
   buildEars(m, (th, h) => capPt(head, th, h, 0), head.HZ, EAR, EAR_SHEET, 1, 'head');
-  buildBeard(m, head);
+  buildBeard(m, head, beard);
   place(m, 0, toFigure(headFrame(head)));
   buildRobe(m);
   buildCollar(m);

@@ -1,5 +1,8 @@
 // Производные величины от состояния: вместимость, скорости, модификаторы.
 import type {
+  EstateId,
+  Advisor,
+  AdvisorPost,
   Building,
   BuildingTypeId,
   TroopId,
@@ -69,11 +72,13 @@ import {
   emptyResources,
 } from './constants';
 import { asGame, sessionSec, type GameSec } from './pace';
-import { BUILDING_BY_ID, MASTERS_AT, type BuildingStats, slotsAt } from './data/buildings';
+import { BUILDING_BY_ID, MASTERS_AT, jobsOf, type BuildingStats, slotsAt } from './data/buildings';
+import { keptType } from './merged';
 import { surveyRadiusOf } from './data/survey';
 import { buildRateOf, defenseOf, hallBuildMult, headsFoodPerDay, heatingWood, housingOf, keenAt, towerSeatsAt, soldierFoodPerDay as soldierFoodAt, stashAt, storageOf, type Levels } from './build';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
+import { YARD_BY_JOB } from './data/yards';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
 import { DESERT_SHARE, MASTER_PAID_AS, UPKEEP_TEXT } from './data/upkeep';
@@ -112,8 +117,24 @@ import {
 } from './data/seasons';
 import { daysSpan } from './span';
 import { BOON_BY_ID, type BoonDef } from './data/boons';
+import { ESTATE_META } from './data/estates';
 import { MAX_AGENT_LEVEL } from './data/agents';
 import { STAB_STEP, stabClamp, stabOutputMult } from './stabrules';
+import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
+import {
+  ESTATES,
+  FERVOUR_SCALE,
+  LOYAL,
+  PIETY_SCALE,
+  influenceOf,
+  loyaltyFrom,
+  loyaltyParts,
+  minusOf,
+  murmurOf,
+  plusOf,
+  strengthOf,
+  type LoyaltyParts,
+} from './estaterules';
 import type { IconName } from '@/ui/icons/alias';
 
 /** На здании идёт улучшение. */
@@ -164,25 +185,49 @@ export const currentSite = (s: GameState): Building | null => (s.buildings.some(
 export { levelOutputMult } from './selfcost';
 
 /**
- * Рабочих мест в здании. Личного навыка у жителя нет — всю его роль взял на себя
- * уровень здания: он и добавляет места, и поднимает выработку каждому рабочему.
+ * Рабочих мест **одного дела** здания (ЗД-1): у двора с двумя делами — у каждого столько, сколько было у прежнего здания
+ * того же уровня. Личного навыка у жителя нет — всю его роль взял на себя уровень здания: он и добавляет места, и
+ * поднимает выработку каждому рабочему.
  */
+export const deedSlots = (b: Building): number => slotsAt(BUILDING_BY_ID[b.type], b.level);
+
+/** Дела здания по порядку — профессии, которым оно даёт места (ЗД-1); у здания без мест — пусто. */
+export const deedsOf = (type: BuildingTypeId): readonly JobId[] => jobsOf(type);
+
+/** Рабочих мест в здании — на всех его делах. */
 export function buildingSlots(b: Building): number {
-  return slotsAt(BUILDING_BY_ID[b.type], b.level);
+  return deedSlots(b) * jobsOf(b.type).length;
 }
 
-/** Сколько человек работает в этом здании. Назначение — число, а не список людей. */
-export const workerCount = (s: GameState, buildingId: number): number =>
-  Math.max(0, Math.floor(s.workers?.[buildingId] ?? 0));
+/** Здание дела: профессия знает своё здание (`JobDef.building`), а здание каждого типа в посёлке одно. */
+export const deedBuilding = (s: GameState, job: JobId): Building | null => {
+  const type = JOB_BY_ID[job]?.building;
+  return type ? buildingOfType(s, type) : null;
+};
+
+/** Сколько человек стоит на деле (ЗД-1): ключ назначения — профессия дела. */
+export const deedWorkers = (s: GameState, job: JobId): number => Math.max(0, Math.floor(s.workers?.[job] ?? 0));
+
+/** Сколько невольников стоит на деле. */
+export const deedBonded = (s: GameState, job: JobId): number => Math.max(0, Math.floor(s.bondedWork?.[job] ?? 0));
+
+/** Сколько человек работает в этом здании — на всех его делах. Назначение — число, а не список людей. */
+export const workerCount = (s: GameState, buildingId: number): number => {
+  const b = buildingById(s, buildingId);
+  return b ? jobsOf(b.type).reduce((n, job) => n + deedWorkers(s, job), 0) : 0;
+};
 
 /** Сколько человек занято этой работой вольным сбором — без места в здании. */
 export const freeJobCount = (s: GameState, job: JobId): number =>
   Math.max(0, Math.floor(s.freeJobs?.[job] ?? 0));
 
-/** Сколько человек вообще при деле: в зданиях и на вольном сборе. */
+/** Профессии, у которых есть место в здании: на них стоят назначения `workers` и `bondedWork`. */
+export const PLACED_JOBS: readonly JobId[] = JOBS.filter((j) => j.building).map((j) => j.id);
+
+/** Сколько человек вообще при деле: на делах зданий и на вольном сборе. */
 export function busyCount(s: GameState): number {
   let n = 0;
-  for (const b of s.buildings) n += workerCount(s, b.id);
+  for (const job of PLACED_JOBS) n += deedWorkers(s, job);
   for (const job of FREE_JOBS) n += freeJobCount(s, job);
   return n;
 }
@@ -192,30 +237,43 @@ export const idleCount = (s: GameState): number => Math.max(0, s.pop - busyCount
 
 // ---------- Невольники на местах ----------
 //
-// Устроены ровно как жители: число в посёлке (`s.bonded`) и число в каждом
-// здании (`s.bondedWork`). Места у них общие с вольными — сколько рук стоит в
-// здании, спрашивают у `handsCount`, а не складывают два числа по месту вызова.
+// Устроены ровно как жители: число в посёлке (`s.bonded`) и число на каждом
+// деле (`s.bondedWork`). Места у них общие с вольными — сколько рук стоит на
+// деле, спрашивают у `deedHands`, а не складывают числа по месту вызова.
 
 /** Невольников в посёлке. */
 export const bondedTotal = (s: GameState): number => Math.max(0, Math.floor(s.bonded ?? 0));
 
-/** Сколько невольников стоит в этом здании. Назначение — число, как у жителей. */
-export const bondedCount = (s: GameState, buildingId: number): number =>
-  Math.max(0, Math.floor(s.bondedWork?.[buildingId] ?? 0));
+/** Сколько невольников стоит в этом здании — на всех его делах. Назначение — число, как у жителей. */
+export const bondedCount = (s: GameState, buildingId: number): number => {
+  const b = buildingById(s, buildingId);
+  return b ? jobsOf(b.type).reduce((n, job) => n + deedBonded(s, job), 0) : 0;
+};
 
 /** Наёмных мастеров в Мастерской (`GameState.masters`). */
 export const mastersCount = (s: GameState): number => Math.max(0, Math.floor(s.masters ?? 0));
+
+/** Дело, на местах которого стоят наёмные мастера: дело Мастерской (`MASTERS_AT`). */
+export const MASTERS_JOB: JobId = jobsOf(MASTERS_AT)[0];
+
+/** Сколько наёмных мастеров стоит на деле: все — на деле Мастерской, на остальных ноль. */
+export const deedMasters = (s: GameState, job: JobId): number => (job === MASTERS_JOB ? mastersCount(s) : 0);
 
 /** Сколько наёмных мастеров стоит на местах этого здания: все — в Мастерской, в остальных ноль. */
 export const mastersOn = (s: GameState, buildingId: number): number =>
   s.buildings.find((b) => b.id === buildingId)?.type === MASTERS_AT ? mastersCount(s) : 0;
 
 /**
- * Сколько рук на местах здания: вольные, невольники и — в Мастерской — наёмные мастера. Места у
+ * Сколько рук на местах дела: вольные, невольники и — на деле Мастерской — наёмные мастера. Места у
  * них общие: мастер занимает место ремесленника, а не своё (docs/admin_branch.md, раздел 4.1).
  */
-export const handsCount = (s: GameState, buildingId: number): number =>
-  workerCount(s, buildingId) + bondedCount(s, buildingId) + mastersOn(s, buildingId);
+export const deedHands = (s: GameState, job: JobId): number => deedWorkers(s, job) + deedBonded(s, job) + deedMasters(s, job);
+
+/** Сколько рук на местах здания — на всех его делах. */
+export const handsCount = (s: GameState, buildingId: number): number => {
+  const b = buildingById(s, buildingId);
+  return b ? jobsOf(b.type).reduce((n, job) => n + deedHands(s, job), 0) : 0;
+};
 
 /**
  * Свободных мест Мастерской для наёмных: её места минус её люди и уже стоящие мастера. Сколько
@@ -223,19 +281,19 @@ export const handsCount = (s: GameState, buildingId: number): number =>
  */
 export function mastersRoom(s: GameState): number {
   const hall = buildingOfType(s, MASTERS_AT);
-  return hall ? Math.max(0, buildingSlots(hall) - handsCount(s, hall.id)) : 0;
+  return hall ? Math.max(0, deedSlots(hall) - deedHands(s, MASTERS_JOB)) : 0;
 }
 
-/** Ставят ли невольников на работу этого здания (`JobDef.bonded`). */
-export const takesBonded = (b: Building): boolean => {
-  const job = BUILDING_BY_ID[b.type].job;
-  return Boolean(job && JOB_BY_ID[job].bonded);
-};
+/** Ставят ли невольников на это дело (`JobDef.bonded`). */
+export const deedTakesBonded = (job: JobId): boolean => Boolean(JOB_BY_ID[job]?.bonded);
 
-/** Сколько невольников стоит по зданиям. */
+/** Ставят ли невольников хоть на одно дело этого здания. */
+export const takesBonded = (b: Building): boolean => jobsOf(b.type).some(deedTakesBonded);
+
+/** Сколько невольников стоит по делам. */
 export function bondedBusy(s: GameState): number {
   let n = 0;
-  for (const b of s.buildings) n += bondedCount(s, b.id);
+  for (const job of PLACED_JOBS) n += deedBonded(s, job);
   return n;
 }
 
@@ -334,13 +392,10 @@ export const housingCapacity = (s: GameState): number => housingOf(levelsOf(s));
 /** Вместимость склада. Формула одна на игру и книгу стройки сервера (`game/build.storageOf`). */
 export const storageCap = (s: GameState): number => storageOf(levelsOf(s));
 
-/** Сколько человек по профессиям: рабочие зданий, вольный сбор и свободные руки. */
+/** Сколько человек по профессиям: рабочие на делах зданий, вольный сбор и свободные руки. */
 export function jobCounts(s: GameState): Record<JobId, number> {
   const counts = Object.fromEntries(JOBS.map((j) => [j.id, 0])) as Record<JobId, number>;
-  for (const b of s.buildings) {
-    const job = BUILDING_BY_ID[b.type].job;
-    if (job) counts[job] += workerCount(s, b.id);
-  }
+  for (const job of PLACED_JOBS) counts[job] += deedWorkers(s, job);
   for (const job of FREE_JOBS) counts[job] += freeJobCount(s, job);
   counts.idle = idleCount(s);
   return counts;
@@ -352,10 +407,7 @@ export function jobCounts(s: GameState): Record<JobId, number> {
  */
 export function jobCount(s: GameState, job: JobId): number {
   if (job === 'idle') return idleCount(s);
-  let n = 0;
-  for (const b of s.buildings) if (BUILDING_BY_ID[b.type].job === job) n += workerCount(s, b.id);
-  for (const free of FREE_JOBS) if (free === job) n += freeJobCount(s, job);
-  return n;
+  return (JOB_BY_ID[job]?.building ? deedWorkers(s, job) : 0) + (JOB_BY_ID[job]?.freeRange ? freeJobCount(s, job) : 0);
 }
 
 // ---------- Указ и рацион ----------
@@ -385,7 +437,7 @@ export const taxOf = (s: GameState): TaxDef => TAX_BY_ID[s.tax] ?? TAX_BY_ID.non
  * (`marketTick` не пускает золото ниже нуля).
  */
 export const taxIncomePerDay = (s: GameState): number =>
-  taxOf(s).perPop * population(s) * TAX_PER_POP + faithGoldPerDay(s);
+  taxOf(s).perPop * population(s) * TAX_PER_POP * treasurerMult(s) * estateGoldMult(s) + faithGoldPerDay(s);
 
 /**
  * Что даст и чего будет стоить налог `id` этому посёлку прямо сейчас — числами самой игры:
@@ -454,9 +506,10 @@ export const bondedSaleLeft = (s: GameState): number =>
 /**
  * Почём торговцы берут одного невольника. Всегда заметно ниже цены, по которой
  * они его приводят, и без роста за день: купить и тут же продать — это отдать
- * торговцам разницу, а не заработать на ней.
+ * торговцам разницу, а не заработать на ней. Казначей (РТ-1) выторговывает свою долю
+ * (`treasurerMult`) — выручка рынка, как и налог; до цены ввоза ей далеко и с ним.
  */
-export const bondedSalePrice = (): number => Math.floor(BONDED_GOOD.price * BONDED_SALE);
+export const bondedSalePrice = (s?: GameState): number => Math.floor(BONDED_GOOD.price * BONDED_SALE * (s ? treasurerMult(s) * merchantsMult(s) : 1));
 
 /** Во что обойдётся партия из `count` единиц. Считается поштучно. */
 export const marketCost = (s: GameState, def: GoodDef, count: number): number =>
@@ -726,7 +779,9 @@ export const feastSeconds = (): number => FEAST_DAYS * DAY_LENGTH;
  * дешевле тут делать не от чего.
  */
 export function wageShare(s: GameState): number {
-  const tax = taxOf(s).perPop * TAX_PER_POP;
+  // Налог — тем же, чем его собирает казна (`taxIncomePerDay`: Казначей и сословия), иначе доля закята в жалованье и в сборе
+  // разошлась бы, и мусульманский город держал бы войска не столько же, сколько соседи.
+  const tax = taxOf(s).perPop * TAX_PER_POP * treasurerMult(s) * estateGoldMult(s);
   const faith = faithTilt(s).goldPerPop;
   if (faith >= 0 || tax + faith <= 0) return 1;
   return Math.min(1, (tax + faith) / tax);
@@ -739,7 +794,12 @@ export function wageShare(s: GameState): number {
  */
 export { baseWage, wageGear } from './battle/price';
 
-export const wageOf = (s: GameState, troop: TroopId): number => baseWage(troop) * wageShare(s);
+/**
+ * Жалованье бойца этого вида за игровой день, золотом: ставка вида, доля веры (`wageShare`) и содержание, которого требует
+ * рыцарство в силе (РТ-2, минус рыцарей — `estateWageMult`). Мастер платится как боец-эталон (`masterWage`) — и рыцари
+ * дорожат его той же долей, как закят.
+ */
+export const wageOf = (s: GameState, troop: TroopId): number => baseWage(troop) * wageShare(s) * estateWageMult(s);
 
 /**
  * Сколько рук даёт стройке один наёмный мастер: его ставка (`CRAFTER_BUILD` под множителем
@@ -775,7 +835,146 @@ export const mastersWagesPerDay = (s: GameState): number => mastersCount(s) * ma
  * из неё платит `sim/upkeep`, по ней «по средствам» решает, сколько ещё держать, и по ней же
  * уходят недоплаченные. Второй ведомости у мастеров нет.
  */
-export const wagesPerDay = (s: GameState): number => armyWagesPerDay(s) + mastersWagesPerDay(s);
+export const wagesPerDay = (s: GameState): number => armyWagesPerDay(s) + mastersWagesPerDay(s) + councilWagesPerDay(s);
+
+// ---------- Совет Ратуши (РТ-1) ----------
+//
+// Советник — не правитель и не житель: он служит за жалованье из той же ведомости и приносит пользу своей должности — Староста
+// к стройке и добыче, Казначей к налогу и торговле, Воевода к стойкости дружины (docs/city_v3.md, «Решения РТ-1»). Здесь —
+// только чтение: кто сидит и сколько это даёт, формулами `councilrules`; пишет совет одна дверь — `sim/council`.
+
+/** Уровень ратуши — по нему ступень совета (`councilrules.councilTier`); ратуши нет — 0. */
+export const hallLevel = (s: GameState): number => buildingOfType(s, 'town_hall')?.level ?? 0;
+
+/** Советник на должности; нет — `null`. */
+export const councilSeat = (s: GameState, post: AdvisorPost): Advisor | null => s.council?.seats?.[post] ?? null;
+
+/** Польза должности сейчас: доля (Староста, Казначей) или очки стойкости (Воевода); места нет — ноль. */
+export function councilGift(s: GameState, post: AdvisorPost): number {
+  const a = councilSeat(s, post);
+  return a ? giftOf(post, a.level, a.trait) : 0;
+}
+
+/** Множитель Старосты: стройка и добыча дворов. */
+export const stewardMult = (s: GameState): number => 1 + councilGift(s, 'steward');
+
+/** Множитель Казначея: налог и выручка рынка. */
+export const treasurerMult = (s: GameState): number => 1 + councilGift(s, 'treasurer');
+
+/** Жалованье совета за игровой день — та же ведомость, что войско и мастера (`wagesPerDay`). */
+export const councilWagesPerDay = (s: GameState): number =>
+  ADVISOR_POSTS.reduce((n, p) => {
+    const a = councilSeat(s, p);
+    return a ? n + advisorWage(a.level, a.trait) : n;
+  }, 0);
+
+// ---------- Сословия (РТ-2) ----------
+//
+// Влияние и лояльность выводятся, а не хранятся (docs/stability.md, «РТ-2»): уровни построек, привилегии, указ и усилители —
+// всё, из чего они сделаны; числа и формулы — `estaterules`, одни с сервером. Здесь — чтение и рычаги, которые сословия кладут
+// в двери игры: золото, стройка, дворы, прирост, хлеб, жалованье, стойкость, недовольство податных и набожность. Привилегии и
+// дары пишет одна дверь — `sim/estates`.
+
+/** Сословие сейчас: влияние, лояльность и её слагаемые, сила, плюс и минус долями. */
+export interface EstateNow {
+  id: EstateId;
+  infl: number;
+  loyalty: number;
+  parts: LoyaltyParts;
+  strength: number;
+  plus: number;
+  minus: number;
+  /** Город живёт по указу этого сословия. */
+  decree: boolean;
+}
+
+/** Сословие, по чьему указу живёт город; указ короны — `null`. */
+export const estateDecree = (s: GameState): EstateId | null => decreeOf(s).estate ?? null;
+
+/** Что вести и дары кладут в лояльность сословия — усилителями (`data/boons`, поле `estates`). */
+export const estateMood = (s: GameState, e: EstateId): number => activeBoons(s).reduce((n, { def }) => n + (def.estates?.[e] ?? 0), 0);
+
+/** Все пять сословий сейчас — одна мерка на рычаги, окно, ропот и опись. */
+export const estatesNow = (s: GameState): Record<EstateId, EstateNow> => estatesWith(s, s.estates?.priv);
+
+/**
+ * Сословия при привилегиях `priv` — та же мерка, что `estatesNow`: окно меряет ею, что изменит дарование или отнятие, до
+ * касания (примерка той же дверью, правило 18).
+ */
+export function estatesWith(s: GameState, priv: Partial<Record<EstateId, number>> | undefined): Record<EstateId, EstateNow> {
+  const infl = influenceOf(levelsOf(s), priv);
+  const dec = estateDecree(s);
+  const out = {} as Record<EstateId, EstateNow>;
+  for (const e of ESTATES) {
+    const parts = loyaltyParts(e, priv, infl[e], estateMood(s, e));
+    const loyalty = loyaltyFrom(parts);
+    const strength = strengthOf(infl[e], dec === e);
+    out[e] = { id: e, infl: infl[e], loyalty, parts, strength, plus: plusOf(e, strength, loyalty), minus: minusOf(e, strength), decree: dec === e };
+  }
+  return out;
+}
+
+/** Доля минуса — не больше целого: множитель «один минус доля» не уходит ниже нуля. */
+const cutOf = (minus: number): number => 1 - Math.max(0, Math.min(1, minus));
+
+/** Золото налога: купцы — плюс, крестьяне и десятина духовенства — минус. */
+export function estateGoldMult(s: GameState): number {
+  const n = estatesNow(s);
+  return (1 + n.merchants.plus) * cutOf(n.peasants.minus) * cutOf(n.clergy.minus);
+}
+
+/** Выручка рынка — купцы. */
+export const merchantsMult = (s: GameState): number => 1 + estatesNow(s).merchants.plus;
+
+/** Скорость стройки — цехи. */
+export const guildsMult = (s: GameState): number => 1 + estatesNow(s).guilds.plus;
+
+/** Добыча дворов — крестьяне. */
+export const peasantsMult = (s: GameState): number => 1 + estatesNow(s).peasants.plus;
+
+/** Прирост: крестьяне — плюс, рыцари — минус. */
+export function estateGrowthMult(s: GameState): number {
+  const n = estatesNow(s);
+  return (1 + n.peasants.plus) * cutOf(n.knights.minus);
+}
+
+/** Хлеб, который ест город: цехи в силе едят больше. */
+export const estateFoodMult = (s: GameState): number => 1 + estatesNow(s).guilds.minus;
+
+/** Содержание войска: рыцари в силе требуют больше. */
+export const estateWageMult = (s: GameState): number => 1 + estatesNow(s).knights.minus;
+
+/** Какую долю налога в недовольстве податных гасит проповедь духовенства. */
+export const clergyRelief = (s: GameState): number => Math.min(1, estatesNow(s).clergy.plus);
+
+/** Что духовенство прибавляет к набожности. */
+export const clergyPiety = (s: GameState): number => PIETY_SCALE * estatesNow(s).clergy.plus;
+
+/**
+ * Можно ли объявить указ: указ короны — всегда, указ сословия — пока сословие верно (`estaterules.LOYAL`, docs/stability.md,
+ * Р1.6). Отказ — словами с числом лояльности: кнопка и сервер спрашивают одну мерку.
+ */
+export function decreeBlock(s: GameState, id: DecreeDef['id']): string | null {
+  const e = DECREE_BY_ID[id]?.estate;
+  if (!e) return null;
+  const loyalty = estatesNow(s)[e].loyalty;
+  return loyalty >= LOYAL ? null : `${ESTATE_META[e].name}: лояльность ${Math.floor(loyalty)} из ${LOYAL} — указ откроет верное сословие.`;
+}
+
+/**
+ * Цена дара сословию: день полного налога города золотом (высокий налог со всех жителей, `TAX_PER_POP`), крестьянству — день
+ * хлеба, который ест город (`townFoodPerDay`). От размера города, как у вестей. Одна мерка у кнопки дара и у жалобы сословия.
+ */
+export function estateGiftPrice(s: GameState, e: EstateId): { gold: number } | { food: number } {
+  if (ESTATE_META[e].gift === 'food') return { food: Math.max(1, Math.ceil(townFoodPerDay(s))) };
+  return { gold: Math.max(1, Math.ceil(population(s) * TAX_PER_POP * TAX_BY_ID.high.perPop)) };
+}
+
+/** Ропот сословия — причина у податных, % (`estaterules.murmurOf`). */
+export const estateMurmur = (s: GameState, e: EstateId): number => {
+  const n = estatesNow(s)[e];
+  return murmurOf(n.infl, n.loyalty);
+};
 
 /** Сколько войску причитается сейчас: в отсрочку приведённой партии — ничего. */
 export const wagesDue = (s: GameState): number => (s.time < (s.pay?.from ?? 0) ? 0 : wagesPerDay(s));
@@ -1056,21 +1255,26 @@ function cutBySiege(s: GameState, out: Resources): Resources {
 }
 
 /**
- * Выработка одного здания без осады: вольные и невольники на его местах.
+ * Выработка одного дела без осады: вольные и невольники на его местах (ЗД-1: дело — профессия здания).
  *
  * Невольники идут той же строкой — та же таблица профессии, тот же множитель
  * места, сезона, морали, веры и указа, — и только на свою долю (`BONDED_OUTPUT`).
  * Второго расчёта выработки под них нет и заводить его нельзя: две формулы
  * одного и того же разойдутся при первой правке одной из них.
  */
-function yardYield(s: GameState, out: Resources, b: Building, mods: SeasonModifiers): void {
-  const job = BUILDING_BY_ID[b.type].job;
-  if (!job) return;
+function deedYield(s: GameState, out: Resources, b: Building, job: JobId, mods: SeasonModifiers): void {
   // Постройка под обстрелом стоит фазу без работы (Р-5, `world/shelling`): её работники едят, но не дают ничего.
   if (s.siege?.idle?.includes(b.type)) return;
-  const mult = workerMultiplier(s, job, b, mods);
-  addYield(out, job, workerCount(s, b.id), mult * freeShare(s));
-  addYield(out, job, bondedCount(s, b.id), mult * bondedShare(s));
+  // Добыча дворов — под рукой Старосты (РТ-1): дела дворов (`YARD_BY_JOB`), а не горн и не мастерская.
+  // Сословия (РТ-2): дворы — под рукой крестьянства.
+  const mult = workerMultiplier(s, job, b, mods) * (YARD_BY_JOB.has(job) ? stewardMult(s) * peasantsMult(s) : 1);
+  addYield(out, job, deedWorkers(s, job), mult * freeShare(s));
+  addYield(out, job, deedBonded(s, job), mult * bondedShare(s));
+}
+
+/** Выработка одного здания без осады — сумма его дел. */
+function yardYield(s: GameState, out: Resources, b: Building, mods: SeasonModifiers): void {
+  for (const job of jobsOf(b.type)) deedYield(s, out, b, job, mods);
 }
 
 /** Выработка вольного сбора без осады: свободные руки на работах без места в здании (`FREE_JOBS`). */
@@ -1092,6 +1296,13 @@ export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMod
 export function buildingProduction(s: GameState, b: Building, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
   yardYield(s, out, b, mods);
+  return cutBySiege(s, out);
+}
+
+/** Что производит одно дело здания за день — строка дела в окне двора (ЗД-1). */
+export function deedProduction(s: GameState, b: Building, job: JobId, mods: SeasonModifiers = seasonMods(s)): Resources {
+  const out = emptyResources();
+  if (jobsOf(b.type).includes(job)) deedYield(s, out, b, job, mods);
   return cutBySiege(s, out);
 }
 
@@ -1147,7 +1358,8 @@ export function townFoodPerDay(s: GameState, mods: SeasonModifiers = seasonMods(
   // с тем же зимним множителем. Под осадой они заперты в городе вместе со всеми
   // и едят из осаждённого амбара — часы голода от них короче.
   total += bondedTotal(s);
-  return headsFoodPerDay(total, mods.food, rationOf(s).food);
+  // Цехи в силе (РТ-2) едят больше — минус ремесленного города.
+  return headsFoodPerDay(total, mods.food, rationOf(s).food) * estateFoodMult(s);
 }
 
 /**
@@ -1192,8 +1404,14 @@ export function mastersBuildShare(s: GameState, mods: SeasonModifiers = seasonMo
 export function crafterHeadShare(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   const shop = buildingOfType(s, 'workshop');
   if (!shop) return 0;
-  return CRAFTER_BUILD * workerMultiplier(s, 'crafter', shop, mods) * mods.build * townHallBuildMult(s);
+  return CRAFTER_BUILD * workerMultiplier(s, 'crafter', shop, mods) * mods.build * townHallBuildMult(s) * buildBoost(s);
 }
+
+/**
+ * Рука стройки сверх ратуши: Староста совета (РТ-1) и цехи в силе (РТ-2) — тем же множителем, что у `buildRate`
+ * (`build.buildRateOf`, не ниже единицы): доля Мастерской и мастеров в панели — ровно та, что они прибавляют к стройке.
+ */
+export const buildBoost = (s: GameState): number => Math.max(1, stewardMult(s) * guildsMult(s));
 
 /**
  * Множитель скорости стройки от уровня ратуши: +`TOWN_HALL_BUILD_STEP` за уровень сверх первого.
@@ -1214,7 +1432,8 @@ export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
   // Невольники без места — на стройке, тем же трудом и на ту же долю, что в поле.
   const bonded = bondedIdle(s) * bondedShare(s);
   // Формула одна на игру и книгу стройки сервера (`game/build.buildRateOf`; потолок сервера — `buildCeil`).
-  return buildRateOf(idle, bonded, crafterBuildRate(s, mods), mods.build, buildingOfType(s, 'town_hall')?.level ?? 0);
+  // Цехи в силе (РТ-2) множат стройку той же дверью, что Староста: потолок сервера — тот же множитель (`build.buildCeil`).
+  return buildRateOf(idle, bonded, crafterBuildRate(s, mods), mods.build, buildingOfType(s, 'town_hall')?.level ?? 0, buildBoost(s));
 }
 
 /**
@@ -1225,7 +1444,7 @@ export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
  * этого вклада обязана давать полную скорость.
  */
 export const crafterBuildShare = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number =>
-  crafterBuildRate(s, mods) * mods.build * townHallBuildMult(s);
+  crafterBuildRate(s, mods) * mods.build * townHallBuildMult(s) * buildBoost(s);
 
 export function canAfford(s: GameState, cost: Partial<Record<ResourceId, number>>): boolean {
   for (const r of RESOURCE_IDS) if ((cost[r] ?? 0) > s.resources[r]) return false;
@@ -1685,6 +1904,8 @@ export function pietyBreakdown(s: GameState): PietyBreakdown {
   if (foodDays < 1) add('hunger', 'res-food', 'Голодно в приходе', -PIETY_HUNGER, 'за что нам это');
   if (s.siege) add('siege', 'alert-siege', 'Под стенами враги', -PIETY_SIEGE, `осада, ${s.siege.byName}`);
   add('strain', 'ui-heartbreak', 'Надлом', -strainNow(s), 'навязанные решения ещё помнят');
+  // Духовенство в силе (РТ-2) — набожность прихода.
+  add('clergy', 'est-clergy', 'Духовенство', clergyPiety(s), 'сословие в силе');
 
   const raw = lines.reduce((n, l) => n + l.value, PIETY_BASE);
   return { base: PIETY_BASE, lines, raw, value: Math.max(0, Math.min(100, raw)) };
@@ -1735,6 +1956,16 @@ export const riteMorale = (s: GameState): number => (riteActive(s) ? RITE_MORALE
 export const fervour = (s: GameState): number => (riteActive(s) ? faithTilt(s).fervour : 0);
 
 /**
+ * Стойкость дружины целиком — то, что мост везёт в бой (`world/bridge`): обряд веры, Воевода совета (РТ-1) и рыцарство в силе
+ * (РТ-2, плюс рыцарей очками шкалы `FERVOUR_SCALE`), а купечество в силе снимает долю (его минус). Ниже нуля стойкости нет —
+ * бой её не принимает (`battle/sim`): купцы режут то, что дали обряд, Воевода и рыцари.
+ */
+export function armyResolve(s: GameState): number {
+  const n = estatesNow(s);
+  return Math.max(0, fervour(s) + councilGift(s, 'marshal') + FERVOUR_SCALE * n.knights.plus) * cutOf(n.merchants.minus);
+}
+
+/**
  * Как здание называется у этой деревни. Отличается от `def.name` ровно у одного
  * здания и ровно по одной причине: храм у мусульман — мечеть, у язычников —
  * капище, и подписывать их «Церковью» значит врать игроку на самом видном месте.
@@ -1745,8 +1976,11 @@ export const fervour = (s: GameState): number => (riteActive(s) ? faithTilt(s).f
  * из-за подписи нельзя.
  */
 export function buildingTitle(s: GameState, type: BuildingTypeId): string {
-  if (type !== 'church') return BUILDING_BY_ID[type].name;
-  return faithDef(s)?.temple ?? BUILDING_BY_ID[type].name;
+  // Старая запись мира (донесение, выстрел) может назвать здание, ушедшее в двор (ЗД-1): имя — двора.
+  const kept = BUILDING_BY_ID[type] ? type : keptType(type);
+  if (!kept) return String(type);
+  if (kept !== 'church') return BUILDING_BY_ID[kept].name;
+  return faithDef(s)?.temple ?? BUILDING_BY_ID[kept].name;
 }
 
 /** Сбор веры за игровой день: десятина в казну (плюс) или закят из неё (минус). */

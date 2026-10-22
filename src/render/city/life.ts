@@ -1372,6 +1372,9 @@ export function stationsOf(plan: CityPlan, sites: readonly Anchor[]): Stand[] {
   return out;
 }
 
+/** Сколько скота видно у Фермы этого уровня из всего стада `n`: с первого — треть, к десятому — все. */
+export const herdOf = (level: number, n: number): number => Math.min(n, Math.max(Math.min(n, 2), Math.round(n * (0.35 + (0.65 * (Math.max(1, level) - 1)) / 9))));
+
 /** Копейщики у ворот: с каждой стороны проезда (арка 6 м) двое — у столба арки и на шаг дальше, м от оси. */
 export const GATE_POSTS = [3.5, 4.4] as const;
 
@@ -1574,6 +1577,8 @@ export class CityLife {
   }
   private beatStops: { s: number; half: number }[] = [];
   private beasts: THREE.InstancedMesh;
+  /** Сколько скота видно: по уровню Фермы (`setHerd`, `herdOf`). */
+  private herd = Infinity;
   private guardGait: THREE.InstancedBufferAttribute;
   private gateGait: THREE.InstancedBufferAttribute;
   private beastGait: THREE.InstancedBufferAttribute;
@@ -1790,22 +1795,24 @@ export class CityLife {
     }
   }
 
-  /** Скот: овцы в загоне, коровы у хутора — разбросом, медленно бродят по кругу. */
+  /**
+   * Скот усадьбы (ЗД-2): овцы и коровы в загоне перед хутором — овцы у западной половины, у навеса, коровы — у восточной.
+   * Через одну корову на две овцы: сколько бы скота ни показывал уровень Фермы (`setHerd`), видны и те и другие.
+   */
   private seedBeasts(): void {
     const pen = this.input.plan.yards.find((y) => y.kind === 'pen');
-    const farm = this.input.plan.yards.find((y) => y.kind === 'farm');
-    const sheep = Math.round(this.cap.animals * 0.7);
+    if (!pen) return;
+    const fx = Math.cos(pen.rot);
+    const fz = Math.sin(pen.rot);
     for (let k = 0; k < this.cap.animals; k++) {
-      const y = k < sheep ? pen : farm;
-      if (!y) continue;
-      const fx = Math.cos(y.rot);
-      const fz = Math.sin(y.rot);
-      // В рамке двора: загон — 20 × 30 м, выгон хутора — за изгородью сбоку.
-      const f = k < sheep ? (rnd(k, 1, 83) - 0.5) * 14 : -20 + rnd(k, 1, 83) * 6;
-      const r = k < sheep ? (rnd(k, 2, 83) - 0.5) * 22 : -22 + rnd(k, 2, 83) * 10;
-      const x = y.x + fx * f + fz * r;
-      const z = y.z + fz * f - fx * r;
-      this.beastAt.push({ x, z, y: heightAt(x, z), yaw: rnd(k, 3, 83) * Math.PI * 2, r: k < sheep ? 1 : 1.7, seed: hash3(k, 5, 83) });
+      const cow = k % 3 === 2;
+      // В рамке загона (30 × 20 м): вперёд — поперёк выгона, вправо — вдоль него.
+      // Вперёд — от ворот у проезда к хлеву у южной изгороди (он встаёт с седьмого уровня Фермы).
+      const f = -6.5 + rnd(k, 1, 83) * 11;
+      const r = cow ? 3 + rnd(k, 2, 83) * 9 : -11 + rnd(k, 2, 83) * 12;
+      const x = pen.x + fx * f + fz * r;
+      const z = pen.z + fz * f - fx * r;
+      this.beastAt.push({ x, z, y: heightAt(x, z), yaw: rnd(k, 3, 83) * Math.PI * 2, r: cow ? 1.7 : 1, seed: hash3(k, 5, 83) });
     }
     const col = new THREE.Color();
     this.beastAt.forEach((b, k) => {
@@ -1815,6 +1822,11 @@ export class CityLife {
       this.beasts.setColorAt(k, col.setRGB(t[0], t[1], t[2]));
     });
     if (this.beasts.instanceColor) this.beasts.instanceColor.needsUpdate = true;
+  }
+
+  /** Уровень Фермы: скота в загоне — от трети стада на первом до всего к десятому (ЗД-2). */
+  setHerd(level: number): void {
+    this.herd = herdOf(level, this.beastAt.length);
   }
 
   /**
@@ -2331,8 +2343,8 @@ export class CityLife {
       this.torches.geometry.setDrawRange(0, lit2);
       tm.size = 2.4 * (1 + Math.sin(t * 13) * 0.1);
     }
-    // Скот бродит медленно: круг в пару метров у своего места, ноги — по пройденной дуге.
-    this.beasts.count = this.beastAt.length;
+    // Скот бродит медленно: круг в пару метров у своего места, ноги — по пройденной дуге. Сколько его — по уровню Фермы.
+    this.beasts.count = Math.min(this.herd, this.beastAt.length);
     const bg = this.beastGait.array as Float32Array;
     this.beastAt.forEach((b, i) => {
       const a = t * 0.05 + (b.seed % 100) * 0.06;

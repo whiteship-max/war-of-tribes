@@ -60,6 +60,7 @@ import { TAXES, TAX_PER_POP } from '@/game/data/policy';
 import { MUTINY_EVENT } from '@/game/data/order';
 import {
   buildingOfType,
+  deedBuilding,
   defense,
   hiddenStash,
   housingCapacity,
@@ -136,7 +137,7 @@ for (const level of [1, 5, MAX_BUILDING_LEVEL]) {
   const eat = mods.food * rationOf(s).food;
   const build = BUILDER_RATE * mods.build * townHallBuildMult(s);
   for (const job of BONDED_JOBS) {
-    const place = s.buildings.find((b) => BUILDING_BY_ID[b.type].job === job)!;
+    const place = deedBuilding(s, job)!;
     const mult = workerMultiplier(s, job, place, mods);
     const units = RESOURCE_IDS.reduce((n, r) => n + (JOB_BY_ID[job].yield[r] ?? 0), 0) * mult;
     console.log(
@@ -221,7 +222,7 @@ for (const level of [1, 5, MAX_BUILDING_LEVEL]) {
   const s = stage(level);
   s.time = 1;
   for (const job of ['farmer', 'woodcutter', 'miner'] as JobId[]) {
-    const place = s.buildings.find((b) => BUILDING_BY_ID[b.type].job === job)!;
+    const place = deedBuilding(s, job)!;
     const mult = workerMultiplier(s, job, place) * BONDED_OUTPUT;
     let gold = 0;
     let units = 0;
@@ -247,7 +248,7 @@ for (const level of [1, 5, MAX_BUILDING_LEVEL]) {
   for (let season = 0; season < 4; season++) {
     s.time = season * 5 * DAY_LENGTH + 1;
     for (const job of BONDED_JOBS) {
-      const place = s.buildings.find((b) => BUILDING_BY_ID[b.type].job === job)!;
+      const place = deedBuilding(s, job)!;
       const mult = workerMultiplier(s, job, place) * BONDED_OUTPUT;
       let gold = -selfCost(GOOD_BY_ID.food);
       for (const r of RESOURCE_IDS) gold += (JOB_BY_ID[job].yield[r] ?? 0) * mult * selfCost(GOOD_BY_ID[r]);

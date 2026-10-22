@@ -1839,6 +1839,89 @@ export interface WatchCard {
    * сервера (правило «crown»). Нет поля — опись до вестей державы.
    */
   crown?: WatchCrown;
+  /**
+   * Совет Ратуши (РТ-1, docs/city_v3.md, «Решения РТ-1»): кто сидит — должность, номер просителя, уровень, черта, минута
+   * найма — и счёт наймов, платы за найм и жалованья, для книги совета сервера (правило «council»). Нет поля — опись до совета
+   * или совета не было.
+   */
+  council?: WatchCouncil;
+  /**
+   * Сословия (РТ-2, docs/stability.md, «РТ-2»): привилегии по сословиям, указ сословия, влияние и счёт дарований, отнятий и
+   * даров — для книги сословий сервера (правило «estates»). Нет поля — опись до сословий.
+   */
+  estates?: WatchEstates;
+}
+
+/**
+ * Сословия в описи (`watch.estateFaults`, `estateFlags`): привилегии и влияние — по порядку сословий (`estaterules.ESTATES`),
+ * числами как есть (лишнее и чужое — флаг книги, а не тихая потеря), указ — сословием, чей он, строкой.
+ */
+export interface WatchEstates {
+  priv: number[];
+  decree?: string;
+  infl: number[];
+  grants: number;
+  revokes: number;
+  gifts: number;
+}
+
+/** Сколько чисел ряда сословий опись везёт самое большее: сословий пять — лишние говорят о подделке, и сервер их видит. */
+const ESTATES_READ_MAX = 8;
+
+/** Сословия описи: ряды — числа ±999 до восьми, указ — строка до 16 знаков, счёт — неотрицательный. */
+function readEstates(v: unknown): Pick<WatchCard, 'estates'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const row = (x: unknown): number[] =>
+    (Array.isArray(x) ? x : []).slice(0, ESTATES_READ_MAX).map((n) => Math.max(-999, Math.min(999, num(n) ?? 0)));
+  const decree = str(r.decree, 16);
+  return {
+    estates: {
+      priv: row(r.priv),
+      ...(decree ? { decree } : {}),
+      infl: row(r.infl),
+      grants: whole(r.grants, 1e9),
+      revokes: whole(r.revokes, 1e9),
+      gifts: whole(r.gifts, 1e9),
+    },
+  };
+}
+
+/** Советник в описи: должность и черта — строкой как есть (чужая — флаг книги, а не тихая потеря), уровень — целым. */
+export interface WatchAdvisor {
+  post: string;
+  n: number;
+  level: number;
+  trait: string;
+  at: number;
+}
+
+/** Совет в описи — то, что сверяет сервер (`watch.councilFlags`, правило «council»). */
+export interface WatchCouncil {
+  seats: WatchAdvisor[];
+  hired: number;
+  fees: number;
+  paid: number;
+}
+
+/** Сколько мест совета опись везёт самое большее: должностей три — лишние говорят о подделке, и сервер их видит. */
+const COUNCIL_READ_MAX = 8;
+
+/** Совет описи: места — должность и черта строкой до 16 знаков, номер и минута — неотрицательные, уровень — целым ±99. */
+function readCouncil(v: unknown): Pick<WatchCard, 'council'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const seats: WatchAdvisor[] = [];
+  for (const x of (Array.isArray(r.seats) ? r.seats : []).slice(0, COUNCIL_READ_MAX)) {
+    if (!x || typeof x !== 'object') continue;
+    const a = x as Record<string, unknown>;
+    const post = str(a.post, 16);
+    const trait = str(a.trait, 16);
+    const level = num(a.level);
+    if (!post || !trait || level === null) continue;
+    seats.push({ post, n: whole(a.n, 1e12), level: Math.round(Math.max(-99, Math.min(99, level))), trait, at: whole(a.at, 1e12) });
+  }
+  return { council: { seats, hired: whole(r.hired, 1e9), fees: whole(r.fees, 1e12), paid: whole(r.paid, 1e12) } };
 }
 
 /** Ответ на весть державы в описи: номер за партию, вид, номер ответа и игровая секунда прихода. */
@@ -1974,6 +2057,8 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...(r.gemSeen !== undefined ? { gemSeen: whole(r.gemSeen, 1e12) } : {}),
     ...readStab(r.stab),
     ...readCrown(r.crown),
+    ...readCouncil(r.council),
+    ...readEstates(r.estates),
   };
 }
 

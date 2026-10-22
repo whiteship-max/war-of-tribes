@@ -20,6 +20,7 @@ import { DEALS, FIGURES } from '@/world/data/figures';
 import { DIPLO_ACTIONS, STANDING_META } from '@/world/data/diplomacy';
 import { RELATION_ORDER, STAGES } from '@/world/data/meta';
 import { SPY_ACTIONS } from '@/world/data/spy';
+import { ADVISOR_POSTS } from '@/game/councilrules';
 import { RESOURCE_IDS } from '@/game/constants';
 import { ATTENTION_META } from '@/game/derived';
 import { BUILDINGS } from '@/game/data/buildings';
@@ -37,7 +38,7 @@ export type { IconName } from './alias';
  * ошибка `tsc`, а не пустое место на экране. Список сверяется с `ICON_GROUPS` тестом. */
 export const ICON_PREFIXES = [
   'res', 'bld', 'gear', 'troop', 'job', 'season', 'attn', 'bat', 'stage', 'rel', 'fig', 'letter', 'decree', 'ration', 'tax',
-  'evt', 'temper', 'daily', 'mini', 'gempack', 'maze', 'soc', 'ach', 'state', 'deal', 'dip', 'spy',
+  'evt', 'temper', 'daily', 'mini', 'gempack', 'maze', 'soc', 'ach', 'state', 'deal', 'dip', 'spy', 'post',
 ] as const;
 export type IconPrefix = (typeof ICON_PREFIXES)[number];
 
@@ -85,6 +86,8 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   { prefix: 'deal', ids: DEALS.map((d) => d.id), source: 'DEALS' },
   { prefix: 'dip', ids: DIPLO_ACTIONS.map((a) => a.id), source: 'DIPLO_ACTIONS' },
   { prefix: 'spy', ids: SPY_ACTIONS.map((a) => a.id), source: 'SPY_ACTIONS' },
+  // Должности совета Ратуши (РТ-1): карточка должности и весть о пустом месте.
+  { prefix: 'post', ids: ADVISOR_POSTS, source: 'ADVISOR_POSTS' },
 ];
 
 /** Имя значка для пары «группа + идентификатор». Ссылку раскрывает `Icon` (`alias.ts`). */

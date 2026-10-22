@@ -5,13 +5,14 @@
 //
 // Потолки (`…_MAX`, `buildCeil`, `popGrowthCeil`) выводятся из таблиц игры, а не задаются числом: наибольшее, что дают
 // сезон, усилители вестей, мораль, вера, указ и рацион вместе. Больше этого у игрока не бывает никак.
-import type { BuildingTypeId, ResourceId } from './types';
+import type { BuildingTypeId, JobId, ResourceId } from './types';
 import {
   BASE_DEFENSE,
   BASE_HOUSING,
   BASE_STORAGE_CAP,
   BUILDER_RATE,
   CRAFTER_BUILD,
+  FREE_RANGE_MULT,
   MORALE_OUTPUT_LOW,
   MORALE_OUTPUT_SPAN,
   POP_GROWTH_BASE,
@@ -19,6 +20,7 @@ import {
   TOWN_HALL_BUILD_STEP,
   UPGRADE_GROWTH,
   MAX_BUILDING_LEVEL,
+  RESOURCE_IDS,
   SOLDIER_FOOD,
   VILLAGER_DEFENSE,
   WALL_REPAIR_SHARE,
@@ -30,6 +32,9 @@ import { DECREES, RATIONS } from './data/policy';
 import { FAITHS, OBSERVANCES, tiltAt } from './data/faiths';
 import { levelOutputMult } from './selfcost';
 import { statAt } from './train';
+import { YARDS } from './data/yards';
+import { FREE_JOBS, JOB_BY_ID } from './data/jobs';
+import { STAB_MAX, stabOutputMult } from './stabrules';
 import { BATTLE_MAN } from './battle/kinds';
 
 /** Уровни построек по типу — как их держит опись (`WatchCard.buildings`) и книга стройки. Нет типа — уровень 0. */
@@ -94,10 +99,11 @@ export const hallBuildMult = (level: number): number => 1 + TOWN_HALL_BUILD_STEP
 
 /**
  * Скорость стройки, работа в игровую секунду — `derived.buildRate`: свободные руки (`idle`, невольники — своей долей в
- * `bonded`) по `BUILDER_RATE` плюс ремесленники и мастера (`crafters` — их работа), всё под сезоном и ратушей.
+ * `bonded`) по `BUILDER_RATE` плюс ремесленники и мастера (`crafters` — их работа), всё под сезоном, ратушей и Старостой
+ * (`steward` — множитель совета, РТ-1: `derived.stewardMult`).
  */
-export const buildRateOf = (idle: number, bonded: number, crafters: number, build: number, hallLevel: number): number =>
-  ((Math.max(0, idle) + Math.max(0, bonded)) * BUILDER_RATE + Math.max(0, crafters)) * build * hallBuildMult(hallLevel);
+export const buildRateOf = (idle: number, bonded: number, crafters: number, build: number, hallLevel: number, steward = 1): number =>
+  ((Math.max(0, idle) + Math.max(0, bonded)) * BUILDER_RATE + Math.max(0, crafters)) * build * hallBuildMult(hallLevel) * Math.max(1, steward);
 
 const most = (xs: number[]): number => Math.max(1, ...xs);
 const boost = (xs: (number | undefined)[]): number => xs.reduce<number>((m, x) => (x !== undefined && x > 1 ? m * x : m), 1);
@@ -121,6 +127,41 @@ export const CRAFTER_MULT_MAX =
   Math.max(1, faithMax((t) => t.output)) *
   most(DECREES.map((d) => d.output));
 
+/**
+ * Наибольший множитель работника дела `job` (`derived.jobMultiplier`): сезон, усилители вестей, полная мораль, вера, указ и
+ * высшая ступень стабильности — каждый в своём наибольшем.
+ */
+export const jobMultMax = (job: JobId): number =>
+  most(SEASONS.map((m) => m.jobs[job] ?? 1)) *
+  boost(BOONS.map((b) => b.jobs?.[job])) *
+  (MORALE_OUTPUT_LOW + MORALE_OUTPUT_SPAN) *
+  Math.max(1, faithMax((t) => t.output)) *
+  most(DECREES.map((d) => d.output)) *
+  stabOutputMult(STAB_MAX);
+
+/**
+ * Потолок выработки посёлка этих уровней с `pop` жителями за игровой день — правило «prod» книги сервера (docs/security.md,
+ * ЗД-1): каждое дело двора (`data/yards.ts`) — все свои места (`slotsAt` уровня его здания, у двора с двумя делами у
+ * каждого свои) работником в наибольшем множителе на уровне здания (`levelOutputMult`); сверх того вольный сбор — все
+ * жители лучшей работой без места вполсилы (`FREE_RANGE_MULT`). Невольник на месте даёт не больше вольного, осада только
+ * режет. Честная выработка (`derived.productionPerDay`) не бывает выше — тест.
+ */
+export function prodCeil(levels: Levels, pop: number, steward = 1): Record<ResourceId, number> {
+  const out = Object.fromEntries(RESOURCE_IDS.map((r) => [r, 0])) as Record<ResourceId, number>;
+  for (const y of YARDS) {
+    const level = levelIn(levels, y.building);
+    const hands = slotsAt(BUILDING_BY_ID[y.building], level);
+    const each = jobMultMax(y.job) * levelOutputMult(Math.max(1, level)) * Math.max(1, steward);
+    for (const r of RESOURCE_IDS) out[r] += hands * (y.yield[r] ?? 0) * each;
+  }
+  const people = Math.max(0, pop);
+  for (const r of RESOURCE_IDS) {
+    const best = Math.max(0, ...FREE_JOBS.map((job) => (JOB_BY_ID[job].yield[r] ?? 0) * jobMultMax(job)));
+    out[r] += people * best * FREE_RANGE_MULT;
+  }
+  return out;
+}
+
 /** Наибольшая стойкость веры (`faithTilt.steadfast`) — множитель обороны. */
 export const STEADFAST_MAX = Math.max(0, faithMax((t) => t.steadfast));
 
@@ -130,11 +171,11 @@ export const STEADFAST_MAX = Math.max(0, faithMax((t) => t.steadfast));
  * наибольшем множителе, всё под наибольшим сезоном и ратушей. Честная стройка (`derived.buildRate`) не бывает быстрее —
  * тест: ремесленник стоит на месте Мастерской, а не сверх него, и свободной головой он не считается дважды.
  */
-export function buildCeil(levels: Levels, heads: number): number {
+export function buildCeil(levels: Levels, heads: number, steward = 1): number {
   const shop = levelIn(levels, 'workshop');
   const crafter = CRAFTER_BUILD * CRAFTER_MULT_MAX * levelOutputMult(Math.max(1, shop));
   const places = 2 * slotsAt(BUILDING_BY_ID.workshop, shop);
-  return (Math.max(0, heads) * BUILDER_RATE + places * crafter) * BUILD_MOD_MAX * hallBuildMult(levelIn(levels, 'town_hall'));
+  return (Math.max(0, heads) * BUILDER_RATE + places * crafter) * BUILD_MOD_MAX * hallBuildMult(levelIn(levels, 'town_hall')) * Math.max(1, steward);
 }
 
 /** Наибольшая доля прироста в игровой день (`sim/population.popGrowth`): полная мораль, жильё и еда, щедрый паёк, вера. */
