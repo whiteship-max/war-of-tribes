@@ -156,14 +156,14 @@ export const strengthOf = (infl: number, decree = false): number =>
  * налог в недовольстве податных меньше на эту долю и набожность (долей шкалы `PIETY_SCALE`). **Выведен** неподвижной точкой
  * (`ESTATES_DERIVE=1 npm run stability:report`, Ц5: опора даёт своему делу +10 %). Руками не правят.
  */
-export const ESTATE_PLUS: Readonly<Record<EstateId, number>> = { merchants: 0.249, guilds: 0.342, peasants: 0.244, knights: 0.301, clergy: 0.201 };
+export const ESTATE_PLUS: Readonly<Record<EstateId, number>> = { merchants: 0.249, guilds: 0.341, peasants: 0.244, knights: 0.301, clergy: 0.201 };
 
 /**
  * Минус сословия при силе 1 — доля (лояльности не спрашивает): купцы — стойкость дружины (долей `FERVOUR_SCALE`), цехи — хлеб,
  * который ест город, крестьяне — золото налога, рыцари — жалованье войска и прирост, духовенство — десятина с налога.
  * **Выведен** тем же прогоном (Ц5: опора платит −5 %). Руками не правят.
  */
-export const ESTATE_MINUS: Readonly<Record<EstateId, number>> = { merchants: 0.243, guilds: 0.334, peasants: 0.238, knights: 0.293, clergy: 0.196 };
+export const ESTATE_MINUS: Readonly<Record<EstateId, number>> = { merchants: 0.243, guilds: 0.333, peasants: 0.238, knights: 0.293, clergy: 0.196 };
 
 /** Шкала стойкости: шаг Воеводы РТ-1 — пять процентов стартовой морали дружины мерки, значит вся шкала — двадцать шагов. */
 export const FERVOUR_SCALE = GIFT_STEP.marshal * 20;
