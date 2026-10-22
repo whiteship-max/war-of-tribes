@@ -1839,6 +1839,49 @@ export interface WatchCard {
    * сервера (правило «crown»). Нет поля — опись до вестей державы.
    */
   crown?: WatchCrown;
+  /**
+   * Совет Ратуши (РТ-1, docs/city_v3.md, «Решения РТ-1»): кто сидит — должность, номер просителя, уровень, черта, минута
+   * найма — и счёт наймов, платы за найм и жалованья, для книги совета сервера (правило «council»). Нет поля — опись до совета
+   * или совета не было.
+   */
+  council?: WatchCouncil;
+}
+
+/** Советник в описи: должность и черта — строкой как есть (чужая — флаг книги, а не тихая потеря), уровень — целым. */
+export interface WatchAdvisor {
+  post: string;
+  n: number;
+  level: number;
+  trait: string;
+  at: number;
+}
+
+/** Совет в описи — то, что сверяет сервер (`watch.councilFlags`, правило «council»). */
+export interface WatchCouncil {
+  seats: WatchAdvisor[];
+  hired: number;
+  fees: number;
+  paid: number;
+}
+
+/** Сколько мест совета опись везёт самое большее: должностей три — лишние говорят о подделке, и сервер их видит. */
+const COUNCIL_READ_MAX = 8;
+
+/** Совет описи: места — должность и черта строкой до 16 знаков, номер и минута — неотрицательные, уровень — целым ±99. */
+function readCouncil(v: unknown): Pick<WatchCard, 'council'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const seats: WatchAdvisor[] = [];
+  for (const x of (Array.isArray(r.seats) ? r.seats : []).slice(0, COUNCIL_READ_MAX)) {
+    if (!x || typeof x !== 'object') continue;
+    const a = x as Record<string, unknown>;
+    const post = str(a.post, 16);
+    const trait = str(a.trait, 16);
+    const level = num(a.level);
+    if (!post || !trait || level === null) continue;
+    seats.push({ post, n: whole(a.n, 1e12), level: Math.round(Math.max(-99, Math.min(99, level))), trait, at: whole(a.at, 1e12) });
+  }
+  return { council: { seats, hired: whole(r.hired, 1e9), fees: whole(r.fees, 1e12), paid: whole(r.paid, 1e12) } };
 }
 
 /** Ответ на весть державы в описи: номер за партию, вид, номер ответа и игровая секунда прихода. */
@@ -1974,6 +2017,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...(r.gemSeen !== undefined ? { gemSeen: whole(r.gemSeen, 1e12) } : {}),
     ...readStab(r.stab),
     ...readCrown(r.crown),
+    ...readCouncil(r.council),
   };
 }
 

@@ -2,16 +2,21 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROUTES } from './routes/index.js';
 import { botWith } from './routes/bot.js';
 import { STORES } from './kv.js';
-import { CITY_RULES, WARN, bookOf, confirmedOf, confirmedPower, flagsBetween, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
+import { CITY_RULES, WARN, bookOf, confirmedOf, confirmedPower, flagsBetween, marshalOf, prodOf, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
 import { readLedger, settlePurchase } from './gems.js';
 import { ROSTER_KEY, readRoster } from './roster.js';
 import { eatFloorOf, seedTown } from './town.js';
 import { emptyWars, liveSheet, readStoredSheet } from './war.js';
 import type { Telegram } from './telegram.js';
 import { PAY_NOT_COUNTED, PAY_NOT_SOLD } from './words.js';
-import type { GemsResponse, RatingResponse, WarSheet, WatchCard } from './contract.js';
+import type { GemsResponse, RatingResponse, WarSheet, WatchAdvisor, WatchCard, WatchCouncil } from './contract.js';
+import { advisorWage, candidateId, councilTier, giftCeil, giftOf, hirePrice, windowOf } from '../../src/game/councilrules.js';
+import type { AdvisorTrait } from '../../src/game/types.js';
+import { RESOLVE_MAX, ruleResolve } from './book.js';
+import { statAt } from '../../src/game/train.js';
+import { DESERT_SHARE } from '../../src/game/data/upkeep.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
-import { BUILD_QUEUE_MAX, START_POP } from '../../src/game/constants.js';
+import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, START_POP } from '../../src/game/constants.js';
 import { START_GEMS, fullWork, rushPriceOfWork } from '../../src/game/gemrules.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
@@ -120,7 +125,7 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'stab', 'crown', 'prod', 'merge']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'stab', 'crown', 'prod', 'merge', 'council']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
@@ -782,5 +787,110 @@ describe('ЗД-1: объединённые дворы на сервере — п
     const rec = await cheat.watch();
     expect(kinds(rec)).toContain('prod');
     expect(warnings(rec).some((t) => /выработка сверх мест/.test(t) && /еда/.test(t))).toBe(true);
+  });
+});
+
+// Совет Ратуши (РТ-1, docs/city_v3.md, «Решения РТ-1»): места и счёт приходят описью, сервер сверяет их формулами игры
+// (`game/councilrules`). Область правила: опись несёт совет; найм — между описями; жалованье — за промежуток дольше терпения
+// совета (точка внутри — утверждением в тесте).
+describe('РТ-1: совет Ратуши на сервере — честный найм без флагов, подделка — «внимание:»', () => {
+  const seat = (o: Partial<WatchAdvisor> = {}): WatchAdvisor => ({
+    post: 'steward',
+    n: candidateId(windowOf(1000), 'steward', 0),
+    level: 1,
+    trait: 'zealous',
+    at: 1000,
+    ...o,
+  });
+  const council = (seats: WatchAdvisor[], o: Partial<WatchCouncil> = {}): WatchCouncil => ({
+    seats,
+    hired: seats.length,
+    fees: seats.reduce((t, a) => t + hirePrice(a.level, a.trait as AdvisorTrait), 0),
+    paid: 0,
+    ...o,
+  });
+
+  it('честный найм и жалованье — без флага совета', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    const honest = player(5301);
+    const a = seat();
+    expect(await honest.push(card({ council: council([]) }), NOW)).toBe(200);
+    const wage = advisorWage(a.level, 'zealous') * gameDaysOfMs(HOUR);
+    expect(await honest.push(card({ clock: later, time: t, council: council([a], { paid: Math.ceil(wage) }) }), later)).toBe(200);
+    const rec = await honest.watch();
+    expect(kinds(rec)).not.toContain('council');
+  });
+
+  it('уровень выше ступени ратуши, найм без платы и без счёта, неизвестная черта — «внимание:»', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    expect(councilTier(LEVEL1.town_hall ?? 0), 'точка внутри: ратуша 1 даёт только первый уровень').toBe(1);
+
+    const high = player(5302);
+    expect(await high.push(card({ council: council([]) }), NOW)).toBe(200);
+    expect(await high.push(card({ clock: later, time: t, council: council([seat({ level: 3 })]) }), later)).toBe(200);
+    expect(warnings(await high.watch()).some((x) => /нанят уровень 3 при ратуше 1/.test(x))).toBe(true);
+
+    // Один флаг вида за час пишется строкой журнала один раз (`FLAG_QUIET`): каждое нарушение — своим игроком.
+    const uncounted = player(5303);
+    expect(await uncounted.push(card({ council: council([]) }), NOW)).toBe(200);
+    expect(await uncounted.push(card({ clock: later, time: t, council: council([seat()], { hired: 0 }) }), later)).toBe(200);
+    expect(warnings(await uncounted.watch()).some((x) => /новых мест 1/.test(x)), 'наймов в счёте меньше новых мест').toBe(true);
+
+    const free = player(5308);
+    expect(await free.push(card({ council: council([]) }), NOW)).toBe(200);
+    expect(await free.push(card({ clock: later, time: t, council: council([seat()], { fees: 0 }) }), later)).toBe(200);
+    expect(warnings(await free.watch()).some((x) => /новые места стоят/.test(x)), 'плата за найм не ушла').toBe(true);
+
+    const odd = player(5304);
+    expect(await odd.push(card({ council: council([seat({ trait: 'king' })], { fees: 0 }) }), NOW)).toBe(200);
+    expect(warnings(await odd.watch()).some((x) => /черты «king» нет/.test(x))).toBe(true);
+
+    const twice = player(5305);
+    expect(await twice.push(card({ council: council([seat(), seat({ n: candidateId(windowOf(1000), 'steward', 1) })]) }), NOW)).toBe(200);
+    expect(warnings(await twice.watch()).some((x) => /двое/.test(x))).toBe(true);
+  });
+
+  it('жалованье не платится дольше терпения совета — «внимание:»; заплачено — без флага', async () => {
+    const later = NOW + 24 * HOUR;
+    const t = 1000 + gameSecondsOfMs(24 * HOUR);
+    const days = gameDaysOfMs(24 * HOUR);
+    const grace = statAt('statue', 'loyalty', MAX_BUILDING_LEVEL) + 1 / DESERT_SHARE;
+    expect(days, 'точка внутри: промежуток дольше терпения совета').toBeGreaterThan(grace + 1);
+    const a = seat();
+
+    const stingy = player(5306);
+    expect(await stingy.push(card({ council: council([a]) }), NOW)).toBe(200);
+    expect(await stingy.push(card({ clock: later, time: t, council: council([a]) }), later)).toBe(200);
+    expect(warnings(await stingy.watch()).some((x) => /жалованья уплачено 0/.test(x))).toBe(true);
+
+    const fair = player(5307);
+    expect(await fair.push(card({ council: council([a]) }), NOW)).toBe(200);
+    expect(await fair.push(card({ clock: later, time: t, council: council([a], { paid: Math.ceil(advisorWage(1, 'zealous') * days) }) }), later)).toBe(200);
+    expect(kinds(await fair.watch())).not.toContain('council');
+  });
+
+  it('польза — только подтверждённых: Староста в потолке выработки, Воевода — в стойкости войны', () => {
+    const ceil = prodCeil(LEVEL1, START_POP);
+    const g = giftOf('steward', 1, 'zealous');
+    // Выработка на потолке мест под Старостой: доля — дворам, вольный сбор — без неё (`build.prodCeil`).
+    const prod = { food: prodCeil(LEVEL1, START_POP, 1 + g).food };
+    expect(prod.food, 'точка внутри: выше потолка без Старосты').toBeGreaterThan(ceil.food + 1);
+    const plain = prodOf(card({ prod }));
+    expect(plain.food, 'без совета — потолок мест').toBeLessThanOrEqual(ceil.food + 1);
+    const ok = prodOf(card({ prod, council: council([seat()]) }));
+    expect(ok.food, 'Староста подтверждён — его доля в потолке').toBeCloseTo(prod.food, 6);
+    const fake = prodOf(card({ prod, council: council([seat({ level: 3 })]) }));
+    expect(fake.food, 'уровень не по ратуше — пользы нет').toBeLessThanOrEqual(ceil.food + 1);
+
+    expect(ruleResolve(RESOLVE_MAX + 50)).toBe(RESOLVE_MAX);
+    const m = giftOf('marshal', 1, 'zealous');
+    expect(ruleResolve(RESOLVE_MAX + 50, m)).toBeCloseTo(RESOLVE_MAX + m, 9);
+    expect(ruleResolve(RESOLVE_MAX + 1e6, 1e6)).toBeCloseTo(RESOLVE_MAX + giftCeil('marshal'), 9);
+    const rec = readWatchRecord({ first: NOW, card: card({ council: council([seat({ post: 'marshal', n: candidateId(windowOf(1000), 'marshal', 0) })]) }) });
+    expect(marshalOf(rec, NOW).marshal).toBeCloseTo(m, 9);
+    const forged = readWatchRecord({ first: NOW, card: card({ council: council([seat({ post: 'marshal', level: 3, n: candidateId(windowOf(1000), 'marshal', 0) })]) }) });
+    expect(marshalOf(forged, NOW).marshal, 'Воевода не по ратуше — стойкости нет').toBeUndefined();
   });
 });

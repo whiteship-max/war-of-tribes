@@ -538,6 +538,11 @@ export interface SheetAt {
    * не меньше объяснимой убыли (`goods.goodsSheet`). Нет или не той записи — слепок как есть.
    */
   goods?: GoodsBook;
+  /**
+   * Стойкость Воеводы подтверждённого совета (РТ-1, `watch.councilResolve`): сверх обряда в бой идёт не больше неё. Нет —
+   * ноль: советника сервер не подтвердил или запись до совета.
+   */
+  marshal?: number;
 }
 
 // ------------------------------------------------ счёт по видам ---
@@ -710,7 +715,7 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
       if (back) home = plus(home, w.army.troops);
     }
   }
-  return { ...sheet, army, home, stock, gold, bonded, pop, levels, pips: rulePips(pips), resolve: ruleResolve(sheet.resolve) };
+  return { ...sheet, army, home, stock, gold, bonded, pop, levels, pips: rulePips(pips), resolve: ruleResolve(sheet.resolve, s.marshal ?? 0) };
 }
 
 /** По видам — не больше, чем в `cap`. */
@@ -1897,7 +1902,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (tired) return tired;
       const at = now + Math.round(walkMs / pace);
       if (at >= (w.starvesAt ?? Infinity)) return 'Не успеть: хлеб в городе кончится раньше.';
-      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army) }];
+      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army, s) }];
       // Ключ союзника — для вестей ему о его выручке (19.2); наружу не уходит.
       w.allies = { ...(w.allies ?? {}), [me]: { key, city: cityOr(ctx.roster.rows[key]?.city) } };
       return null;
@@ -1927,14 +1932,17 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
       const tired = energyBlock(have, priceOf('strike'), walkMs);
       if (tired) return tired;
-      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(order.army), joint: order.joint };
+      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(order.army, s), joint: order.joint };
       return null;
     }
   }
 }
 
-/** Войско приказа в пределах правил: стойкость и отметки полководца не выше, чем бывает у игрока (`book.ts`). */
-const ruleArmy = (a: WarArmy): WarArmy => ({ ...a, resolve: ruleResolve(a.resolve), pips: rulePips(a.pips) });
+/**
+ * Войско приказа в пределах правил: стойкость и отметки полководца не выше, чем бывает у игрока (`book.ts`); стойкость —
+ * сверх обряда ещё Воеводой подтверждённого совета (РТ-1, `SheetAt.marshal`).
+ */
+const ruleArmy = (a: WarArmy, s: SheetAt | null): WarArmy => ({ ...a, resolve: ruleResolve(a.resolve, s?.marshal ?? 0), pips: rulePips(a.pips) });
 
 /**
  * Когда город в последний раз пал или дал дань — от этой минуты он неприкосновенен (`SIEGE_IMMUNE`): дань за снятие осады
@@ -2035,7 +2043,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     sentAt: now,
     arriveAt: now + walkMs,
     phase: 'march',
-    army: { ...ruleArmy(order.army), energy },
+    army: { ...ruleArmy(order.army, mine), energy },
     went: { ...order.army.troops },
     ...(order.blockade && order.mode === 'siege' ? { ring: true as const } : {}),
     battles: [],

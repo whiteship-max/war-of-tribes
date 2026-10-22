@@ -11,7 +11,7 @@
  * (указ, заморозка). Запись наблюдения — попутная: не легла — партия всё равно сохранена, а ответ игроку тот же.
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
-import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchCard, type WatchCrownEntry } from './contract.js';
+import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchAdvisor, type WatchCard, type WatchCrownEntry } from './contract.js';
 import { DAY_LENGTH, gameDaysOfMs, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
@@ -21,6 +21,21 @@ import { prodCeil, storageOf } from '../../src/game/build.js';
 import { GONE_NAME, MERGED_INTO, MERGED_SAVE, foldTown } from '../../src/game/yardmerge.js';
 import { STAB_BAND, STAB_MAX, STAB_MIN, STAB_PRICE_MIN, STAB_SELF_MAX, stabEventRiseCeil, stabPointsCeil, stabSelfRiseCeil } from '../../src/game/stabrules.js';
 import { CROWN_GAIN_MAX, CROWN_RULES, CROWN_STAB_MAX, crownAnswersCeil, crownEvery, crownGain, crownStab, isCrown } from '../../src/game/crownrules.js';
+import {
+  ADVISOR_POSTS,
+  MAX_ADVISOR_LEVEL,
+  advisorWage,
+  councilTier,
+  giftOf,
+  hirePrice,
+  isPost,
+  isTrait,
+  postOfCandidate,
+  windowOf,
+  windowOfCandidate,
+} from '../../src/game/councilrules.js';
+import { DESERT_SHARE } from '../../src/game/data/upkeep.js';
+import { statAt } from '../../src/game/train.js';
 import { powerOfCounts } from '../../src/profile/power.js';
 import type { BuildingTypeId, ResourceId } from '../../src/game/types.js';
 import { rewrite } from './admin.js';
@@ -95,7 +110,8 @@ export type FlagKind =
   | 'stab'
   | 'crown'
   | 'prod'
-  | 'gone';
+  | 'gone'
+  | 'council';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -122,6 +138,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   crown: 'вести державы',
   prod: 'выработка сверх мест',
   gone: 'постройки до объединения',
+  council: 'совет Ратуши',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -129,7 +146,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -201,6 +218,13 @@ export const CITY_RULES: readonly CityRule[] = [
     flag: 'gone',
     act: 'сводит правилом перехода; флаг',
   },
+  {
+    id: 'council',
+    rule: 'совет Ратуши: должность и черта — из таблицы, нанятый — не выше ступени ратуши в минуту найма и из окна своего найма; наймов и платы за найм — не меньше новых мест, жалованье — по ведомости совета сверх терпения; польза — только подтверждённых советников',
+    formula: 'councilrules.councilTier, candidateId, hirePrice, advisorWage, giftOf',
+    flag: 'council',
+    act: 'в потолки стройки, выработки и стойкости — только подтверждённые; флаг',
+  },
 ];
 
 /** Ступень сохранения описи — из строки версии игры (`snapshot.buildId`: «сохр. 24 · …»); не названа — 0. */
@@ -226,7 +250,7 @@ export function foldCard(card: WatchCard): WatchCard {
  * сверх мест и множителей выработка не объясняет рост склада. Золото — налог и вера — как заявлено.
  */
 export function prodOf(card: WatchCard): Counts {
-  const ceil = prodCeil(card.buildings, card.pop);
+  const ceil = prodCeil(card.buildings, card.pop, councilMult(card, 'steward', levelIn(card.buildings, 'town_hall')));
   const out: Counts = { ...card.prod };
   for (const r of RESOURCE_IDS) if (out[r] !== undefined) out[r] = Math.min(out[r] ?? 0, ceil[r] + 1);
   return out;
@@ -412,6 +436,8 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
       text: `Опись сохранения ${saveOf(card.build)} называет постройки, которых с объединения дворов нет: ${list}. Сервер сводит их правилом перехода и подтверждает не больше книги стройки.`,
     });
   }
+  // Совет Ратуши (правило «council», РТ-1): должность и черта — из таблицы, уровень — в лестнице, одна должность — одно место.
+  for (const t of councilFaults(card)) out.push({ kind: 'council', text: t });
   // Ступень стабильности — в шкале −3…+3 у каждой описи, и у первой тоже (правило «stab», docs/stability.md, 2.7).
   if (card.stab && (card.stab.level < STAB_MIN || card.stab.level > STAB_MAX)) {
     out.push({ kind: 'stab', text: `Стабильность ${signed(card.stab.level)} — вне шкалы ${STAB_MIN}…+${STAB_MAX}.` });
@@ -496,6 +522,7 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   }
   out.push(...stabFlags(a, b, days, realMs));
   out.push(...crownFlags(a, b, realMs));
+  out.push(...councilFlags(a, b, days, realMs));
   const played = b.games - a.games;
   if (played > 0) {
     // Энергия: полный запас и приток за прошедшее время партии; игра стоит `MINIGAME_COST`.
@@ -506,6 +533,118 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
     if (got > cap * played + played) {
       out.push({ kind: 'haul', text: `Добыча промыслов ${signed(got)} за ${big(played)} игр; потолок — ${big(cap)} за игру.` });
     }
+  }
+  return out;
+}
+
+// ------------------------------------------------ совет Ратуши ---
+
+/** Уровень постройки в описи или книге; нет — 0. */
+const levelIn = (c: Counts, t: string): number => Math.max(0, Math.floor(c[t] ?? 0));
+
+/** Почему советник описи не по правилам самого себя: должность, черта, уровень и номер просителя. `null` — по правилам. */
+function advisorFault(a: WatchAdvisor): string | null {
+  if (!isPost(a.post)) return `должности «${a.post}» нет`;
+  if (!isTrait(a.trait)) return `черты «${a.trait}» нет`;
+  if (!Number.isInteger(a.level) || a.level < 1 || a.level > MAX_ADVISOR_LEVEL) return `уровень ${a.level} вне 1…${MAX_ADVISOR_LEVEL}`;
+  if (postOfCandidate(a.n) !== a.post) return `проситель №${a.n} просился не на эту должность`;
+  if (windowOfCandidate(a.n) !== windowOf(a.at)) return `проситель №${a.n} не из окна своего найма`;
+  return null;
+}
+
+/** Нарушения совета одной описи: советник против правил и вторая место на одной должности. */
+export function councilFaults(card: WatchCard): string[] {
+  const c = card.council;
+  if (!c) return [];
+  const out: string[] = [];
+  const posts = new Set<string>();
+  for (const a of c.seats) {
+    const why = advisorFault(a);
+    if (why) out.push(`Совет: ${why}.`);
+    if (posts.has(a.post)) out.push(`Совет: на должности «${a.post}» двое.`);
+    posts.add(a.post);
+  }
+  return out;
+}
+
+/**
+ * Подтверждённый советник должности: по правилам самого себя и не выше ступени ратуши `hall`. Его польза идёт в потолки
+ * стройки и выработки (Староста) и стойкости (Воевода); неподтверждённого нет. Нет — `null`.
+ */
+function confirmedSeat(card: WatchCard, post: string, hall: number): WatchAdvisor | null {
+  const seats = (card.council?.seats ?? []).filter((a) => a.post === post);
+  if (seats.length !== 1) return null;
+  const a = seats[0];
+  return advisorFault(a) === null && a.level <= councilTier(hall) ? a : null;
+}
+
+/** Множитель пользы подтверждённого советника (Староста, Казначей): 1 + польза; нет — единица. */
+export function councilMult(card: WatchCard, post: 'steward' | 'treasurer', hall: number): number {
+  const a = confirmedSeat(card, post, hall);
+  return a ? 1 + giftOf(post, a.level, a.trait as Parameters<typeof giftOf>[2]) : 1;
+}
+
+/** Стойкость подтверждённого Воеводы — сверх обряда (`book.ruleResolve`); нет — ноль. */
+export function councilResolve(card: WatchCard | undefined, hall: number): number {
+  const a = card ? confirmedSeat(card, 'marshal', hall) : null;
+  return a ? giftOf('marshal', a.level, a.trait as Parameters<typeof giftOf>[2]) : 0;
+}
+
+/** Жалованье подтверждённого совета за игровой день — расход казны в книге запасов (`goods.drainCeil`). */
+export function councilWage(card: WatchCard, hall: number): number {
+  let n = 0;
+  for (const post of ADVISOR_POSTS) {
+    const a = confirmedSeat(card, post, hall);
+    if (a) n += advisorWage(a.level, a.trait as Parameters<typeof advisorWage>[1]);
+  }
+  return n;
+}
+
+/** Стойкость Воеводы для слепка войны (`war.SheetAt.marshal`): подтверждённый совет при ратуше книги стройки; нет — пусто. */
+export function marshalOf(rec: WatchRecord, at: number): { marshal?: number } {
+  const marshal = councilResolve(rec.card, levelIn(townOf(rec, at).levels, 'town_hall'));
+  return marshal > 0 ? { marshal } : {};
+}
+
+/**
+ * Сколько игровых дней совет терпит неуплату, прежде чем уйти весь: самое долгое терпение Статуи и срок, за который уходят
+ * все при полной неуплате (`DESERT_SHARE`). Жалованье сверх этого срока уплачено — иначе советники ушли бы.
+ */
+const COUNCIL_GRACE_DAYS = statAt('statue', 'loyalty', MAX_BUILDING_LEVEL) + 1 / DESERT_SHARE;
+
+/**
+ * Книга совета (правило «council», РТ-1): наймы между описями — не выше ступени ратуши в минуту найма, счёт наймов и платы
+ * за найм — не меньше новых мест; жалованье сидевших весь промежуток — уплачено по ведомости совета сверх терпения; счёт не
+ * убывает. Сервер партию не разбирает: места и счёт приходят описью, невозможное — флаг и «внимание:».
+ */
+export function councilFlags(a: WatchCard, b: WatchCard, days: number, realMs: number): { kind: FlagKind; text: string }[] {
+  const out: { kind: FlagKind; text: string }[] = [];
+  const x = b.council;
+  if (!x) return out;
+  const y = a.council ?? { seats: [], hired: 0, fees: 0, paid: 0 };
+  if (x.hired < y.hired || x.fees < y.fees || x.paid < y.paid) {
+    out.push({ kind: 'council', text: `Счёт совета убыл: наймов ${big(y.hired)} → ${big(x.hired)}, платы за найм ${big(y.fees)} → ${big(x.fees)}, жалованья ${big(y.paid)} → ${big(x.paid)}.` });
+  }
+  const before = new Set(y.seats.map((s) => s.n));
+  const fresh = x.seats.filter((s) => !before.has(s.n));
+  const hall = Math.max(levelIn(a.buildings, 'town_hall'), levelIn(b.buildings, 'town_hall'));
+  for (const s of fresh) {
+    if (advisorFault(s) === null && s.level > councilTier(hall)) {
+      out.push({ kind: 'council', text: `Совет: нанят уровень ${s.level} при ратуше ${hall} — она даёт не выше ${councilTier(hall)}.` });
+    }
+  }
+  if (fresh.length > x.hired - y.hired) {
+    out.push({ kind: 'council', text: `Совет: новых мест ${big(fresh.length)} за ${span(realMs)}, а наймов в счёте ${big(x.hired - y.hired)}.` });
+  }
+  const fees = fresh.reduce((t, s) => (isTrait(s.trait) ? t + hirePrice(s.level, s.trait) : t), 0);
+  if (x.fees - y.fees < fees) {
+    out.push({ kind: 'council', text: `Совет: плата за найм ${big(x.fees - y.fees)} за ${span(realMs)}, а новые места стоят ${big(fees)}.` });
+  }
+  const sat = x.seats.filter((s) => before.has(s.n) && isTrait(s.trait));
+  const wage = sat.reduce((t, s) => t + advisorWage(s.level, s.trait as Parameters<typeof advisorWage>[1]), 0);
+  const owed = wage * Math.max(0, days - COUNCIL_GRACE_DAYS);
+  if (owed > 0 && (x.paid - y.paid) * GROWTH_SLACK + 1 < owed) {
+    out.push({ kind: 'council', text: `Совет: жалованья уплачено ${big(x.paid - y.paid)} за ${span(realMs)}, а ведомость совета сверх терпения — ${big(owed)}.` });
   }
   return out;
 }
@@ -801,7 +940,9 @@ export function booked(
   // Опись устройства, ещё не открывшего новую сборку, — прежним форматом: книги считают по сведённой переходом ЗД-1.
   const watch = foldCard(raw);
   const town0 = townOf(rec, at);
-  const claim = { buildings: watch.buildings, pop: watch.pop, bonded: watch.bonded, queued: watch.queued, site: watch.site, queue: watch.queue };
+  // Староста подтверждённого совета (РТ-1) — при ратуше книги стройки: его стройка быстрее, и потолок растёт той же долей.
+  const steward = councilMult(watch, 'steward', levelIn(town0.levels, 'town_hall'));
+  const claim = { buildings: watch.buildings, pop: watch.pop, bonded: watch.bonded, queued: watch.queued, site: watch.site, queue: watch.queue, steward };
   const built = buildStep(town0, at, claim, gems, prior.card?.site);
   const book0 = bookOf(rec, at);
   const step = bookAfter(book0, at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, grants, wars, key, seen ?? [], built.book.levels);
@@ -819,6 +960,7 @@ export function booked(
     levels: people.book.levels,
     pop: people.book.pop,
     soldiers: army.after + people.book.queued,
+    council: councilWage(watch, levelIn(people.book.levels, 'town_hall')),
   });
   const next = { ...rec, book: step.book, town: people.book, goods: goods.book };
   const found: { kind: FlagKind; text: string }[] = [];
@@ -863,7 +1005,7 @@ export function booked(
   }
   // Выработка не выше мест дел подтверждённых построек (правило «prod», `build.prodCeil`): у двора с двумя делами у каждого
   // дела свои места — как у прежнего здания того же уровня (ЗД-1).
-  const ceil = prodCeil(people.book.levels, people.book.pop);
+  const ceil = prodCeil(people.book.levels, people.book.pop, councilMult(watch, 'steward', levelIn(people.book.levels, 'town_hall')));
   const over = RESOURCE_IDS.filter((r) => (watch.prod[r] ?? 0) > ceil[r] * (1 + 1e-9) + 1);
   if (over.length > 0) {
     const parts = over.map((r) => `${stockWord(r)} ${big(watch.prod[r] ?? 0)} при потолке ${big(ceil[r])}`);

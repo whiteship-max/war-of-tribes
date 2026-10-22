@@ -209,6 +209,11 @@ export interface TownClaim {
   queued?: number;
   site?: TownSite;
   queue?: { type: string; level: number }[];
+  /**
+   * Множитель Старосты подтверждённого совета (РТ-1, `watch.councilMult`): стройка под его рукой быстрее, и потолок стройки
+   * растёт той же долей. Нет — единица.
+   */
+  steward?: number;
 }
 
 /** Уровень, ускоренный за алмазы: из записи книги алмазов. */
@@ -225,11 +230,11 @@ const handsOf = (pop: number, bonded: number): number => Math.max(0, pop) + Math
  * Потолок скорости стройки на промежуток: уровни ратуши и Мастерской — подтверждённые, но на уровень выше, если опись их
  * подняла (уровень мог достроиться посреди промежутка); руки — подтверждённые жители.
  */
-function rateOf(levels: Counts, claim: Counts, hands: number): number {
+function rateOf(levels: Counts, claim: Counts, hands: number, steward = 1): number {
   const at: Counts = { ...levels };
   for (const t of ['town_hall', 'workshop'] as const) at[t] = Math.min(levelIn(claim, t), levelIn(levels, t) + 1, top(t));
   for (const t of ['town_hall', 'workshop'] as const) at[t] = Math.max(at[t], levelIn(levels, t));
-  return buildCeil(at, hands);
+  return buildCeil(at, hands, steward);
 }
 
 export const keyOf = (type: string, level: number): string => `${type}:${level}`;
@@ -312,7 +317,7 @@ export function buildStep(prev: TownBook, at: number, claim: TownClaim, gems: re
     gem = Math.max(gem, g.n);
     paid.add(keyOf(g.building, g.level));
   }
-  const rate = rateOf(prev.levels, claim.buildings, handsOf(prev.pop, claim.bonded ?? 0));
+  const rate = rateOf(prev.levels, claim.buildings, handsOf(prev.pop, claim.bonded ?? 0), claim.steward);
   let work = prev.credit + rate * gameSecondsOfMs(dt) * TOWN_SLACK;
   const free = rushFreeWork();
   const levels: Counts = {};
@@ -531,11 +536,11 @@ export function ruleTower(gun: WarTowerGun | undefined, towerLevel: number): War
  * выше подтверждённого не отказ (опись могла не успеть показать достроенное): труд недостроенных ниже вычитается из
  * того, что посёлок мог сделать, а ускоренный уровень книга подтверждает только поверх подтверждённых ниже.
  */
-export function rushFloor(book: TownBook, claimed: Counts, bonded: number, type: BuildingTypeId, level: number, at: number): number | null {
+export function rushFloor(book: TownBook, claimed: Counts, bonded: number, type: BuildingTypeId, level: number, at: number, steward = 1): number | null {
   const conf = levelIn(book.levels, type);
   if (!Number.isInteger(level) || level <= conf || level > top(type)) return null;
   const free = rushFreeWork();
-  const rate = rateOf(book.levels, claimed, handsOf(book.pop, bonded));
+  const rate = rateOf(book.levels, claimed, handsOf(book.pop, bonded), steward);
   let work = book.credit + rate * gameSecondsOfMs(Math.max(0, at - book.at)) * TOWN_SLACK;
   // Ускоряется только строящееся (СТ-1): места очереди книги впереди этого должны были успеть достроиться — их труд
   // вычитается из того, что посёлок мог сделать стройкой за время с записи; не успели бы — это ждущее, и ускорению отказ.

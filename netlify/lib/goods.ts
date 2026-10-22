@@ -50,7 +50,7 @@ const WAGE_MAX = Math.max(...TROOP_IDS.map(baseWage));
  *    с каждой головы (`build.GOLD_OUT_PER_POP_MAX`).
  * Остальное на складе без дела не убывает вовсе.
  */
-export function drainCeil(levels: Levels, pop: number, bonded: number, soldiers: number): Counts {
+export function drainCeil(levels: Levels, pop: number, bonded: number, soldiers: number, council = 0): Counts {
   const people = Math.max(0, pop);
   const men = Math.max(0, soldiers);
   const { masters, hands } = mastersCeil(levels);
@@ -58,7 +58,8 @@ export function drainCeil(levels: Levels, pop: number, bonded: number, soldiers:
   return {
     food: headsFoodPerDay(people + Math.max(0, bonded) + masters, FOOD_MOD_MAX, 1) + mouths * soldierFoodPerDay(FOOD_MOD_MAX, 1),
     wood: Math.max(heatingWood(people, 0, HEAT_MOD_MAX), heatingWood(0, people, HEAT_MOD_MAX)),
-    gold: men * WAGE_MAX + masters * baseWage(MASTER_PAID_AS) * hands + (people + men) * GOLD_OUT_PER_POP_MAX,
+    // Жалованье совета Ратуши (РТ-1) — та же ведомость: подтверждённые советники (`watch.councilWage`).
+    gold: men * WAGE_MAX + masters * baseWage(MASTER_PAID_AS) * hands + (people + men) * GOLD_OUT_PER_POP_MAX + Math.max(0, council),
   };
 }
 
@@ -67,6 +68,8 @@ export interface GoodsCtx {
   levels: Levels;
   pop: number;
   soldiers: number;
+  /** Жалованье подтверждённого совета Ратуши за игровой день (РТ-1). Нет — ноль. */
+  council?: number;
 }
 
 export interface GoodsStep {
@@ -112,7 +115,7 @@ export function goodsStep(prev: GoodsBook | null, a: WatchCard | undefined, aAt:
   if (!prev || !a || !quietBetween(a, b)) return { book: { at: bAt, have: claimed, bonded }, hidden: [] };
   const realMs = Math.max(0, bAt - aAt);
   const days = gameDaysOfMs(realMs + Math.max(0, b.lead - a.lead) + CLOCK_SKEW_SECONDS * 1000);
-  const drain = drainCeil(ctx.levels, ctx.pop, bonded, ctx.soldiers);
+  const drain = drainCeil(ctx.levels, ctx.pop, bonded, ctx.soldiers, ctx.council);
   const have: Counts = {};
   const hidden: GoodsStep['hidden'] = [];
   for (const k of STOCK_KEYS) {

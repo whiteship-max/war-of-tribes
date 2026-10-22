@@ -9,7 +9,7 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCrown, type WatchStab } from '../../netlify/lib/contract';
+import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchStab } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { SAVE_VERSION } from '@/game/state';
 import {
@@ -39,6 +39,8 @@ import { adminSeen } from '@/game/sim/admin';
 import { gemSeen } from '@/game/sim/gems';
 import { stabLevel, stabOf } from '@/game/sim/stability';
 import { crownOf } from '@/game/sim/crown';
+import { councilOf } from '@/game/sim/council';
+import { ADVISOR_POSTS } from '@/game/councilrules';
 import { deviceNow, leadAt } from './clock';
 import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
@@ -150,7 +152,19 @@ export function watchOf(s: GameState): WatchCard {
     stab: stabCard(s),
     // Книга вестей державы (СБ-2): счёт ответов и последние из них — чтением одной двери (`sim/crown.crownOf`).
     crown: crownCard(s),
+    // Книга совета Ратуши (РТ-1): кто сидит и счёт наймов, платы и жалованья. Совета не было — поля нет.
+    ...(s.council ? { council: councilCard(s) } : {}),
   };
+}
+
+/** Совет для описи — чтением одной двери (`sim/council.councilOf`): место — должность, номер, уровень, черта, минута найма. */
+function councilCard(s: GameState): WatchCouncil {
+  const c = councilOf(s);
+  const seats = ADVISOR_POSTS.flatMap((post) => {
+    const a = c.seats[post];
+    return a ? [{ post, n: a.n, level: a.level, trait: a.trait, at: Math.floor(a.at) }] : [];
+  });
+  return { seats, hired: c.hired, fees: Math.round(c.fees), paid: Math.floor(c.paid) };
 }
 
 /** Вести державы для описи: у партии без поля — ноль ответов. */
