@@ -873,7 +873,7 @@ function pen(b: Builder, y: Yard, d: Detail): V3[] {
 /**
  * Рост Фермы с уровнем (ЗД-2): своим мешем, ступенями по `layout.FARM_TIERS` — меш рисует начало индексов до своей ступени
  * (`tiers` — где кончается каждая, `mill.growthCount`). С 4-го уровня: амбар-житница на камнях-грибах, ульи у дома и ещё два стога; с 7-го: голубятня
- * во дворе, хлев у загона и ещё два стога.
+ * во дворе, хлев в загоне и ещё два стога.
  */
 export function farmGrowth(farm: Yard, penY: Yard, d: Detail): { b: Builder; tiers: number[] } {
   const b = new Builder();
@@ -916,10 +916,10 @@ export function farmGrowth(farm: Yard, penY: Yard, d: Detail): { b: Builder; tie
   const dg = heightAt(dx, dz);
   taper(b, dx, dz, 1.55, 1.4, dg - 0.4, dg + 4.6, d === 0 ? 7 : 10, 'plaster', tint(CITY.wallTints[0], 0.95));
   cone(b, dx, dz, 1.85, dg + 4.5, dg + 6.6, d === 0 ? 7 : 10, 'roofSlate', tint(CITY.shingleTint, 0.88), 0.85);
-  // Хлев у западной изгороди загона, за навесом: длинный и низкий, под дранкой.
-  const pf = new Frame(penY.x, penY.z, Math.cos(penY.rot), Math.sin(penY.rot));
-  const [bx, bz] = pf.q(0, -PEN.R - 3.2);
-  const byre: Civic = { kind: 'stable', x: bx, z: bz, rot: penY.rot + Math.PI / 2, w: 11, d: 4.6, base: footSpan(bx, bz, Math.cos(penY.rot + Math.PI / 2), Math.sin(penY.rot + Math.PI / 2), 11, 4.6).hi + FLOOR_LIFT, seed: penY.seed + 3 };
+  // Хлев у южной изгороди загона, внутри неё — касание по нему открывает Ферму: длинный и низкий, под дранкой, лицом к выгону.
+  const [bx, bz] = new Frame(penY.x, penY.z, Math.cos(penY.rot), Math.sin(penY.rot)).q(PEN.F - 2.9, 3.5);
+  const brot = penY.rot + Math.PI;
+  const byre: Civic = { kind: 'stable', x: bx, z: bz, rot: brot, w: 10, d: 4.4, base: footSpan(bx, bz, Math.cos(brot), Math.sin(brot), 10, 4.4).hi + FLOOR_LIFT, seed: penY.seed + 3 };
   body(
     b,
     byre,

@@ -179,6 +179,14 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
     // Фонари у двери двора; у Шахты — на стойке крепи у входа, у Фермы — ещё над дверью мельницы (ЗД-2).
     lit(pts, 'lantern');
     for (const h of yardHalls(y)) civicStoop(b, h);
+    // Крылья мельницы рисует свой меш, а касание по ним открывает Ферму (ЗД-2): у них — своя коробка, тонкая; главное место
+    // Фермы — хутор (`sites.mainSite` — по площади), и леса стройки и подпись — у него. Коробка крыльев — после огней: `lit`
+    // берёт коробку последнего двора.
+    if (y.kind === 'farm') {
+      const wings = new Builder();
+      sailsStill(wings, y, 0);
+      sites.push(siteOf('farm', wings.extent(0, y.x, y.z, Math.cos(y.rot), Math.sin(y.rot)), y.x, y.z, Math.cos(y.rot), Math.sin(y.rot)));
+    }
   }
   // Скальные выходы гряды Шахты — ничьи, как ступени: касание по ним — не постройка (ЗД-2).
   ridgeCrags(b, d);

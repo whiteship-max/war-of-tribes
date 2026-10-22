@@ -1807,7 +1807,8 @@ export class CityLife {
     for (let k = 0; k < this.cap.animals; k++) {
       const cow = k % 3 === 2;
       // В рамке загона (30 × 20 м): вперёд — поперёк выгона, вправо — вдоль него.
-      const f = (rnd(k, 1, 83) - 0.5) * 13;
+      // Вперёд — от ворот у проезда к хлеву у южной изгороди (он встаёт с седьмого уровня Фермы).
+      const f = -6.5 + rnd(k, 1, 83) * 11;
       const r = cow ? 3 + rnd(k, 2, 83) * 9 : -11 + rnd(k, 2, 83) * 12;
       const x = pen.x + fx * f + fz * r;
       const z = pen.z + fz * f - fx * r;
