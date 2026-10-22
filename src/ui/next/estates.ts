@@ -45,7 +45,7 @@ export function leverWords(e: EstateId, n: Pick<EstateNow, 'plus' | 'minus'>): {
     case 'merchants':
       return { plus: `${pct(n.plus)} золота`, minus: `${pct(-n.minus)} стойкости`, plusFull: `Золото налога и рынка ${pct(n.plus)}`, minusFull: `Стойкость дружины ${pct(-n.minus)}` };
     case 'guilds':
-      return { plus: `${pct(n.plus)} к стройке`, minus: `${pct(n.minus)} хлеба`, plusFull: `Скорость стройки ${pct(n.plus)}`, minusFull: `Хлеба город ест ${pct(n.minus)}` };
+      return { plus: `${pct(n.plus)} стройки`, minus: `${pct(n.minus)} хлеба`, plusFull: `Скорость стройки ${pct(n.plus)}`, minusFull: `Хлеба город ест ${pct(n.minus)}` };
     case 'peasants':
       return { plus: `${pct(n.plus)} добычи`, minus: `${pct(-n.minus)} налога`, plusFull: `Добыча дворов и прирост ${pct(n.plus)}`, minusFull: `Золото налога ${pct(-n.minus)}` };
     case 'knights':

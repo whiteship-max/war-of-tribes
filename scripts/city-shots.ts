@@ -13,7 +13,8 @@
 //                                                `PANEL=tab:buildings` — раздел шторки («Здания» низа, РТ-1), `HALL=7` — уровень
 //                                                ратуши, `PANELCLICK='.cn-card .kit-btn|…'` — касания по очереди, кадр после каждого
 //                                                (`PANELWAIT=3000` — пауза перед кадром, мс: портреты совета рисуются очередью);
-//                                                `LEVELS=market:8` — уровни построек и здесь (РТ-2: перевес сословия)
+//                                                `LEVELS=market:8` — уровни построек и здесь (РТ-2: перевес сословия);
+//                                                шаг `scroll:селектор` в `PANELCLICK` — прокрутка к элементу вместо касания
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
 //                                                точка плана; `…:60:150` — камера повёрнута на 150°), `WXMAP=1` —
@@ -351,7 +352,12 @@ async function panelShots(tab: Tab): Promise<void> {
     // Касания по очереди (`PANELCLICK`): кадр после каждого — лист просителей, «Точно?» и т. п.
     let k = 0;
     for (const sel of (process.env.PANELCLICK ?? '').split('|').filter(Boolean)) {
-      const hit = await tab.eval<boolean>(`JSON.stringify((() => { const e = document.querySelector(${JSON.stringify(sel)}); if (e) e.click(); return !!e; })())`);
+      // `scroll:селектор` — не касание, а прокрутка к нему (РТ-2: строки ниже первого экрана).
+      const scroll = sel.startsWith('scroll:');
+      const q = JSON.stringify(scroll ? sel.slice(7) : sel);
+      const hit = await tab.eval<boolean>(
+        `JSON.stringify((() => { const e = document.querySelector(${q}); if (e) ${scroll ? "e.scrollIntoView({ block: 'center' })" : 'e.click()'}; return !!e; })())`,
+      );
       await sleep(Number(process.env.PANELWAIT ?? 1800));
       k += 1;
       if (hit) await snap(`${TAG}-${type.replace(':', '-')}-c${k}.png`);

@@ -48,9 +48,8 @@ export function decreeCells(): { id: (typeof DECREES)[number]['id']; cells: Reco
 }
 
 export const ESTATE_DECREE_COLS: readonly Col[] = [
-  { key: 'name', title: 'Указ сословия' },
-  { key: 'gives', title: 'Даст', align: 'right', w: '104px' },
-  { key: 'loyalty', title: 'Лояльн.', align: 'right', w: '60px' },
+  { key: 'name', title: 'Указ сословия · что даст' },
+  { key: 'loyalty', title: 'Лояльн.', align: 'right', w: '64px' },
 ];
 
 /**

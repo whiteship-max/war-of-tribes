@@ -1258,3 +1258,16 @@
 .pf-fold.open .pf-chev {
   transform: rotate(-90deg);
 }
+
+/* Указы сословий (РТ-2): имя указа и что он даст — двумя строками в ячейке таблицы. */
+.nx-two {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 17px;
+}
+.nx-two small {
+  font-size: 12px;
+  line-height: 15px;
+  font-weight: 700;
+}

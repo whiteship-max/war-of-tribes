@@ -301,8 +301,16 @@ export function DecreesNew() {
           return {
             key: r.id,
             cells: {
-              name: named(ESTATE_META[r.estate].icon, d.name),
-              gives: <span className="good">{r.gives}</span>,
+              // Имя указа и что он даст — двумя строками: длинное имя («Ярмарочные привилегии») не режется.
+              name: (
+                <span className="kit-name">
+                  <Icon name={ESTATE_META[r.estate].icon} />
+                  <span className="nx-two">
+                    <span className="one-line">{d.name}</span>
+                    <small className="good one-line">{r.gives}</small>
+                  </span>
+                </span>
+              ),
               loyalty: <span className={r.open ? 'good' : 'bad'}>{`${Math.floor(r.loyalty)}/${ESTATE_LOYAL}`}</span>,
             },
             on: r.id === decree.id,
