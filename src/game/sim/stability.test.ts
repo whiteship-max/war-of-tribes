@@ -311,11 +311,11 @@ describe('сохранение', () => {
     const fresh = createInitialState(3);
     expect(fresh.stab, 'у новой партии поля нет').toBeUndefined();
     expect(stabLevel(fresh)).toBe(0);
-    const old = deserialize(serialize(fresh));
+    const old = deserialize(serialize(fresh))!;
     expect(old.stab).toBeUndefined();
     expect(stabLevel(old)).toBe(0);
     const s = town(-2, { folk: 40, bought: 1, spent: 40 });
-    const back = deserialize(serialize(s));
+    const back = deserialize(serialize(s))!;
     expect(back.stab).toEqual(s.stab);
     expect(back.version).toBe(SAVE_VERSION);
   });

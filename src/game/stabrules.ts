@@ -79,13 +79,13 @@ export const REVOLT_AT = 100 - 1e-6;
  * тянет так же, как одна такая группа. **Выводит `npm run stability:report`** (цель Ц2: тяжёлый налог с голодом доводит до
  * −2 за 12 игр. дн.) неподвижной точкой; руками не правится.
  */
-export const STAB_DRAG = 15;
+export const STAB_DRAG = 15.71;
 
 /**
  * Тихие дни: сколько процентов ступени за игровой день прибавляет ровная жизнь. **Выводит `npm run stability:report`**
  * (цель Ц1: ровная игра поднимается из 0 в +1 за сутки отлучки, 48 игр. дн.) неподвижной точкой; руками не правится.
  */
-export const STAB_CALM = 10.3;
+export const STAB_CALM = 10.72;
 
 /** Толчок сдвига от боя: его мораль — мерой одного дня причины того же веса (docs/stability.md, 2.2). */
 export const battleShock = (morale: number): number => (STAB_DRAG * discontentOf(morale)) / 100;
