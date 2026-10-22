@@ -110,6 +110,13 @@ function bootMinifyPlugin(): Plugin {
  */
 const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
   {
+    // Карта мира (РТ-2, docs/stability.md, «РТ-2»: первая загрузка не растёт от сословий) — своим куском по кнопке низа,
+    // подтягивается после входа в партию (`App.mapUi`).
+    name: 'карта мира',
+    door: /\/src\/ui\/map\/WorldMap\.tsx$/,
+    owns: [/\/src\/ui\/map\/WorldMap\.tsx$/],
+  },
+  {
     // Замеры с телефонов (docs/telemetry.md): в первую загрузку едет только счёт кадров (`perf/telemetry`), а сборка пачки
     // и описание устройства — своим куском после старта (бюджет задания Г-1: не больше 2 КБ к первой загрузке).
     name: 'пачка замеров',
