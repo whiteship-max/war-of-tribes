@@ -28,7 +28,7 @@
 //   мира нет; так меряют сроки мятежа и ухода войска;
 // - **офлайн — это игрок, которого нет** (`away`), а не способ играть быстрее;
 // - **последствие без мира** (`land`) — участь, приложенная к копии посёлка.
-import type { AdvisorPost, BuildingTypeId, EquipmentId, GameState, JobId, ResourceId, TroopId } from '@/game/types';
+import type { AdvisorPost, BuildingTypeId, EquipmentId, EstateId, GameState, JobId, ResourceId, TroopId } from '@/game/types';
 import type { TaxId } from '@/game/data/policy';
 import type { FigureView, HomeEffect, MarchView, PlayerProfile, WorldPulse } from '@/world/types';
 import { LocalWorld, HOME_ID } from '@/world/local/LocalWorld';
@@ -55,6 +55,7 @@ import { forgeCost, startForge } from '@/game/sim/smithy';
 import { dismissSoldiers } from '@/game/sim/upkeep';
 import { hireMasters, mastersInfo } from '@/game/sim/masters';
 import { bestCandidate, hireAdvisor } from '@/game/sim/candidates';
+import { grantBlock, grantPrivilege } from '@/game/sim/estates';
 import { advisorWage } from '@/game/councilrules';
 import {
   armySize,
@@ -640,6 +641,11 @@ export interface Player {
    * (docs/city_v3.md, «Решения РТ-1»).
    */
   council?: readonly AdvisorPost[];
+  /**
+   * Опоры среди сословий (РТ-2): каждой — все её привилегии, как только можно (дверью `sim/estates.grantPrivilege`). Нет —
+   * привилегий не дарует: так и было у игрока до сословий, и ровная игра отчётов меряет город без опор (docs/stability.md, «РТ-2»).
+   */
+  estates?: readonly EstateId[];
   /** Налог, на который игрок переводит партию в первую минуту. Нет — налог партии как есть. */
   tax?: TaxId;
   /**
@@ -681,6 +687,7 @@ function decide(g: GameState, p: Player, l: Ledger): void {
   if (p.staff && !draftsFirst) staff(g);
   if (p.build) build(g, p.build.skip);
   if (p.council) keepCouncil(g, p.council);
+  if (p.estates) for (const e of p.estates) while (grantBlock(g, e) === null) grantPrivilege(g, e);
   p.also?.(g);
   if (p.hire) {
     staffSmithy(g);
