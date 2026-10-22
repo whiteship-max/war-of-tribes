@@ -1,7 +1,7 @@
 // Жизнь покоев (docs/city_v3.md, Г-7): стук — слуга поднимается и входит; каждая просьба слуге — своя сцена (кот, унести
 // кота, служанка с вином, супруга, ступай); кот остаётся между входами в покои; разговор держит ноги, конец разговора
 // их отпускает; кот живёт сам и не проходит сквозь мебель. Числами, без WebGL: комната и люди считаются в узле.
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { ChambersRoom } from './room';
 import { DEFAULT_ARMS } from '@/heraldry/arms';
@@ -38,6 +38,13 @@ function phoneRoom(memory?: LifeMemory): ChambersRoom {
   room.setRect(PHONE);
   return room;
 }
+
+// Покои тянут пять кусков при рождении (`life.ts`), а кадры тестов идут синхронно и подряд: подгрузка, начатая первым
+// тестом и не дождавшаяся, ждёт ответа vitest под их работой и на медленной машине падает по сроку (60 с). Куски — в кэш
+// до первых покоев; `import()` из кэша всё равно приходит не сразу, и «кусок в пути» у тестов ниже остаётся правдой.
+beforeAll(async () => {
+  await Promise.all([import('./consort'), import('./herald'), import('./advisor'), import('./maid'), import('./pet')]);
+});
 
 let clock = 0;
 /** Кадры по 1/60 до условия или до `s` секунд; возвращает, сбылось ли условие. */

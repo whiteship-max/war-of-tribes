@@ -281,7 +281,8 @@ describe('голос здания: дверь', () => {
         return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(n) && !/\.test\.tsx?$/.test(n) ? [p] : [];
       });
     const callers = walk(SRC).filter((f) => /openBuilding\([^)]*'scene'\)/.test(readFileSync(f, 'utf8')));
-    expect(callers.map((f) => f.slice(SRC.length + 1))).toEqual(['ui/GameCanvas.tsx']);
+    // Путь — с прямой чертой и на Windows: там `join` даёт `\`.
+    expect(callers.map((f) => f.slice(SRC.length + 1).replace(/\\/g, '/'))).toEqual(['ui/GameCanvas.tsx']);
     expect(readFileSync(join(SRC, 'ui', 'GameCanvas.tsx'), 'utf8')).toMatch(/scene\.onPick = \(id\) => useGame\.getState\(\)\.openBuilding\(id, 'scene'\)/);
     expect(readFileSync(join(__dirname, 'index.ts'), 'utf8')).toMatch(/const id = hallHeard\(g\);/);
     // Метку ставит только `openBuilding` с `via: 'scene'`: дверь из окна зовёт её без второго довода.
