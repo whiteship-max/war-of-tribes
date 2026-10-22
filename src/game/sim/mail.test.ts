@@ -4,6 +4,7 @@ import { MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { EVENTS, EVENT_BY_ID, eventCost } from '../data/events';
 import { MUTINY_EVENT } from '../data/order';
+import { STAB_EVENTS } from '../data/stability';
 import type { GameState } from '../types';
 import {
   AWAY_JITTER,
@@ -53,7 +54,8 @@ function rich(seed = 7): GameState {
   return s;
 }
 
-const ordinary = EVENTS.filter((e) => e.id !== MUTINY_EVENT);
+// Обычные вести — без мятежей: мятеж невольников и мятежи стабильности поднимает срок, а не сетка, и лежат они в своей ячейке.
+const ordinary = EVENTS.filter((e) => e.id !== MUTINY_EVENT && !STAB_EVENTS.includes(e.id));
 
 describe('молчание — вариант, который событие назвало само', () => {
   it('у каждого события молчание — настоящий вариант, и он ничего не стоит', () => {
@@ -224,10 +226,12 @@ describe('стол: несколько донесений сразу, лишне
   it('вести зреют по времени, а не по присутствию: шаг симуляции их не поднимает, сколько бы ни шёл', () => {
     const s = rich();
     expect(s.unrest).toBe(0);
+    // Вести — обычные: мятеж (невольников или податных и голодных) поднимает срок своей полосы, а не сетка (`sim/stability`).
+    const vesti = (): string[] => s.inbox.map((e) => e.defId).filter((id) => ordinary.some((e) => e.id === id));
     for (let i = 0; i < 4000; i++) tick(s, 0.5);
-    expect(s.inbox, 'шаг при игроке вестей не рождает').toEqual([]);
+    expect(vesti(), 'шаг при игроке вестей не рождает').toEqual([]);
     catchUp(s, 4 * 3600, 2);
-    expect(s.inbox, 'и догон отлучки тоже').toEqual([]);
+    expect(vesti(), 'и догон отлучки тоже').toEqual([]);
   });
 
   it('при игроке и в отлучке вести одни и те же: живые шаги по секунде дают тот же стол, что отлучка', () => {

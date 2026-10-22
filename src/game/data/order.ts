@@ -74,6 +74,11 @@ export const ORDER_TEXT = {
       hint: (pop: number, per: number, morale: number): string =>
         `${pop} по ${per} при морали ${Math.round(morale)}`,
     },
+    stab: {
+      name: 'Стабильность',
+      icon: ico('ui-scales'),
+      hint: (level: number): string => `ступень ${level > 0 ? `+${level}` : `−${-level}`}`,
+    },
     ration: {
       name: 'Осадный паёк',
       icon: ico('ui-bowl'),

@@ -27,6 +27,7 @@ import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { kickFrom } from '@/world/letters';
 import { mailSlots } from './tech';
 import { MUTINY_EVENT } from '../data/order';
+import { STAB_EVENTS } from '../data/stability';
 import { log } from './log';
 import { realMs } from '../pace';
 
@@ -40,11 +41,12 @@ export const SILENCE_PREFIX = 'Ответа не дождались';
 export const eventId = (ev: ActiveEvent): string => `${ev.defId}:${ev.at}`;
 
 /**
- * Событие со своей ячейкой: мятеж. Его молчание — самая жёсткая потеря в игре, и сгонять
+ * Событие со своей ячейкой: мятеж — невольников и, тем же правилом, податных и голодных с условиями мятежников
+ * (`data/stability.STAB_EVENTS`). Его молчание — самая жёсткая потеря в игре, и сгонять
  * его наравне с вестями значило бы разрешать её чужим сроком; сам он тоже никого не
  * сгоняет. Так же у писем стоит предупреждение о набеге.
  */
-const ownSlot = (ev: ActiveEvent): boolean => ev.defId === MUTINY_EVENT;
+const ownSlot = (ev: ActiveEvent): boolean => ev.defId === MUTINY_EVENT || STAB_EVENTS.includes(ev.defId);
 
 /** Событие на столе по имени; без имени — первое. */
 const pick = (s: GameState, id?: string): ActiveEvent | null =>
@@ -178,6 +180,8 @@ export const awayArrival = (seed: number, k: number): number =>
 export function mailArrive(s: GameState, from: number, now: number): number {
   if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) return 0;
   if (s.unrest > 0) return 0;
+  // Мятеж податных или голодных — то же исключение, что ропот: срок ответа на него начинается с входа игрока.
+  if (s.inbox.some((e) => STAB_EVENTS.includes(e.defId))) return 0;
   const start = Math.max(from, now - EVENT_TTL);
   let n = chainsArrive(s, start, now);
   for (let k = Math.floor((start - AWAY_JITTER) / AWAY_STEP); ; k++) {

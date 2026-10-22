@@ -455,6 +455,8 @@ describe('мятеж не наступает раньше, чем игрок м�
     free.time = s.time;
     free.morale = s.morale;
     free.pop = s.pop;
+    // Поднятый мятеж стоит ступени стабильности (`sim/stability`): у сравнения она та же, иначе разница была бы не в невольниках.
+    free.stab = structuredClone(s.stab);
     expect(food(s), 'в поле — только вольные').toBeCloseTo(food(free), 9);
     expect(buildRate(s), 'на стройке — только вольные').toBeCloseTo(buildRate(free), 9);
     // Ответ «раздать хлеб и золото» невольников не уводит — и они снова за работой.

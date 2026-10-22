@@ -9,7 +9,7 @@ import {
   foodConsumptionPerDay,
   foodShortfall,
   heatingWoodPerDay,
-  moraleTarget,
+  moraleBreakdown,
   policyMoralePerDay,
   productionPerDay,
   seasonDayOf,
@@ -26,6 +26,7 @@ import { QUESTS } from '../data/quests';
 import { MUTINY_EVENT } from '../data/order';
 import { famineToll, growthTick, killPop, logPopDay } from './population';
 import { unrestTick } from './mutiny';
+import { stabilityTick, stabShock } from './stability';
 import { mailArrive, raiseEvent } from './mail';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
@@ -156,7 +157,9 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   upkeepTick(s, dt, hunger.army);
 
   // 4. Мораль плавно стремится к целевой. Пока племя мёрзнет — вдвое быстрее.
-  const target = moraleTarget(s);
+  // Разбор морали — один на шаг: из него и цель морали, и причины недовольства стабильности (`sim/stability`).
+  const mb = moraleBreakdown(s);
+  const target = mb.target;
   const speed = (dt / MORALE_SETTLE) * (s.freezing > 0 ? 2 : 1);
   s.morale += (target - s.morale) * Math.min(1, speed);
   // Указ и рацион двигают мораль не целью, а прямо: ровно столько в игровой день,
@@ -210,6 +213,11 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
     log(s, `Задание выполнено: ${q.title}.`, 'quest');
   }
 
+  // 7а. Стабильность — после морали и прироста: её полосы читают разбор морали этого шага, мятеж податных и голодных
+  // ложится в свою ячейку стола, как мятеж невольников (docs/stability.md).
+  const revolt = stabilityTick(s, dt, mb);
+  if (revolt) raiseEvent(s, revolt);
+
   // 7б. Ропот. Порядок считается при чтении; здесь идёт только срок до мятежа — при игроке и в
   // догоне отлучки одинаково. Срок ответа на мятеж ведёт почта (`sim/mail`), а не шаг.
   const unrest = unrestTick(s, dt);
@@ -218,7 +226,8 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // стола — вести посёлка его не держат и им не сгоняются (`sim/mail.raiseEvent`).
   // Сами вести шаг не поднимает: они приходят по сетке настоящих часов, одной на присутствие и
   // отлучку (`sim/mail.mailArrive`), — зреют по времени, а не по присутствию.
-  if (unrest === 'raise') raiseEvent(s, MUTINY_EVENT);
+  // Поднятый мятеж невольников стоит ступени стабильности — один раз, в ту минуту, когда он лёг на стол.
+  if (unrest === 'raise' && raiseEvent(s, MUTINY_EVENT)) stabShock(s, 'mutiny');
 }
 
 /** Догоняет офлайн-время фиксированным шагом. */

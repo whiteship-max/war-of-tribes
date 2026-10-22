@@ -28,6 +28,7 @@ import { hireWhere } from './hire';
 import type { HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
 import { outlay } from './pay';
+import { stabAfterBattle } from './stability';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 import { count } from '@/ui/parts/plural';
 
@@ -369,6 +370,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.morale || repute) s.morale = Math.max(0, Math.min(100, s.morale + o.morale + repute));
   if (o.battle === 'won') recordBattle(s, 'won');
   if (o.battle === 'lost') recordBattle(s, 'lost');
+  // Бой и падение двигают стабильность одной дверью (docs/stability.md, 2.2): бой — сдвигом мерой его морали, павший город —
+  // ступенью вниз.
+  stabAfterBattle(s, { battle: o.battle, morale: o.morale, fallen: o.fallen });
   // Добро без дела: последствие положило добро, а ни боя, ни логова, ни замка — счётчиков дел этой двери — в нём нет
   // (дань по договору, кража лазутчика). Оно — разовое дело описи (`stats.windfalls`): иначе рост склада сервер счёл бы
   // флагом (docs/security.md, раздел 8). С боем, логовом или замком дело уже засчитано, второй раз его не считают.

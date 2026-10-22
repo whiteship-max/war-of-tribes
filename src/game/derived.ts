@@ -113,6 +113,7 @@ import {
 import { daysSpan } from './span';
 import { BOON_BY_ID, type BoonDef } from './data/boons';
 import { MAX_AGENT_LEVEL } from './data/agents';
+import { STAB_STEP, stabClamp, stabOutputMult } from './stabrules';
 import type { IconName } from '@/ui/icons/alias';
 
 /** На здании идёт улучшение. */
@@ -1002,6 +1003,8 @@ export function jobMultiplier(s: GameState, job: JobId, mods: SeasonModifiers = 
   m *= faithTilt(s).output;
   // Указ вождя действует на всю выработку разом — ровно на объявленную величину.
   m *= decreeOf(s).output;
+  // Ступень стабильности — поправкой морали на всю выработку, той же ценой, что мораль (docs/stability.md, 2.6).
+  m *= stabOutputMult(s.stab?.level ?? 0);
   return m;
 }
 
@@ -1066,14 +1069,14 @@ function yardYield(s: GameState, out: Resources, b: Building, mods: SeasonModifi
   // Постройка под обстрелом стоит фазу без работы (Р-5, `world/shelling`): её работники едят, но не дают ничего.
   if (s.siege?.idle?.includes(b.type)) return;
   const mult = workerMultiplier(s, job, b, mods);
-  addYield(out, job, workerCount(s, b.id), mult);
+  addYield(out, job, workerCount(s, b.id), mult * freeShare(s));
   addYield(out, job, bondedCount(s, b.id), mult * bondedShare(s));
 }
 
 /** Выработка вольного сбора без осады: свободные руки на работах без места в здании (`FREE_JOBS`). */
 function freeYield(s: GameState, out: Resources, mods: SeasonModifiers): void {
   for (const job of FREE_JOBS) {
-    addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods));
+    addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods) * freeShare(s));
   }
 }
 
@@ -1206,7 +1209,8 @@ export const townHallBuildMult = (s: GameState): number => hallBuildMult(buildin
  */
 export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   // Ушедшие разведчиками — те же свободные жители: пока они в пути, стройка идёт без них.
-  const idle = Math.max(0, jobCounts(s).idle - Math.max(0, s.scoutsAway));
+  // Вставшие мятежом не строят — той же долей, что не работают в поле (`freeShare`).
+  const idle = Math.max(0, jobCounts(s).idle - Math.max(0, s.scoutsAway)) * freeShare(s);
   // Невольники без места — на стройке, тем же трудом и на ту же долю, что в поле.
   const bonded = bondedIdle(s) * bondedShare(s);
   // Формула одна на игру и книгу стройки сервера (`game/build.buildRateOf`; потолок сервера — `buildCeil`).
@@ -1767,7 +1771,7 @@ export const faithGoldPerDay = (s: GameState): number => faithTilt(s).goldPerPop
 
 /** Слагаемое надзора: кто и скольких невольников держит. */
 export interface OrderLine {
-  id: 'household' | 'guards' | 'town' | 'ration';
+  id: 'household' | 'guards' | 'town' | 'stab' | 'ration';
   /** Значок набора (docs/icons.md). */
   icon: IconName;
   name: string;
@@ -1816,6 +1820,12 @@ export function orderBreakdown(s: GameState, extraBonded = 0): OrderBreakdown {
       hint: T.town.hint(pop, ORDER_PER_TOWNSMAN, s.morale),
     },
   ];
+  // Ступень стабильности держит невольников, как поправка морали спокойных жителей (docs/stability.md, 2.6): плюс — крепче,
+  // минус — слабее. Ноль в список не идёт.
+  const level = stabClamp(s.stab?.level ?? 0);
+  if (level !== 0) {
+    lines.push({ id: 'stab', icon: T.stab.icon, name: T.stab.name, value: (pop * ORDER_PER_TOWNSMAN * STAB_STEP * level) / 100, hint: T.stab.hint(level) });
+  }
   // Осадный паёк — порядок платит той же долей урезанного (docs/siege_v2.md, раздел 5): голодных держать труднее.
   if (s.siege?.ration) {
     const held = lines.reduce((n, l) => n + l.value, 0);
@@ -1864,6 +1874,17 @@ export function unrestLeft(s: GameState): GameSec | null {
  * стройку — второго «работают ли невольники» быть не должно.
  */
 export const bondedShare = (s: GameState): number => (mutinyOpen(s) ? 0 : BONDED_OUTPUT);
+
+/**
+ * Какую долю своей работы делают вольные сейчас. Встали мятежом податные или голодные — вставшие не работают ни в поле, ни
+ * на стройке, пока мятеж не кончился: на столе, у ворот или затяжным упадком (`GameState.stab.revolt`, docs/stability.md,
+ * 2.4). Одна дверь на поле и на стройку, как `bondedShare` у невольников.
+ */
+export function freeShare(s: GameState): number {
+  const r = s.stab?.revolt;
+  if (!r || (r.until !== undefined && r.until <= s.time)) return 1;
+  return Math.max(0, 1 - Math.max(0, r.rebels) / Math.max(1, s.pop));
+}
 
 /** Что сделает мятеж прямо сейчас — всё, что игрок обязан знать до него. */
 export interface MutinyForecast {
