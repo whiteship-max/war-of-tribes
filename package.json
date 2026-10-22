@@ -26,6 +26,7 @@
     "lair:report": "vite-node scripts/lair-report.ts",
     "sack:report": "vite-node scripts/sack-report.ts",
     "order:report": "vite-node scripts/order-report.ts",
+    "stability:report": "vite-node scripts/stability-report.ts",
     "tap:report": "vite-node scripts/tap-report.ts",
     "prologue:stand": "vite-node scripts/prologue-stand.ts",
     "map:report": "vite-node scripts/map-report.ts",

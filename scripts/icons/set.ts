@@ -105,6 +105,12 @@ Object.assign(ART, {
   'dip-insult': m.gauntlet,
   'dip-gift': m.gift,
   'spy-revolt': m.fist,
+  // Стабильность державы (СБ-1): вилы, каравай, колонна.
+  'ui-pitchfork': () => place(m.pitchfork(), { r: 28, s: 0.94 }),
+  'ui-loaf': m.loaf,
+  'ui-pillar': m.pillar,
+  // Раздел «Стабильность» в ряду державы (СБ-2б): колонна под короной — свой значок, не ячейки строки очков.
+  'ui-stability': m.crownedPillar,
   'ui-pouch': m.pouch,
 });
 Object.assign(ART, {

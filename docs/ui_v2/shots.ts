@@ -23,6 +23,12 @@
 //                                                   с «Принять/Отклонить», наше ждущее, итог; карточка; летопись.
 //   GROUP=st1 TAG=after …                          — СТ-1 (docs/ui_v2.md, 5.13): очередь стройки — сетка с номерами, полоса,
 //                                                    дела места, отмена ждущего и строящегося с возвратом, сдвиг
+//   GROUP=sb1 …                                    — СБ-1 (docs/stability.md): «Стабильность» — спокойно, шатко, мятеж близок
+//                                                    (верх и низ), мятеж
+//   GROUP=sb2 …                                    — СБ-2 (docs/stability.md, «СБ-2»): вести державы — заставка, текст,
+//                                                    ответы и «что изменится» у раскрытого ответа; итог ответа
+//   GROUP=sb2b …                                   — СБ-2б: ряд державы со «Стабильностью» на месте «Заданий», ячейка
+//                                                    «Задания» в строке очков, раздел стабильности, раздел заданий
 //   GROUP=k2 …                                     — К-2 (docs/AGENTS.md, 18): кольцо над логовом, дела, окно войска,
 //                                                    подтверждение, погашенный с причиной
 //   GROUP=r4 …                                     — Р-4 (docs/AGENTS.md, 16): «Походы», цель, дела, подтверждение,
@@ -222,6 +228,106 @@ const K2_TAP = `(async () => {
   const ring = (await import('/src/world/store.ts')).useWorld.getState().ring;
   return JSON.stringify(ring ? 'кольцо: ' + ring.name : 'кольца нет');
 })()`;
+
+/**
+ * Положение стабильности для снимков СБ-1: ступень, сдвиг, полосы, смены ступени (игровые дни от сейчас) и рычаги партии
+ * (налог, указ, паёк, хлеб, весть на стол) — затем раздел «Стабильность». `seen` — подсказка первого открытия уже показана;
+ * `scroll` — прокрутить раздел вниз на столько пикселей.
+ */
+function sb1(level: number, drift: number, st: Record<string, unknown>, set: Record<string, unknown>, seen = true, scroll = 0): string {
+  return `(async () => {
+    window.__ui.reset();
+    const set = ${JSON.stringify(set)};
+    const st = ${JSON.stringify(st)};
+    window.__game.getState().act((s) => {
+      if (set.tax) s.tax = set.tax;
+      if (set.decree) s.decree = set.decree;
+      if (set.ration) s.ration = set.ration;
+      if (set.food !== undefined) s.resources.food = set.food;
+      if (set.pop !== undefined) s.pop = set.pop;
+      s.stab = { level: ${level}, drift: ${drift}, folk: st.folk, hungry: st.hungry, past: (st.past ?? []).map(([d, l]) => [s.time + d * 60, l]),
+        bought: 0, spent: 0, revolts: st.revolts ?? 0, held: 0, ...(st.revolt ? { revolt: st.revolt } : {}) };
+      s.hints = { seen: ${seen} ? ['stability', 'revolt', 'upgrade', 'army', 'neighbors', 'march', 'games'] : ['revolt', 'upgrade', 'army', 'neighbors', 'march', 'games'] };
+      if (set.raise) s.inbox = [{ defId: set.raise, at: s.time, until: Date.now() + 20 * 3600 * 1000 }];
+      // Строки летописи стабильности — по сменам ступени, теми словами, что пишет шаг (\`data/stability.STAB_LOG\`).
+      const names = { '-3': 'Смута', '-2': 'Раздор', '-1': 'Шатко', '0': 'Мир', '1': 'Лад', '2': 'Достаток', '3': 'Благоденствие' };
+      const up = (i, a) => a[i][1] > (i > 0 ? a[i - 1][1] : 0);
+      const lines = (st.past ?? []).map(([d, l], i, a) => ({ at: s.time + d * 60, text: 'Стабильность: ' + names[l] + '. ' + (up(i, a) ? 'Тихие дни сделали своё.' : 'Недовольство взяло своё.'), kind: up(i, a) ? 'good' : 'bad', topic: 'stab' }));
+      s.log = [...lines.reverse(), ...s.log.filter((e) => e.topic !== 'stab')];
+      return null;
+    });
+    (await import('/src/ui/realm/open.ts')).useRealm.getState().show('stability');
+    await new Promise((r) => setTimeout(r, 700));
+    document.querySelector('.nx-rbody')?.scrollTo(0, ${scroll});
+    return JSON.stringify('ok');
+  })()`;
+}
+
+/**
+ * Весть державы на столе (СБ-2): партия под условие вести (`set` — вера, святыня, налог, люди, золото), весть ложится на стол
+ * и открывается в «Вестях»; `pick` — номер ответа, который раскрыт («что изменится»), прокрученный к середине экрана.
+ */
+/** Окно «Игра открыта дважды» стенда (свой же прошлый шаг под потолком кадров): вести партию здесь. */
+const STAY = `[...document.querySelectorAll('.modal button')].find((b) => b.textContent.includes('Продолжить здесь'))?.click();`;
+
+function sb2(defId: string, set: Record<string, unknown>, pick: number | null): string {
+  return `(async () => {
+    ${STAY}
+    window.__ui.reset();
+    const set = ${JSON.stringify(set)};
+    let ev = null;
+    window.__game.getState().act((s) => {
+      if (set.faith) s.faith.id = set.faith;
+      if (set.relic) s.faith.relic = set.faith;
+      if (set.tax) s.tax = set.tax;
+      if (set.pop !== undefined) s.pop = set.pop;
+      if (set.gold !== undefined) s.gold = set.gold;
+      if (set.stab) s.stab = { level: set.stab[0], drift: set.stab[1], folk: 20, hungry: 0, past: [], bought: 0, spent: 0, revolts: 0, held: 0 };
+      s.hints = { seen: ['stability', 'revolt', 'upgrade', 'army', 'neighbors', 'march', 'games'] };
+      ev = { defId: ${JSON.stringify(defId)}, at: s.time, until: Date.now() + 20 * 3600 * 1000 };
+      s.inbox = [ev];
+      return null;
+    });
+    const R = (await import('/src/ui/realm/open.ts')).useRealm;
+    R.getState().show('decisions');
+    await new Promise((r) => setTimeout(r, 300));
+    R.getState().openMail((await import('/src/ui/realm/unread.ts')).eventKey(ev));
+    await new Promise((r) => setTimeout(r, 500));
+    const pick = ${JSON.stringify(pick)};
+    if (pick !== null) {
+      document.querySelectorAll('.cr-pick')[pick]?.click();
+      await new Promise((r) => setTimeout(r, 300));
+      document.querySelector('.cr-opt.on')?.scrollIntoView({ block: 'center' });
+    }
+    return JSON.stringify('ok');
+  })()`;
+}
+
+/**
+ * Держава на разделе `view` (СБ-2б): печатает, какие подписи ряда обрезаны (ширина подписи больше ячейки) — «все видны», если
+ * ни одной. `cell` — открыть раздел касанием ячейки «Задания».
+ */
+function sb2b(view: string, cell = false): string {
+  return `(async () => {
+    ${STAY}
+    window.__ui.reset();
+    window.__game.getState().act((s) => {
+      s.hints = { seen: ['stability', 'revolt', 'upgrade', 'army', 'neighbors', 'march', 'games'] };
+      s.stab = { level: 1, drift: 30, folk: 36, hungry: 0, past: [[s.time - 3000, 1]], bought: 0, spent: 0, revolts: 0, held: 0 };
+      return null;
+    });
+    const R = (await import('/src/ui/realm/open.ts')).useRealm;
+    R.getState().show(${JSON.stringify(cell ? 'lineage' : view)});
+    await new Promise((r) => setTimeout(r, 500));
+    if (${cell}) {
+      document.querySelector('[data-tut="realm-quests"]')?.click();
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    const cut = [...document.querySelectorAll('.nx-rtabs button > span:last-child')].filter((e) => e.scrollWidth > e.clientWidth + 0.5).map((e) => e.textContent);
+    const w = [...document.querySelectorAll('.nx-rtabs button')].map((b) => Math.round(b.getBoundingClientRect().width)).join('/');
+    return JSON.stringify(cut.length ? 'обрезаны: ' + cut.join(', ') + ' (' + w + ')' : 'подписи все видны (' + w + ')');
+  })()`;
+}
 
 const GROUPS: Record<string, Step[]> = {
   city: [
@@ -1124,6 +1230,35 @@ const GROUPS: Record<string, Step[]> = {
       })()`,
       wait: 900,
     },
+  ],
+  // СБ-1 (docs/stability.md): раздел «Стабильность» в четырёх положениях — спокойно (первое открытие, с подсказкой), шатко,
+  // мятеж близок, мятеж; положение кладётся в партию стендом (`window.__game`), раздел открывается дверью державы. В положении
+  // «мятеж близок» — ещё середина (полосы с причинами и сроком мятежа) и низ (укрепление и летопись).
+  sb1: [
+    { name: 'sb1-calm', run: sb1(1, 0, { folk: 36, hungry: 0, past: [[-60, 1]] }, { tax: 'high' }, false), wait: 1500 },
+    { name: 'sb1-shaky', run: sb1(-1, -45, { folk: 64, hungry: 12, past: [[-120, 1], [-70, 0], [-25, -1]] }, { tax: 'high', decree: 'order', ration: 'lean' }), wait: 1500 },
+    { name: 'sb1-near', run: sb1(-2, -30, { folk: 86, hungry: 64, past: [[-130, 1], [-90, 0], [-40, -1], [-12, -2]] }, { tax: 'high', decree: 'order', ration: 'lean', pop: 80 }), wait: 1500 },
+    { name: 'sb1-near-groups', run: sb1(-2, -30, { folk: 86, hungry: 64, past: [[-130, 1], [-90, 0], [-40, -1], [-12, -2]] }, { tax: 'high', decree: 'order', ration: 'lean', pop: 80 }, true, 400), wait: 1500 },
+    { name: 'sb1-near-low', run: sb1(-2, -30, { folk: 86, hungry: 64, past: [[-130, 1], [-90, 0], [-40, -1], [-12, -2]] }, { tax: 'high', decree: 'order', ration: 'lean', pop: 80 }, true, 1000), wait: 1500 },
+    { name: 'sb1-revolt', run: sb1(-3, 0, { folk: 100, hungry: 70, past: [[-140, 0], [-60, -1], [-20, -2], [-2, -3]], revolt: { group: 'folk', rebels: 40 }, revolts: 1 }, { tax: 'high', ration: 'lean', food: 0, raise: 'revolt_folk' }), wait: 1500 },
+  ],
+  sb2: [
+    { name: 'sb2-comet', run: sb2('cr_comet', {}, null), wait: 1500 },
+    { name: 'sb2-legate', run: sb2('cr_legate', { faith: 'catholic', gold: 400 }, 2), wait: 1500 },
+    { name: 'sb2-fire', run: sb2('cr_lower_fire', { gold: 400 }, 2), wait: 1500 },
+    { name: 'sb2-tournament', run: sb2('cr_tournament', { gold: 400 }, 0), wait: 1500 },
+    { name: 'sb2-ruler', run: sb2('cr_ruler_ill', { stab: [1, 0] }, 1), wait: 1500 },
+    { name: 'sb2-miracle', run: sb2('cr_miracle', { faith: 'orthodox', relic: true, stab: [-1, 60] }, 0), wait: 1500 },
+    {
+      name: 'sb2-done',
+      run: `(async () => { ${STAY} document.querySelectorAll('.cr-pick')[1]?.click(); await new Promise((r) => setTimeout(r, 200)); document.querySelector('.cr-go')?.click(); await new Promise((r) => setTimeout(r, 500)); return JSON.stringify('ok'); })()`,
+      wait: 1200,
+    },
+  ],
+  sb2b: [
+    { name: 'sb2b-ruler', run: sb2b('lineage'), wait: 1200 },
+    { name: 'sb2b-stability', run: sb2b('stability'), wait: 1500 },
+    { name: 'sb2b-quests', run: sb2b('quests', true), wait: 1500 },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.

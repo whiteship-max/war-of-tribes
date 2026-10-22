@@ -119,8 +119,10 @@ function drag(room: ChambersRoom, dx: number, dy: number): void {
 }
 
 describe('глаз к гостю (Р-1)', () => {
-  it('слуга на стук и служанка с вином: правитель у двери — оба целиком в кадре, пока входят и до разговора', () => {
+  it('слуга на стук и служанка с вином: правитель у двери — оба целиком в кадре, пока входят и до разговора', async () => {
     const room = phoneRoom();
+    // Фигура служанки — своим куском (ЛЦ-6): сцена с ней ждёт его, как с супругой.
+    await room.life.maidReady;
     room.touch({ kind: 'poi', poi: POI_BY_ID.door });
     expect(entry(room, 'servant', 'слуга'), 'кадры входа слуги').toBeGreaterThan(30);
     room.life.order('wine');
@@ -177,16 +179,18 @@ describe('глаз к гостю (Р-1)', () => {
     room.dispose();
   });
 
-  it('советник после отлучки: целиком в кадре до доклада', () => {
+  it('советник после отлучки: целиком в кадре до доклада', async () => {
     const room = phoneRoom();
+    await room.life.advisorReady;
     room.life.advisorWaits();
     expect(entry(room, 'advisor', 'советник')).toBeGreaterThan(30);
     room.dispose();
   });
 
-  it('в разговоре гость в кадре над плашкой; после «Ступай» и крестика глаз свободен — и на стол', () => {
+  it('в разговоре гость в кадре над плашкой; после «Ступай» и крестика глаз свободен — и на стол', async () => {
     // Сидя за столом: советник у стола докладывает.
     const room = phoneRoom();
+    await room.life.advisorReady;
     room.setPlate(PLATE);
     room.snap('desk');
     room.life.advisorWaits();

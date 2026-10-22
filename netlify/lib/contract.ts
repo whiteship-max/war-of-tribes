@@ -370,6 +370,8 @@ export const NOTICE_KINDS = [
   'war-relief',
   'build',
   'grant',
+  'stab-near',
+  'stab-revolt',
 ] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
@@ -377,7 +379,10 @@ export type NoticeKind = (typeof NOTICE_KINDS)[number];
  * Что может прислать клиент. Войну знает только сервер: её поручения клиент составить не может; указ — тоже: его отдаёт
  * админ на сервере.
  */
-export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'build'] as const satisfies readonly NoticeKind[];
+export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'build', 'stab-near', 'stab-revolt'] as const satisfies readonly NoticeKind[];
+
+/** Группа недовольных в вестях стабильности (docs/stability.md, 2.8) — те же имена, что `StabGroup` игры. */
+export const NOTICE_GROUPS = ['folk', 'hungry', 'bonded', 'army'] as const;
 
 /**
  * Исход фазы осады в вести (docs/siege_v2.md, 8.3). Весть идёт о значимом — пролом, мор в лагере, сработавший наказ;
@@ -458,6 +463,8 @@ export interface NoticeFacts {
   /** Стройка (`build`): какая постройка (`BuildingTypeId`) и до какого уровня дошла. */
   building?: string;
   level?: number;
+  /** Вести стабильности (`stab-near`, `stab-revolt`): чья полоса — податные, голодные, невольники, войско. */
+  group?: (typeof NOTICE_GROUPS)[number];
   /** Указ (`grant`): номер у игрока и что он прибавил (+) или убавил (−) — те же виды, что у `AdminGrant`. */
   n?: number;
   stock?: Partial<Record<StockKey, number>>;
@@ -646,6 +653,11 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (!building || !/^[a-z_]+$/.test(building) || level === null || level < 2 || level > 99) return null;
       facts.building = building;
       facts.level = Math.floor(level);
+    }
+    if (kind === 'stab-near' || kind === 'stab-revolt') {
+      const group = oneOf(NOTICE_GROUPS, p.group);
+      if (!group) return null;
+      facts.group = group;
     }
     if (kind === 'grant') {
       const n = num(p.n);
@@ -1817,9 +1829,81 @@ export interface WatchCard {
    * только дела старше. Нет поля — опись до алмазов на сервере.
    */
   gemSeen?: number;
+  /**
+   * Стабильность державы (docs/stability.md, 2.7): ступень и счёт для книги стабильности — сколько ступеней куплено и
+   * очков каждого вида на них ушло, сколько мятежей поднялось и сколько подавлено боем. Нет поля — опись до стабильности.
+   */
+  stab?: WatchStab;
+  /**
+   * Вести державы (СБ-2, docs/stability.md, «СБ-2»): сколько ответов за партию и последние из них — для книги вестей
+   * сервера (правило «crown»). Нет поля — опись до вестей державы.
+   */
+  crown?: WatchCrown;
+}
+
+/** Ответ на весть державы в описи: номер за партию, вид, номер ответа и игровая секунда прихода. */
+export interface WatchCrownEntry {
+  n: number;
+  id: string;
+  opt: number;
+  at: number;
+}
+
+/** Книга вестей в описи — то, что сверяет сервер (`watch.crownFlags`, правило «crown»). */
+export interface WatchCrown {
+  n: number;
+  last: WatchCrownEntry[];
+}
+
+/** Сколько ответов опись везёт самое большее — по одному на строку книги игры (`crownrules.CROWN_BOOK`), с запасом. */
+const CROWN_LAST_MAX = 24;
+
+/**
+ * Книга вестей описи: счёт — неотрицательным целым, ответы — номер, вид строкой до 32 знаков, номер ответа и минута.
+ * Вид не сверяется здесь с таблицей: незнакомый вид — флаг книги, а не тихая потеря строки (подделку не прячут подрезкой).
+ */
+function readCrown(v: unknown): Pick<WatchCard, 'crown'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const last = Array.isArray(r.last) ? r.last : [];
+  const entries: WatchCrownEntry[] = [];
+  for (const e of last.slice(-CROWN_LAST_MAX)) {
+    if (!e || typeof e !== 'object') continue;
+    const x = e as Record<string, unknown>;
+    if (typeof x.id !== 'string' || x.id.length === 0 || x.id.length > 32) continue;
+    entries.push({ n: whole(x.n, 1e9), id: x.id, opt: whole(x.opt, 99), at: whole(x.at, 1e12) });
+  }
+  return { crown: { n: whole(r.n, 1e9), last: entries } };
+}
+
+/** Стабильность в описи — то, что сверяет книга стабильности сервера (`watch.flagsBetween`, правило «stab»). */
+export interface WatchStab {
+  /** Ступень как есть, целым: вне −3…+3 — флаг, а не поправка (подделку не прячут подрезкой). */
+  level: number;
+  bought: number;
+  spent: number;
+  revolts: number;
+  held: number;
 }
 
 const whole = (v: unknown, max: number): number => Math.floor(Math.min(max, Math.max(0, num(v) ?? 0)));
+
+/** Стабильность описи: ступень — целым как есть (в пределах ±99), счёт — неотрицательным целым; нет поля — нет. */
+function readStab(v: unknown): Pick<WatchCard, 'stab'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const level = num(r.level);
+  if (level === null) return {};
+  return {
+    stab: {
+      level: Math.round(Math.max(-99, Math.min(99, level))),
+      bought: whole(r.bought, 1e9),
+      spent: whole(r.spent, 1e12),
+      revolts: whole(r.revolts, 1e9),
+      held: whole(r.held, 1e9),
+    },
+  };
+}
 
 /** Идущая стройка описи: тип — строка до 32 знаков, уровень — целый 2..100, работа — неотрицательная. */
 function readSite(v: unknown): Pick<WatchCard, 'site'> {
@@ -1888,6 +1972,8 @@ export function readWatch(v: unknown): WatchCard | undefined {
     lead: whole(r.lead, 1e12),
     seen: whole(r.seen, 1e9),
     ...(r.gemSeen !== undefined ? { gemSeen: whole(r.gemSeen, 1e12) } : {}),
+    ...readStab(r.stab),
+    ...readCrown(r.crown),
   };
 }
 

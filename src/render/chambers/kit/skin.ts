@@ -27,6 +27,8 @@ export class SkinMesh {
   readonly idx: number[] = [];
   /** Вершины белка — взгляд сдвигает их UV. */
   readonly eye: number[] = [];
+  /** Прозрачность вершин (усы кота, ЛЦ-4): только у тех, что не 1; у людей набора — пусто, и буфера под неё нет. */
+  readonly fade = new Map<number, number>();
 
   constructor(readonly sk: Skeleton) {}
 
@@ -125,6 +127,8 @@ export class SkinBody {
   private eye: Uint16Array;
   private eyeUv: Float32Array;
   private gazeAt: [number, number] = [0, 0];
+  /** Ячейка листа глаза (зрачок кота днём и ночью, ЛЦ-4) — сдвиг UV белка поверх взгляда. */
+  private cellAt: [number, number] = [0, 0];
   private R: Float64Array;
   private T: Float64Array;
   /** Сдвиг UV белка на метр взгляда: листы глаз — свои (`shape.EYE_SHEET`). */
@@ -162,6 +166,11 @@ export class SkinBody {
     g.setAttribute('uv', new THREE.BufferAttribute(this.uv, 2));
     g.setAttribute('sheet', new THREE.BufferAttribute(Float32Array.from(m.sheet), 1));
     g.setAttribute('shade', new THREE.BufferAttribute(Float32Array.from(m.shade), 1));
+    if (m.fade.size) {
+      const fade = new Float32Array(n).fill(1);
+      for (const [i, a] of m.fade) fade[i] = a;
+      g.setAttribute('fade', new THREE.BufferAttribute(fade, 1));
+    }
     g.setIndex(new THREE.BufferAttribute(Uint16Array.from(m.idx), 1));
     this.geo = g;
     this.triangles = m.triangles;
@@ -216,8 +225,20 @@ export class SkinBody {
   gaze(dx: number, dy: number): void {
     if (Math.abs(dx - this.gazeAt[0]) < 1e-5 && Math.abs(dy - this.gazeAt[1]) < 1e-5) return;
     this.gazeAt = [dx, dy];
-    const su = -dx * this.gazeScale[0];
-    const sv = dy * this.gazeScale[1];
+    this.eyeUv2();
+  }
+
+  /** Ячейка листа глаза: сдвиг UV белка, доли листа (`[0, 0]` — своя ячейка, как у людей набора). */
+  cell(du: number, dv: number): void {
+    if (du === this.cellAt[0] && dv === this.cellAt[1]) return;
+    this.cellAt = [du, dv];
+    this.eyeUv2();
+  }
+
+  private eyeUv2(): void {
+    const [dx, dy] = this.gazeAt;
+    const su = -dx * this.gazeScale[0] + this.cellAt[0];
+    const sv = dy * this.gazeScale[1] + this.cellAt[1];
     for (let k = 0; k < this.eye.length; k++) {
       const i = this.eye[k];
       this.uv[i * 2] = this.eyeUv[k * 2] + su;

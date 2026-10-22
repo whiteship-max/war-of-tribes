@@ -3,17 +3,19 @@
 // отметки «показана» и «выключены» — `sim/hints`.
 //
 // Порядок — порядок важности для первого дня: улучшить постройку → нанять дружину → соседи на карте → поход →
-// промыслы и энергия. Из готовых к показу встаёт первая непоказанная.
+// промыслы и энергия; мятеж — первым, когда случится. Из готовых к показу встаёт первая непоказанная.
 import type { GameState } from '../types';
 import { armySize, currentSite, recruitsQueued, upgradeInfo } from '../derived';
+import { MUTINY_EVENT } from './order';
+import { STAB_EVENTS } from './stability';
 
-export type HintId = 'upgrade' | 'army' | 'neighbors' | 'march' | 'games';
+export type HintId = 'revolt' | 'upgrade' | 'army' | 'neighbors' | 'march' | 'games';
 
 /**
  * Куда ведёт ссылка подсказки — имя двери интерфейса, а не сама дверь: данные интерфейса не знают. Ссылка ведёт туда же,
  * куда кнопка, у которой подсказка встаёт (UI-8, Д1, docs/ui_v2.md, 5.7): одна кнопка — одно место.
  */
-export type HintGo = 'townhall' | 'army' | 'map' | 'trades';
+export type HintGo = 'townhall' | 'army' | 'map' | 'trades' | 'mail';
 
 /** Что интерфейс знает сверх партии. */
 export interface HintCtx {
@@ -41,6 +43,17 @@ export const HINT_ARMY = 10;
 export const HINT_MARCH = 20;
 
 export const HINTS: readonly HintDef[] = [
+  // Первый мятеж (СБ-1, docs/stability.md, 2.10; docs/onboarding.md): срочнее всего прочего — встаёт первой, у «Вестей», где он
+  // ждёт ответа, и ведёт в раздел, где сказано, отчего он.
+  {
+    id: 'revolt',
+    title: 'Мятеж',
+    body: 'Город поднялся: ответ ждёт в «Вестях». Отчего недовольны и как не допустить нового — в державе, «Стабильность».',
+    anchor: '[data-tut="nav-mail"]',
+    // Туда же, куда кнопка «Вести», у которой подсказка стоит: одна кнопка — одно место (Д1).
+    link: { label: 'Вести', go: 'mail' },
+    due: (s) => s.inbox.some((e) => e.defId === MUTINY_EVENT || STAB_EVENTS.includes(e.defId)),
+  },
   {
     id: 'upgrade',
     title: 'Улучши постройку',

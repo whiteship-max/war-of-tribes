@@ -14,6 +14,9 @@ import { battleFx, type FxAmbience, type FxCue } from '@/sound/battlefx';
 import { cueBone, playChamberCue, type ChamberCue } from '../../src/render/chambers/cues';
 import { Purr, playLifeCue, speak } from '../../src/render/chambers/voices';
 import type { LifeCue, Who } from '../../src/render/chambers/life';
+import { HallVoices, type HallMood } from '@/sound/epoch/halls';
+import { BUILDINGS } from '@/game/data/buildings';
+import type { BuildingTypeId } from '@/game/types';
 
 /** Опорная точка того, что слышит игрок; между точками близость и фаза солнца идут линейно. */
 type Key = [number, Hearing];
@@ -40,6 +43,10 @@ export interface Sample {
   thunder?: [number, number, number][];
   /** Только замер: в образцы не пишется. */
   probe?: boolean;
+  /** Касания зданий (docs/city_v3.md, ЗВ-1): миг, здание, уровень, время суток. */
+  halls?: [number, BuildingTypeId, number, HallMood][];
+  /** Папка образца в `docs/`; нет — `audio-samples`. */
+  dir?: string;
 }
 
 const day = (o: Partial<Hearing>): Hearing => ({ view: 'city', solar: 0.25, season: 'summer', near: 0.5, sea: 0, ...o });
@@ -675,6 +682,46 @@ export const SAMPLES: Sample[] = [
   },
 ];
 
+/** Голоса зданий (ЗВ-1): по зданию — уровни 1, 5 и 10 днём; ночь, тревога и быстрая смена — отдельно. */
+const hall = (name: string, title: string, seconds: number, halls: [number, BuildingTypeId, number, HallMood][]): Sample => ({
+  name: `zv1-${name}`,
+  title,
+  seconds,
+  seed: 101 + name.length,
+  keys: null,
+  music: false,
+  battle: false,
+  duck: { music: 1, amb: 1 },
+  halls,
+  dir: 'audio',
+});
+SAMPLES.push(
+  ...BUILDINGS.map((b) =>
+    hall(b.id, `${b.name}: касание на уровне 1, 5 и 10, днём`, 9.5, [
+      [0.2, b.id as BuildingTypeId, 1, 'day'],
+      [3.3, b.id as BuildingTypeId, 5, 'day'],
+      [6.4, b.id as BuildingTypeId, 10, 'day'],
+    ]),
+  ),
+  hall('night', 'Ночью: трактир громче, кузница молчит, храм и рынок тише со сверчками', 12.5, [
+    [0.2, 'tavern', 5, 'night'],
+    [3.3, 'smithy', 5, 'night'],
+    [6.4, 'church', 5, 'night'],
+    [9.5, 'market', 5, 'night'],
+  ]),
+  hall('alarm', 'В тревогу: звон оружия поверх дома — казармы, рынок, ферма', 9.5, [
+    [0.2, 'barracks', 5, 'alarm'],
+    [3.3, 'market', 5, 'alarm'],
+    [6.4, 'farm', 5, 'alarm'],
+  ]),
+  hall('swap', 'Частые касания: трактир, кузница, рынок через полсекунды — новый мягко сменяет; трактир через 1,5 с — рано, молчит', 5, [
+    [0.2, 'tavern', 5, 'day'],
+    [0.7, 'smithy', 5, 'day'],
+    [1.2, 'market', 5, 'day'],
+    [1.7, 'tavern', 5, 'day'],
+  ]),
+);
+
 function hearingAt(keys: Key[], t: number): Hearing {
   let i = 0;
   while (i + 1 < keys.length && keys[i + 1][0] <= t) i++;
@@ -727,6 +774,7 @@ export async function render(name: string, limit: boolean): Promise<string> {
   fx?.arm();
   const ear = { x: 0, y: 25, z: 35, rx: 1, rz: 0 };
   const cueR = cueBone(s.seed);
+  const halls = s.halls ? new HallVoices(kit, chain.kinds.fx) : null;
   const STEP = 0.25;
   const step = (t: number): void => {
     if (amb && s.keys) {
@@ -735,6 +783,7 @@ export async function render(name: string, limit: boolean): Promise<string> {
     }
     music?.tick(t, 1);
     for (const [at, c] of s.cues ?? []) if (at >= t && at < t + STEP) playCue(kit, chain.kinds.fx, c, at);
+    for (const [at, type, level, mood] of s.halls ?? []) if (at >= t && at < t + STEP) halls?.play(type, level, mood, at);
     for (const [at, c] of s.chambers ?? []) if (at >= t && at < t + STEP) playChamberCue(ctx, chain.kinds.fx, c, at, cueR);
     for (const [at, c] of s.life ?? []) {
       if (at < t || at >= t + STEP) continue;
@@ -780,4 +829,4 @@ export async function render(name: string, limit: boolean): Promise<string> {
   return JSON.stringify({ sr, channels: 2, peak, over, data: btoa(bin) });
 }
 
-(globalThis as unknown as { __audio: unknown }).__audio = { render, names: SAMPLES.map((x) => ({ name: x.name, title: x.title, probe: !!x.probe })) };
+(globalThis as unknown as { __audio: unknown }).__audio = { render, names: SAMPLES.map((x) => ({ name: x.name, title: x.title, probe: !!x.probe, dir: x.dir })) };

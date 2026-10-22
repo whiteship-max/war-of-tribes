@@ -10,7 +10,9 @@ import { landShare } from '@/world/land';
 import { levelNow } from '@/render/gfx';
 import { cityNear, skitsHeard } from '../ear';
 import { cityAudio } from '../city';
-import { Ambience, type Hearing } from './ambience';
+import { Ambience, night, type Hearing } from './ambience';
+import { HallCue, hallHeard } from './hallcue';
+import { soundOn } from '../settings';
 import { EpochMusic } from './music';
 import { seeded } from './rng';
 import { makeKit, type Kit } from './synth';
@@ -130,7 +132,8 @@ export function startEpoch(out: { music: GainNode; fx: GainNode; amb: GainNode }
   // Стройка готова: уровень здания вырос на один. Скачок сразу у нескольких — это загрузка или встреча копий, а не стройка.
   const levels = new Map<number, number>();
   for (const b of useGame.getState().s.buildings) levels.set(b.id, b.level);
-  const unwatch = useGame.subscribe((g) => {
+  const unwatch = useGame.subscribe((g, prev) => {
+    if (g.sheet !== prev.sheet) hallTap(g);
     let grew = 0;
     for (const b of g.s.buildings) {
       const was = levels.get(b.id);
@@ -139,6 +142,26 @@ export function startEpoch(out: { music: GainNode; fx: GainNode; amb: GainNode }
     }
     if (grew === 1) cue('built');
   });
+
+  // Голос здания (docs/city_v3.md, ЗВ-1): открылась карточка здания касанием в сцене города (`hallHeard`); из окна — молчит.
+  // Свой кусок (`halls.ts`) — по первому такому касанию; на выходе «эффектов», под их громкостью.
+  const halls = new HallCue(
+    () => import('./halls').then((m) => new m.HallVoices(kit, uiOut)),
+    () => ctx.currentTime + 0.02,
+    () => !stopped && soundOn() && ctx.state === 'running',
+    () => {
+      const h = hearing();
+      return (h.life?.alarm ?? 0) > 0.5 ? 'alarm' : night(h.solar) > 0.5 ? 'night' : 'day';
+    },
+  );
+  function hallTap(g: ReturnType<typeof useGame.getState>): void {
+    const id = hallHeard(g);
+    if (id === null) return;
+    const b = g.s.buildings.find((x) => x.id === id);
+    if (b) halls.tap(b.type, b.level);
+  }
+  // Первое касание в игре могло само открыть карточку: кусок звука приехал позже неё.
+  hallTap(useGame.getState());
 
   function cue(name: Cue): void {
     if (stopped || ctx.state !== 'running') return;

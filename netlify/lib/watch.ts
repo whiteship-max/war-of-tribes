@@ -11,13 +11,15 @@
  * (указ, заморозка). Запись наблюдения — попутная: не легла — партия всё равно сохранена, а ответ игроку тот же.
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
-import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchCard } from './contract.js';
+import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchCard, type WatchCrownEntry } from './contract.js';
 import { DAY_LENGTH, gameDaysOfMs, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { storageOf } from '../../src/game/build.js';
+import { STAB_BAND, STAB_MAX, STAB_MIN, STAB_PRICE_MIN, STAB_SELF_MAX, stabEventRiseCeil, stabPointsCeil, stabSelfRiseCeil } from '../../src/game/stabrules.js';
+import { CROWN_GAIN_MAX, CROWN_RULES, CROWN_STAB_MAX, crownAnswersCeil, crownEvery, crownGain, crownStab, isCrown } from '../../src/game/crownrules.js';
 import { powerOfCounts } from '../../src/profile/power.js';
 import type { BuildingTypeId, ResourceId } from '../../src/game/types.js';
 import { rewrite } from './admin.js';
@@ -88,7 +90,9 @@ export type FlagKind =
   | 'eat'
   | 'walk'
   | 'queue'
-  | 'refund';
+  | 'refund'
+  | 'stab'
+  | 'crown';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -111,6 +115,8 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   walk: 'срок пути',
   queue: 'очередь стройки',
   refund: 'возврат сверх положенного',
+  stab: 'стабильность',
+  crown: 'вести державы',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -118,7 +124,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -162,6 +168,20 @@ export const CITY_RULES: readonly CityRule[] = [
     act: 'в войну — книга запасов, не меньше; флаг',
   },
   { id: 'eat', rule: 'расход хлеба в осаде не ниже пайка жителей, невольников и бойца при самом скудном рационе', formula: 'build.eatFloorPerDay', flag: 'eat', act: 'в войну — не ниже пола; флаг' },
+  {
+    id: 'stab',
+    rule: 'стабильность: ступень в −3…+3; очков на ступени не больше, чем дал бы лучший правитель, и не меньше цены купленных; подъём — не выше купленного и того, что ровная жизнь даёт сама до «Лада»; подавлено мятежей не больше выигранных боёв',
+    formula: 'stabrules.stabPointsCeil, stabPrice, stabSelfRiseCeil, STAB_SELF_MAX',
+    flag: 'stab',
+    act: 'флаг',
+  },
+  {
+    id: 'crown',
+    rule: 'вести державы: вид и ответ — из таблицы правил, весть не чаще своего срока, ответов не больше сетки почты; подъём стабильности и очки — с тем, что дали вести',
+    formula: 'crownrules.CROWN_RULES, crownEvery, crownAnswersCeil, crownStab, crownGain',
+    flag: 'crown',
+    act: 'флаг',
+  },
 ];
 
 export interface WatchFlag {
@@ -335,6 +355,10 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
       out.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости склада ${big(card.cap)} — сверх склада игра не кладёт ничего (или склад потерял уровень).` });
     }
   }
+  // Ступень стабильности — в шкале −3…+3 у каждой описи, и у первой тоже (правило «stab», docs/stability.md, 2.7).
+  if (card.stab && (card.stab.level < STAB_MIN || card.stab.level > STAB_MAX)) {
+    out.push({ kind: 'stab', text: `Стабильность ${signed(card.stab.level)} — вне шкалы ${STAB_MIN}…+${STAB_MAX}.` });
+  }
   const skew = card.clock > 0 ? card.clock - at : 0;
   if (Math.abs(skew) > CLOCK_SKEW_SECONDS * 1000) {
     out.push({ kind: 'clock', text: `Часы устройства ${skew > 0 ? 'спешат' : 'отстают'} на ${span(Math.abs(skew))} (терпим до ${span(CLOCK_SKEW_SECONDS * 1000)}).` });
@@ -410,6 +434,8 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
       }
     }
   }
+  out.push(...stabFlags(a, b, days, realMs));
+  out.push(...crownFlags(a, b, realMs));
   const played = b.games - a.games;
   if (played > 0) {
     // Энергия: полный запас и приток за прошедшее время партии; игра стоит `MINIGAME_COST`.
@@ -421,6 +447,112 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
       out.push({ kind: 'haul', text: `Добыча промыслов ${signed(got)} за ${big(played)} игр; потолок — ${big(cap)} за игру.` });
     }
   }
+  return out;
+}
+
+/**
+ * Книга стабильности (правило «stab», docs/stability.md, 2.7): что опись говорит о стабильности между `a` и `b`, сверенное с
+ * правилами игры — теми же формулами (`game/stabrules`). Сервер партию не разбирает: ступень и счёт приходят описью, а
+ * невозможное — флаг и строка «внимание:» в журнале города. Описи без стабильности — как прежде, без проверки.
+ */
+export function stabFlags(a: WatchCard, b: WatchCard, days: number, realMs: number): { kind: FlagKind; text: string }[] {
+  const out: { kind: FlagKind; text: string }[] = [];
+  const x = b.stab;
+  const y = a.stab;
+  // Шкалу каждой описи сверяет `flagsOf`; здесь — промежуток.
+  if (!x || !y) return out;
+  const bought = Math.max(0, x.bought - y.bought);
+  const spent = x.spent - y.spent;
+  // Вести державы (СБ-2) двигают сдвиг и дают очки: их доля — из таблицы правил по ответам книги вестей.
+  const credit = crownCredit(a, b);
+  const ceil = Math.floor(stabPointsCeil(days) + credit.gain);
+  if (spent > ceil) {
+    out.push({ kind: 'stab', text: `На стабильность ушло ${big(spent)} очков каждого вида за ${span(realMs)} — правитель дал бы не больше ${big(ceil)}.` });
+  }
+  if (bought > 0 && spent < bought * STAB_PRICE_MIN) {
+    out.push({ kind: 'stab', text: `Куплено ступеней стабильности ${big(bought)}, а очков ушло ${big(spent)} — ступень стоит не меньше ${big(STAB_PRICE_MIN)}.` });
+  }
+  // Подъём: мятежи сначала опускают, ровная жизнь поднимает сама не выше «Лада», покупки — сверху. Выше этого — не могла.
+  const revolts = Math.max(0, x.revolts - y.revolts);
+  const won = Math.max(0, b.won - a.won);
+  const low = Math.max(STAB_MIN, y.level - revolts);
+  const self = Math.max(low, Math.min(STAB_SELF_MAX, low + stabSelfRiseCeil(days, won, STAB_BAND)));
+  // Вести державы поднимают и выше «Лада» (СБ-2): их сдвиг — поверх.
+  const top = Math.min(STAB_MAX, self + bought + stabEventRiseCeil(credit.rise));
+  if (x.level > top) {
+    out.push({
+      kind: 'stab',
+      text: `Стабильность ${signed(y.level)} → ${signed(x.level)} за ${span(realMs)}: куплено ступеней ${big(bought)}, мятежей ${big(revolts)} — подняться выше ${signed(top)} она не могла.`,
+    });
+  }
+  const held = Math.max(0, x.held - y.held);
+  if (held > won || held > revolts + 1) {
+    out.push({ kind: 'stab', text: `Подавлено мятежей ${big(held)} за ${span(realMs)}, а боёв выиграно ${big(won)}, мятежей поднялось ${big(revolts)}.` });
+  }
+  return out;
+}
+
+/** Ответы на вести державы между описями: строки книги второй описи с номером выше счёта первой и сколько из них не видно. */
+export function crownNew(a: WatchCard, b: WatchCard): { seen: WatchCrownEntry[]; unseen: number } {
+  const from = a.crown?.n ?? 0;
+  const x = b.crown;
+  if (!x || x.n <= from) return { seen: [], unseen: 0 };
+  const seen = x.last.filter((e) => e.n > from && e.n <= x.n);
+  return { seen, unseen: Math.max(0, x.n - from - seen.length) };
+}
+
+/**
+ * Что вести державы между описями могли дать: подъём стабильности, % ступени, и приток очков — по таблице правил
+ * (`crownrules`), а ответы, которых опись не довезла, — самой щедрой вестью. Сверху, а не точно: подделку ловит сверка
+ * книги (`crownFlags`), а здесь честный не должен получить флаг стабильности за ступень, которую ему дала весть.
+ */
+export function crownCredit(a: WatchCard, b: WatchCard): { rise: number; gain: number } {
+  const { seen, unseen } = crownNew(a, b);
+  let rise = unseen * CROWN_STAB_MAX;
+  let gain = unseen * CROWN_GAIN_MAX;
+  for (const e of seen) {
+    if (!isCrown(e.id)) continue;
+    rise += Math.max(0, crownStab(e.id, e.opt));
+    gain += crownGain(e.id, e.opt);
+  }
+  return { rise, gain };
+}
+
+/**
+ * Книга вестей державы (правило «crown», docs/stability.md, «СБ-2»): вид и ответ каждой новой строки — из таблицы правил,
+ * весть не чаще своего срока повтора (минуты прихода — игровое время партии), ответов не больше, чем сетка почты могла
+ * принести за настоящее время. Невозможное — флаг и строка «внимание:». Описи без книги — без проверки.
+ */
+export function crownFlags(a: WatchCard, b: WatchCard, realMs: number): { kind: FlagKind; text: string }[] {
+  const out: { kind: FlagKind; text: string }[] = [];
+  const x = b.crown;
+  if (!x) return out;
+  const { seen } = crownNew(a, b);
+  for (const e of seen) {
+    const rule = CROWN_RULES[e.id];
+    if (!rule) out.push({ kind: 'crown', text: `Ответ на весть «${e.id}», которой в игре нет.` });
+    else if (e.opt >= rule.opts.length) {
+      out.push({ kind: 'crown', text: `Весть «${e.id}»: ответа №${e.opt + 1} нет — у неё ${rule.opts.length}.` });
+    }
+  }
+  // Повтор: та же весть дважды ближе срока — среди новых строк и прежних, что помнит первая опись.
+  const book = new Map<number, WatchCrownEntry>();
+  for (const e of [...(a.crown?.last ?? []), ...x.last]) book.set(e.n, e);
+  for (const e of seen) {
+    const rule = CROWN_RULES[e.id];
+    if (!rule || rule.kind === 'chain') continue;
+    const every = crownEvery(e.id);
+    const twin = [...book.values()].find((o) => o.id === e.id && o.n !== e.n && Math.abs(o.at - e.at) < every);
+    if (twin) {
+      out.push({
+        kind: 'crown',
+        text: `Весть «${e.id}» пришла дважды за ${gameDays(Math.abs(twin.at - e.at) / DAY_LENGTH)} — не чаще раза в ${Number.isFinite(every) ? gameDays(every / DAY_LENGTH) : 'партию'}.`,
+      });
+    }
+  }
+  const count = x.n - (a.crown?.n ?? 0);
+  const ceil = crownAnswersCeil(realMs);
+  if (count > ceil) out.push({ kind: 'crown', text: `Ответов на вести державы ${big(count)} за ${span(realMs)} — почта принесла бы не больше ${big(ceil)}.` });
   return out;
 }
 

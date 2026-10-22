@@ -272,7 +272,7 @@ describe('настройки вестей в боте: /notify (ВС-1)', () => 
     expect(r.t.calls).toEqual(['panel:77']);
     expect(r.s.data.get(STORES.notify)?.size ?? 0).toBe(0);
     const panel = r.t.panels[0];
-    expect(panel.text).toContain('Бот пишет о боях, осадах, стройке, указах и соседях.');
+    expect(panel.text).toContain('Бот пишет о боях, осадах, стройке, указах, соседях и державе.');
     expect(panel.text).toContain('Тихий час: 23:00–08:00 (Europe/Moscow)');
     expect(datas(panel.rows)).toEqual([
       callbackTopic('fights'),
@@ -280,6 +280,7 @@ describe('настройки вестей в боте: /notify (ВС-1)', () => 
       callbackTopic('build'),
       callbackTopic('grants'),
       callbackTopic('neighbors'),
+      callbackTopic('realm'),
       CALLBACK_QUIET,
       CALLBACK_URGENT,
       CALLBACK_PANEL_OFF,
@@ -301,7 +302,7 @@ describe('настройки вестей в боте: /notify (ВС-1)', () => 
     const a = await hit(press(77, callbackTopic('build')), SECRET);
     expect(a.record('tg-77')?.bot.mute).toEqual(['build']);
     expect(a.t.calls).toEqual([`answer:${SAVED}`, 'repanel:77:55']);
-    expect(a.t.panels[0].text).toContain('Бот пишет о боях, осадах, указах и соседях.');
+    expect(a.t.panels[0].text).toContain('Бот пишет о боях, осадах, указах, соседях и державе.');
     expect(a.t.panels[0].rows[0][2].text).toBe('Стройка: нет');
     const b = await hit(press(77, CALLBACK_QUIET), SECRET, a.s);
     expect(b.record('tg-77')?.bot.quiet).toEqual({ from: 22 * 60, to: 7 * 60 });

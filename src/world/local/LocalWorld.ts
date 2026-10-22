@@ -5545,6 +5545,8 @@ export class LocalWorld implements WorldApi {
   private gateParty(call: GateCall): FieldSide & { gear: Partial<Record<UnitKind, number>> } {
     // Сторона боя и ступень снаряжения отряда — только для показа (запись боя одевает им пришедших); у зверей её нет.
     if (GATE_FOES[call.foe].beasts) return { kinds: { ...emptyStack(), cavalry: menOfPower(call.power) }, gear: {} };
+    // Мятежники — свои горожане: пехота без вещей (docs/stability.md, 2.4).
+    if (GATE_FOES[call.foe].townsfolk) return { kinds: { ...emptyStack(), infantry: menOfPower(call.power) }, gear: {} };
     const band = raidingParty(this.save.seed, call.id, call.power);
     return { kinds: band.kinds, gear: band.gear };
   }
@@ -5601,8 +5603,9 @@ export class LocalWorld implements WorldApi {
       lostTroops: troopsLost,
       ...(troopTotal(standing) > 0 ? { standing } : {}),
       resources: loss,
-      prestige: field.won ? 0 : 3,
-      morale: field.won ? -GATE_MORALE_LOST : GATE_MORALE_WON,
+      // С мятежниками бьются свои: ни славы, ни морали — подавление платит моралью само (`sim/stability.rebelsSettled`).
+      prestige: field.won || def.townsfolk ? 0 : 3,
+      morale: def.townsfolk ? 0 : field.won ? -GATE_MORALE_LOST : GATE_MORALE_WON,
       battle: field.won ? 'lost' : 'won',
       text,
       good: !field.won,

@@ -37,9 +37,9 @@ import { awayOf, homeOf, NOBODY_AWAY, type Away } from '@/world/muster';
 import { faithAt } from '@/world/faith';
 import { lairLevel, lairPower, lairRaid } from '@/world/lairs';
 import { LAIR_ANCHOR_MID, LAIR_RIPE } from '@/world/data/tuning';
-import type { GateCall, GateFoe, PlayerProfile } from '@/world/types';
+import type { GateCall, PlayerProfile } from '@/world/types';
 import { menOfPower } from '@/world/garrison';
-import { GATE_POP, GATE_POWER, gatePower } from '@/game/data/events';
+import { GATE_POP, GATE_POWER, gatePower, type EventFoe } from '@/game/data/events';
 import { BATTLE_MAN, troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { troopPower } from '@/game/battle/price';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
@@ -329,7 +329,7 @@ interface GateRow {
  * Доля боёв у ворот, где пришедшие силой `power` взяли верх: бой настоящий, дверью мира (`gateParty` → `gateField`), ничего не
  * трогая; сид — свой на каждый из `GATE_SEEDS` боёв. Одна мерка на решётку раздела 4 и на таблицу по уровню (4б).
  */
-function foeShare(w: Inside, at: number, foe: GateFoe, power: number): number {
+function foeShare(w: Inside, at: number, foe: EventFoe, power: number): number {
   let broke = 0;
   for (let i = 1; i <= GATE_SEEDS; i++) {
     const call: GateCall = { id: `gate-bench${i}`, foe, power, seed: i * 7919 };
@@ -349,7 +349,7 @@ export async function gateRow({ level, faith, c: k }: { level: number; faith: Fa
   const { world, at } = await fieldWorld(g, SEEDS[0], c.take);
   const w: Inside = world;
   const home = w.defenders(at).all as TroopStack;
-  const lost = (foe: GateFoe): { men: number; share: number } => {
+  const lost = (foe: EventFoe): { men: number; share: number } => {
     const power = gatePower(g, foe);
     return { men: menOfPower(power), share: foeShare(w, at, foe, power) };
   };
@@ -436,7 +436,7 @@ interface Even {
  * спрашивает у кривой только это, а бои после решённого ответа были большей частью раздела (docs/handbook/console.md,
  * «Где было время»). Доли кривой — `foeShare`, целиком.
  */
-function foeHalf(w: Inside, at: number, foe: GateFoe, power: number): boolean {
+function foeHalf(w: Inside, at: number, foe: EventFoe, power: number): boolean {
   const need = GATE_SEEDS / 2;
   let broke = 0;
   for (let i = 1; i <= GATE_SEEDS; i++) {
@@ -449,13 +449,13 @@ function foeHalf(w: Inside, at: number, foe: GateFoe, power: number): boolean {
 }
 
 /** Кривая: доля боёв, где пришедшие взяли верх, при силе `CURVE` долей обороны. */
-const curveOf = (w: Inside, at: number, who: GateFoe, d: number): number[] => CURVE.map((k) => foeShare(w, at, who, k * d));
+const curveOf = (w: Inside, at: number, who: EventFoe, d: number): number[] => CURVE.map((k) => foeShare(w, at, who, k * d));
 
 /**
  * Ровный бой: первая точка кривой, где доля доходит до половины, и деление отрезка до неё — теми же решениями, что по
  * кривой целиком (`curveOf(…)[i] >= 0.5`), но без долей: кривая нужна только медианной партии, и её строит `gateFoeRow`.
  */
-function evenOf(w: Inside, at: number, who: GateFoe, d: number): Even {
+function evenOf(w: Inside, at: number, who: EventFoe, d: number): Even {
   const cross = CURVE.findIndex((k) => foeHalf(w, at, who, k * d));
   if (cross < 0) return { power: NaN };
   let lo = cross === 0 ? 0 : CURVE[cross - 1] * d;
@@ -508,7 +508,7 @@ interface LevelFoe {
 
 interface FoeJob {
   level: number;
-  who: GateFoe;
+  who: EventFoe;
   g: GameState;
   /** Чья партия медианная: поток и игрок. */
   flight: string;
@@ -604,7 +604,7 @@ export async function gateEvens(): Promise<{ flights: { masters: boolean; stream
 }
 
 /** Строка таблицы: партии уровня с ровным боем, по возрастанию, и медиана ровного, делённая на перевес «Ограничителя». */
-export function gateValue(evens: readonly StreamEven[], level: number, who: GateFoe): { got: StreamEven[]; value: number } {
+export function gateValue(evens: readonly StreamEven[], level: number, who: EventFoe): { got: StreamEven[]; value: number } {
   const got = evens.filter((e) => e.level === level && Number.isFinite(e[who].power)).sort((a, b) => a[who].power - b[who].power);
   return { got, value: got.length > 0 ? medianOf(got.map((e) => e[who].power)) / TABLE_EDGE : NaN };
 }
@@ -623,7 +623,7 @@ export async function gateLevelPart(): Promise<void> {
   console.log(`На ${BARE_LEVELS} первых уровнях кривая медианного ещё и без кости: бой на каждую голову пришедших, от одного до ${CURVE[CURVE.length - 1]} обороны (разбор — 14.35).`);
   const { flights, towns, evens } = await gateEvens();
   const flightName = (i: number): string => `поток ${flights[i].stream}, ${playerName(flights[i].masters)}`;
-  const table: Record<GateFoe, number[]> = { wolves: [], raiders: [] };
+  const table: Record<EventFoe, number[]> = { wolves: [], raiders: [] };
   const foeJobs: FoeJob[] = [];
   const heads: string[] = [];
   for (let level = 1; level <= MAX_BUILDING_LEVEL; level++) {
@@ -649,7 +649,7 @@ export async function gateLevelPart(): Promise<void> {
   }
   const foeRows = await fan(gateFoeRow, import.meta.url, foeJobs);
   const got: LevelRow[] = heads.map((head, i) => {
-    const pick = (who: GateFoe): LevelFoe => {
+    const pick = (who: EventFoe): LevelFoe => {
       const k = foeJobs.findIndex((j) => j.level === i + 1 && j.who === who);
       return k >= 0 ? foeRows[k] : { men: NaN, power: NaN, bumpy: false, line: `     ${who === 'wolves' ? 'волки' : 'разбойники'} — ни один поток до уровня не дошёл` };
     };

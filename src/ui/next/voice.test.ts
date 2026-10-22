@@ -103,6 +103,10 @@ export const VOICE1 = [
   'ui/panels/PopPanel.tsx', 'ui/panels/MoralePanel.tsx', 'ui/OfflineModal.tsx', 'ui/WinterModal.tsx', 'ui/map/Rating.tsx',
   'game/data/hints.ts', 'game/data/tutorial.ts', 'game/data/policy.ts', 'game/data/quests.ts', 'game/data/troops.ts',
   'game/data/equipment.ts', 'game/data/buildings.ts', 'game/data/jobs.ts', 'game/data/yards.ts',
+  // Стабильность державы (СБ-1, docs/stability.md): слова механики, раздела и вестей мятежа.
+  'game/data/stability.ts', 'ui/realm/Stability.tsx', 'ui/realm/stabWords.ts',
+  // Вести державы (СБ-2): таблица, слова летописи, последствия словами и окно.
+  'game/data/crown.ts', 'game/data/crownWords.ts', 'game/sim/crown.ts', 'ui/realm/crownView.ts', 'ui/realm/CrownCard.tsx',
 ];
 
 /**

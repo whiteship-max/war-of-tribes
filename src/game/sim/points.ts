@@ -68,3 +68,17 @@ export function spend(s: GameState, branch: RealmBranch, points: number): boolea
   r.points[branch] = Math.max(0, r.points[branch] - points);
   return true;
 }
+
+/**
+ * Прибавить очки — **единственная дверь притока** сверх ставки правителя: вести державы (СБ-2, `sim/crown`), клятва
+ * вассала, учёный муж. Тот же порядок, что у траты: сперва `bank`, потом прибавка, не выше потолка — иначе прибавленное
+ * сверх потолка ушло бы на следующем чтении, а прошлое посчиталось бы по новой базе дважды. Возвращает, сколько легло.
+ */
+export function grant(s: GameState, branch: RealmBranch, points: number): number {
+  const r = s.realm;
+  if (!r || !(points > 0)) return 0;
+  bank(s);
+  const before = r.points[branch];
+  r.points[branch] = Math.min(POINTS_CAP, before + points);
+  return r.points[branch] - before;
+}

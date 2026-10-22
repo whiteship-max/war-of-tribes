@@ -162,6 +162,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/sound\/epoch\//],
   },
   {
+    // Голоса зданий (docs/city_v3.md, ЗВ-1) — своя докачка из куска звука города по первому касанию здания: ни в первую
+    // загрузку, ни в кусок фона они не едут.
+    name: 'голоса зданий',
+    door: /\/src\/sound\/epoch\/halls\.ts$/,
+    owns: [/\/src\/sound\/epoch\/halls\.ts$/],
+  },
+  {
     // Промыслы — мини-игры от первого лица (docs/minigames.md): свой кусок по кнопке входа; «Охота» внутри него —
     // ещё одна докачка (лук, олени, звук), её тянет только «На охоту».
     name: 'промыслы',
@@ -188,6 +195,27 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     name: 'гонец',
     door: /\/src\/render\/chambers\/herald\/index\.ts$/,
     owns: [/\/src\/render\/chambers\/herald\//, /\/src\/render\/chambers\/kit\//],
+  },
+  {
+    // Советник (docs/characters.md, ЛЦ-5): фигура на том же наборе персонажа — свой кусок внутри покоев, его тянет жизнь
+    // покоев при входе; набор — общим куском. В кусок покоев и в первую загрузку не едет.
+    name: 'советник',
+    door: /\/src\/render\/chambers\/advisor\/index\.ts$/,
+    owns: [/\/src\/render\/chambers\/advisor\//, /\/src\/render\/chambers\/kit\//],
+  },
+  {
+    // Служанка (docs/characters.md, ЛЦ-6): фигура на том же наборе персонажа — свой кусок внутри покоев, его тянет жизнь
+    // покоев при входе; набор — общим куском. В кусок покоев и в первую загрузку не едет.
+    name: 'служанка',
+    door: /\/src\/render\/chambers\/maid\/index\.ts$/,
+    owns: [/\/src\/render\/chambers\/maid\//, /\/src\/render\/chambers\/kit\//],
+  },
+  {
+    // Кот покоев (docs/characters.md, ЛЦ-4): фигура, лист окраса, живость и клубок на том же наборе персонажа — свой кусок
+    // внутри покоев, его тянет жизнь покоев при входе; мозг кота (`chambers/cat.ts`) — в куске покоев. В первую загрузку не едет.
+    name: 'кот',
+    door: /\/src\/render\/chambers\/pet\/index\.ts$/,
+    owns: [/\/src\/render\/chambers\/pet\//, /\/src\/render\/chambers\/kit\//],
   },
   {
     name: 'охота',

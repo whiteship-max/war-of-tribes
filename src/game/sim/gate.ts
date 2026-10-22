@@ -1,9 +1,9 @@
 // Вызов к воротам — дверь племени к бою события у своих ворот (docs/battle_eu4.md, 14.28; слово владельца: бой считает
 // мир той же дверью, что бой у стены, и исход приходит отчётом в «Походы»).
 //
-// Событие (волки, разбойники) кладёт вызов ответом или молчанием (`callGate`); слепок везёт вызов миру без трофеев
-// (`gateCalls`); мир бьётся на ближайшем пульсе и возвращает последствие с отметкой вызова — павших, мораль, славу и
-// унесённое — и список посчитанных вызовов. Здесь при победе выдаются трофеи события (`settleGate`), а снимаются вызовы
+// Событие (волки, разбойники; мятежники — `sim/stability`) кладёт вызов ответом или молчанием (`callGate`); слепок везёт
+// вызов миру без трофеев (`gateCalls`); мир бьётся на ближайшем пульсе и возвращает последствие с отметкой вызова —
+// павших, мораль, славу и унесённое — и список посчитанных вызовов. Здесь при победе выдаются трофеи события (`settleGate`), а снимаются вызовы
 // одним путём — по списку мира (`dropGates`): он называет и посчитанные в этот пульс, и те, чьё последствие потерялось.
 import type { GameState, ResourceId, TribeGate } from '../types';
 import type { GateCall, GateFoe, HomeEffect } from '@/world/types';
@@ -12,6 +12,7 @@ import { RESOURCE_META } from '../constants';
 import { storageCap } from '../derived';
 import { roll } from './roll';
 import { log } from './log';
+import { rebelsSettled } from './stability';
 
 /**
  * Положить вызов к воротам. Сид боя — кость партии в эту минуту, номер — по счёту её бросков: бой повторяется из партии,
@@ -35,7 +36,13 @@ export const gateCalls = (s: GameState): GateCall[] =>
  */
 export function settleGate(s: GameState, e: HomeEffect): void {
   const call = (s.gate ?? []).find((c) => c.id === e.gate);
-  if (!call || e.battle !== 'won') return;
+  if (!call) return;
+  // Мятежники у ворот: исход решает стабильность — подавлен мятеж или на стол ложатся условия (docs/stability.md, 2.4).
+  if (call.foe === 'rebels') {
+    rebelsSettled(s, e.battle === 'won');
+    return;
+  }
+  if (e.battle !== 'won') return;
   const cap = storageCap(s);
   const got: string[] = [];
   for (const [r, n] of Object.entries(call.spoils) as [ResourceId, number][]) {

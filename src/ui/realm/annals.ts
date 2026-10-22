@@ -10,7 +10,7 @@ import type { Report } from '@/world/types';
 import type { IconName } from '@/ui/icons/alias';
 
 /** Род события летописи: фильтры над днями. `town` — всё прочее (сезон, задания, жители, вести города). */
-export type ChronTopic = 'battle' | 'raid' | 'siege' | 'build' | 'decree' | 'rival' | 'trade' | 'town';
+export type ChronTopic = 'battle' | 'raid' | 'siege' | 'build' | 'decree' | 'rival' | 'trade' | 'stab' | 'town';
 
 /** Рода по порядку фильтров: война — первой, она и открывается донесением. */
 export const TOPICS: readonly { id: ChronTopic; label: string; icon: IconName }[] = [
@@ -21,6 +21,7 @@ export const TOPICS: readonly { id: ChronTopic; label: string; icon: IconName }[
   { id: 'decree', label: 'Указы', icon: 'ui-scroll' },
   { id: 'rival', label: 'Соседи', icon: 'deal-alliance' },
   { id: 'trade', label: 'Торговля', icon: 'ui-wagon' },
+  { id: 'stab', label: 'Стабильность', icon: 'ui-scales' },
   { id: 'town', label: 'Город', icon: 'ui-book' },
 ];
 

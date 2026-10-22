@@ -42,7 +42,8 @@ describe('пустое касание по городу', () => {
     // Тап мимо всего — тоже тап: сцена зовёт `onPick` с тем, во что целились, а это `null`.
     expect(scene).toMatch(/const end: End = tapped\s*\?\s*this\.aimed === null\s*\?\s*'мимо'/);
     expect(scene).toMatch(/if \(!tapped\) return;[\s\S]{0,400}?this\.onPick\?\.\(this\.aimed\);/);
-    expect(src('./GameCanvas.tsx')).toMatch(/scene\.onPick = \(id\) => useGame\.getState\(\)\.openBuilding\(id\);/);
+    // С СБ-2б касание в сцене несёт метку `'scene'` (голос здания, ЗВ-1); пустое касание (`null`) закрывает шторку как прежде.
+    expect(src('./GameCanvas.tsx')).toMatch(/scene\.onPick = \(id\) => useGame\.getState\(\)\.openBuilding\(id, 'scene'\);/);
     expect(src('./next/next.css')).toMatch(/\.ui-new \.sheet-backdrop \{[^}]*pointer-events: none;/);
   });
 });

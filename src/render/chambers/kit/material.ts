@@ -22,6 +22,10 @@ export interface FigureUniforms {
 const VERT = /* glsl */ `
 attribute float sheet;
 attribute float shade;
+#ifdef FADE
+attribute float fade;
+varying float vFade;
+#endif
 uniform vec3 uOrigin;
 varying vec2 vUv;
 varying float vSheet;
@@ -32,6 +36,9 @@ void main() {
   vUv = uv;
   vSheet = sheet;
   vShade = shade;
+  #ifdef FADE
+  vFade = fade;
+  #endif
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vL = wp.xyz - uOrigin;
   vN = normalize(mat3(modelMatrix) * normal);
@@ -58,6 +65,9 @@ varying float vSheet;
 varying float vShade;
 varying vec3 vN;
 varying vec3 vL;
+#ifdef FADE
+varying float vFade;
+#endif
 void main() {
   // Оба листа читаются всегда (производные выборки — вне ветвления), выбирает вершина.
   vec3 b = texture2D(bodyMap, vUv).rgb;
@@ -76,7 +86,11 @@ void main() {
   col += rimCol * fr * smoothstep(-0.25, 0.75, dot(n, uRimDir)) * (1.0 - 0.8 * max(n.y, 0.0)) * (1.0 - back);
   float sel = step(0.5, uSel) * (1.0 - step(0.5, abs(uCode - uSel)));
   col += (albedo * 0.35 + vec3(1.0, 0.78, 0.45) * (0.05 + 0.45 * fr)) * sel * uSelGlow;
-  gl_FragColor = vec4(col, 1.0);
+  float alpha = 1.0;
+  #ifdef FADE
+  alpha = vFade;
+  #endif
+  gl_FragColor = vec4(col, alpha);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -101,7 +115,7 @@ export function sheetTexture(rgba: Uint8Array<ArrayBuffer>, size: number, name: 
  * Материал фигуры. `shared` — ручки покоев, которые правит кадр комнаты (выбор пальцем, начало комнаты): их объекты
  * общие, а не копии. `inside` — глубина в доле буфера под комнату (`city/inside`), как у всего в покоях.
  */
-export function figureMaterial(body: THREE.Texture, face: THREE.Texture, code: number, inside: boolean, shared: { uOrigin: { value: THREE.Vector3 }; uSel: { value: number }; uSelGlow: { value: number } } | undefined, name: string): { material: THREE.ShaderMaterial; u: FigureUniforms } {
+export function figureMaterial(body: THREE.Texture, face: THREE.Texture, code: number, inside: boolean, shared: { uOrigin: { value: THREE.Vector3 }; uSel: { value: number }; uSelGlow: { value: number } } | undefined, name: string, fade = false): { material: THREE.ShaderMaterial; u: FigureUniforms } {
   const u: FigureUniforms = {
     bodyMap: { value: body },
     faceMap: { value: face },
@@ -113,7 +127,11 @@ export function figureMaterial(body: THREE.Texture, face: THREE.Texture, code: n
     uSelGlow: shared?.uSelGlow ?? { value: 0 },
     uCode: { value: code },
   };
-  const material = new THREE.ShaderMaterial({ uniforms: u, vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide, defines: inside ? { INSIDE: 1 } : {} });
+  // `fade` (кот, ЛЦ-4): прозрачность вершин — усы тонкими полосками; грани усов пишутся последними, и фигура рисуется в
+  // проходе прозрачных одним вызовом.
+  const defines: Record<string, number> = inside ? { INSIDE: 1 } : {};
+  if (fade) defines.FADE = 1;
+  const material = new THREE.ShaderMaterial({ uniforms: u, vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide, defines, transparent: fade });
   // Свет и тень нарисованы в листах: тональное сжатие сцены съело бы светлые тона кожи и плоско выровняло лицо.
   material.toneMapped = false;
   material.name = name;

@@ -40,7 +40,10 @@ import type { GenSettlement } from '@/world/gen';
 import { LAIR_RIPE, LAIR_STEP } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
 import { creditTech, study, troopOpen } from '@/game/sim/tech';
-import { BRANCH_BUILT, REALM_BRANCHES, warLevelOfTroop } from '@/game/data/realm';
+import { stabLevel, steady, steadyInfo } from '@/game/sim/stability';
+import { pointsOf } from '@/game/sim/points';
+import { STAB_MAX, STAB_MIN } from '@/game/stabrules';
+import { BRANCH_BUILT, POINTS_CAP, REALM_BRANCHES, warLevelOfTroop } from '@/game/data/realm';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { absence, catchUp, tick } from '@/game/sim/tick';
 import { DAY_LENGTH, gameSeconds, realMs, realSeconds, timeScale } from '@/game/pace';
@@ -408,6 +411,20 @@ function learn(g: GameState): void {
 }
 
 /**
+ * Укрепить стабильность, как обычный игрок (docs/stability.md, раздел 3): ступень ниже нуля поднимает, как только хватает
+ * очков, — шатость стоит выработки; выше нуля — только очками, которым больше некуда деться (вид у потолка, и ветвь его
+ * не берёт). Технологии первыми: ступень, купленная раньше нужной ступени ветви, отняла бы у игрока вид войск.
+ */
+function steadyUp(g: GameState): void {
+  for (let guard = 0; guard < STAB_MAX - STAB_MIN; guard++) {
+    if (steadyInfo(g).blocked) return;
+    const full = REALM_BRANCHES.some((b) => pointsOf(g, b) >= POINTS_CAP);
+    if (stabLevel(g) >= 0 && !full) return;
+    steady(g);
+  }
+}
+
+/**
  * Сколько рук игрок может отдать в войско — одна дверь на найм по поведению и на найм на осаду.
  *
  * **Кто строит, отдаёт только сверх запаса на стройку** — при любом поведении. Иначе найм забирал
@@ -543,7 +560,7 @@ function answer(g: GameState, l: Ledger): void {
       continue;
     }
     const def = EVENT_BY_ID[ev.defId];
-    const i = def ? def.options.findIndex((o) => !o.cost) : -1;
+    const i = def ? def.options.findIndex((o) => !o.cost && !o.points) : -1;
     if (resolveEvent(g, Math.max(0, i), eventId(ev)).error === null) l.answered++;
   }
 }
@@ -622,7 +639,10 @@ function decide(g: GameState, p: Player, l: Ledger): void {
   answer(g, l);
   // Учится раньше, чем нанимает: ступень, купленная в этом же заходе, открывает вид тому
   // же кругу найма — как у игрока, который перед казармами заглянул в «Технологии».
-  if (p.study) learn(g);
+  if (p.study) {
+    learn(g);
+    steadyUp(g);
+  }
   // **Кто строит и нанимает, встречает новорождённых наймом, а не расстановкой.** Расстановка держит
   // на работах долю племени, округлённую по каждой работе, и двое-трое родившихся за полдня не сдвигают
   // ни одной доли, а десяток за пять дней — сдвигают: пусти расстановку первой, и что достанется войску,

@@ -2,40 +2,44 @@
 // сидит, спит клубком у камина, сидит на подоконнике и смотрит на город, запрыгивает на кровать, сам приходит к правителю
 // и трётся о ноги; касание — гладят (мурчит, жмурится), клубок — гоняет и бьёт лапой.
 //
-// Модель — одна сетка с жёсткой кожей (`rig.ts`): тело, голова с ушами, глаза с веками на своих костях (жмурится и спит),
-// челюсть (мяукает), хвост из пяти звеньев. Решает, что делать, `CatBrain` — сам по себе, без механики игры; случайность —
-// своя зернистая (кот — картинка, `Math.random` в игре нет).
-import type * as THREE from 'three';
+// Здесь — мозг кота (`Cat`), его поза (`catPosture`) и скелет. Тело — фигура набора персонажа (ЛЦ-4, docs/characters.md):
+// сетка в два веса, листы шерсти кодом, глаза, усы, живость ключами — свой ленивый кусок (`pet/`), его тянет жизнь
+// покоев при входе. Пока кусок в пути, кот думает и ходит на голом скелете (`bareRig`) и не виден. Решает, что делать,
+// `CatBrain` — сам по себе, без механики игры; случайность — своя зернистая (кот — картинка, `Math.random` в игре нет).
+import * as THREE from 'three';
 import type { V3 } from '../city/geom';
-import { tint } from '../city/geom';
-import { Rig, Skeleton, SkinBuilder, type Ring, type RigPose, type Turn } from './rig';
+import { Rig, Skeleton, SkinBuilder, type RigPose, type Turn } from './rig';
 import { BED, HALF, HEARTH, OPENINGS } from './plan';
 import { clear, free, pathTo, step } from './walk';
 import type { Hop } from './toss';
 
 /** Радиус кота на плане, м. */
 export const CAT_R = 0.13;
-/** Рыжая шерсть, тёмные полосы, белая грудка, розовый нос, янтарные глаза. */
-const FUR = tint(0xc87a3a);
-const STRIPE = tint(0x8a4a1e);
-const WHITE = tint(0xeee6d8);
-const NOSE = tint(0xc87a7a);
-const EYE = tint(0xc89a2a);
-const DARK = tint(0x1a120c);
-const INNER = tint(0xd8988a);
 
+/** Хвост — четыре звена (ЛЦ-4: прежде пять). */
+export const TAIL_BONES = 4;
+/** Середина глазного яблока, левый глаз (+x); правый — зеркалом. Ось век проходит через оба (кость `lids`). */
+export const CAT_EYE: V3 = [0.0255, 0.288, 0.229];
+/** Поворот век от открытых (подняты под лоб) до сомкнутых, рад. */
+export const LID_CLOSE = 2.3;
+
+/**
+ * Скелет кота — 25 костей: позвоночник три (корпус-корень, грудь, таз), шея, голова, челюсть, веки, уши по одной, хвост
+ * четыре, лапы по три (плечо, предплечье, кисть; бедро, скакательный сустав, стопа).
+ */
 export function catSkeleton(): Skeleton {
   const sk = new Skeleton();
   sk.add('body', null, [0, 0.2, 0]);
   sk.add('chest', 'body', [0, 0.205, 0.08]);
   sk.add('neck', 'chest', [0, 0.235, 0.15]);
   sk.add('head', 'neck', [0, 0.275, 0.19]);
-  sk.add('jaw', 'head', [0, 0.262, 0.215]);
-  sk.add('lidL', 'head', [0.026, 0.288, 0.243]);
-  sk.add('lidR', 'head', [-0.026, 0.288, 0.243]);
+  sk.add('jaw', 'head', [0, 0.262, 0.212]);
+  sk.add('lids', 'head', [0, CAT_EYE[1], CAT_EYE[2]]);
+  sk.add('earL', 'head', [0.03, 0.318, 0.193]);
+  sk.add('earR', 'head', [-0.03, 0.318, 0.193]);
   sk.add('pelvis', 'body', [0, 0.2, -0.085]);
-  sk.add('tail1', 'pelvis', [0, 0.215, -0.16]);
-  for (let i = 2; i <= 5; i++) sk.add(`tail${i}`, `tail${i - 1}`, [0, 0.215, -0.16 - 0.07 * (i - 1)]);
+  sk.add('tail1', 'pelvis', [0, 0.212, -0.165]);
+  for (let i = 2; i <= TAIL_BONES; i++) sk.add(`tail${i}`, `tail${i - 1}`, [0, 0.212, -0.165 - 0.075 * (i - 1)]);
   for (const [s, sx] of [
     ['L', 1],
     ['R', -1],
@@ -50,137 +54,35 @@ export function catSkeleton(): Skeleton {
   return sk;
 }
 
-/** Собрать кота: код подсветки касанием `code`. */
-export function buildCat(detail: 0 | 1 | 2, code: number): SkinBuilder {
-  const sk = catSkeleton();
-  const sb = new SkinBuilder(sk);
-  sb.m.code = code;
-  const seg = detail === 0 ? 7 : detail === 1 ? 9 : 11;
-  // Кольцо поперёк оси z: середина, полуширина (x) и полувысота (y).
-  const rz = (z: number, y: number, rx: number, ry: number): Ring => ({ c: [0, y, z], u: [1, 0, 0], v: [0, 1, 0], ru: rx, rv: ry });
-  // Полосы по спине: тон по кольцу — темнее через одно, грудь и живот снизу — белые.
-  const tabby = (rings: number, from: number) => (i: number, k: number): V3 => {
-    const a = ((k + 0.5) / seg) * Math.PI * 2;
-    const under = Math.sin(a) < -0.35;
-    if (under) return WHITE;
-    return (i + from) % 2 === 1 && Math.sin(a) > -0.1 ? STRIPE : FUR;
-  };
-  // Тело: таз — середина — грудь.
-  sb.bone('pelvis');
-  sb.loftTipped([0, 0.205, -0.175], [rz(-0.16, 0.205, 0.05, 0.055), rz(-0.12, 0.205, 0.065, 0.068), rz(-0.07, 0.2, 0.068, 0.07)], [0, 0.2, -0.05], seg, 'plain', tabby(3, 0));
-  sb.bone('body');
-  sb.loft([rz(-0.08, 0.2, 0.067, 0.07), rz(-0.02, 0.198, 0.07, 0.07), rz(0.04, 0.2, 0.069, 0.072)], seg, 'plain', tabby(3, 1));
-  sb.bone('chest');
-  sb.loftTipped([0, 0.2, 0.02], [rz(0.035, 0.2, 0.068, 0.073), rz(0.09, 0.205, 0.064, 0.072), rz(0.14, 0.215, 0.05, 0.06)], [0, 0.225, 0.165], seg, 'plain', (i, k) => {
-    const a = ((k + 0.5) / seg) * Math.PI * 2;
-    // Белая манишка спереди и снизу.
-    if (Math.sin(a) < -0.1 || (i >= 2 && Math.sin(a) < 0.4)) return WHITE;
-    return i % 2 ? STRIPE : FUR;
-  });
-  sb.bone('neck');
-  sb.loft([rz(0.13, 0.225, 0.042, 0.048), rz(0.185, 0.258, 0.04, 0.045)], seg, 'plain', (_i, k) => (Math.sin(((k + 0.5) / seg) * Math.PI * 2) < -0.2 ? WHITE : FUR));
-  // Голова: шар со скулами, морда вперёд, уши, глаза, нос, усы.
-  sb.bone('head');
-  sb.loftTipped(
-    [0, 0.28, 0.152],
-    [rz(0.165, 0.28, 0.045, 0.045), rz(0.195, 0.282, 0.058, 0.05), rz(0.225, 0.278, 0.052, 0.045), rz(0.242, 0.27, 0.034, 0.032)],
-    [0, 0.267, 0.257],
-    seg + 2,
-    'plain',
-    (i, k) => {
-      const a = ((k + 0.5) / (seg + 2)) * Math.PI * 2;
-      // Лоб в полосках, щёки и подбородок — светлее.
-      if (i >= 3 && Math.sin(a) < 0.2) return WHITE;
-      if (i === 2 && Math.sin(a) > 0.5) return STRIPE;
-      return FUR;
-    },
-  );
-  // Уши: треугольные, наружу — рыжие, внутри — розовые.
-  for (const sx of [1, -1]) {
-    const b0: V3 = [0.022 * sx, 0.315, 0.2];
-    const b1: V3 = [0.05 * sx, 0.3, 0.19];
-    const tip: V3 = [0.042 * sx, 0.355, 0.188];
-    const back: V3 = [0.036 * sx, 0.31, 0.175];
-    if (sx > 0) {
-      sb.m.tri(b0, b1, tip, 'plain', INNER);
-      sb.m.tri(b1, back, tip, 'plain', FUR);
-      sb.m.tri(back, b0, tip, 'plain', FUR);
-    } else {
-      sb.m.tri(b1, b0, tip, 'plain', INNER);
-      sb.m.tri(back, b1, tip, 'plain', FUR);
-      sb.m.tri(b0, back, tip, 'plain', FUR);
-    }
-    // Глаз: янтарный шар и вертикальный зрачок-щель.
-    const ex = 0.026 * sx;
-    sb.ball([ex, 0.287, 0.232], 0.0135, 8, 'plain', EYE, 1, 0.7);
-    const pz = 0.2427;
-    sb.m.quad([ex - 0.0028, 0.2765, pz], [ex + 0.0028, 0.2765, pz], [ex + 0.0028, 0.2975, pz], [ex - 0.0028, 0.2975, pz], 'plain', DARK);
-  }
-  // Нос и рот.
-  sb.m.tri([-0.008, 0.274, 0.255], [0.008, 0.274, 0.255], [0, 0.266, 0.259], 'plain', NOSE);
-  sb.m.quad([-0.008, 0.274, 0.255], [0, 0.266, 0.259], [0.008, 0.274, 0.255], [0, 0.279, 0.249], 'plain', NOSE);
-  // Усы: тонкие светлые полоски в стороны.
-  if (detail > 0) {
-    for (const sx of [1, -1])
-      for (const dy of [-0.004, 0.002]) {
-        const a: V3 = [0.016 * sx, 0.264 + dy, 0.245];
-        const e: V3 = [0.075 * sx, 0.258 + dy * 3, 0.24];
-        if (sx > 0) sb.m.quad(a, e, [e[0], e[1] + 0.0016, e[2]], [a[0], a[1] + 0.0016, a[2]], 'plain', WHITE);
-        else sb.m.quad(e, a, [a[0], a[1] + 0.0016, a[2]], [e[0], e[1] + 0.0016, e[2]], 'plain', WHITE);
-      }
-  }
-  // Нижняя челюсть: открывается, когда кот мяукает.
-  sb.bone('jaw');
-  sb.loftTipped([0, 0.256, 0.205], [rz(0.215, 0.256, 0.026, 0.012), rz(0.235, 0.257, 0.02, 0.01)], [0, 0.258, 0.25], seg, 'plain', WHITE);
-  // Веки: полушария чуть больше глаза; открытый глаз — веко уходит вверх под лоб, закрытый — накрывает глаз.
-  for (const [s, sx] of [
-    ['L', 1],
-    ['R', -1],
-  ] as const) {
-    sb.bone(`lid${s}`);
-    const c: V3 = [0.026 * sx, 0.288, 0.243];
-    const rs: Ring[] = [];
-    for (let i = 1; i <= 3; i++) {
-      const a = (i / 6) * Math.PI;
-      rs.push({ c: [c[0], c[1] + Math.cos(a) * 0.0155, c[2] - 0.011], u: [1, 0, 0], v: [0, 0, 1], ru: Math.sin(a) * 0.0155, rv: Math.sin(a) * 0.0155 * 0.75 });
-    }
-    sb.loftTipped([c[0], c[1] + 0.0155, c[2] - 0.011], rs, [c[0], c[1], c[2] - 0.011], 8, 'plain', FUR);
-  }
-  // Лапы: белые «носки».
-  for (const s of ['L', 'R'] as const) {
-    const j = (n: string): V3 => sk.bones[sk.of(n)].j;
-    sb.bone(`arm${s}`);
-    sb.rod([j(`arm${s}`)[0], 0.2, 0.1], j(`fore${s}`), 0.026, 0.02, seg - 2, 'plain', FUR);
-    sb.bone(`fore${s}`);
-    sb.rod(j(`fore${s}`), j(`paw${s}`), 0.019, 0.016, seg - 2, 'plain', (FUR.map((v, i) => (v + WHITE[i]) / 2) as unknown) as V3);
-    sb.bone(`paw${s}`);
-    sb.ball([j(`paw${s}`)[0], 0.016, 0.122], 0.019, 7, 'plain', WHITE, 0.7, 1.3);
-    sb.bone(`thigh${s}`);
-    sb.loft(
-      [
-        { c: [j(`thigh${s}`)[0] * 0.8, 0.205, -0.1], u: [1, 0, 0], v: [0, 0, 1], ru: 0.034, rv: 0.05 },
-        { c: j(`hock${s}`), u: [1, 0, 0], v: [0, 0, 1], ru: 0.02, rv: 0.024 },
-      ],
-      seg - 2,
-      'plain',
-      (i) => (i === 0 ? FUR : STRIPE),
-      { cap0: true },
-    );
-    sb.bone(`hock${s}`);
-    sb.rod(j(`hock${s}`), j(`hpaw${s}`), 0.018, 0.015, seg - 2, 'plain', FUR);
-    sb.bone(`hpaw${s}`);
-    sb.ball([j(`hpaw${s}`)[0], 0.016, -0.12], 0.019, 7, 'plain', WHITE, 0.7, 1.4);
-  }
-  // Хвост: пять звеньев, полосатый, к концу тоньше, кончик тёмный.
-  for (let i = 1; i <= 5; i++) {
-    sb.bone(`tail${i}`);
-    const a = sk.bones[sk.of(`tail${i}`)].j;
-    const e: V3 = [0, 0.215, a[2] - 0.072];
-    sb.rod(a, e, 0.021 - i * 0.0022, 0.019 - i * 0.0024, seg - 3, 'plain', i === 5 ? STRIPE : i % 2 ? FUR : STRIPE, i === 5);
-    // Сустав — шариком: звенья гнутся, а щели между ними нет.
-    sb.ball(a, 0.0215 - i * 0.0022, seg - 3, 'plain', i % 2 ? FUR : STRIPE);
-  }
-  return sb;
+/** Тело кота: то, что мозг ставит в позу и у чего спрашивает места костей (`rig.Rig` и `kit/skin.SkinBody`). */
+export type CatRig = Pick<Rig, 'mesh' | 'triangles' | 'pose' | 'write' | 'at' | 'dispose'>;
+
+/** Голый скелет: позу ставит, сетки нет — пока кусок фигуры в пути (клубок в зубах и рука правителя спрашивают кости). */
+export function bareRig(): CatRig {
+  return new Rig(new SkinBuilder(catSkeleton()), BARE, 'chambers-cat-bare');
+}
+const BARE = new THREE.MeshBasicMaterial();
+
+/** Что живость фигуры знает о мозге кадра (клипы ключами, глаза). */
+export interface CatState {
+  /** Доли поз тела. */
+  w: Readonly<Record<CatBody, number>>;
+  look: Readonly<CatLook>;
+  mind: CatMind;
+  /** Спит клубком на месте. */
+  sleeping: boolean;
+  /** Взгляд, которого хочет мозг (к правителю, к клубку), рад от тела — глаза идут к нему раньше головы. */
+  wantYaw: number;
+  wantPitch: number;
+}
+
+/** Фигура кота из куска `pet/`: тело, живость поверх позы мозга, свет покоев после отрисовки. */
+export interface CatFigure {
+  readonly body: CatRig;
+  /** Клипы ключами и мелочи (уши, кончик хвоста, дыхание) — поверх позы мозга; глаза и зрачок — в сетку. */
+  live(p: { turns: Record<string, [number, number, number]>; lift: V3 }, s: CatState, t: number): void;
+  drawn(): void;
+  dispose(): void;
 }
 
 // ---------- Поза ----------
@@ -226,10 +128,10 @@ export function catPosture(w: Partial<Record<CatBody, number>>, l: CatLook, t: n
   // Хвост: свободно покачивается; трубой — когда рад; клубком — обвит вокруг.
   const sway = Math.sin(t * 1.3) * 0.25 + Math.sin(t * 0.47) * 0.15;
   const up = Math.max(l.tailUp, W('walk') * 0.6, W('rub') * 0.95);
-  for (let i = 1; i <= 5; i++) {
-    const k = i / 5;
+  for (let i = 1; i <= TAIL_BONES; i++) {
+    const k = i / TAIL_BONES;
     // Звено хвоста смотрит назад (−z): поворот по x со знаком плюс поднимает его, минус — опускает.
-    add(o, `tail${i}`, up * (i === 1 ? 1.25 : 0.12) - (1 - up) * (i === 1 ? 0.35 : -0.05), sway * k * (1 - 0.6 * up), 0);
+    add(o, `tail${i}`, up * (i === 1 ? 1.25 : 0.15) - (1 - up) * (i === 1 ? 0.35 : -0.065), sway * k * 1.25 * (1 - 0.6 * up), 0);
   }
   // Шаг: рысь по диагоналям (левая передняя с правой задней).
   const walk = W('walk') + W('rub') * 0.6;
@@ -269,25 +171,27 @@ export function catPosture(w: Partial<Record<CatBody, number>>, l: CatLook, t: n
       add(o, `hock${s}`, 1.9 * sit);
       add(o, `hpaw${s}`, -0.5 * sit);
     }
-    // Шея и голова смотрят вперёд-вверх (у шеи, глядящей вперёд, минус по x — вверх).
-    add(o, 'neck', -0.4 * sit);
-    add(o, 'head', 0.2 * sit);
+    // Грудь поднята — шея и голова её гасят: морда прямо вперёд, вверх её ведёт уже взгляд (`lookPitch`).
+    add(o, 'neck', 0.28 * sit);
+    add(o, 'head', 0.34 * sit);
     // Хвост лежит у лап полукругом.
     add(o, 'tail1', -0.75 * sit, 0.5 * sit);
-    for (let i = 2; i <= 5; i++) add(o, `tail${i}`, 0.06 * sit, 0.45 * sit);
+    for (let i = 2; i <= TAIL_BONES; i++) add(o, `tail${i}`, 0.08 * sit, 0.6 * sit);
   }
   // Лежит «буханкой» (на подоконнике, на кровати): лапы под собой, голова поднята.
   const loaf = W('loaf');
   if (loaf > 0) {
     lift[1] += -0.13 * loaf;
+    // Лапы — под собой: передние сложены назад под грудь, задние — под бока (стопы — под телом, у пола: подбор числом, ЛЦ-4).
     for (const s of ['L', 'R']) {
-      add(o, `arm${s}`, 1.1 * loaf);
-      add(o, `fore${s}`, -2.0 * loaf);
-      add(o, `thigh${s}`, -1.2 * loaf);
-      add(o, `hock${s}`, 2.2 * loaf);
+      add(o, `arm${s}`, 2.1 * loaf);
+      add(o, `fore${s}`, -2.3 * loaf);
+      add(o, `paw${s}`, 0.3 * loaf);
+      add(o, `thigh${s}`, -2.2 * loaf);
+      add(o, `hock${s}`, 2.9 * loaf);
     }
     add(o, 'neck', -0.2 * loaf);
-    for (let i = 1; i <= 5; i++) add(o, `tail${i}`, -0.08 * loaf, 0.35 * loaf);
+    for (let i = 1; i <= TAIL_BONES; i++) add(o, `tail${i}`, -0.1 * loaf, 0.44 * loaf);
   }
   // Клубком: лапы под собой, тело дугой (сверху — буква «С»), голова повёрнута к хвосту и лежит на лапах, хвост
   // обвит вокруг морды.
@@ -307,7 +211,7 @@ export function catPosture(w: Partial<Record<CatBody, number>>, l: CatLook, t: n
     add(o, 'neck', 0.55 * curl, 0.75 * curl);
     add(o, 'head', 0.35 * curl, 0.45 * curl, 0.25 * curl);
     add(o, 'tail1', -0.2 * curl, -0.9 * curl);
-    for (let i = 2; i <= 5; i++) add(o, `tail${i}`, 0.04 * curl, -0.5 * curl);
+    for (let i = 2; i <= TAIL_BONES; i++) add(o, `tail${i}`, 0.05 * curl, -0.66 * curl);
   }
   // Припал перед прыжком: грудь к полу, зад приподнят и виляет.
   const crouch = W('crouch');
@@ -347,10 +251,8 @@ export function catPosture(w: Partial<Record<CatBody, number>>, l: CatLook, t: n
   // Взгляд.
   add(o, 'neck', -l.lookPitch * 0.4, l.lookYaw * 0.4, 0);
   add(o, 'head', -l.lookPitch * 0.6, l.lookYaw * 0.6, 0);
-  // Веки: открыт — веко уходит вверх (поворот назад), закрыт — опущено на глаз.
-  const lid = -1.35 * l.eyes + 0.25;
-  add(o, 'lidL', lid);
-  add(o, 'lidR', lid);
+  // Веки: открыт — веко поднято под лоб, закрыт — опущено на глаз.
+  add(o, 'lids', LID_CLOSE * (1 - Math.max(0, Math.min(1, l.eyes))));
   add(o, 'jaw', 0.5 * l.mouth);
   return { turns: o, lift, tilt };
 }
@@ -407,7 +309,10 @@ export interface CatWorld {
  * прийти к правителю и потереться, играть с клубком; его могут взять на руки (несёт слуга) — тогда он часть рук.
  */
 export class Cat {
-  readonly rig: Rig;
+  /** Тело: голый скелет, пока фигура в пути (`dress`), потом — её сетка. */
+  rig: CatRig = bareRig();
+  /** Фигура из куска `pet/` (ЛЦ-4); до неё кот не виден. */
+  figure: CatFigure | null = null;
   x = 0.6;
   y = 0;
   z = -0.5;
@@ -441,8 +346,10 @@ export class Cat {
   private blink = 0;
   private meowAt = 0;
 
-  constructor(sb: SkinBuilder, material: THREE.Material, seed: number) {
-    this.rig = new Rig(sb, material, 'chambers-cat');
+  /** Куда мозг хочет смотреть (от тела), рад — глазам. */
+  private want: [number, number] = [0, 0];
+
+  constructor(seed: number) {
     this.rng = catRandom(seed);
     this.timer = 2 + this.rng() * 3;
   }
@@ -847,22 +754,39 @@ export class Cat {
   /** Повернуть голову к точке (правитель, клубок). */
   lookAt(x: number, y: number, z: number): void {
     const dy = Math.atan2(x - this.x, z - this.z) - this.yaw;
-    this.look.lookYaw += (Math.max(-1.1, Math.min(1.1, wrapA(dy))) - this.look.lookYaw) * 0.08;
     const d = Math.hypot(x - this.x, z - this.z);
-    this.look.lookPitch += (Math.max(-0.4, Math.min(0.9, Math.atan2(y - this.y - 0.27, d))) - this.look.lookPitch) * 0.08;
+    this.want = [Math.max(-1.1, Math.min(1.1, wrapA(dy))), Math.max(-0.4, Math.min(0.9, Math.atan2(y - this.y - 0.27, d)))];
+    this.look.lookYaw += (this.want[0] - this.look.lookYaw) * 0.08;
+    this.look.lookPitch += (this.want[1] - this.look.lookPitch) * 0.08;
+  }
+
+  /** Надеть фигуру (кусок `pet/` приехал): голый скелет уступает её сетке. */
+  dress(f: CatFigure): void {
+    this.rig.dispose();
+    this.figure = f;
+    this.rig = f.body;
+  }
+
+  /** Что видит живость фигуры (тестам и стенду — тоже). */
+  state(): CatState {
+    return { w: this.w, look: this.look, mind: this.mind, sleeping: this.mind === 'rest' && this.spot?.body === 'curl', wantYaw: this.want[0], wantPitch: this.want[1] };
   }
 
   pose(): RigPose {
     const { turns, lift, tilt } = catPosture(this.w, this.look, this.t);
+    this.figure?.live({ turns, lift }, this.state(), this.t);
     return { x: this.x, y: this.y, z: this.z, yaw: this.yaw, lift, tilt, turns: turns as Record<string, Turn> };
   }
 
   draw(origin: V3): void {
-    this.rig.mesh.visible = this.visible;
+    const shown = this.visible && !!this.figure;
+    this.rig.mesh.visible = shown;
     if (!this.visible) return;
     this.rig.mesh.position.set(origin[0], origin[1], origin[2]);
     this.rig.pose(this.pose());
+    if (!shown) return;
     this.rig.write();
+    this.figure!.drawn();
   }
 }
 

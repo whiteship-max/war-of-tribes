@@ -228,6 +228,32 @@ export function draftBuild(b: BuildFacts | null, now: number): NoticeItem | null
 }
 
 /**
+ * Вести стабильности (docs/stability.md, 2.8): «мятеж близок» — минута, когда полоса группы перейдёт порог, и «мятеж» —
+ * минута, когда она дойдёт до ста, по прогнозу партии (`sim/stability.stabForecast`) серверными часами. Ключ — группа и номер
+ * случая (сколько мятежей уже было): одна весть на случай, без спама.
+ */
+export interface StabNotice {
+  group: NonNullable<NoticeFacts['group']>;
+  kind: 'stab-near' | 'stab-revolt';
+  /** Когда, настоящие мс. */
+  at: number;
+  /** Номер случая — сколько мятежей поднялось за партию. */
+  episode: number;
+}
+
+export function draftStab(f: StabNotice, now: number): NoticeItem | null {
+  const fireAt = Math.ceil(Math.max(now, f.at) / 60_000) * 60_000;
+  if (fireAt > now + BUILD_AHEAD) return null;
+  return {
+    key: `${f.kind}:${f.group}:${f.episode}`,
+    kind: f.kind,
+    fireAt,
+    until: fireAt + RESULT_KEEP,
+    p: { from: 'держава', fate: 'plunder', about: fireAt, group: f.group },
+  };
+}
+
+/**
  * С какой минуты отряд, идущий по прямой с постоянной скоростью, попадает в живой
  * обзор. Тот же круг и то же движение, что у `fog.inSight` и `geo.marchPosition`, только
  * решённые уравнением: перебирать минуты значило бы завести тик. Не попадает до

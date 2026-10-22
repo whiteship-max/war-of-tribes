@@ -2,9 +2,6 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
 import { Sheet } from './ui/Sheet';
-import { QuestsPanel } from './ui/panels/QuestsPanel';
-import { SeasonPanel } from './ui/panels/SeasonPanel';
-import { PopPanel } from './ui/panels/PopPanel';
 import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
@@ -15,7 +12,6 @@ import { StartScreen, StartVeil } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
 import { Frozen } from './ui/parts/Frozen';
 import { useBugReport } from './ui/parts/bugOpen';
-import { ReportPanel } from './ui/panels/ReportPanel';
 import { useWorld } from './world/store';
 import { cityAudio } from './sound/city';
 import { probe } from './debug';
@@ -48,6 +44,11 @@ const Prologue = lazy(() => import('./prologue/Prologue').then((m) => ({ default
  * только сам дом меню, и платит за него тот, кто его открыл.
  */
 const RealmMenu = lazy(() => import('./ui/realm/RealmMenu').then((m) => ({ default: m.RealmMenu })));
+// Донесение о бое, справки «Жители», «Задания» и «Сезон» — своими кусками (СБ-2): первая загрузка не платит за окна, которые открывают по касанию.
+const ReportPanel = lazy(() => import('./ui/panels/ReportPanel').then((m) => ({ default: m.ReportPanel })));
+const PopPanel = lazy(() => import('./ui/panels/PopPanel').then((m) => ({ default: m.PopPanel })));
+const QuestsPanel = lazy(() => import('./ui/panels/QuestsPanel').then((m) => ({ default: m.QuestsPanel })));
+const SeasonPanel = lazy(() => import('./ui/panels/SeasonPanel').then((m) => ({ default: m.SeasonPanel })));
 
 /**
  * Интерфейс — свой кусок (`ui/next/index.ts`): едет, пока стоит стартовый экран. Прежний интерфейс, что ехал в первой
@@ -130,7 +131,12 @@ function SheetContent({ view }: { view: SheetView }) {
         <CampPanel />
       </Suspense>
     );
-  if (view.kind === 'report') return <ReportPanel id={view.id} />;
+  if (view.kind === 'report')
+    return (
+      <Suspense fallback={null}>
+        <ReportPanel id={view.id} />
+      </Suspense>
+    );
   switch (view.tab) {
     case 'people':
       return (
@@ -139,11 +145,23 @@ function SheetContent({ view }: { view: SheetView }) {
         </Suspense>
       );
     case 'quests':
-      return <QuestsPanel />;
+      return (
+        <Suspense fallback={null}>
+          <QuestsPanel />
+        </Suspense>
+      );
     case 'season':
-      return <SeasonPanel />;
+      return (
+        <Suspense fallback={null}>
+          <SeasonPanel />
+        </Suspense>
+      );
     case 'pop':
-      return <PopPanel />;
+      return (
+        <Suspense fallback={null}>
+          <PopPanel />
+        </Suspense>
+      );
     case 'morale':
       return (
         <Suspense fallback={null}>

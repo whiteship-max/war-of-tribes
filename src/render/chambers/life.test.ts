@@ -90,6 +90,7 @@ describe('покои: дверь и слуга (Г-7)', () => {
     const room = phoneRoom();
     // Супруга — своим куском (ЛЦ-2): он тянется при входе в покои, кадры теста идут без пауз — дождаться его.
     await room.life.consortReady;
+    await room.life.maidReady;
     let memory: LifeMemory | null = null;
     room.life.onRemember = (m) => (memory = m);
     knock(room);
@@ -213,8 +214,9 @@ describe('покои: кот (Г-7)', () => {
     room.dispose();
   });
 
-  it('касание кота: рядом — правитель приседает и гладит, кот мурчит; клубок — кот играет', () => {
+  it('касание кота: рядом — правитель приседает и гладит, кот мурчит; клубок — кот играет', async () => {
     const room = phoneRoom({ cat: true, catSpot: 'hearth' });
+    await room.life.catReady;
     const c = room.life.cat!;
     c.sitAt(0.4, -1.3, Math.PI);
     room.standAtPoint(0.4, -0.75, Math.PI, -0.6);
@@ -234,7 +236,7 @@ describe('покои: кот (Г-7)', () => {
     room.dispose();
   });
 
-  it('кот за клубком — прямо к нему, но не сквозь мебель: клубок брошен в стол и сундук', () => {
+  it('кот за клубком — прямо к нему, но не сквозь мебель: клубок брошен в стол и сундук', async () => {
     // Граница области — игра с клубком (кот бежит прямо на клубок, без пути в обход); броски — в стол и в сундук у стены.
     // Кот — по ту сторону стола и столика с шахматами: прямой путь к клубку лежит сквозь них.
     for (const [x, z, yaw, cx, cz] of [
@@ -242,6 +244,7 @@ describe('покои: кот (Г-7)', () => {
       [2.15, -1.5, Math.PI, 2.2, -3.6],
     ] as const) {
       const room = phoneRoom();
+      await room.life.catReady;
       room.life.stage({ catAt: { x: cx, z: cz, yaw: yaw + Math.PI } });
       room.standAtPoint(x, z, yaw, -0.3);
       room.life.throwBall();
@@ -318,13 +321,17 @@ describe('покои: тамбур и случайность кота', () => {
 describe('покои: бюджет живых (Г-7)', () => {
   it('люди и кот — в потолках по уровням; строятся, только когда понадобились; в покоях разом — не больше двух людей и кота', async () => {
     const { buildPerson } = await import('./folk');
-    const { buildCat } = await import('./cat');
-    // Потолки: человек — 2,6 / 3,0 / 3,5 тысячи треугольников («Низкий», «Средний», «Высокий»), кот — 1,3 / 1,6 / 1,9.
+    const { buildCatMesh } = await import('./pet/figure');
+    const { CAT_LOOKS, CAT_IDS } = await import('./pet/looks');
+    // Потолки: человек — 2,6 / 3,0 / 3,5 тысячи треугольников («Низкий», «Средний», «Высокий»); кот (ЛЦ-4) — одна сетка на
+    // всех уровнях, 600…1200 (прежний — до 1,3 / 1,6 / 1,9 тысячи).
     const PERSON = [2600, 3000, 3500];
-    const CAT = [1300, 1600, 1900];
-    for (const d of [0, 1, 2] as const) {
+    for (const d of [0, 1, 2] as const)
       for (const who of ['servant', 'maid', 'wife', 'herald', 'advisor'] as const) expect(buildPerson(who, DEFAULT_ARMS, d, 1).m.b.triangleCount, `${who} @${d}`).toBeLessThanOrEqual(PERSON[d]);
-      expect(buildCat(d, 1).m.b.triangleCount, `кот @${d}`).toBeLessThanOrEqual(CAT[d]);
+    for (const id of CAT_IDS) {
+      const tris = buildCatMesh(CAT_LOOKS[id].head).triangles;
+      expect(tris, `кот ${id}`).toBeGreaterThanOrEqual(600);
+      expect(tris, `кот ${id}`).toBeLessThanOrEqual(1200);
     }
     // Вход без кота: живых нет ни одного — сетки строятся по делу, а не при входе.
     const room = phoneRoom();
@@ -359,6 +366,70 @@ describe('покои: бюджет живых (Г-7)', () => {
     expect(room.life.counts()).toEqual({ triangles: tris, meshes: 2 });
     room.life.stage({ who: 'wife', at: { x: 0.4, z: 1.1, yaw: Math.PI } });
     expect(room.life.counts()).toEqual({ triangles: tris + buildConsortMesh().triangles, meshes: 3 });
+    room.dispose();
+  });
+
+  it('советник — своя сетка ЛЦ-5 (docs/characters.md): дешевле прежнего на каждом уровне, в покоях — одна сетка', async () => {
+    const { buildPerson } = await import('./folk');
+    const { buildAdvisorMesh } = await import('./advisor/figure');
+    const { headOf } = await import('./advisor/head');
+    const { ADVISOR_LOOKS, BEST } = await import('./advisor/looks');
+    const tris = buildAdvisorMesh(headOf(ADVISOR_LOOKS[BEST].face)).triangles;
+    for (const d of [0, 1, 2] as const) expect(tris, `прежний советник @${d}`).toBeLessThan(buildPerson('advisor', DEFAULT_ARMS, d, 1).m.b.triangleCount);
+    const room = phoneRoom();
+    await room.life.advisorReady;
+    room.life.advisorWaits();
+    expect(room.life.counts()).toEqual({ triangles: tris, meshes: 2 });
+    room.dispose();
+  });
+
+  it('советник ждёт свой кусок: вход раньше куска — у стола никого, кусок приехал — встаёт у стола и докладывает', async () => {
+    const room = phoneRoom();
+    // Кусок ещё не приехал (жизнь покоев только что родилась): сцена у стола ждёт.
+    room.life.advisorWaits();
+    run(room, 0.5);
+    expect(room.life.personOf('advisor'), 'кусок в пути — советника нет').toBeNull();
+    expect(room.life.view().busy, 'сцена держит просьбы').toBe(true);
+    await room.life.advisorReady;
+    expect(run(room, 10, talking(room, 'advisor', 'report')), 'встал у стола и докладывает').toBe(true);
+    const { buildAdvisorMesh } = await import('./advisor/figure');
+    const { headOf } = await import('./advisor/head');
+    const { ADVISOR_LOOKS, BEST } = await import('./advisor/looks');
+    expect(room.life.counts().triangles, 'своя сетка, не прежняя').toBe(buildAdvisorMesh(headOf(ADVISOR_LOOKS[BEST].face)).triangles);
+    room.dispose();
+  });
+
+  it('служанка — своя сетка ЛЦ-6 (docs/characters.md): дешевле прежней на каждом уровне, в покоях — одна сетка', async () => {
+    const { buildPerson } = await import('./folk');
+    const { buildMaidMesh } = await import('./maid/figure');
+    const { headOf } = await import('./maid/head');
+    const { MAID_LOOKS, BEST } = await import('./maid/looks');
+    const tris = buildMaidMesh(headOf(MAID_LOOKS[BEST].face)).triangles;
+    for (const d of [0, 1, 2] as const) expect(tris, `прежняя служанка @${d}`).toBeLessThan(buildPerson('maid', DEFAULT_ARMS, d, 1).m.b.triangleCount);
+    const room = phoneRoom();
+    await room.life.maidReady;
+    room.life.stage({ who: 'maid', carry: 'jug' });
+    expect(room.life.counts()).toEqual({ triangles: tris, meshes: 2 });
+    room.dispose();
+  });
+
+  it('служанка ждёт свой кусок: зов раньше куска — у лестницы никого, кусок приехал — поднимается, наливает и подходит', async () => {
+    const room = phoneRoom();
+    knock(room);
+    // Кусок ещё не приехал (жизнь покоев только что родилась): служанка ждёт внизу.
+    expect(room.life.order('wine')).toBe(true);
+    // Граница области: слуга уже ушёл, и служанку уже позвали бы (3 с после его ухода) — вот здесь она ждёт куска.
+    run(room, 15);
+    expect(room.life.personOf('servant'), 'слуга ушёл — служанку позвали').toBeNull();
+    expect(room.life.personOf('maid'), 'кусок в пути — служанки нет').toBeNull();
+    expect(room.life.view().busy, 'сцена держит просьбы').toBe(true);
+    await room.life.maidReady;
+    expect(run(room, 50, talking(room, 'maid', 'poured')), 'поднялась, налила и подошла').toBe(true);
+    expect(room.life.view().wine, 'кубок полон').toBeGreaterThan(0.99);
+    const { buildMaidMesh } = await import('./maid/figure');
+    const { headOf } = await import('./maid/head');
+    const { MAID_LOOKS, BEST } = await import('./maid/looks');
+    expect(room.life.personOf('maid')!.rig.triangles, 'своя сетка, не прежняя').toBe(buildMaidMesh(headOf(MAID_LOOKS[BEST].face)).triangles);
     room.dispose();
   });
 });

@@ -140,8 +140,9 @@
 }
 .nx-points {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  /* Три вида очков и ступень стабильности (СБ-1): четыре ячейки по 84 px на 390 — «240/240» и «+1 Лад» входят. */
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
   flex: none;
 }
 .nx-pcell {
@@ -169,10 +170,31 @@
 .nx-pcell.full b {
   color: var(--warn);
 }
+/* Ячейка «Задания» (СБ-2б): дверь в раздел заданий; выбранная — освещённой кожей, задание дня ждёт — золотая точка. */
+.nx-qcell {
+  position: relative;
+}
+.nx-qcell.on {
+  background: var(--m-lit);
+  box-shadow: var(--m-lit-bevel);
+}
+.nx-qdot {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--m-gold);
+  box-shadow: 0 0 0 1px var(--m-gold-rim);
+}
 .nx-rtabs {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  /* Пять подписей по 12 px своим шрифтом — «Технологии» шириной 70 px: зазоры по 2, а не по 4 (docs/polish.md, П-1). */
+  /*
+   * Пять подписей по 12 px своим шрифтом: столбец — по своей подписи, остаток делят поровну (СБ-2б: «Стабильность» шире
+   * «Технологий», и равные столбцы обрезали бы её); зазоры по 2, а не по 4 (docs/polish.md, П-1).
+   */
+  grid-template-columns: repeat(5, auto);
   gap: 2px;
   margin: 8px 0;
   padding: 2px;

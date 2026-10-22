@@ -285,6 +285,7 @@ const SKIP = /:disabled|\[disabled\]|\.is-off\b/;
 const ON: Record<string, { token: string; why: string }> = {
   '.ch-label b': { token: '--m-parch', why: 'имя предмета на пергаменте подписи' },
   '.ch-label small': { token: '--m-parch', why: 'строка предмета на пергаменте подписи' },
+  '.cr-text::first-letter': { token: '--m-parch', why: 'буквица вести державы на пергаменте её текста' },
 };
 
 const NOT_UNDER: Record<string, string> = {

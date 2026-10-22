@@ -11,9 +11,10 @@ const D = new THREE.Vector3();
 
 /**
  * Свет покоев на фигуре одним цветом: рассеянный свет комнаты, небо из окон и огонь — в точке груди, как их считает шейдер
- * покоев (`material.ts`), только без направлений; контур — со стороны окон, цветом неба.
+ * покоев (`material.ts`), только без направлений; контур — со стороны окон, цветом неба. Возвращает сырую освещённость
+ * точки — до выравнивания яркости фигуры (`TINT_GAIN` и пределы): зрачку кота (ЛЦ-4) нужна она, а не цвет фигуры.
  */
-export function roomLight(r: RoomUniforms, at: V3, u: FigureUniforms): void {
+export function roomLight(r: RoomUniforms, at: V3, u: FigureUniforms): number {
   C.copy(r.uAmb.value).multiplyScalar(3.2);
   let sky = 0;
   D.set(0, 0, 0);
@@ -51,6 +52,7 @@ export function roomLight(r: RoomUniforms, at: V3, u: FigureUniforms): void {
   u.uRim.value.copy(r.uSky.value).multiplyScalar(Math.min(0.5, 0.2 + sky * 2));
   D.y = 0.25 * Math.hypot(D.x, D.z) + 0.01;
   if (D.lengthSq() > 1e-8) u.uRimDir.value.copy(D).normalize();
+  return lum * TINT_GAIN;
 }
 
 /** Во сколько раз свет покоев в точке переводится в яркость фигуры (день у окна — около 1). */

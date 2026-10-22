@@ -4,7 +4,7 @@
 //
 // Люди приходят и уходят толпой. Поимённых жителей в игре нет, поэтому событие
 // про человека — это событие про группу: беженцы у ворот, бродячая артель, мор.
-import type { GameState, ResourceId } from '../types';
+import type { GameState, LogTopic, RealmBranch, ResourceId } from '../types';
 import {
   DAY_LENGTH,
   FAITH_REFUSAL_STRAIN,
@@ -37,6 +37,19 @@ import { weakCity } from '@/world/lairs';
 import type { GateFoe } from '@/world/types';
 import { addStrain, beginRite, grantRelic, riteInfo } from '../sim/faith';
 import { mutinyPay, mutinyRelease, mutinySuppress } from '../sim/mutiny';
+import {
+  DECLINE,
+  concession,
+  handout,
+  revoltConcede,
+  revoltNow,
+  revoltSuppress,
+  revoltWait,
+  termsConcede,
+  termsRefuse,
+} from '../sim/stability';
+import { REVOLT_EVENT, REVOLT_TEXT, TERMS_EVENT, concedeWords } from './stability';
+import { DECREE_BY_ID, TAX_BY_ID } from './policy';
 import { addPop, killPop } from '../sim/population';
 import { chance, roll } from '../sim/roll';
 import { log } from '../sim/log';
@@ -48,6 +61,9 @@ import { BOON_BY_ID, boonWords } from './boons';
 import { SEASON_DAYS } from './seasons';
 import { grantBoon } from '../sim/boons';
 import { scheduleChain } from '../sim/chains';
+import { crownEvents } from '../sim/crown';
+import { pointsOf, spend } from '../sim/points';
+import { BRANCH_NAME, REALM_BRANCHES } from './realm';
 
 /** Что вариант просит отдать. Золото — не ресурс, но плата бывает и в нём. */
 export type EventCost = Partial<Record<ResourceId | 'gold', number>>;
@@ -71,6 +87,11 @@ export interface EventOption {
    * получает состояние уже оплаченным и о цене не знает.
    */
   cost?: (s: GameState) => EventCost;
+  /**
+   * Что вариант просит из очков правителя (вести державы, СБ-2): та же цена на три дела, что `cost` — показ, запрет и
+   * списание; списывает одна дверь трат (`sim/points.spend`).
+   */
+  points?: Partial<Record<RealmBranch, number>>;
   /** Применяет выбор и возвращает текст результата. */
   apply: (s: GameState) => string;
 }
@@ -84,8 +105,16 @@ export interface EventDef {
    * управитель и мастера — как управитель, служитель — как летописец о вере.
    */
   from: string | ((s: GameState) => string);
-  text: string | ((s: GameState) => string);
+  /**
+   * Текст вести. Нет поля — текст едет куском «Вестей» (вести державы, `data/crownWords`): шагу партии он не нужен, и первая
+   * загрузка за него не платит.
+   */
+  text?: string | ((s: GameState) => string);
   options: EventOption[];
+  /** Род строки летописи, которую оставит ответ (`sim/log`): у вестей державы — «Стабильность». */
+  topic?: LogTopic;
+  /** Исход не называет выбранного ответа — летопись ставит его перед исходом сама (`sim/mail.closeEvent`). */
+  named?: true;
   /** Вес выбора (0 — событие сейчас невозможно). */
   weight: (s: GameState) => number;
   /** Чем подписан срок донесения вместо общего «Ждёт ответа» — слова о том, что случится без ответа. */
@@ -131,7 +160,10 @@ export interface EventDef {
  * 22.2): заново, три шага; не севшие за три шага в 1 % (волки 2-го, 6–8-го и 10-го уровня, разбойники 6-го и 8-го) —
  * полусуммой записанного и выведенного третьим шагом, прочие — третьим шагом; итерации — docs/siege_v2.md, 22.2.
  */
-export const GATE_POWER: Record<GateFoe, readonly number[]> = {
+/** Пришедшие по вести, у которых сила — таблица по уровню посёлка; у мятежников сила — их число (`sim/stability`). */
+export type EventFoe = Exclude<GateFoe, 'rebels'>;
+
+export const GATE_POWER: Record<EventFoe, readonly number[]> = {
   wolves: [123, 232, 435, 651, 1173, 1753, 2238, 2967, 3668, 4148],
   raiders: [205, 348, 509, 665, 841, 1217, 1429, 1674, 1945, 2225],
 };
@@ -149,7 +181,7 @@ export const GATE_POP: readonly number[] = [50, 104, 158, 212, 266, 356, 437, 51
  * Мощь пришедших к воротам: строка таблицы на жителях посёлка мерки своего уровня, между уровнями — прямой по жителям;
  * жителей меньше, чем у мерки 1-го уровня, — первая строка, больше, чем у 10-го, — десятая.
  */
-export const gatePower = (s: GameState, foe: GateFoe): number => {
+export const gatePower = (s: GameState, foe: EventFoe): number => {
   const row = GATE_POWER[foe];
   const pop = s.pop;
   if (pop <= GATE_POP[0]) return row[0];
@@ -160,7 +192,7 @@ export const gatePower = (s: GameState, foe: GateFoe): number => {
 };
 
 /** Сколько их придёт к воротам — мерой отрядов мира, которой бой их и выставит (`menOfPower`). */
-export const gateMen = (s: GameState, foe: GateFoe): number => menOfPower(gatePower(s, foe));
+export const gateMen = (s: GameState, foe: EventFoe): number => menOfPower(gatePower(s, foe));
 
 /**
  * Слабый посёлок: логово его ещё не замечает — ни жителями, ни всем войском он не дорос до порога защиты слабого
@@ -172,7 +204,7 @@ export const weakVillage = (s: GameState): boolean => weakCity(s.pop, troopPower
  * Выйти к воротам: вызов ложится в партию, бьётся мир на ближайшем пульсе, исход — отчётом в «Походы».
  * Трофеи победы решает событие здесь; мир про них не знает.
  */
-const toGate = (s: GameState, foe: GateFoe, spoils: Partial<Record<ResourceId, number>>): string => {
+const toGate = (s: GameState, foe: EventFoe, spoils: Partial<Record<ResourceId, number>>): string => {
   callGate(s, foe, gatePower(s, foe), spoils);
   return 'Гарнизон вышел за ворота. Чем кончилось, скажет донесение.';
 };
@@ -726,6 +758,8 @@ export const EVENTS: EventDef[] = [
       },
     ],
   },
+  ...revoltEvents(),
+  ...crownEvents(),
   {
     id: 'relic_offer',
     silence: 1,
@@ -825,7 +859,7 @@ export function pickEvent(s: GameState): EventDef | null {
   return weighted[weighted.length - 1][0];
 }
 
-export const eventText = (e: EventDef, s: GameState): string => (typeof e.text === 'function' ? e.text(s) : e.text);
+export const eventText = (e: EventDef, s: GameState): string => (typeof e.text === 'function' ? e.text(s) : (e.text ?? ''));
 
 /** Кто пишет весть — словами самой вести (`EventDef.from`). */
 export const eventFrom = (e: EventDef, s: GameState): string => (typeof e.from === 'function' ? e.from(s) : e.from);
@@ -863,6 +897,7 @@ export function eventBlock(o: EventOption, s: GameState): string | null {
     if (need > Math.floor(s.resources[r])) short.push(RESOURCE_META[r].name.toLowerCase());
   }
   if ((cost.gold ?? 0) > Math.floor(s.gold)) short.push('золото');
+  for (const b of REALM_BRANCHES) if ((o.points?.[b] ?? 0) > pointsOf(s, b)) short.push(BRANCH_NAME[b].toLowerCase());
   if (short.length === 0) return null;
   return 'Не хватает';
 }
@@ -879,4 +914,94 @@ export function payEventCost(o: EventOption, s: GameState): void {
   }
   const gold = cost.gold ?? 0;
   if (gold > 0) s.gold = Math.max(0, s.gold - gold);
+  for (const b of REALM_BRANCHES) {
+    const need = o.points?.[b] ?? 0;
+    if (need > 0) spend(s, b, need);
+  }
+}
+
+/**
+ * Вести мятежа податных и голодных (docs/stability.md, 2.4) — в общей таблице, как мятеж невольников: случаем не выпадают
+ * (вес ноль), их поднимает полоса недовольства (`sim/stability.stabilityTick`), лежат в своей ячейке стола и ждут ответа
+ * сутки. Молчание — «Подавить силой»: стража выходит сама, как у мятежа невольников.
+ */
+function revoltEvents(): EventDef[] {
+  const decline = daysSpan(DECLINE / DAY_LENGTH);
+  /** Подпись уступки — что она поменяет у этого города сейчас (правило 18: словами того же правила, что применит ответ). */
+  const concedeHint = (s: GameState): string => {
+    if (revoltNow(s).group === 'hungry') return concedeWords.pay;
+    const c = concession(s);
+    if (c.tax) return concedeWords.tax(TAX_BY_ID[c.tax[0]].name, TAX_BY_ID[c.tax[1]].name);
+    if (c.decree) return concedeWords.decree(DECREE_BY_ID.freedom.name);
+    return concedeWords.nothing;
+  };
+  const concedeCost = (s: GameState): EventCost => (revoltNow(s).group === 'hungry' ? handout(s) : {});
+  const revolt = (g: 'folk' | 'hungry'): EventDef => ({
+    id: REVOLT_EVENT[g],
+    silence: 0,
+    title: REVOLT_TEXT.title[g],
+    from: REVOLT_TEXT.from,
+    text: (s) => REVOLT_TEXT.text[g](revoltNow(s).rebels),
+    weight: () => 0,
+    waits: REVOLT_TEXT.waits,
+    options: [
+      {
+        label: REVOLT_TEXT.suppress,
+        hint: (s) => REVOLT_TEXT.suppressHint(revoltNow(s).rebels),
+        apply: (s) => {
+          revoltSuppress(s);
+          return REVOLT_TEXT.suppressed;
+        },
+      },
+      {
+        label: REVOLT_TEXT.concede[g],
+        hint: concedeHint,
+        ...(g === 'hungry' ? { cost: concedeCost } : {}),
+        apply: (s) => {
+          revoltConcede(s);
+          return REVOLT_TEXT.conceded;
+        },
+      },
+      {
+        label: REVOLT_TEXT.wait,
+        hint: REVOLT_TEXT.waitHint(decline),
+        apply: (s) => {
+          revoltWait(s);
+          return REVOLT_TEXT.waited;
+        },
+      },
+    ],
+  });
+  return [
+    revolt('folk'),
+    revolt('hungry'),
+    {
+      id: TERMS_EVENT,
+      silence: 1,
+      title: REVOLT_TEXT.termsTitle,
+      from: REVOLT_TEXT.from,
+      text: REVOLT_TEXT.termsText,
+      weight: () => 0,
+      waits: REVOLT_TEXT.termsRefuseHint(daysSpan((2 * DECLINE) / DAY_LENGTH)),
+      options: [
+        {
+          label: REVOLT_TEXT.termsConcede,
+          hint: concedeHint,
+          cost: concedeCost,
+          apply: (s) => {
+            termsConcede(s);
+            return REVOLT_TEXT.conceded;
+          },
+        },
+        {
+          label: REVOLT_TEXT.termsRefuse,
+          hint: REVOLT_TEXT.termsRefuseHint(daysSpan((2 * DECLINE) / DAY_LENGTH)),
+          apply: (s) => {
+            termsRefuse(s);
+            return REVOLT_TEXT.refused;
+          },
+        },
+      ],
+    },
+  ];
 }

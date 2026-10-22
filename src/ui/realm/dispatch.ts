@@ -24,6 +24,13 @@ import { dealKey, eventKey, letterKey, rivalWarKey } from './unread';
 import { cityOr } from '../../../netlify/lib/contract';
 import { realDue } from '@/ui/parts/wait';
 import type { IconName } from '@/ui/icons/alias';
+import type { RealmBranch } from '@/game/types';
+import { CROWN_BY_ID, type CrownScene } from '@/game/data/crown';
+import { CROWN_RULES, type CrownKind } from '@/game/crownrules';
+import { crownText } from '@/game/data/crownWords';
+import { SEASON_META } from '@/game/data/seasons';
+import { seasonOf, yearOf } from '@/game/derived';
+import { crownLines, type FxLine } from './crownView';
 import { iconName } from '@/ui/icons/registry';
 
 export interface DispatchChoice {
@@ -36,6 +43,19 @@ export interface DispatchChoice {
   cost: Price;
   /** Почему нельзя. null — можно. */
   block: string | null;
+  /** Что ответ просит из очков правителя (весть державы). */
+  points?: Partial<Record<RealmBranch, number>>;
+  /** «Что изменится» — строками, у вести державы (`crownView.crownLines`). */
+  lines?: FxLine[];
+}
+
+/** Весть державы (СБ-2): чем её рисовать — заставка, нрав, вид и дата. */
+export interface CrownCardView {
+  id: string;
+  scene: CrownScene;
+  kind: CrownKind;
+  /** «Лето, год 3» — когда легла весть. */
+  date: string;
 }
 
 export interface Dispatch {
@@ -79,6 +99,8 @@ export interface Dispatch {
   quick?: boolean;
   /** Идут на нас: в карточке — «На карту» и «Дружина», как у набега. */
   march?: boolean;
+  /** Весть державы: окно своим видом — заставка, «что изменится» до выбора. */
+  crown?: CrownCardView;
 }
 
 /** Событие племени, ждущее ответа, — донесением. null — вид события неизвестен. */
@@ -87,6 +109,7 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
   if (!def) return null;
   const quiet = def.options[def.silence];
   const quietHint = optionHint(quiet, s);
+  const crown = CROWN_BY_ID[def.id];
   return {
     key: eventKey(ev),
     source: 'event',
@@ -95,7 +118,7 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
     iconName: iconName('evt', def.id),
     title: def.title,
     from: eventFrom(def, s),
-    text: eventText(def, s),
+    text: crown ? crownText(def.id, s) : eventText(def, s),
     cost: {},
     choices: def.options.map((o, i) => ({
       id: String(i),
@@ -103,6 +126,8 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
       hint: optionHint(o, s) ?? null,
       cost: eventCost(o, s),
       block: eventBlock(o, s),
+      ...(o.points ? { points: o.points } : {}),
+      ...(crown ? { lines: crownLines(s, def.id, i) } : {}),
     })),
     left: eventLeft(ev, now),
     // Срок у почты один; мятеж подписывает его своими словами — что случится без ответа.
@@ -110,6 +135,9 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
     silence: `Без ответа: ${quiet.label.toLowerCase()}${quietHint ? `. ${quietHint}` : ''}.`,
     warning: false,
     urgent: def.waits !== undefined,
+    ...(crown
+      ? { crown: { id: def.id, scene: crown.scene, kind: CROWN_RULES[def.id].kind, date: `${SEASON_META[seasonOf(ev.at)].name}, год ${yearOf(ev.at)}` } }
+      : {}),
   };
 }
 

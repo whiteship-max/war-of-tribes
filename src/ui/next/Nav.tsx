@@ -97,7 +97,7 @@ function CityNav() {
         </span>
         Дружина
       </button>
-      <button className={mailOpen ? 'on' : ''} onClick={home(() => (mailOpen ? hide() : show('decisions')))}>
+      <button data-tut="nav-mail" className={mailOpen ? 'on' : ''} onClick={home(() => (mailOpen ? hide() : show('decisions')))}>
         <span className="nx-ib">
           <Icon name="ui-mail" />
           {unread > 0 && <em className={`nx-badge${urgent ? ' urgent' : ''}`}>{unread > 9 ? '9+' : unread}</em>}

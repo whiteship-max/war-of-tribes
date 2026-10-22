@@ -1,6 +1,7 @@
 // Меню державы нового интерфейса (docs/ui_audit.md, 6.4). Каркас — шторка между верхом и низом: верх, тревоги
-// и низ видны и работают. Шапка — герб, город и правитель и «закрыть»; под ней строка очков трёх ветвей; пять вкладок
-// значком и словом, все на экране: Правитель · Указы · Технологии · Вера · Задания.
+// и низ видны и работают. Шапка — герб, город и правитель и «закрыть»; под ней строка очков трёх ветвей и ячейка «Задания»;
+// пять вкладок значком и словом, все на экране: Правитель · Указы · Технологии · Вера · Стабильность (СБ-2б: стабильность —
+// разделом в ряду, задания — ячейкой строки очков, решение владельца 22.10.2026).
 // «Вести» — свой экран из нижней навигации, без вкладок: счётчик стоит там, куда ведёт. «Профиль» — тоже свой экран, из
 // значка-фигурки справа сверху (ЗН-4, docs/ui_v2.md, 5.11; слово владельца): в державе профиля нет, ни кнопкой, ни вкладкой.
 // Окна — тем же каркасом и тем же хранилищем (`open.ts`, вид `settings`), чтобы верх, низ и тревоги вели себя одинаково.
@@ -27,18 +28,27 @@ import { useRealm, type RealmView } from './open';
 import { Section, useRealmYield } from './RealmMenu';
 import { BRANCH_ICON, BRANCH_WORD } from './branches';
 import { DecreesNew, FaithNew, QuestsNew, RulerNew } from './RealmTabs';
+import { StabilityTab } from './Stability';
+import { QUESTS, questsDone } from '@/game/data/quests';
+import { dailyStatus } from '@/game/sim/daily';
+import { dayIndex } from '@/game/data/daily';
+import { serverNow } from '@/net/clock';
+import type { GameState } from '@/game/types';
 import type { IconName } from '@/ui/icons/alias';
 
 // Ветви словами словаря и их значки — общие с вкладками (`branches.ts`).
 export { BRANCH_ICON, BRANCH_WORD } from './branches';
 
-/** Вкладки нового меню: пять, значком и словом. Остальные разделы — внизу экрана; профиль — своим окном (ЗН-4). */
+/**
+ * Вкладки нового меню: пять, значком и словом. «Стабильность» — на месте «Заданий» (СБ-2б), «Задания» — ячейкой строки очков
+ * (`PointsRow`). Остальные разделы — внизу экрана; профиль — своим окном (ЗН-4).
+ */
 export const NEW_TABS: readonly { id: RealmView; word: string; icon: IconName }[] = [
   { id: 'lineage', word: 'Правитель', icon: 'ui-crown' },
   { id: 'government', word: 'Указы', icon: 'ui-scroll' },
   { id: 'tech', word: 'Технологии', icon: 'ui-tech' },
   { id: 'faith', word: 'Вера', icon: 'ui-faith' },
-  { id: 'quests', word: 'Задания', icon: 'nav-quests' },
+  { id: 'stability', word: 'Стабильность', icon: 'ui-stability' },
 ];
 
 export function RealmNew() {
@@ -136,7 +146,14 @@ export function RealmNew() {
           <PointsRow />
           <div className="nx-rtabs" role="tablist">
             {NEW_TABS.map((t) => (
-              <button key={t.id} role="tab" aria-selected={view === t.id} className={view === t.id ? 'on' : ''} onClick={() => go(t.id)}>
+              <button
+                key={t.id}
+                role="tab"
+                data-tut={`realm-${t.id}`}
+                aria-selected={view === t.id}
+                className={view === t.id ? 'on' : ''}
+                onClick={() => go(t.id)}
+              >
                 <Icon name={t.icon} />
                 <span>{t.word}</span>
               </button>
@@ -167,14 +184,23 @@ function TabBody({ view }: { view: RealmView }) {
       return <FaithNew />;
     case 'quests':
       return <QuestsNew />;
+    case 'stability':
+      return <StabilityTab />;
     default:
       return <Section view={view} />;
   }
 }
 
-/** Строка очков правителя: три ячейки-справки, тап — приток и потолок. */
+/**
+ * Строка очков правителя: три ячейки-справки (тап — приток и потолок) и четвёртой — «Задания» (СБ-2б, решение владельца
+ * 22.10.2026; прежде здесь стояла ступень стабильности, теперь она — разделом в ряду): число открытых заданий и отметка, если
+ * задание дня ещё ждёт сегодня; тап открывает раздел заданий, как прежде вкладка.
+ */
 function PointsRow() {
   const s = useGame((g) => g.s);
+  const view = useRealm((r) => r.view);
+  const go = useRealm((r) => r.go);
+  const q = questCell(s, dayIndex(serverNow()));
   return (
     <div className="nx-points">
       {REALM_BRANCHES.map((b) => {
@@ -192,9 +218,30 @@ function PointsRow() {
           </button>
         );
       })}
+      <button
+        className={`nx-pcell nx-qcell${view === 'quests' ? ' on' : ''}`}
+        data-tut="realm-quests"
+        aria-label={questCellWord(q)}
+        aria-pressed={view === 'quests'}
+        onClick={() => go('quests')}
+      >
+        <Icon name="nav-quests" />
+        <b>{q.open}</b>
+        {q.daily && <i className="nx-qdot" aria-hidden="true" />}
+      </button>
     </div>
   );
 }
+
+/** Ячейка «Задания»: сколько заданий открыто и ждёт ли задание дня — числами самих заданий (`questsDone`, `dailyStatus`). */
+export function questCell(s: GameState, day: number): { open: number; daily: boolean } {
+  const st = dailyStatus(s, day);
+  return { open: QUESTS.length - questsDone(s), daily: !st.played && !st.won };
+}
+
+/** Подпись ячейки «Задания» для чтеца экрана. */
+export const questCellWord = (q: { open: number; daily: boolean }): string =>
+  `Задания: открыто ${q.open}${q.daily ? ', задание дня ждёт' : ''}`;
 
 /** Подсказка ячейки очков — функциями `sim/points` (правило 18). */
 export function pointsTip(b: RealmBranch, have: number, rate: number): { title: string; body: string } {

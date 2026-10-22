@@ -29,6 +29,8 @@ import { useRealm, type MailTab } from './open';
 import { Chronicle } from './Chronicle';
 import { ReportPanel } from '@/ui/panels/ReportPanel';
 import { mailKeys, rivalKeys, useSeen } from './unread';
+import { CrownCard, CrownDone } from './CrownCard';
+import { crownDone } from '@/game/data/crownWords';
 
 /**
  * Единственная дверь ответа: отдаёт ответ хозяину донесения и возвращает исход
@@ -66,7 +68,7 @@ export function Mail() {
   const openMail = useRealm((r) => r.openMail);
   const seen = useSeen((u) => u.seen);
   const mark = useSeen((u) => u.mark);
-  const [done, setDone] = useState<{ title: string; text: string } | null>(null);
+  const [done, setDone] = useState<{ title: string; text: string; crown?: { d: Dispatch; note: string } } | null>(null);
   // Вкладка — в хранилище державы: ссылка «Летопись» из «Заданий» открывает «Вести» сразу на ней (ВС-2).
   const tab = useRealm((r) => r.mailTab);
   const setTab = useRealm((r) => r.setMailTab);
@@ -98,6 +100,7 @@ export function Mail() {
     // открытого: брать его в зависимости значило бы метить на каждом кадре.
   }, [shown, mark]);
 
+  if (done?.crown) return <CrownDone d={done.crown.d} text={done.text} note={done.crown.note} onBack={() => setDone(null)} />;
   if (done) {
     return (
         <div className="nx-mail">
@@ -114,6 +117,21 @@ export function Mail() {
             К вестям
           </button>
         </div>
+    );
+  }
+
+  // Весть державы (СБ-2) — своим окном: заставка и «что изменится» до выбора. Исход — словами летописи, ниже — что изменилось.
+  if (current?.crown) {
+    return (
+      <CrownCard
+        d={current}
+        onBack={() => openMail(null)}
+        onAnswer={async (id) => {
+          const note = await answerDispatch(current, id);
+          openMail(null);
+          if (note) setDone({ title: current.title, text: crownDone(current.crown!.id, Number(id)), crown: { d: current, note } });
+        }}
+      />
     );
   }
 

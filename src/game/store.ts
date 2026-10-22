@@ -54,7 +54,8 @@ export type TownTab = 'build';
  */
 export type SheetView =
   | { kind: 'tab'; tab: Tab }
-  | { kind: 'building'; id: number }
+  /** `touched` — карточку открыло касание здания в сцене города, а не дверь из окна: только тогда здание подаёт голос (ЗВ-1). */
+  | { kind: 'building'; id: number; touched?: true }
   | { kind: 'world'; x: number; y: number }
   | { kind: 'marches' }
   /**
@@ -114,8 +115,11 @@ export interface GameStore {
   toast: string | null;
   /** Открывает раздел; повторный вызов того же — закрывает. */
   openTab: (tab: Tab) => void;
-  /** Открывает панель здания. null — закрыть (тап по пустому месту). */
-  openBuilding: (id: number | null) => void;
+  /**
+   * Открывает панель здания. null — закрыть (тап по пустому месту). `via: 'scene'` — открыло касание здания в сцене города
+   * (`GameCanvas`); двери из окон («Казармы» в «Дружине») зовут без него.
+   */
+  openBuilding: (id: number | null, via?: 'scene') => void;
   /**
    * Открывает ратушу на нужной вкладке. Отдельно от `openBuilding`, потому что
    * ратуша — единственное здание, к которому ведут не только тап по крыше:
@@ -194,14 +198,14 @@ export const useGame = create<GameStore>((set, get) => ({
     get().syncTutorial();
   },
 
-  openBuilding: (id) => {
+  openBuilding: (id, via) => {
     if (id === null) {
       const cur = get().sheet;
       if (cur?.kind === 'building') set({ sheet: null });
       return;
     }
     haptic('light');
-    set({ sheet: { kind: 'building', id } });
+    set({ sheet: { kind: 'building', id, ...(via === 'scene' ? { touched: true as const } : {}) } });
     get().syncTutorial();
   },
 

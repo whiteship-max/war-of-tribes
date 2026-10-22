@@ -35,7 +35,7 @@ import {
  * Роды вестей — те, что владелец назвал для настроек бота (16.10.2026): бои, осады, стройка, указы, соседи. Род
  * выводится из вида и фактов (`topicOf`), а не пишется в пункт: правило одно, и второго мнения о роде быть не может.
  */
-export const TOPICS = ['fights', 'sieges', 'build', 'grants', 'neighbors'] as const;
+export const TOPICS = ['fights', 'sieges', 'build', 'grants', 'neighbors', 'realm'] as const;
 export type Topic = (typeof TOPICS)[number];
 
 /** Важность: срочное — сразу; обычное — склейкой; мелочь — только в игре. */
@@ -64,6 +64,9 @@ export function topicOf(item: NoticeItem): Topic {
       return 'build';
     case 'grant':
       return 'grants';
+    case 'stab-near':
+    case 'stab-revolt':
+      return 'realm';
   }
 }
 

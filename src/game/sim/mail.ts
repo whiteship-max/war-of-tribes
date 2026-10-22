@@ -27,8 +27,10 @@ import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { kickFrom } from '@/world/letters';
 import { mailSlots } from './tech';
 import { MUTINY_EVENT } from '../data/order';
+import { STAB_EVENTS } from '../data/stability';
 import { log } from './log';
-import { realMs } from '../pace';
+import { gameDaysOfMs, realMs } from '../pace';
+import { crownArrived, crownOnTable, crownPick } from './crown';
 
 /** Сколько событие ждёт ответа, мс настоящего времени. Одно число на всю почту. */
 export const EVENT_TTL = LETTER_TTL;
@@ -40,11 +42,12 @@ export const SILENCE_PREFIX = 'Ответа не дождались';
 export const eventId = (ev: ActiveEvent): string => `${ev.defId}:${ev.at}`;
 
 /**
- * Событие со своей ячейкой: мятеж. Его молчание — самая жёсткая потеря в игре, и сгонять
+ * Событие со своей ячейкой: мятеж — невольников и, тем же правилом, податных и голодных с условиями мятежников
+ * (`data/stability.STAB_EVENTS`). Его молчание — самая жёсткая потеря в игре, и сгонять
  * его наравне с вестями значило бы разрешать её чужим сроком; сам он тоже никого не
  * сгоняет. Так же у писем стоит предупреждение о набеге.
  */
-const ownSlot = (ev: ActiveEvent): boolean => ev.defId === MUTINY_EVENT;
+const ownSlot = (ev: ActiveEvent): boolean => ev.defId === MUTINY_EVENT || STAB_EVENTS.includes(ev.defId);
 
 /** Событие на столе по имени; без имени — первое. */
 const pick = (s: GameState, id?: string): ActiveEvent | null =>
@@ -57,7 +60,8 @@ function closeEvent(s: GameState, ev: ActiveEvent, def: EventDef, optionIndex: n
   const result = opt.apply(s);
   s.inbox = s.inbox.filter((e) => e !== ev);
   s.stats.eventsResolved++;
-  log(s, silent ? `${def.title}: ${SILENCE_PREFIX} — «${opt.label}». ${result}` : `${def.title}: ${result}`);
+  const said = silent ? `${SILENCE_PREFIX} — «${opt.label}».` : def.named ? `«${opt.label}».` : '';
+  log(s, `${def.title}: ${said ? `${said} ` : ''}${result}`, 'info', undefined, def.topic);
   return result;
 }
 
@@ -178,16 +182,26 @@ export const awayArrival = (seed: number, k: number): number =>
 export function mailArrive(s: GameState, from: number, now: number): number {
   if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) return 0;
   if (s.unrest > 0) return 0;
+  // Мятеж податных или голодных — то же исключение, что ропот: срок ответа на него начинается с входа игрока.
+  if (s.inbox.some((e) => STAB_EVENTS.includes(e.defId))) return 0;
   const start = Math.max(from, now - EVENT_TTL);
   let n = chainsArrive(s, start, now);
+  // Весть державы — не больше одной за окно (вход или шаг живой игры) и ни одной, пока одна лежит на столе (СБ-2).
+  let crowned = crownOnTable(s);
   for (let k = Math.floor((start - AWAY_JITTER) / AWAY_STEP); ; k++) {
     const t = awayArrival(s.seed, k);
     if (t > now) break;
     if (t <= start) continue;
     // До прихода — то, что истекло к его минуте, уходит своим молчанием.
     mailStep(s, t);
-    const e = pickEvent(s);
+    // Сперва — весть державы: наступила ли хоть одна за промежуток сетки до этого прихода (`sim/crown.crownPick`).
+    const c = crowned ? null : crownPick(s, gameDaysOfMs(t - awayArrival(s.seed, k - 1)));
+    const e = c ?? pickEvent(s);
     if (!e || !raiseEvent(s, e.id)) continue;
+    if (c) {
+      crownArrived(s, c.id);
+      crowned = true;
+    }
     s.inbox[s.inbox.length - 1].until = t + EVENT_TTL;
     n++;
   }

@@ -141,7 +141,8 @@ export function GameCanvas() {
     sceneRef.current = scene;
     sceneLog.mark(first ? 'scene' : 'rebuild', `сборка №${gen + 1}`);
     // Тап по зданию открывает его панель; тап по пустому месту закрывает открытую.
-    scene.onPick = (id) => useGame.getState().openBuilding(id);
+    // Касание в сцене — единственная дверь, у которой здание подаёт голос (ЗВ-1, `sound/epoch/hallcue.hallHeard`).
+    scene.onPick = (id) => useGame.getState().openBuilding(id, 'scene');
     // Замер: сцену надо достать из консоли, в собранном бандле её неоткуда взять.
     // Журнал рядом со сценой: стенд восстановления проверяет не только то, что
     // диорама вернулась, но и то, что она об этом честно написала.
