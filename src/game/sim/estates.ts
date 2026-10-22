@@ -12,8 +12,7 @@ import type { EstateId, EstatesState, GameState } from '../types';
 import { ESTATES, LOYAL, PRIV_MAX, isEstate, privOf } from '../estaterules';
 import { ESTATE_LOG, ESTATE_META } from '../data/estates';
 import { estateBoon } from '../data/boons';
-import { TAX_BY_ID, TAX_PER_POP } from '../data/policy';
-import { decreeOf, estateDecree, estatesNow, population, townFoodPerDay } from '../derived';
+import { decreeOf, estateDecree, estateGiftPrice, estatesNow } from '../derived';
 import { grantBoon } from './boons';
 import { setDecree } from './actions';
 import { outlay, pay } from './pay';
@@ -77,14 +76,8 @@ export function revokePrivilege(s: GameState, e: EstateId): string | null {
 
 // ---------- Дар ----------
 
-/**
- * Цена дара: день полного налога города золотом (высокий налог со всех жителей, `TAX_PER_POP`), крестьянству — день хлеба,
- * который ест город (`derived.townFoodPerDay`). От размера города, как у вестей: дар большому городу и стоит больше.
- */
-export function giftPrice(s: GameState, e: EstateId): { gold: number } | { food: number } {
-  if (ESTATE_META[e].gift === 'food') return { food: Math.max(1, Math.ceil(townFoodPerDay(s))) };
-  return { gold: Math.max(1, Math.ceil(population(s) * TAX_PER_POP * TAX_BY_ID.high.perPop)) };
-}
+/** Цена дара — одна мерка с жалобой сословия (`derived.estateGiftPrice`). */
+export const giftPrice = estateGiftPrice;
 
 /** Хватает ли на дар; null — хватает. */
 export function giftBlock(s: GameState, e: EstateId): string | null {

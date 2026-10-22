@@ -955,6 +955,15 @@ export function decreeBlock(s: GameState, id: DecreeDef['id']): string | null {
   return loyalty >= LOYAL ? null : `${ESTATE_META[e].name}: лояльность ${Math.floor(loyalty)} из ${LOYAL} — указ откроет верное сословие.`;
 }
 
+/**
+ * Цена дара сословию: день полного налога города золотом (высокий налог со всех жителей, `TAX_PER_POP`), крестьянству — день
+ * хлеба, который ест город (`townFoodPerDay`). От размера города, как у вестей. Одна мерка у кнопки дара и у жалобы сословия.
+ */
+export function estateGiftPrice(s: GameState, e: EstateId): { gold: number } | { food: number } {
+  if (ESTATE_META[e].gift === 'food') return { food: Math.max(1, Math.ceil(townFoodPerDay(s))) };
+  return { gold: Math.max(1, Math.ceil(population(s) * TAX_PER_POP * TAX_BY_ID.high.perPop)) };
+}
+
 /** Ропот сословия — причина у податных, % (`estaterules.murmurOf`). */
 export const estateMurmur = (s: GameState, e: EstateId): number => {
   const n = estatesNow(s)[e];

@@ -5,7 +5,8 @@
 //
 // **Своё число здесь одно, и оно выведено** — `CROWN_MTTH` (`npm run stability:report`, раздел «Вести державы»). Сдвиг вести
 // меряется днями тихой жизни (`STAB_CALM`), повтор и редкость — настоящими сутками, шаг сетки — паузой писем мира.
-import type { RealmBranch } from './types';
+import type { EstateId, RealmBranch } from './types';
+import { ESTATES } from './estaterules';
 import { DAY_LENGTH, realTime } from './pace';
 import { MINUTE_MS as MIN } from './time';
 import { MAX_OFFLINE_DAYS } from './constants';
@@ -72,7 +73,25 @@ export const CROWN_RULES: Readonly<Record<string, CrownRule>> = {
   cr_plague: { kind: 'chain', rarity: 'common', opts: [o(-2), o(-4)] },
   cr_collector: { kind: 'chain', rarity: 'common', opts: [o(0), o(-2)] },
   cr_interdict: { kind: 'chain', rarity: 'common', opts: [o(1), o(-8)] },
+  ...estateRules(),
 };
+
+/**
+ * Вести сословий (РТ-2, docs/stability.md, Р1.7): дар — добрая, жалоба — дурная, требование власти — выбор. Дар рыцарей —
+ * очками войны, дар духовенства — стабильностью; принятый с почётом — на день тихой жизни больше. Жалоба: дар и совет —
+ * ровно, отказ — день вниз; требование: привилегия — день вверх, отказ — два вниз.
+ */
+function estateRules(): Record<string, CrownRule> {
+  const gift = (e: EstateId): readonly CrownOptRule[] =>
+    e === 'knights' ? [o(1, ['war', 20]), o(0, ['war', 10])] : e === 'clergy' ? [o(2), o(1)] : [o(1), o(0)];
+  return Object.fromEntries(
+    ESTATES.flatMap((e) => [
+      [`cr_es_gift_${e}`, { kind: 'good', rarity: 'uncommon', opts: gift(e) }],
+      [`cr_es_plea_${e}`, { kind: 'bad', rarity: 'common', opts: [o(0), o(0), o(-1)] }],
+      [`cr_es_power_${e}`, { kind: 'choice', rarity: 'uncommon', opts: [o(1), o(0), o(-2)] }],
+    ]),
+  ) as Record<string, CrownRule>;
+}
 
 /** Вести державы по порядку таблицы. */
 export const CROWN_IDS: readonly string[] = Object.keys(CROWN_RULES);

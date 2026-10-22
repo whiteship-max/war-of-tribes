@@ -9,7 +9,7 @@
 // Последствия — данными (`Fx`), а не кодом в ответе: по ним одним ответ исполняется (`sim/crown.applyCrown`), подпись
 // называет числа и окно рисует «что изменится» (правило 18). Склад и золото — от размера города (`amount`), как у прочих
 // вестей; обида и милость групп — усилители (`data/boons`, `MOOD_*`), вера — надлом той же двери, что отказ Риму.
-import type { GameState, RealmBranch, ResourceId } from '../types';
+import type { EstateId, GameState, RealmBranch, ResourceId } from '../types';
 import type { EventCost } from './events';
 import { FAITH_REFUSAL_STRAIN } from '../constants';
 import {
@@ -17,6 +17,8 @@ import {
   bondedTotal,
   buildingOfType,
   dayOf,
+  estateGiftPrice,
+  estatesNow,
   faithDef,
   faithOf,
   foodConsumptionPerDay,
@@ -29,6 +31,9 @@ import {
 import { amount, crowd } from './eventKit';
 import { barsOf, stabLevel, stabOf, STAB_GROUPS } from '../sim/stability';
 import { rulerAging } from '../sim/dynasty';
+import { DISLOYAL, ESTATES, ESTATE_DOMINANT, ESTATE_EVEN, LOYAL, PRIV_MAX, privOf } from '../estaterules';
+import { ESTATE_META } from './estates';
+import { estateBoon } from './boons';
 
 /** Заставка вести — сцена города или покоев, нарисованная кодом (`ui/realm/crownScene.tsx`). */
 export type CrownScene =
@@ -61,7 +66,9 @@ export type Fx =
   /** В храме появляется святыня, если её ещё нет. */
   | { k: 'relic' }
   /** Следствие: весть `id` через `seasons` сезонов с вероятностью `p`. */
-  | { k: 'chain'; id: string; p: number; seasons: number };
+  | { k: 'chain'; id: string; p: number; seasons: number }
+  /** Сословию — следующая привилегия (`sim/estates.grantPrivilege`); `name` — её имя, названное окну до ответа. */
+  | { k: 'priv'; e: EstateId; name: string };
 
 export interface CrownOpt {
   label: string;
@@ -111,6 +118,97 @@ const STRAIN = { refuse: FAITH_REFUSAL_STRAIN, sermon: FAITH_REFUSAL_STRAIN / 2,
 
 const gold = (n: number) => (s: GameState): EventCost => ({ gold: amount(s, n) });
 
+/** Лояльность сословия от ответа (РТ-2): расположение или обида — зависть одной привилегии на сезон (`data/boons`). */
+const up = (e: EstateId): Fx => ({ k: 'boon', id: estateBoon('up', e) });
+const down = (e: EstateId): Fx => ({ k: 'boon', id: estateBoon('down', e) });
+
+// ---------- Вести сословий (РТ-2) ----------
+//
+// Три вида на каждое сословие (docs/stability.md, Р1.7): **дар** — сословие верно; **жалоба** — ропщет, и чем больше его влияние,
+// тем чаще; **требует власти** — держит перевес, и неверное требует втрое чаще. В ровной игре (без привилегий, лояльность 50,
+// без перевеса) вес у всех ноль: частота вестей державы и её срок (`CROWN_MTTH`) не едут. Стабильность и очки ответов — в
+// таблице правил (`crownrules`), слова — `crownWords`.
+
+/** Вид вести сословия. */
+export const estateCrownId = (kind: 'gift' | 'plea' | 'power', e: EstateId): string => `cr_es_${kind}_${e}`;
+
+/** Кто говорит от сословия. */
+const ESTATE_VOICE: Record<EstateId, string | ((s: GameState) => string)> = {
+  merchants: 'Старшина купцов',
+  guilds: 'Цеховой старшина',
+  peasants: 'Староста общины',
+  knights: 'Старший рыцарь',
+  clergy: priest,
+};
+
+/** Где сословие: торг, площадь, поле, ристалище, храм. */
+const ESTATE_SCENE: Record<EstateId, CrownScene> = { merchants: 'market', guilds: 'square', peasants: 'field', knights: 'lists', clergy: 'church' };
+
+/** Что сословие приносит в дар: купцы — золото, цехи — руки на стройку, крестьяне — хлеб; рыцари — очки войны и духовенство —
+ * стабильность — в таблице правил. */
+const GIFT_FX: Record<EstateId, (s: GameState) => Fx[]> = {
+  merchants: (s) => [{ k: 'gold', n: amount(s, 40) }],
+  guilds: () => [{ k: 'boon', id: 'mercs' }],
+  peasants: (s) => [{ k: 'res', r: 'food', n: amount(s, 60) }],
+  knights: () => [],
+  clergy: () => [],
+};
+
+/** Следующая привилегия сословию; обе дарованы — расположение. */
+const nextPriv = (s: GameState, e: EstateId): Fx => {
+  const n = privOf(s.estates?.priv, e);
+  return n < PRIV_MAX ? { k: 'priv', e, name: ESTATE_META[e].priv[n] } : up(e);
+};
+
+function estateCrown(): CrownDef[] {
+  return ESTATES.flatMap((e): CrownDef[] => {
+    const m = ESTATE_META[e];
+    const now = (s: GameState) => estatesNow(s)[e];
+    return [
+      {
+        id: estateCrownId('gift', e),
+        title: `Дар: ${m.name.toLowerCase()}`,
+        from: ESTATE_VOICE[e],
+        scene: ESTATE_SCENE[e],
+        weight: (s) => on(now(s).loyalty >= LOYAL),
+        silence: 1,
+        opts: [
+          // Почёт — пир: хлебом, а крестьянам, что везут хлеб, — золотом (цена и дар не одним добром).
+          { label: 'Принять с почётом', cost: (s) => (e === 'peasants' ? { gold: amount(s, 10) } : { food: amount(s, 10) }), fx: (s) => [...GIFT_FX[e](s), up(e)] },
+          { label: 'Принять дар', fx: (s) => GIFT_FX[e](s) },
+        ],
+      },
+      {
+        id: estateCrownId('plea', e),
+        title: `Жалоба: ${m.name.toLowerCase()}`,
+        from: ESTATE_VOICE[e],
+        scene: ESTATE_SCENE[e],
+        // Чем сильнее ропщущее сословие, тем чаще оно жалуется: вес — его влияние в ровных долях.
+        weight: (s) => on(now(s).loyalty < DISLOYAL, Math.max(1, now(s).infl / ESTATE_EVEN)),
+        silence: 2,
+        opts: [
+          { label: 'Одарить', cost: (s) => estateGiftPrice(s, e), fx: () => [{ k: 'boon', id: estateBoon('gift', e) }] },
+          { label: 'Выслушать в совете', points: { admin: 20 }, fx: () => [up(e)] },
+          { label: 'Отказать', fx: () => [down(e)] },
+        ],
+      },
+      {
+        id: estateCrownId('power', e),
+        title: `${m.name} требует власти`,
+        from: ESTATE_VOICE[e],
+        scene: 'hall',
+        weight: (s) => on(now(s).infl >= ESTATE_DOMINANT, now(s).loyalty < LOYAL ? 3 : 1),
+        silence: 2,
+        opts: [
+          { label: 'Даровать привилегию', fx: (s) => [nextPriv(s, e)] },
+          { label: 'Созвать все сословия', points: { diplo: 30 }, fx: () => [up(e)] },
+          { label: 'Отказать', fx: () => [down(e), { k: 'boon', id: 'cr_promise' }] },
+        ],
+      },
+    ];
+  });
+}
+
 // ---------- Таблица ----------
 
 export const CROWN: CrownDef[] = [
@@ -153,7 +251,7 @@ export const CROWN: CrownDef[] = [
     weight: (s) => on(s.stats.battlesWon >= 3 || s.prestige >= 30),
     silence: 1,
     opts: [
-      { label: 'Принять клятву на пиру', cost: (s) => ({ food: amount(s, 15), gold: amount(s, 10) }), fx: () => [{ k: 'fame', n: 2 }] },
+      { label: 'Принять клятву на пиру', cost: (s) => ({ food: amount(s, 15), gold: amount(s, 10) }), fx: () => [{ k: 'fame', n: 2 }, up('knights')] },
       { label: 'Принять без пира' },
     ],
   },
@@ -309,7 +407,7 @@ export const CROWN: CrownDef[] = [
     silence: 2,
     opts: [
       { label: 'Купить зерно у купцов', cost: gold(30), fx: (s) => [{ k: 'res', r: 'food', n: amount(s, 30) }, { k: 'boon', id: 'cr_grain' }] },
-      { label: 'Отнять у перекупщиков', fx: (s) => [{ k: 'res', r: 'food', n: amount(s, 15) }, { k: 'fame', n: -1 }] },
+      { label: 'Отнять у перекупщиков', fx: (s) => [{ k: 'res', r: 'food', n: amount(s, 15) }, { k: 'fame', n: -1 }, down('merchants'), up('peasants')] },
       { label: 'Ждать весны', fx: () => [{ k: 'boon', id: 'cr_famine' }] },
     ],
   },
@@ -323,7 +421,7 @@ export const CROWN: CrownDef[] = [
     weight: (s) => on(faithOf(s) !== null && day(s) >= 5, heresy(s) ? 3 : 1),
     silence: 2,
     opts: [
-      { label: 'Схватить и выдать храму', fx: () => [{ k: 'boon', id: 'cr_martyr' }] },
+      { label: 'Схватить и выдать храму', fx: () => [{ k: 'boon', id: 'cr_martyr' }, up('clergy')] },
       { label: 'Дать проповедовать', fx: () => [{ k: 'strain', n: STRAIN.sermon }, { k: 'boon', id: 'cr_sermon' }] },
       { label: 'Выслать за ворота' },
     ],
@@ -336,8 +434,8 @@ export const CROWN: CrownDef[] = [
     weight: (s) => on(jobCounts(s).crafter > 0 && day(s) >= 5),
     silence: 0,
     opts: [
-      { label: 'Оставить по-старому' },
-      { label: 'Пустить купцов', fx: (s) => [{ k: 'gold', n: amount(s, 25) }, { k: 'boon', id: 'cr_guild_anger' }] },
+      { label: 'Оставить по-старому', fx: () => [up('guilds'), down('merchants')] },
+      { label: 'Пустить купцов', fx: (s) => [{ k: 'gold', n: amount(s, 25) }, { k: 'boon', id: 'cr_guild_anger' }, up('merchants'), down('guilds')] },
       { label: 'Рассудить по грамоте', points: { admin: 30 } },
     ],
   },
@@ -349,9 +447,9 @@ export const CROWN: CrownDef[] = [
     weight: (s) => on(faithOf(s) === 'catholic' && day(s) >= 10),
     silence: 2,
     opts: [
-      { label: 'Дать десятину', cost: gold(40), fx: () => [{ k: 'fame', n: 2 }] },
+      { label: 'Дать десятину', cost: gold(40), fx: () => [{ k: 'fame', n: 2 }, up('clergy')] },
       { label: 'Дать что можем', cost: gold(15) },
-      { label: 'Отказать легату', fx: () => [{ k: 'strain', n: STRAIN.refuse }, { k: 'chain', id: 'cr_interdict', p: 0.5, seasons: 1 }] },
+      { label: 'Отказать легату', fx: () => [{ k: 'strain', n: STRAIN.refuse }, { k: 'chain', id: 'cr_interdict', p: 0.5, seasons: 1 }, down('clergy')] },
     ],
   },
   {
@@ -362,7 +460,7 @@ export const CROWN: CrownDef[] = [
     weight: (s) => on(s.pop >= 60),
     silence: 1,
     opts: [
-      { label: 'Даровать хартию', points: { admin: 40 }, fx: () => [{ k: 'boon', id: 'cr_liberty' }] },
+      { label: 'Даровать хартию', points: { admin: 40 }, fx: () => [{ k: 'boon', id: 'cr_liberty' }, up('merchants'), up('guilds')] },
       { label: 'Обещать подумать', fx: () => [{ k: 'boon', id: 'cr_promise' }] },
     ],
   },
@@ -403,7 +501,7 @@ export const CROWN: CrownDef[] = [
       {
         label: 'Устроить турнир',
         cost: (s) => ({ food: amount(s, 15), gold: amount(s, 25) }),
-        fx: () => [{ k: 'fame', n: 3 }, { k: 'morale', n: 2 }],
+        fx: () => [{ k: 'fame', n: 3 }, { k: 'morale', n: 2 }, up('knights')],
       },
       { label: 'Не до забав' },
     ],
@@ -493,6 +591,7 @@ export const CROWN: CrownDef[] = [
     silence: 1,
     opts: [{ label: 'Покаяться и заплатить', cost: gold(60) }, { label: 'Стоять на своём', fx: () => [{ k: 'boon', id: 'cr_interdict' }] }],
   },
+  ...estateCrown(),
 ];
 
 /** Доля невольников: не меньше одного, если они есть. */

@@ -32,6 +32,8 @@ import { grantBoon } from './boons';
 import { chainPending, scheduleChain } from './chains';
 import { addStrain, grantRelic } from './faith';
 import { killPop, loseBonded, losePop } from './population';
+import { grantPrivilege } from './estates';
+import { ESTATE_META } from '../data/estates';
 
 /** Пустая книга: так читаются новая и старая партия. */
 const empty = (): CrownState => ({ seen: {}, n: 0, last: [] });
@@ -135,6 +137,9 @@ function applyFx(s: GameState, f: Fx): void {
     case 'chain':
       if (f.p >= 1 || chance(s, f.p)) scheduleChain(s, f.id, f.seasons);
       return;
+    case 'priv':
+      grantPrivilege(s, f.e);
+      return;
   }
 }
 
@@ -195,6 +200,8 @@ export function fxWord(f: Fx): string {
       const when = daysSpan(f.seasons * SEASON_DAYS);
       return f.p >= 1 ? `через ${when} — «${next}»` : `риск ${Math.round(f.p * 100)} %: «${next}» через ${when}`;
     }
+    case 'priv':
+      return `${ESTATE_META[f.e].to} — привилегия «${f.name}»`;
   }
 }
 
