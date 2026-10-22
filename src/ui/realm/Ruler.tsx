@@ -13,7 +13,7 @@ import { BRANCH_NAME, POINTS_CAP, REALM_BRANCHES, SKILL_NAME } from '@/game/data
 import { RETIRE_AGE } from '@/game/data/agents';
 import { circlesText } from '@/game/sim/agents';
 import { rulerAge, rulerAging, rulerYears } from '@/game/sim/dynasty';
-import { pointsOf, rulerRate } from '@/game/sim/points';
+import { branchRate, pointsOf } from '@/game/sim/points';
 import { Lineage } from '@/ui/parts/Lineage';
 import { count } from '@/ui/parts/plural';
 import { Icon } from '@/ui/icons/Icon';
@@ -58,10 +58,11 @@ export function RulerTab() {
 
       <div className="panel">
         <h3>Очки</h3>
-        <div className="note">Навык правителя каждый день приносит очки своего вида, до {POINTS_CAP}.</div>
+        <div className="note">Навык правителя и советник совета каждый день приносят очки своего вида, до {POINTS_CAP}.</div>
         {REALM_BRANCHES.map((b) => {
           const have = pointsOf(s, b);
-          const rate = rulerRate(s, b);
+          // Ставка вида — правитель и советник совета Ратуши под потолком лучшего правителя (РТ-1, `branchRate`).
+          const rate = branchRate(s, b);
           const full = have >= POINTS_CAP;
           return (
             <div className="mod" key={b}>

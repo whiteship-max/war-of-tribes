@@ -9,7 +9,9 @@
 //   GAME=1 PANEL=barracks,stable npm run city:shots — окна построек: открытое и прокрученное к «Найму» (Р-3)
 //                                                (сцена города в игре, не стенд), TAG и QUALITY те же;
 //                                                `PANELSTATE='{"workers":{"farmer":8}}'` — поля партии поверх перед окнами,
-//                                                печатает, влезает ли окно без прокрутки (ЗД-1, docs/city_v3.md)
+//                                                печатает, влезает ли окно без прокрутки (ЗД-1, docs/city_v3.md);
+//                                                `PANEL=tab:buildings` — раздел шторки («Здания» низа, РТ-1), `HALL=7` — уровень
+//                                                ратуши, `PANELCLICK='.cn-card .kit-btn|…'` — касания по очереди, кадр после каждого
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
 //                                                точка плана; `…:60:150` — камера повёрнута на 150°), `WXMAP=1` —
@@ -280,6 +282,10 @@ async function gameShot(q: Quality): Promise<void> {
       await panelShots(tab);
       return;
     }
+    if (process.env.PORTRAITS) {
+      await portraitSheet(tab);
+      return;
+    }
     if (process.env.DEEDS === '1') {
       await deedShots(tab, q);
       return;
@@ -313,32 +319,75 @@ async function panelShots(tab: Tab): Promise<void> {
     for (const k of Object.keys(s.resources)) s.resources[k] += 500;
     for (const k of Object.keys(s.equipment)) s.equipment[k] += 20;
     Object.assign(s, ${JSON.stringify(JSON.parse(process.env.PANELSTATE ?? '{}'))});
+    const hall = s.buildings.find((x) => x.type === 'town_hall');
+    if (hall && ${Number(process.env.HALL ?? 0)} > 0) hall.level = ${Number(process.env.HALL ?? 0)};
+    s.tutorialDone = true;
     window.__game.setState({ s: { ...s } });
     return JSON.stringify('ok');
   })()`);
   for (const type of list(process.env.PANEL, '')) {
-    const id = await tab.eval<number | null>(`JSON.stringify((() => { const b = window.__game.getState().s.buildings.find((x) => x.type === '${type}'); return b ? b.id : null; })())`);
+    const tabName = type.startsWith('tab:') ? type.slice(4) : null;
+    const id = tabName ? -1 : await tab.eval<number | null>(`JSON.stringify((() => { const b = window.__game.getState().s.buildings.find((x) => x.type === '${type}'); return b ? b.id : null; })())`);
     if (id === null) {
       console.log(`  окно ${type}: постройки нет`);
       continue;
     }
-    await tab.eval<string>(`(() => { window.__game.getState().openBuilding(${id}); return JSON.stringify('ok'); })()`);
+    if (tabName) await tab.eval<string>(`(() => { window.__game.getState().openTab('${tabName}'); return JSON.stringify('ok'); })()`);
+    else await tab.eval<string>(`(() => { window.__game.getState().openBuilding(${id}); return JSON.stringify('ok'); })()`);
     await sleep(2500);
     const snap = async (name: string): Promise<void> => {
       const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
       await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
       console.log(`  окно ${type} → .city-shots/${name}`);
     };
-    await snap(`${TAG}-${type}-open.png`);
+    await snap(`${TAG}-${type.replace(':', '-')}-open.png`);
     // Влезает ли окно без прокрутки: тело шторки не длиннее своего окна (ЗД-1: окно двора на 390×844).
     const fit = await tab.eval<{ scroll: number; client: number }>(`JSON.stringify((() => { const b = document.querySelector('.sheet.open .sheet-body'); return { scroll: b ? b.scrollHeight : 0, client: b ? b.clientHeight : 0 }; })())`);
     console.log(`  окно ${type}: тело ${fit.scroll} px из ${fit.client} — ${fit.scroll <= fit.client + 1 ? 'без прокрутки' : 'с прокруткой'}`);
+    // Касания по очереди (`PANELCLICK`): кадр после каждого — лист просителей, «Точно?» и т. п.
+    let k = 0;
+    for (const sel of (process.env.PANELCLICK ?? '').split('|').filter(Boolean)) {
+      const hit = await tab.eval<boolean>(`JSON.stringify((() => { const e = document.querySelector(${JSON.stringify(sel)}); if (e) e.click(); return !!e; })())`);
+      await sleep(1800);
+      k += 1;
+      if (hit) await snap(`${TAG}-${type.replace(':', '-')}-c${k}.png`);
+      else console.log(`  окно ${type}: нет «${sel}»`);
+    }
     const found = await tab.eval<boolean>(`JSON.stringify((() => { const h = [...document.querySelectorAll('h3')].find((e) => e.textContent.trim() === 'Найм'); if (h) h.scrollIntoView({ block: 'start' }); return !!h; })())`);
     await sleep(800);
     if (found) await snap(`${TAG}-${type}-hire.png`);
-    await tab.eval<string>(`(() => { window.__game.getState().openBuilding(null); return JSON.stringify('ok'); })()`);
+    await tab.eval<string>(`(() => { window.__game.getState().closeSheet(); return JSON.stringify('ok'); })()`);
     await sleep(600);
   }
+}
+
+/**
+ * Лист портретов совета Ратуши (`PORTRAITS=24` к `GAME=1`, РТ-1): столько обликов подряд — зерно, возраст от 30 до 60 и
+ * должность по кругу, — тем же рисовальщиком, что окно совета (`render/chambers/advisor/portrait`), в `.city-shots/`.
+ * Видно разброс лиц, седины и бород.
+ */
+async function portraitSheet(tab: Tab): Promise<void> {
+  const n = Math.max(1, Math.min(48, Number(process.env.PORTRAITS) || 12));
+  const urls = await tab.eval<string[]>(`(async () => {
+    const m = await import('/src/render/chambers/advisor/portrait.ts');
+    const posts = ['steward', 'treasurer', 'marshal'];
+    const out = [];
+    for (let i = 0; i < ${n}; i++) out.push(m.paintPortrait(1000 + i * 7919, 30 + (i * 37) % 31, posts[i % 3]));
+    return JSON.stringify(out);
+  })()`);
+  const cell = { w: 112, h: 140 };
+  const cols = 8;
+  const rows = Math.ceil(urls.length / cols);
+  const parts = await Promise.all(
+    urls.map(async (u, i) => ({
+      input: await sharp(Buffer.from(u.split(',')[1], 'base64')).resize(cell.w, cell.h).png().toBuffer(),
+      left: (i % cols) * cell.w,
+      top: Math.floor(i / cols) * cell.h,
+    })),
+  );
+  const png = await sharp({ create: { width: cols * cell.w, height: rows * cell.h, channels: 4, background: '#2a1e14' } }).composite(parts).png().toBuffer();
+  await writeFile(join(OUT, `${TAG}-portraits.png`), png);
+  console.log(`  портреты: ${urls.length} → .city-shots/${TAG}-portraits.png`);
 }
 
 /**

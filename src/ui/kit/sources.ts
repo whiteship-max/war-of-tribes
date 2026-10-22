@@ -20,7 +20,7 @@ export type Source =
   | { kind: 'trades' }
   // «Сокровищница» на вкладке «Купить»: алмазы город не добывает — их покупают.
   | { kind: 'treasury' }
-  // «Стройка» ратуши: дверь «Построить» к постройке, которой в городе нет.
+  // «Здания» низа (РТ-1): сетка всех построек — дверь «Построить» и «Улучшить» туда, где их заказывают.
   | { kind: 'build' };
 
 /** Показатели верхней строки и сводки «Жителей» (оборона, docs/ui_v2.md, 5.4) — у каждого свой источник (`WINDOW`). */
@@ -55,6 +55,7 @@ const TAB_WORD: Readonly<Record<Tab, string>> = {
   morale: 'Мораль',
   order: 'Порядок',
   army: 'Дружина',
+  buildings: 'Здания',
 };
 const REALM_WORD: Readonly<Partial<Record<RealmView, string>>> = {
   lineage: 'Правитель',
@@ -80,7 +81,7 @@ export function sourceWord(src: Source): string {
     case 'treasury':
       return 'Сокровищница';
     case 'build':
-      return 'Стройка';
+      return 'Здания';
   }
 }
 

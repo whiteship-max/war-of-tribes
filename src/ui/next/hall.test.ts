@@ -161,7 +161,7 @@ function px(sel: string, prop: string): number | null {
   return v === undefined ? null : Number(v);
 }
 
-describe('окно ратуши: сетка всех построек в квадрат экрана', () => {
+describe('окно «Здания» (РТ-1; прежде — ратуши): сетка всех построек в квадрат экрана', () => {
   /** Телефон стенда и снимков: 390 по ширине, поле шторки — 12 с каждой стороны (`.panel`). */
   const PHONE_W = 390;
   const FIELD = 12;

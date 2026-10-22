@@ -13,7 +13,7 @@ import './realm-new.css';
 import { useEffect, useRef, useState } from 'react';
 import { useGame } from '@/game/store';
 import { POINTS_CAP, REALM_BRANCHES, levelPrice, levelsOf } from '@/game/data/realm';
-import { pointsOf, rulerRate } from '@/game/sim/points';
+import { branchRate, pointsOf, rulerRate } from '@/game/sim/points';
 import { levelName, study, studyInfo, techGains, techLevel } from '@/game/sim/tech';
 import type { RealmBranch } from '@/game/types';
 import { cityName, profileCity, profileName } from '@/profile/identity';
@@ -210,7 +210,7 @@ function PointsRow() {
             key={b}
             className={`nx-pcell${have >= POINTS_CAP ? ' full' : ''}`}
             aria-label={`Очки: ${BRANCH_WORD[b].toLowerCase()}`}
-            onClick={(e) => tipAt(e.currentTarget, pointsTip(b, have, rulerRate(s, b)))}
+            onClick={(e) => tipAt(e.currentTarget, pointsTip(b, have, branchRate(s, b), branchRate(s, b) - rulerRate(s, b)))}
           >
             <Icon name={BRANCH_ICON[b]} />
             <b>{have}</b>
@@ -244,8 +244,10 @@ export const questCellWord = (q: { open: number; daily: boolean }): string =>
   `Задания: открыто ${q.open}${q.daily ? ', задание дня ждёт' : ''}`;
 
 /** Подсказка ячейки очков — функциями `sim/points` (правило 18). */
-export function pointsTip(b: RealmBranch, have: number, rate: number): { title: string; body: string } {
-  const flow = rate > 0 ? `+${rate} в игровой день.` : 'Очки не копятся.';
+export function pointsTip(b: RealmBranch, have: number, rate: number, council = 0): { title: string; body: string } {
+  // Совет Ратуши (РТ-1): советник вида прибавляет свои кружки к правителю — под потолком лучшего правителя.
+  const part = council > 0 ? ` Из них совет Ратуши — +${council}.` : '';
+  const flow = rate > 0 ? `+${rate} в игровой день.${part}` : 'Очки не копятся.';
   return {
     title: `${BRANCH_WORD[b]} · ${have} из ${POINTS_CAP}`,
     body: have >= POINTS_CAP ? `${flow} На потолке, новые не копятся.` : flow,

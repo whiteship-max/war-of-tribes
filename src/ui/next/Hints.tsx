@@ -65,8 +65,9 @@ export const hintTip = (hint: HintDef): TipContent => ({
 function goTo(go: HintGo): () => void {
   const g = useGame.getState();
   switch (go) {
-    case 'townhall':
-      return () => g.openTownHall();
+    case 'buildings':
+      // Туда же, куда кнопка низа «Здания» (`next/Nav`): одна кнопка — одно место (Д1).
+      return () => goToSource({ kind: 'build' });
     case 'army':
       // Туда же, куда кнопка низа «Дружина» (`next/Nav`): одна кнопка — одно место (Д1).
       return () => goToSource(WINDOW.army);

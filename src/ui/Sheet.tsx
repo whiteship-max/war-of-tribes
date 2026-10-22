@@ -14,6 +14,11 @@ type Snap = 'peek' | 'full';
 interface Props {
   open: boolean;
   onClose: () => void;
+  /**
+   * Окно-список, которому нужна вся высота (РТ-1: «Здания» — сетка всех построек): открывается раскрытым. Уходя с такого окна
+   * на обычное, шторка возвращается на 62%, — город снова виден над окном постройки.
+   */
+  tall?: boolean;
   children: ReactNode;
 }
 
@@ -23,11 +28,23 @@ interface Props {
  * это дёшево для GPU; на снапе высота возвращается к реальной, чтобы внутренний
  * скролл не уезжал за нижний край экрана.
  */
-export function Sheet({ open, onClose, children }: Props) {
+export function Sheet({ open, onClose, tall = false, children }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [snap, setSnap] = useState<Snap>('peek');
   const snapRef = useRef<Snap>('peek');
   snapRef.current = snap;
+  const wasTall = useRef(false);
+
+  // Окно-список встаёт раскрытым; уходя с него на обычное — свёрнутым (ручное раскрытие обычных окон не трогаем).
+  useEffect(() => {
+    if (!open) {
+      wasTall.current = false;
+      return;
+    }
+    if (tall) setSnap('full');
+    else if (wasTall.current) setSnap('peek');
+    wasTall.current = tall;
+  }, [open, tall]);
 
   const offset = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);

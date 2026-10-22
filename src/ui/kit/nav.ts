@@ -39,21 +39,19 @@ export function goTo(src: Source): void {
       useTreasury.getState().show('buy');
       return;
     case 'build': {
-      // Вкладкой, а не `openTownHall`: тот переключатель закрыл бы ратушу, уже открытую на «Стройке».
-      const hall = buildingOfType(g.s, 'town_hall');
-      if (!hall) return;
-      g.setTownTab('build');
-      g.openBuilding(hall.id);
+      // «Здания» низа (РТ-1): сетка всех построек. Уже открыта — не закрываем (`openTab` — переключатель).
+      const cur = g.sheet;
+      if (cur?.kind === 'tab' && cur.tab === 'buildings') return;
+      g.openTab('buildings');
       return;
     }
   }
 }
 
-/** Есть ли куда вести: постройка стоит в городе, «Стройка» — пока стоит ратуша (разделы и окна есть всегда). */
+/** Есть ли куда вести: постройка стоит в городе (разделы, «Здания» и окна есть всегда). */
 export function reachable(src: Source): boolean {
   const s = useGame.getState().s;
   if (src.kind === 'building') return buildingOfType(s, src.type) !== null;
-  if (src.kind === 'build') return buildingOfType(s, 'town_hall') !== null;
   return true;
 }
 

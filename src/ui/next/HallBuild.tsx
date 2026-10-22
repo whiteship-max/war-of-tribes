@@ -61,7 +61,30 @@ import { rate } from './hudTips';
 import { HALL_GROUPS, HALL_SORTS, hallTiles, nextSort, sortTiles, type HallGroup, type HallSort, type HallTile } from './hall';
 import { yardOutput, type YardOutput } from './output';
 
-/** Что показано: группа и порядок. Живёт, пока жива партия на экране: вернулся в ратушу — вид тот же. */
+/**
+ * «Здания» низа (РТ-1, docs/city_v3.md, «Решения РТ-1»): окно всех построек — сетка, очередь стройки и лист постройки,
+ * прежде жившие вкладкой «Стройка» в ратуше. Перенесено без потерь: та же сетка (`HallBuild`), а ратуша стала своим зданием
+ * с советом. Шапка — сколько построек и сколько из них можно улучшить, числом сетки (`hall.hallTiles`).
+ */
+export function BuildingsPanel() {
+  const s = useGame((g) => g.s);
+  const closeSheet = useGame((g) => g.closeSheet);
+  const tiles = hallTiles(s);
+  const ready = tiles.filter((t) => t.state === 'ready').length;
+  return (
+    <SheetPage
+      icon="nav-buildings"
+      title="Здания"
+      sub={`построек ${tiles.length} · ${ready > 0 ? `можно улучшить ${ready}` : 'улучшать нечего'}`}
+      about={() => ({ title: 'Здания', body: 'Все постройки города: уровень, руки, выход и стройка. Касание плитки — рабочие, выход с разбором, цена и «Улучшить».' })}
+      onClose={closeSheet}
+    >
+      <HallBuild />
+    </SheetPage>
+  );
+}
+
+/** Что показано: группа и порядок. Живёт, пока жива партия на экране: вернулся в «Здания» — вид тот же. */
 export const useHallView = create<{ group: HallGroup | 'all'; sort: HallSort; setGroup: (g: HallGroup | 'all') => void; setSort: (s: HallSort) => void }>(
   (set) => ({
     group: 'all',

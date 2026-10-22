@@ -91,9 +91,9 @@ function maxed(): GameState {
 
 describe('Д1: подсказка новичку ведёт туда же, куда кнопка, у которой стоит', () => {
   it('у кнопки низа ссылка подсказки — дверь этой кнопки; в казармы подсказка «Дружины» больше не ведёт', () => {
-    // Двери кнопок низа (`next/Nav`): «Ратуша» — ратуша, «Дружина» — раздел, «Карта» — карта, «Вести» — вести (подсказка
-    // первого мятежа, СБ-1).
-    const NAV: Record<string, string> = { 'nav-townhall': 'townhall', 'nav-army': 'army', 'nav-map': 'map', 'nav-mail': 'mail' };
+    // Двери кнопок низа (`next/Nav`): «Здания» — сетка построек (РТ-1; прежде «Ратуша»), «Дружина» — раздел, «Карта» — карта,
+    // «Вести» — вести (подсказка первого мятежа, СБ-1).
+    const NAV: Record<string, string> = { 'nav-buildings': 'buildings', 'nav-army': 'army', 'nav-map': 'map', 'nav-mail': 'mail' };
     const onNav = HINTS.filter((x) => /data-tut="nav-/.test(x.anchor));
     // Область: подсказки у кнопок низа есть, «Дружина» — среди них.
     expect(onNav.map((x) => x.id), 'точка внутри области').toContain('army');

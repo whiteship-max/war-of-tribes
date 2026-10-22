@@ -1272,8 +1272,11 @@ describe('обучение', () => {
     advanceTutorial(s, ui({ building: smithy.id }));
     expect(at(s)).toBe('open_town');
 
+    // Ратуша больше не открывает шаг (РТ-1): казармы ищут в «Зданиях» низа.
     const hall = buildingOfType(s, 'town_hall')!;
     advanceTutorial(s, ui({ building: hall.id }));
+    expect(at(s), 'окно ратуши — не «Здания»').toBe('open_town');
+    advanceTutorial(s, ui({ tab: 'buildings' }));
     expect(at(s)).toBe('open_barracks');
 
     advanceTutorial(s, ui({ building: barracks.id }));

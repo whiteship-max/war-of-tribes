@@ -13,10 +13,10 @@ import { paintAdvisorBody } from './cloth';
 import { paintAdvisorFace } from './face';
 import { buildAdvisorMesh } from './figure';
 import { headOf } from './head';
-import { ADVISOR_LOOKS, advisorOf, type AdvisorId } from './looks';
+import { ADVISOR_LOOKS, BEST, advisorOf, type AdvisorId, type AdvisorLook } from './looks';
 import { AdvisorMotion } from './motion';
 
-export { ADVISOR_IDS, ADVISOR_LOOKS, BEST, advisorOf, type AdvisorId } from './looks';
+export { ADVISOR_IDS, ADVISOR_LOOKS, BEST, advisorOf, lookOf, type AdvisorId, type AdvisorLook } from './looks';
 
 /** Собранный советник: тело для `folk.Person`, его живость (поза кадра) и свет покоев после отрисовки. */
 export interface AdvisorKit {
@@ -30,7 +30,8 @@ export interface AdvisorKit {
 }
 
 export interface AdvisorOptions {
-  look?: AdvisorId;
+  /** Облик ЛЦ-5 по имени или облик совета Ратуши (РТ-1, `looks.lookOf`). */
+  look?: AdvisorId | AdvisorLook;
   /** Код подсветки касанием (`life.LIFE_CODE.advisor`). */
   code?: number;
   /** Ручки покоев: свет сцены и выбор пальцем; без них (стенд) — свет задаёт хозяин (`u.uTint`). */
@@ -40,12 +41,15 @@ export interface AdvisorOptions {
 }
 
 export function makeAdvisor(opt: AdvisorOptions = {}): AdvisorKit {
-  const id = opt.look ?? advisorOf();
-  const look = ADVISOR_LOOKS[id];
+  const given = typeof opt.look === 'object' ? opt.look : null;
+  const id: AdvisorId = given ? BEST : ((opt.look as AdvisorId | undefined) ?? advisorOf());
+  const look = given ?? ADVISOR_LOOKS[id];
+  // Ключ листов: облик ЛЦ-5 — по имени, облик совета — по его имени (`lookOf`: должность и зерно).
+  const key = given ? given.name.replace(/\s+/g, '-') : id;
   const head = headOf(look.face);
-  const mesh = buildAdvisorMesh(head);
-  const body = sheetTexture(paintAdvisorBody(look).rgba(), 512, `advisor-${id}-body`);
-  const face = sheetTexture(paintAdvisorFace(look, head).rgba(), 512, `advisor-${id}-face`);
+  const mesh = buildAdvisorMesh(head, look.face.beard ?? 1);
+  const body = sheetTexture(paintAdvisorBody(look).rgba(), 512, `advisor-${key}-body`);
+  const face = sheetTexture(paintAdvisorFace(look, head).rgba(), 512, `advisor-${key}-face`);
   const room = opt.room ?? null;
   const { material, u } = figureMaterial(body, face, opt.code ?? 0, opt.inside ?? !!room, room ? { uOrigin: room.uOrigin, uSel: room.uSel, uSelGlow: room.uSelGlow } : undefined, 'chambers-advisor');
   const skin = new SkinBody(mesh, material, 'chambers-advisor', [GAZE_UV, GAZE_UV]);

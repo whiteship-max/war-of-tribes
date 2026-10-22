@@ -55,7 +55,7 @@ export const GO_SOURCE: Record<StabGo, Source> = {
 export const GO_WORD: Record<StabGo, string> = {
   decrees: 'Указы',
   storage: 'Склад',
-  build: 'Стройка',
+  build: 'Здания',
   faith: 'Вера',
   army: 'Казармы',
   order: 'Порядок',

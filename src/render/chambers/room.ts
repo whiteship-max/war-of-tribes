@@ -367,7 +367,14 @@ export class ChambersRoom implements Inside {
   /** Отдача удара в голову: лёгкий толчок взгляда, гаснет пружиной (меньше градуса). */
   private kick = { yaw: 0, pitch: 0, vy: 0, vp: 0 };
 
-  constructor(keep: Pick<Tower, 'x' | 'z' | 'base' | 'height'>, arms: Arms, quality: Quality, cityTex: () => THREE.Texture | null, memory: LifeMemory = { cat: false, catSpot: null }) {
+  constructor(
+    keep: Pick<Tower, 'x' | 'z' | 'base' | 'height'>,
+    arms: Arms,
+    quality: Quality,
+    cityTex: () => THREE.Texture | null,
+    memory: LifeMemory = { cat: false, catSpot: null },
+    chief: () => { seed: number; age: number; post: string } | null = () => null,
+  ) {
     this.level = quality;
     this.cityTex = cityTex;
     this.origin = new THREE.Vector3(keep.x, floorOf(keep), keep.z);
@@ -448,6 +455,7 @@ export class ChambersRoom implements Inside {
         dropGoblet: () => {
           if (this.held?.id === 'goblet') this.release();
         },
+        chief,
       },
       memory,
     );

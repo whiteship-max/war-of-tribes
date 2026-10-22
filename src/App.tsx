@@ -82,6 +82,8 @@ const CampPanel = lazy(() => nextUi().then((m) => ({ default: m.CampPanel })));
 const BuildingPanel = lazy(() => nextUi().then((m) => ({ default: m.BuildingPanel })));
 const MoralePanel = lazy(() => nextUi().then((m) => ({ default: m.MoralePanel })));
 const OrderPanel = lazy(() => nextUi().then((m) => ({ default: m.OrderPanel })));
+/** «Здания» низа (РТ-1): сетка всех построек и очередь стройки — тем же куском, рядом с окном постройки. */
+const BuildingsPanel = lazy(() => nextUi().then((m) => ({ default: m.BuildingsPanel })));
 
 /**
  * Промыслы — мини-игры от первого лица — свой кусок, как предыстория: качается по кнопке входа, и пока игра идёт,
@@ -178,6 +180,12 @@ function SheetContent({ view }: { view: SheetView }) {
       return (
         <Suspense fallback={null}>
           <ArmyPanel />
+        </Suspense>
+      );
+    case 'buildings':
+      return (
+        <Suspense fallback={null}>
+          <BuildingsPanel />
         </Suspense>
       );
   }
@@ -325,7 +333,7 @@ export function App() {
           ничего, и столбец возвращается на своё место сам. */}
       {!mapOpen && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
       {!mapOpen && <Suspense fallback={null}><WarSigns where="city" /></Suspense>}
-      <Sheet open={sheet !== null} onClose={closeSheet}>
+      <Sheet open={sheet !== null} onClose={closeSheet} tall={sheet?.kind === 'tab' && sheet.tab === 'buildings'}>
         {shown && (
           <Crash key={JSON.stringify(shown)} where={`шторка ${shown.kind}`} onClose={closeSheet} inline>
             <SheetContent view={shown} />

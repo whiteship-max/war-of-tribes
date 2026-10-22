@@ -84,6 +84,11 @@ export interface LifeHost {
   /** Кубок: где его чаша (оси комнаты) и в руке ли он; положить на место. */
   goblet(): { at: V3; held: boolean };
   dropGoblet(): void;
+  /**
+   * Старший советник совета Ратуши (РТ-1): зерно облика, возраст лица и должность — тот же человек, что на портрете совета.
+   * Нет или `null` — советник ЛЦ-5 (облик по адресу или лучший), как до совета.
+   */
+  chief?: () => { seed: number; age: number; post: string } | null;
 }
 
 /** Что режиссёр помнит между входами (устройство, не партия): есть ли кот и где лёг. */
@@ -269,7 +274,9 @@ export class ChambersLife {
         p = new Person(who, kit.body, null, SPEED[who], kit);
         this.kits.push(kit);
       } else if (who === 'advisor' && this.counsel) {
-        const kit = this.counsel.makeAdvisor({ code: LIFE_CODE.advisor, room: this.host.uniforms ?? null, inside: true });
+        const chief = this.host.chief?.() ?? null;
+        const look = chief ? this.counsel.lookOf(chief.seed, chief.age, chief.post) : undefined;
+        const kit = this.counsel.makeAdvisor({ code: LIFE_CODE.advisor, room: this.host.uniforms ?? null, inside: true, look });
         p = new Person(who, kit.body, null, SPEED[who], kit);
         this.kits.push(kit);
       } else if (who === 'maid' && this.serving) {

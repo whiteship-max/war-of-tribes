@@ -610,6 +610,15 @@ export const bust = (cloth: Cloth): Art =>
     facet(path('M16.1 8.9C18.1 10.9 18.1 14.3 16.1 16.3C14.1 18.3 10.7 18.3 8.7 16.3Z'), 'fl2'),
   );
 
+/** Шапка на голове бюста: мягкая, с меховым отворотом — горожанин совета, а не воин (РТ-1). */
+export const cap = (cloth: Cloth): Art =>
+  art(
+    fill(path('M6.6 8.8C6 3 18.8 3 18.2 8.8Z'), cloth),
+    facet(path('M12.4 4.4C15.6 4.4 18.6 5.8 18.2 8.8H12.4Z'), shade2[cloth]),
+    fill(rect(5.6, 7.6, 13.6, 2.4, 1.2), 'hd'),
+    facet(rect(12.4, 7.6, 6.8, 2.4), 'hd2'),
+  );
+
 /** Капюшон на голове бюста. */
 export const hood = (cloth: Cloth): Art =>
   art(

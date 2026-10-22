@@ -1,6 +1,6 @@
-// Ратуша под сеткой «Стройки» (UI-7, docs/ui_v2.md, 5.6): что она даёт городу и дверь в «Указы» державы. Вкладка «Указы»
-// ратуши была второй копией державы (находка Д3: указ, паёк, налог в двух местах); их правят там, где казна, — здесь от
-// них строка-дверь. Едет в куске нового вида рядом с сеткой (`TownBuild`): первая загрузка за набор не платит.
+// Ратуша под советом (РТ-1; прежде — под сеткой «Стройки», UI-7, docs/ui_v2.md, 5.6): что она даёт городу и дверь в «Указы»
+// державы. Вкладка «Указы» ратуши была второй копией державы (находка Д3: указ, паёк, налог в двух местах); их правят там, где
+// казна, — здесь от них строка-дверь. Едет в куске нового вида: первая загрузка за набор не платит.
 //
 // Своих чисел нет: скорость стройки — `townHallBuildMult`, мораль и жильё — пассивы постройки (`buildingStat`), уровень,
 // с которого жильё начинается, — запись постройки (`since`).
@@ -9,6 +9,7 @@ import { useGame } from '@/game/store';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { buildingHousing, buildingStat, townHallBuildMult } from '@/game/derived';
 import { dec } from '@/game/num';
+import { COUNCIL_STEP, MAX_ADVISOR_LEVEL, candidateCount, councilTier } from '@/game/councilrules';
 import { Table, type Col } from '@/ui/kit/Table';
 import { Row } from '@/ui/kit/Row';
 import { goTo } from '@/ui/kit/nav';
@@ -20,7 +21,7 @@ const COLS: readonly Col[] = [
   { key: 'v', title: 'Сейчас', align: 'right', w: '72px' },
 ];
 
-/** Строки «что даёт»: скорость стройки всегда, мораль — если есть, жильё — числом или «с ур. N». */
+/** Строки «что даёт»: скорость стройки всегда, мораль — если есть, жильё — числом или «с ур. N», ступень совета (РТ-1). */
 export function hallGives(b: Building, buildMult: number): { key: string; name: string; v: string; body: string }[] {
   const housing = buildingHousing(b);
   const morale = buildingStat(b, 'morale');
@@ -34,6 +35,18 @@ export function hallGives(b: Building, buildMult: number): { key: string; name: 
     name: 'Жилых мест',
     v: housing > 0 ? String(housing) : `с ур. ${since}`,
     body: housing > 0 ? 'Ратуша даёт крыши, как Дома.' : `Жильё в ратуше — с ${since}-го уровня.`,
+  });
+  // Ступень совета (РТ-1): лучший уровень просителя и сколько их на место — по уровню ратуши (`councilrules`).
+  const tier = councilTier(b.level);
+  const next = (tier < MAX_ADVISOR_LEVEL ? tier : MAX_ADVISOR_LEVEL - 1) * COUNCIL_STEP + 1;
+  out.push({
+    key: 'council',
+    name: 'Ступень совета',
+    v: `${tier} из ${MAX_ADVISOR_LEVEL}`,
+    body:
+      tier < MAX_ADVISOR_LEVEL
+        ? `Просители до ${tier}-го уровня, на место — ${candidateCount(b.level)}. Следующая ступень — с ${next}-го уровня ратуши.`
+        : `Просители до ${tier}-го уровня, на место — ${candidateCount(b.level)}. Это высшая ступень.`,
   });
   return out;
 }

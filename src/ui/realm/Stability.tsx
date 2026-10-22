@@ -15,7 +15,7 @@ import { REALM_BRANCHES } from '@/game/data/realm';
 import { revoltOpen, stabLevel, stabOf, steady, steadyInfo } from '@/game/sim/stability';
 import { groupsOf, pressureOf, type GroupView, type StabLine } from '@/game/sim/stabview';
 import { REVOLT_NEAR, STAB_DRIFT, STAB_MAX, STAB_MIN, STAB_SELF_MAX, stabOutputMult } from '@/game/stabrules';
-import { rulerRate } from '@/game/sim/points';
+import { branchRate } from '@/game/sim/points';
 import { hintSeen, hintsOff, markHint } from '@/game/sim/hints';
 import { moraleBreakdown } from '@/game/derived';
 import type { GameState } from '@/game/types';
@@ -247,7 +247,7 @@ function Steady() {
     : info.short.length > 0
       ? `Не хватает: ${info.short
           .map((b) => {
-            const rate = rulerRate(s, b);
+            const rate = branchRate(s, b);
             const left = info.price - info.have[b];
             const wait = rate > 0 ? ` — накопится через ~${waitShort(asGame((left / rate) * DAY_LENGTH))}` : '';
             return `${BRANCH_WORD[b].toLowerCase()} ${Math.floor(info.have[b])} из ${info.price}${wait}`;

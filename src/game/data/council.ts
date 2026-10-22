@@ -35,6 +35,12 @@ export const TRAIT_WORD: Readonly<Record<AdvisorTrait, { name: string; does: str
   greedy: { name: 'Корыстный', does: 'жалованье — как у уровня выше', good: false },
 };
 
+/**
+ * Возраст, который показывает лицо: годы ступенями по пять — портрет и облик в покоях седеют вместе с человеком, но не
+ * перерисовываются каждый год (`render/chambers/advisor/looks.lookOf`).
+ */
+export const faceAge = (age: number): number => Math.floor(Math.max(0, age) / 5) * 5;
+
 /** Почему место опустело. */
 export type CouncilGone = 'died' | 'rest' | 'unpaid' | 'dismissed';
 

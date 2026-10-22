@@ -7,6 +7,9 @@
 import './chambers.css';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useGame } from '@/game/store';
+import { councilSeat } from '@/game/derived';
+import { advisorAgeNow } from '@/game/sim/council';
+import { faceAge } from '@/game/data/council';
 import { activeScene, type TribeScene } from '@/render/Scene';
 import type { Inside } from '@/render/city/inside';
 import type { Tower } from '@/render/city/layout';
@@ -87,7 +90,13 @@ function rise(scene: CityLike | null = asCity(activeScene())): Live | null {
   const memory = loadMemory(house.house);
   memory.talk.visits++;
   saveMemory(memory);
-  const room = new ChambersRoom(keep, armsOr(s.profile.arms), scene.quality, () => asCity(activeScene())?.cityShare()?.uniforms.cityTex.value ?? null, memory.life);
+  // Старший советник совета Ратуши — Староста (Бургомистр): тот, кто стоит у стола в покоях, — тот же человек, что на портрете.
+  const chief = (): { seed: number; age: number; post: string } | null => {
+    const g = useGame.getState().s;
+    const a = councilSeat(g, 'steward');
+    return a ? { seed: a.look, age: faceAge(advisorAgeNow(g, a)), post: 'steward' } : null;
+  };
+  const room = new ChambersRoom(keep, armsOr(s.profile.arms), scene.quality, () => asCity(activeScene())?.cityShare()?.uniforms.cityTex.value ?? null, memory.life, chief);
   const sound = new ChambersSound();
   const court = new Court(room.life, {
     world: worldNews,

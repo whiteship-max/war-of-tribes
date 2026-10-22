@@ -72,12 +72,18 @@ Object.assign(ART, {
   'troop-knight': () => [...place(m.lance(), { r: 28, s: 0.98, x: 3.4 }), ...m.bardedHead()],
   'troop-legionary': troop('ar', () => place(m.greatHelm(), { s: 0.5, o: [16, 16], x: -3.6, y: -3.4 }), m.halberd, { x: 6.4, s: 0.88 }),
   'troop-horse': () => m.horseHead('wd'),
+  // Должности совета Ратуши (РТ-1): бюст горожанина в шапке с предметом должности — ключ, кошель, стяг.
+  'post-steward': troop('ve', () => m.cap('ve'), m.key, { x: 8.2, y: 4.4, s: 0.7 }),
+  'post-treasurer': troop('pu', () => m.cap('pu'), m.pouch, { x: 7, y: 4.2, s: 0.68 }),
+  'post-marshal': troop('gu', m.bustHelm, m.banner, { x: 5.6, s: 0.76 }),
   'fig-scout': m.scoutFig,
   'fig-diplomat': m.diplomatFig,
   'fig-spy': m.spyFig,
   'fig-general': m.generalFig,
   'ui-person': () => m.person('or'),
   'nav-people': m.people,
+  // Низ «Здания» (РТ-1, docs/icons.md, «РТ-1»): дома и молот поверх — весь город и его стройка в одном знаке.
+  'nav-buildings': () => [...place(m.houses(), { s: 0.9, x: -1.4, y: -0.6 }), ...place(m.hammer(), { s: 0.56, r: 40, x: 8.2, y: 8.6 })],
   'ui-wolf': m.wolfHead,
   'ui-deer': m.deerHead,
   'ui-fish': m.fish,

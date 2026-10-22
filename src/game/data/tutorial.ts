@@ -113,10 +113,11 @@ export const TUTORIAL: TutorialStep[] = [
     done: (s) => s.forge.length > 0 || anyGear(s),
   },
   {
+    // «Здания» низа (РТ-1): сетка всех построек, в ней — казармы. Имя шага прежнее: шаг партии — номер, а не имя.
     id: 'open_town',
-    text: 'Открой ратушу.',
-    target: { kind: 'dom', sel: '[data-tut="nav-townhall"]' },
-    done: (s, ui) => opened(s, ui, 'town_hall') || opened(s, ui, 'barracks') || anyTroops(s),
+    text: 'Открой «Здания».',
+    target: { kind: 'dom', sel: '[data-tut="nav-buildings"]' },
+    done: (s, ui) => ui.tab === 'buildings' || opened(s, ui, 'barracks') || anyTroops(s),
   },
   {
     id: 'open_barracks',

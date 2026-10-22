@@ -24,6 +24,10 @@ export const ALIAS = {
   'hud-pop': 'nav-people',
   'nav-quests': 'ui-scroll',
   'nav-townhall': 'bld-town_hall',
+  // Весть о пустом месте совета (РТ-1) — знаком своей должности.
+  'evt-council_steward': 'post-steward',
+  'evt-council_treasurer': 'post-treasurer',
+  'evt-council_marshal': 'post-marshal',
   'alert-starving': 'ui-bowl',
   'alert-freezing': 'season-winter',
   'alert-food': 'res-food',
@@ -176,7 +180,7 @@ export const drawnOf = (name: string): string => (ALIAS as Record<string, string
  */
 export const FIRST_SCREEN: readonly IconName[] = [
   'res-wood', 'res-stone', 'res-food', 'res-hides', 'res-charcoal', 'res-copper', 'res-iron', 'res-gold', 'res-gem',
-  'nav-people', 'hud-army', 'hud-order', 'hud-map', 'ui-energy', 'bld-town_hall', 'ui-home', 'ui-mail', 'ui-scroll',
+  'nav-people', 'hud-army', 'hud-order', 'hud-map', 'ui-energy', 'nav-buildings', 'ui-home', 'ui-mail', 'ui-scroll',
   'mood-good', 'mood-mid', 'mood-bad',
   'season-spring', 'season-sun', 'season-autumn', 'season-winter', 'day-morning', 'day-evening', 'day-night',
   'alert-raid', 'alert-siege', 'stage-camp', 'ui-bowl', 'attn-idle', 'bld-smithy', 'ui-phone',

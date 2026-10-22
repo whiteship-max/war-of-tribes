@@ -15,7 +15,7 @@ export type HintId = 'revolt' | 'upgrade' | 'army' | 'neighbors' | 'march' | 'ga
  * Куда ведёт ссылка подсказки — имя двери интерфейса, а не сама дверь: данные интерфейса не знают. Ссылка ведёт туда же,
  * куда кнопка, у которой подсказка встаёт (UI-8, Д1, docs/ui_v2.md, 5.7): одна кнопка — одно место.
  */
-export type HintGo = 'townhall' | 'army' | 'map' | 'trades' | 'mail';
+export type HintGo = 'buildings' | 'army' | 'map' | 'trades' | 'mail';
 
 /** Что интерфейс знает сверх партии. */
 export interface HintCtx {
@@ -57,9 +57,9 @@ export const HINTS: readonly HintDef[] = [
   {
     id: 'upgrade',
     title: 'Улучши постройку',
-    body: 'Город растёт уровнями построек. Что готово к стройке, видно в ратуше.',
-    anchor: '[data-tut="nav-townhall"]',
-    link: { label: 'Ратуша', go: 'townhall' },
+    body: 'Город растёт уровнями построек. Что готово к стройке, видно в «Зданиях».',
+    anchor: '[data-tut="nav-buildings"]',
+    link: { label: 'Здания', go: 'buildings' },
     due: (s) => currentSite(s) === null && s.buildings.some((b) => upgradeInfo(s, b).blocked === null),
   },
   {
