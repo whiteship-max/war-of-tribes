@@ -98,7 +98,7 @@ export function makeKit(ctx: BaseAudioContext, rnd: Rng, lite: boolean, out: Aud
 }
 
 /** Огибающая «удар и спад»: ноль → `peak` за `attack` → ноль к `at + life`. */
-function strike(g: AudioParam, at: number, peak: number, attack: number, life: number): void {
+export function strike(g: AudioParam, at: number, peak: number, attack: number, life: number): void {
   g.setValueAtTime(0.0001, at);
   g.exponentialRampToValueAtTime(Math.max(0.0002, peak), at + attack);
   g.exponentialRampToValueAtTime(0.0001, at + life);
@@ -114,7 +114,7 @@ export function noiseLoop(kit: Kit, brown: boolean, at: number): AudioBufferSour
 }
 
 /** Панорама, если она есть в этой среде (старый Safari её не знает — звучит посередине). */
-function panned(kit: Kit, dest: AudioNode, pan: number): AudioNode {
+export function panned(kit: Kit, dest: AudioNode, pan: number): AudioNode {
   const ctx = kit.ctx as BaseAudioContext & { createStereoPanner?: () => StereoPannerNode };
   if (!ctx.createStereoPanner || pan === 0) return dest;
   const p = ctx.createStereoPanner();
