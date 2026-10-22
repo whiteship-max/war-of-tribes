@@ -199,3 +199,40 @@ export const plusCeil = (e: EstateId, infl: number, decree: boolean): number => 
 
 /** Наибольший минус. */
 export const minusCeil = (e: EstateId, infl: number, decree: boolean): number => minusOf(e, strengthOf(infl, decree));
+
+/** Что сословия могут дать сверху — потолки книги сервера по рычагам (правило «estates»). */
+export interface EstateCeil {
+  /** Множитель скорости стройки — цехи. */
+  build: number;
+  /** Множитель добычи дворов — крестьяне. */
+  yard: number;
+  /** Множитель прироста — крестьяне. */
+  growth: number;
+  /** Множитель хлеба, который ест город, — минус цехов. */
+  food: number;
+  /** Множитель жалованья войска — минус рыцарей. */
+  wage: number;
+  /** Очки стойкости сверх обряда и Воеводы — рыцари. */
+  resolve: number;
+}
+
+/**
+ * Потолки рычагов сословий при этих уровнях, привилегиях и указе: влияние — точно (`influenceOf`), лояльность — сверху (сто).
+ * Сервер считает их по подтверждённым уровням и привилегиям описи; честная партия не выходит за них ни при каком даре и вести.
+ */
+export function estateCeil(levels: EstateLevels, priv: Privileges | undefined, decree: EstateId | null): EstateCeil {
+  const infl = influenceOf(levels, priv);
+  const p = (e: EstateId): number => plusCeil(e, infl[e], decree === e);
+  const m = (e: EstateId): number => minusCeil(e, infl[e], decree === e);
+  return { build: 1 + p('guilds'), yard: 1 + p('peasants'), growth: 1 + p('peasants'), food: 1 + m('guilds'), wage: 1 + m('knights'), resolve: FERVOUR_SCALE * p('knights') };
+}
+
+/** Привилегии описи сервера по порядку сословий — словарём; чужое и лишнее не садится, число — в пределах лестницы. */
+export function privFromRow(row: readonly number[] | undefined): Partial<Record<EstateId, number>> {
+  const out: Partial<Record<EstateId, number>> = {};
+  ESTATES.forEach((e, i) => {
+    const n = privOf({ [e]: row?.[i] ?? 0 }, e);
+    if (n > 0) out[e] = n;
+  });
+  return out;
+}

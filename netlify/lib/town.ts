@@ -214,6 +214,11 @@ export interface TownClaim {
    * растёт той же долей. Нет — единица.
    */
   steward?: number;
+  /**
+   * Множитель прироста от сословий (РТ-2, `watch.estateCeilOf`: крестьянство в силе по подтверждённым уровням и привилегиям,
+   * лояльность сверху): потолок жителей растёт той же долей. Нет — единица.
+   */
+  growth?: number;
 }
 
 /** Уровень, ускоренный за алмазы: из записи книги алмазов. */
@@ -404,7 +409,10 @@ export function peopleStep(prev: TownBook, prevAt: number, claim: TownClaim, arm
   const at = prev.at;
   const days = gameDaysOfMs(Math.max(0, at - prevAt));
   const want = Math.max(0, Math.floor(claim.pop));
-  const natural = Math.min(prev.grow + popGrowthCeil(prev.pop, days, POP_RATE_MAX * TOWN_SLACK), Math.max(0, housingOf(prev.levels) - prev.pop) + 1);
+  const natural = Math.min(
+    prev.grow + popGrowthCeil(prev.pop, days, POP_RATE_MAX * TOWN_SLACK * Math.max(1, claim.growth ?? 1)),
+    Math.max(0, housingOf(prev.levels) - prev.pop) + 1,
+  );
   const back = Math.max(0, prev.queued - Math.max(0, claim.queued ?? 0));
   let lured = 0;
   let fell = 0;

@@ -543,6 +543,11 @@ export interface SheetAt {
    * ноль: советника сервер не подтвердил или запись до совета.
    */
   marshal?: number;
+  /**
+   * Стойкость рыцарства в силе (РТ-2, `watch.estateCeilOf`): по подтверждённым уровням и привилегиям, лояльность сверху —
+   * сверх обряда и Воеводы. Нет — ноль.
+   */
+  knights?: number;
 }
 
 // ------------------------------------------------ счёт по видам ---
@@ -715,7 +720,7 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
       if (back) home = plus(home, w.army.troops);
     }
   }
-  return { ...sheet, army, home, stock, gold, bonded, pop, levels, pips: rulePips(pips), resolve: ruleResolve(sheet.resolve, s.marshal ?? 0) };
+  return { ...sheet, army, home, stock, gold, bonded, pop, levels, pips: rulePips(pips), resolve: ruleResolve(sheet.resolve, s.marshal ?? 0, s.knights ?? 0) };
 }
 
 /** По видам — не больше, чем в `cap`. */
@@ -1942,7 +1947,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
  * Войско приказа в пределах правил: стойкость и отметки полководца не выше, чем бывает у игрока (`book.ts`); стойкость —
  * сверх обряда ещё Воеводой подтверждённого совета (РТ-1, `SheetAt.marshal`).
  */
-const ruleArmy = (a: WarArmy, s: SheetAt | null): WarArmy => ({ ...a, resolve: ruleResolve(a.resolve, s?.marshal ?? 0), pips: rulePips(a.pips) });
+const ruleArmy = (a: WarArmy, s: SheetAt | null): WarArmy => ({ ...a, resolve: ruleResolve(a.resolve, s?.marshal ?? 0, s?.knights ?? 0), pips: rulePips(a.pips) });
 
 /**
  * Когда город в последний раз пал или дал дань — от этой минуты он неприкосновенен (`SIEGE_IMMUNE`): дань за снятие осады

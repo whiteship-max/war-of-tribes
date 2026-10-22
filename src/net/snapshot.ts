@@ -9,7 +9,7 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchStab } from '../../netlify/lib/contract';
+import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchStab } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { SAVE_VERSION } from '@/game/state';
 import {
@@ -27,6 +27,8 @@ import {
   storageCap,
   taxIncomePerDay,
   woundedStacks,
+  estateDecree,
+  estatesNow,
 } from '@/game/derived';
 import { DAY_LENGTH } from '@/game/pace';
 import { RESOURCE_IDS } from '@/game/constants';
@@ -41,6 +43,8 @@ import { stabLevel, stabOf } from '@/game/sim/stability';
 import { crownOf } from '@/game/sim/crown';
 import { councilOf } from '@/game/sim/council';
 import { ADVISOR_POSTS } from '@/game/councilrules';
+import { estatesOf, privList } from '@/game/sim/estates';
+import { ESTATES } from '@/game/estaterules';
 import { deviceNow, leadAt } from './clock';
 import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
@@ -154,6 +158,23 @@ export function watchOf(s: GameState): WatchCard {
     crown: crownCard(s),
     // Книга совета Ратуши (РТ-1): кто сидит и счёт наймов, платы и жалованья. Совета не было — поля нет.
     ...(s.council ? { council: councilCard(s) } : {}),
+    // Книга сословий (РТ-2): привилегии, указ сословия, влияние и счёт — у каждой партии (влияние есть и без привилегий).
+    estates: estatesCard(s),
+  };
+}
+
+/** Сословия для описи — чтением одной двери (`sim/estates`) и одной мерки влияния (`derived.estatesNow`). */
+function estatesCard(s: GameState): WatchEstates {
+  const st = estatesOf(s);
+  const now = estatesNow(s);
+  const decree = estateDecree(s);
+  return {
+    priv: privList(s),
+    ...(decree ? { decree } : {}),
+    infl: ESTATES.map((e) => Math.round(now[e].infl * 10) / 10),
+    grants: st.grants,
+    revokes: st.revokes,
+    gifts: st.gifts,
   };
 }
 

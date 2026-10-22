@@ -14,7 +14,7 @@ import { allow, botToken, deny, json, parseJson, readBody, type Route } from '..
 import { readGemOrder, type GemOrder, type GemsResponse } from '../contract.js';
 import { FROZEN_ORDER, frozenNow, isFrozen } from '../admin.js';
 import { gemNoteOf, listOf, settleGems, shown } from '../gems.js';
-import { councilMult, noted, observe, readWatchRecord, townOf, warned } from '../watch.js';
+import { buildMult, noted, observe, readWatchRecord, townOf, warned } from '../watch.js';
 import { rushFloor } from '../town.js';
 import { STORES } from '../kv.js';
 import { BUILDING_BY_ID } from '../../../src/game/data/buildings.js';
@@ -85,7 +85,8 @@ async function rushLeft(io: Parameters<Route>[1], key: string, building: string,
     const card = rec.card;
     const town = townOf(rec, now);
     // Староста подтверждённого совета (РТ-1) ускоряет стройку — остаток по книге меньше той же долей.
-    const steward = card ? councilMult(card, 'steward', town.levels.town_hall ?? 0) : 1;
+    // Староста подтверждённого совета (РТ-1) и цехи в силе (РТ-2): стройка быстрее — и цена ускорения та же, что видит игрок.
+    const steward = card ? buildMult(card, town.levels) : 1;
     return rushFloor(town, card?.buildings ?? {}, card?.bonded ?? 0, building as BuildingTypeId, level, now, steward);
   } catch {
     return undefined;

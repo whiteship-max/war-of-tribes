@@ -316,9 +316,11 @@ export const PIPS_MAX = Math.max(0, MAX_AGENT_LEVEL - 1);
 
 /**
  * Стойкость в пределах правил: обряд — не выше `RESOLVE_MAX`, сверх него — Воевода подтверждённого совета (`marshal`, РТ-1;
- * не выше пользы лучшего Воеводы — `councilrules.giftCeil`).
+ * не выше пользы лучшего Воеводы — `councilrules.giftCeil`) и рыцарство в силе (`knights`, РТ-2: потолок по подтверждённым
+ * уровням и привилегиям — `estaterules.estateCeil`).
  */
-export const ruleResolve = (r: number, marshal = 0): number => Math.min(RESOLVE_MAX + Math.min(giftCeil('marshal'), Math.max(0, marshal)), Math.max(0, r));
+export const ruleResolve = (r: number, marshal = 0, knights = 0): number =>
+  Math.min(RESOLVE_MAX + Math.min(giftCeil('marshal'), Math.max(0, marshal)) + Math.max(0, knights), Math.max(0, r));
 
 /**
  * Отметки в пределах правил: только известные (`PIP_IDS`), целые, сумма не выше `PIPS_MAX` — сверх неё срезаются с конца.

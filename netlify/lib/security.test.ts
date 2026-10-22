@@ -2,14 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROUTES } from './routes/index.js';
 import { botWith } from './routes/bot.js';
 import { STORES } from './kv.js';
-import { CITY_RULES, WARN, bookOf, confirmedOf, confirmedPower, flagsBetween, marshalOf, prodOf, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
+import { CITY_RULES, WARN, bookOf, buildMult, confirmedOf, confirmedPower, estateCeilOf, flagsBetween, marshalOf, prodOf, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
+import { ESTATES, LOYAL, estateCeil, influenceOf, loyaltyCeil, privFromRow } from '../../src/game/estaterules.js';
 import { readLedger, settlePurchase } from './gems.js';
 import { ROSTER_KEY, readRoster } from './roster.js';
 import { eatFloorOf, seedTown } from './town.js';
 import { emptyWars, liveSheet, readStoredSheet } from './war.js';
 import type { Telegram } from './telegram.js';
 import { PAY_NOT_COUNTED, PAY_NOT_SOLD } from './words.js';
-import type { GemsResponse, RatingResponse, WarSheet, WatchAdvisor, WatchCard, WatchCouncil } from './contract.js';
+import type { GemsResponse, RatingResponse, WarSheet, WatchAdvisor, WatchCard, WatchCouncil, WatchEstates } from './contract.js';
 import { advisorWage, candidateId, councilTier, giftCeil, giftOf, hirePrice, windowOf } from '../../src/game/councilrules.js';
 import type { AdvisorTrait } from '../../src/game/types.js';
 import { RESOLVE_MAX, ruleResolve } from './book.js';
@@ -125,7 +126,7 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'stab', 'crown', 'prod', 'merge', 'council']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'stab', 'crown', 'prod', 'merge', 'council', 'estates']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
@@ -892,5 +893,75 @@ describe('РТ-1: совет Ратуши на сервере — честный
     expect(marshalOf(rec, NOW).marshal).toBeCloseTo(m, 9);
     const forged = readWatchRecord({ first: NOW, card: card({ council: council([seat({ post: 'marshal', level: 3, n: candidateId(windowOf(1000), 'marshal', 0) })]) }) });
     expect(marshalOf(forged, NOW).marshal, 'Воевода не по ратуше — стойкости нет').toBeUndefined();
+  });
+});
+
+// Сословия (РТ-2, docs/stability.md, «РТ-2»): привилегии, указ сословия, влияние и счёт приходят описью, сервер сверяет их
+// формулами игры (`game/estaterules`). Область правила: опись несёт сословия; дарования и отнятия — между описями; указ — сословия,
+// чья лояльность при этих привилегиях могла или не могла дойти до порога (точки внутри — утверждениями в тесте).
+describe('РТ-2: сословия на сервере — честная опора без флагов, подделка — «внимание:»', () => {
+  /** Сословия описи, какими их шлёт игра: влияние — счётом игры по уровням описи и привилегиям. */
+  const estates = (priv: number[], o: Partial<WatchEstates> = {}, levels = LEVEL1): WatchEstates => {
+    const infl = influenceOf(levels, privFromRow(priv));
+    return { priv, infl: ESTATES.map((e) => Math.round(infl[e] * 10) / 10), grants: priv.reduce((t, n) => t + n, 0), revokes: 0, gifts: 0, ...o };
+  };
+  const later = NOW + HOUR;
+  const t = 1000 + gameSecondsOfMs(HOUR);
+
+  it('честная опора: две привилегии купечеству и его указ — без флага сословий', async () => {
+    const pillar = [2, 0, 0, 0, 0];
+    const priv = privFromRow(pillar);
+    expect(loyaltyCeil('merchants', priv, influenceOf(LEVEL1, priv).merchants), 'точка внутри: опора может быть верна').toBeGreaterThanOrEqual(LOYAL);
+    const honest = player(5401);
+    expect(await honest.push(card({ estates: estates([0, 0, 0, 0, 0]) }), NOW)).toBe(200);
+    expect(await honest.push(card({ clock: later, time: t, estates: estates(pillar, { decree: 'merchants' }) }), later)).toBe(200);
+    expect(kinds(await honest.watch())).not.toContain('estates');
+  });
+
+  it('привилегий сверх лестницы, влияние не по уровням, указ без лояльности, привилегии без дарований — «внимание:»', async () => {
+    const many = player(5402);
+    expect(await many.push(card({ estates: estates([3, 0, 0, 0, 0]) }), NOW)).toBe(200);
+    expect(warnings(await many.watch()).some((x) => /привилегий 3 — лестница 0…2/.test(x))).toBe(true);
+
+    const swollen = player(5403);
+    expect(await swollen.push(card({ estates: estates([0, 0, 0, 0, 0], { infl: [60, 10, 10, 10, 10] }) }), NOW)).toBe(200);
+    expect(warnings(await swollen.watch()).some((x) => /влияние 60\.0 \/ 10\.0.*дают 20\.0/.test(x))).toBe(true);
+
+    // Указ купечества при двух привилегиях цехам и двух крестьянам: зависть четырёх привилегий — лояльность до порога не дойдёт
+    // ни с каким даром и вестью.
+    const rivals = [0, 2, 2, 0, 0];
+    const rp = privFromRow(rivals);
+    expect(loyaltyCeil('merchants', rp, influenceOf(LEVEL1, rp).merchants), 'точка внутри: купечество не может быть верно').toBeLessThan(LOYAL);
+    const unloyal = player(5404);
+    expect(await unloyal.push(card({ estates: estates(rivals, { decree: 'merchants' }) }), NOW)).toBe(200);
+    expect(warnings(await unloyal.watch()).some((x) => /указ «merchants» при лояльности не выше/.test(x))).toBe(true);
+
+    const gifted = player(5405);
+    expect(await gifted.push(card({ estates: estates([0, 0, 0, 0, 0]) }), NOW)).toBe(200);
+    expect(await gifted.push(card({ clock: later, time: t, estates: estates([0, 0, 2, 0, 0], { grants: 0 }) }), later)).toBe(200);
+    expect(warnings(await gifted.watch()).some((x) => /привилегий прибавилось 2/.test(x))).toBe(true);
+  });
+
+  it('польза — по подтверждённым уровням и привилегиям: стройка, выработка дворов, стойкость войны; лишние привилегии не прибавляют', () => {
+    const none = estateCeil(LEVEL1, {}, null);
+    expect(none.build, 'ровный город — потолки единицы').toBe(1);
+    const guilds = card({ estates: estates([0, 2, 0, 0, 0]) });
+    expect(buildMult(guilds, LEVEL1), 'цехи в силе — стройка быстрее').toBeGreaterThan(1);
+    const forged = card({ estates: estates([0, 5, 0, 0, 0]) });
+    expect(buildMult(forged, LEVEL1), 'пять привилегий — как две').toBeCloseTo(buildMult(guilds, LEVEL1), 9);
+
+    const ceil = prodCeil(LEVEL1, START_POP);
+    const yard = estateCeil(LEVEL1, { peasants: 2 }, null).yard;
+    const prod = { food: prodCeil(LEVEL1, START_POP, yard).food };
+    expect(prod.food, 'точка внутри: выше потолка без крестьян').toBeGreaterThan(ceil.food + 1);
+    expect(prodOf(card({ prod })).food, 'без сословий — потолок мест').toBeLessThanOrEqual(ceil.food + 1);
+    expect(prodOf(card({ prod, estates: estates([0, 0, 2, 0, 0]) })).food, 'крестьяне в силе — их доля в потолке').toBeCloseTo(prod.food, 6);
+
+    const knights = readWatchRecord({ first: NOW, card: card({ estates: estates([0, 0, 0, 2, 0]) }) });
+    const k = marshalOf(knights, NOW).knights ?? 0;
+    expect(k, 'рыцари в силе — стойкость сверх обряда').toBeGreaterThan(0);
+    expect(k).toBeCloseTo(estateCeilOf(knights.card!, LEVEL1).resolve, 9);
+    expect(ruleResolve(RESOLVE_MAX + 1e6, 0, k)).toBeCloseTo(RESOLVE_MAX + k, 9);
+    expect(marshalOf(readWatchRecord({ first: NOW, card: card() }), NOW).knights, 'опись без сословий — стойкости рыцарей нет').toBeUndefined();
   });
 });

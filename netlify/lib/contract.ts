@@ -1845,6 +1845,46 @@ export interface WatchCard {
    * или совета не было.
    */
   council?: WatchCouncil;
+  /**
+   * Сословия (РТ-2, docs/stability.md, «РТ-2»): привилегии по сословиям, указ сословия, влияние и счёт дарований, отнятий и
+   * даров — для книги сословий сервера (правило «estates»). Нет поля — опись до сословий.
+   */
+  estates?: WatchEstates;
+}
+
+/**
+ * Сословия в описи (`watch.estateFaults`, `estateFlags`): привилегии и влияние — по порядку сословий (`estaterules.ESTATES`),
+ * числами как есть (лишнее и чужое — флаг книги, а не тихая потеря), указ — сословием, чей он, строкой.
+ */
+export interface WatchEstates {
+  priv: number[];
+  decree?: string;
+  infl: number[];
+  grants: number;
+  revokes: number;
+  gifts: number;
+}
+
+/** Сколько чисел ряда сословий опись везёт самое большее: сословий пять — лишние говорят о подделке, и сервер их видит. */
+const ESTATES_READ_MAX = 8;
+
+/** Сословия описи: ряды — числа ±999 до восьми, указ — строка до 16 знаков, счёт — неотрицательный. */
+function readEstates(v: unknown): Pick<WatchCard, 'estates'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const row = (x: unknown): number[] =>
+    (Array.isArray(x) ? x : []).slice(0, ESTATES_READ_MAX).map((n) => Math.max(-999, Math.min(999, num(n) ?? 0)));
+  const decree = str(r.decree, 16);
+  return {
+    estates: {
+      priv: row(r.priv),
+      ...(decree ? { decree } : {}),
+      infl: row(r.infl),
+      grants: whole(r.grants, 1e9),
+      revokes: whole(r.revokes, 1e9),
+      gifts: whole(r.gifts, 1e9),
+    },
+  };
 }
 
 /** Советник в описи: должность и черта — строкой как есть (чужая — флаг книги, а не тихая потеря), уровень — целым. */
@@ -2018,6 +2058,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...readStab(r.stab),
     ...readCrown(r.crown),
     ...readCouncil(r.council),
+    ...readEstates(r.estates),
   };
 }
 
