@@ -10,9 +10,9 @@ import { useGame } from '@/game/store';
 import { DAY_LENGTH } from '@/game/constants';
 import { asGame, realSeconds } from '@/game/pace';
 import { realSpan } from '@/game/span';
-import { GROUP_META, stabName, stabSigned } from '@/game/data/stability';
+import { GROUP_META, REVOLT_TEXT, stabName, stabSigned } from '@/game/data/stability';
 import { REALM_BRANCHES } from '@/game/data/realm';
-import { stabLevel, stabOf, steady, steadyInfo } from '@/game/sim/stability';
+import { revoltOpen, stabLevel, stabOf, steady, steadyInfo } from '@/game/sim/stability';
 import { groupsOf, pressureOf, type GroupView, type StabLine } from '@/game/sim/stabview';
 import { REVOLT_NEAR, STAB_DRIFT, STAB_MAX, STAB_MIN, STAB_SELF_MAX, stabOutputMult } from '@/game/stabrules';
 import { rulerRate } from '@/game/sim/points';
@@ -21,9 +21,10 @@ import { moraleBreakdown } from '@/game/derived';
 import type { GameState } from '@/game/types';
 import { Bar, Row, goTo } from '@/ui/kit';
 import { Icon } from '@/ui/icons/Icon';
-import { waitLeft } from '@/ui/parts/wait';
+import { waitShort } from '@/ui/parts/wait';
 import { signed } from '@/ui/parts/signed';
 import { CoatArt } from './Coat';
+import { useRealm } from './open';
 import { BRANCH_ICON, BRANCH_WORD } from './branches';
 import { FIRST_HINT, GO_SOURCE, GO_WORD, LEVEL_WORDS, LINE_HELP } from './stabWords';
 
@@ -40,10 +41,10 @@ export function driftWords(s: GameState, total: number): string {
   const level = stabLevel(s);
   const drift = stabOf(s).drift;
   if (total > 0 && level < STAB_SELF_MAX) {
-    return `Клонится к «${stabName(level + 1)}» — через ~${waitLeft(asGame(((STAB_DRIFT - drift) / total) * DAY_LENGTH))}`;
+    return `Клонится к ступени «${stabName(level + 1)}» — через ~${waitShort(asGame(((STAB_DRIFT - drift) / total) * DAY_LENGTH))}`;
   }
   if (total < 0 && level > STAB_MIN) {
-    return `Клонится к «${stabName(level - 1)}» — через ~${waitLeft(asGame(((STAB_DRIFT + drift) / -total) * DAY_LENGTH))}`;
+    return `Клонится к ступени «${stabName(level - 1)}» — через ~${waitShort(asGame(((STAB_DRIFT + drift) / -total) * DAY_LENGTH))}`;
   }
   if (total < 0) return 'Ниже некуда: подними её очками или сними причины';
   return level >= STAB_SELF_MAX && level < STAB_MAX ? 'Держится. Выше — только укреплением' : 'Держится';
@@ -77,6 +78,7 @@ export function StabilityTab() {
           </button>
         </div>
       )}
+      {st.revolt && <RevoltBanner s={s} />}
       <Scale level={level} drift={st.drift} />
       <p className={`sb-drift ${pressure.total < 0 ? 'bad' : ''}`}>{driftWords(s, pressure.total)}</p>
       <p className="sb-gain">
@@ -88,7 +90,7 @@ export function StabilityTab() {
       </h3>
       <div className="sb-lines">
         {pressure.lines.map((l) => (
-          <LineRow key={l.id} line={l} unit="%" />
+          <LineRow key={l.id} line={l} worse="minus" />
         ))}
         <Row icon="ui-scales" label="Итого" value={`${signed(pressure.total, 1)} %`} tone={pressure.total < 0 ? 'bad' : 'good'} />
       </div>
@@ -105,6 +107,33 @@ export function StabilityTab() {
       <h3>Летопись</h3>
       <Chart s={s} />
       <Annals s={s} />
+    </div>
+  );
+}
+
+/**
+ * Мятеж идёт — первым на экране: кто встал, сколько их не работает и где ответ. Пока он на столе — «К вести»; у ворот или
+ * затяжным упадком — когда кончится (`sim/stability`, `RevoltState`).
+ */
+function RevoltBanner({ s }: { s: GameState }) {
+  const r = stabOf(s).revolt!;
+  const open = revoltOpen(s);
+  const left = r.until !== undefined ? waitShort(asGame(Math.max(0, r.until - s.time))) : null;
+  const what = open ? 'Ответ ждёт в «Вестях».' : r.gate ? 'Стража вышла к воротам.' : left ? `Упадок ещё ~${left}.` : '';
+  return (
+    <div className="sb-revolt" role="alert">
+      <Icon name={r.group === 'folk' ? 'ui-pitchfork' : 'ui-loaf'} />
+      <span>
+        <b>{REVOLT_TEXT.title[r.group]}</b>
+        <small>
+          Встали {r.rebels}: не работают, пока мятеж не кончится. {what}
+        </small>
+      </span>
+      {open && (
+        <button className="btn small" onClick={() => useRealm.getState().show('decisions')}>
+          К вести
+        </button>
+      )}
     </div>
   );
 }
@@ -145,16 +174,19 @@ function Scale({ level, drift }: { level: number; drift: number }) {
   );
 }
 
-/** Строка разбора: касание — пояснение; дверь «›» — где это изменить. */
-function LineRow({ line, unit }: { line: StabLine; unit: string }) {
+/**
+ * Строка разбора: касание — пояснение; дверь «›» — где это изменить. `worse` — какой знак здесь беда: у давления на
+ * стабильность — минус, у причины недовольства — плюс.
+ */
+function LineRow({ line, worse }: { line: StabLine; worse: 'minus' | 'plus' }) {
   const help = LINE_HELP[line.id] ?? line.hint;
   return (
     <Row
       icon={line.icon}
       label={line.name}
       sub={line.hint}
-      value={`${signed(line.value, 1)} ${unit}`}
-      tone={line.value < 0 ? 'bad' : 'good'}
+      value={`${signed(line.value, 1)} %`}
+      tone={(worse === 'minus' ? line.value < 0 : line.value > 0) ? 'bad' : 'good'}
       tip={() => ({ title: line.name, body: line.go ? `${help} Где изменить: ${GO_WORD[line.go]}.` : help })}
       {...(line.go ? { go: () => goTo(GO_SOURCE[line.go!]), goLabel: `Где изменить: ${GO_WORD[line.go]}` } : {})}
     />
@@ -165,22 +197,25 @@ function LineRow({ line, unit }: { line: StabLine; unit: string }) {
 function Group({ g }: { g: GroupView }) {
   const meta = GROUP_META[g.id];
   const hot = g.value >= REVOLT_NEAR || g.eta !== null;
-  const [open, setOpen] = useState(hot);
+  // Раскрыта, пока горячая, — если игрок сам не решил иначе: полоса, ставшая горячей при открытом разделе, раскрывается сама.
+  const [pick, setPick] = useState<boolean | null>(null);
+  const open = pick ?? hot;
   const tone = g.value >= REVOLT_NEAR ? 'bad' : g.value >= 50 ? 'warn' : 'good';
   const word = g.id === 'army' ? 'уход' : 'мятеж';
   return (
     <div className={`sb-group${hot ? ' hot' : ''}`}>
-      <button className="sb-ghead" onClick={() => setOpen(!open)} aria-expanded={open}>
+      <button className="sb-ghead" onClick={() => setPick(!open)} aria-expanded={open}>
         <Icon name={meta.icon} />
         <span className="sb-gname">{meta.name}</span>
         <span className="sb-gbar">
-          <Bar value={g.value} max={100} tone={tone} marks={[{ at: REVOLT_NEAR, label: 'близок', side: 'end' }]} />
+          {/* Порог «мятеж близок» — риской у полосы, которая к нему подошла: у спокойных он был бы шумом. */}
+          <Bar value={g.value} max={100} tone={tone} marks={g.value >= 50 ? [{ at: REVOLT_NEAR, label: 'близок', side: 'end' }] : []} />
         </span>
         <b className={tone}>{Math.round(g.value)} %</b>
       </button>
       {g.eta !== null && (
         <p className="sb-eta">
-          {word === 'мятеж' ? 'Мятеж' : 'Бойцы начнут уходить'} через ~{waitLeft(g.eta)}
+          {word === 'мятеж' ? 'Мятеж' : 'Бойцы начнут уходить'} через ~{waitShort(g.eta)}
         </p>
       )}
       {open && (
@@ -193,7 +228,7 @@ function Group({ g }: { g: GroupView }) {
           {g.lines.length === 0 ? (
             <p className="sb-quiet">Причин нет — полоса спадает</p>
           ) : (
-            g.lines.map((l) => <LineRow key={l.id} line={l} unit="%" />)
+            g.lines.map((l) => <LineRow key={l.id} line={l} worse="plus" />)
           )}
         </div>
       )}
@@ -214,7 +249,7 @@ function Steady() {
           .map((b) => {
             const rate = rulerRate(s, b);
             const left = info.price - info.have[b];
-            const wait = rate > 0 ? ` — накопится через ~${waitLeft(asGame((left / rate) * DAY_LENGTH))}` : '';
+            const wait = rate > 0 ? ` — накопится через ~${waitShort(asGame((left / rate) * DAY_LENGTH))}` : '';
             return `${BRANCH_WORD[b].toLowerCase()} ${Math.floor(info.have[b])} из ${info.price}${wait}`;
           })
           .join('; ')}`
@@ -223,7 +258,7 @@ function Steady() {
     <div className="sb-steady">
       <div className="sb-shead">
         <b>Укрепить стабильность</b>
-        {!top && <small>до «{stabName(info.to)}»</small>}
+        {!top && <small>до ступени «{stabName(info.to)}»</small>}
       </div>
       {!top && (
         <div className="sb-price">
@@ -248,7 +283,7 @@ function Steady() {
 function Chart({ s }: { s: GameState }) {
   const W = 340;
   const H = 96;
-  const pad = { l: 22, r: 6, t: 8, b: 16 };
+  const pad = { l: 24, r: 6, t: 8, b: 20 };
   const from = s.time - CHART_DAYS * DAY_LENGTH;
   const past = stabOf(s).past;
   const before = [...past].reverse().find(([t]) => t <= from);
@@ -257,14 +292,17 @@ function Chart({ s }: { s: GameState }) {
   const start = before ? before[1] : firstIn ? past[past.indexOf(firstIn) - 1]?.[1] ?? 0 : stabLevel(s);
   const x = (t: number): number => pad.l + ((t - from) / (s.time - from)) * (W - pad.l - pad.r);
   const y = (l: number): number => pad.t + ((STAB_MAX - l) / (STAB_MAX - STAB_MIN)) * (H - pad.t - pad.b);
-  let d = `M${x(from).toFixed(1)} ${y(start).toFixed(1)}`;
+  // Отрезки ступени — каждый своим тоном; смены — тонкой вертикалью между ними.
+  const runs: { a: number; b: number; l: number }[] = [];
+  let at = from;
   let cur = start;
   for (const [t, l] of past) {
     if (t <= from) continue;
-    d += ` H${x(t).toFixed(1)} V${y(l).toFixed(1)}`;
+    runs.push({ a: at, b: t, l: cur });
+    at = t;
     cur = l;
   }
-  d += ` H${x(s.time).toFixed(1)}`;
+  runs.push({ a: at, b: s.time, l: cur });
   return (
     <svg className="sb-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Стабильность за ${realSpan(realSeconds(CHART_DAYS * DAY_LENGTH))}`}>
       {levels().map((l) => (
@@ -277,7 +315,12 @@ function Chart({ s }: { s: GameState }) {
           )}
         </g>
       ))}
-      <path d={d} className={`line ${toneOf(cur)}`} />
+      {runs.slice(1).map((r, i) => (
+        <line key={`v${i}`} x1={x(r.a)} x2={x(r.a)} y1={y(runs[i].l)} y2={y(r.l)} className="step" />
+      ))}
+      {runs.map((r, i) => (
+        <line key={i} x1={x(r.a)} x2={x(r.b)} y1={y(r.l)} y2={y(r.l)} className={`line ${toneOf(r.l)}`} />
+      ))}
       <text x={pad.l} y={H - 3}>
         {realSpan(realSeconds(CHART_DAYS * DAY_LENGTH))} назад
       </text>
@@ -295,7 +338,7 @@ function Annals({ s }: { s: GameState }) {
   return (
     <ul className="sb-annals">
       {rows.map((e, i) => (
-        <li key={`${e.at}-${i}`} className={e.kind}>
+        <li key={`${e.at}-${i}`} className={`sb-k-${e.kind}`}>
           {e.text}
         </li>
       ))}

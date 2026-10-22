@@ -23,6 +23,8 @@
 //                                                   с «Принять/Отклонить», наше ждущее, итог; карточка; летопись.
 //   GROUP=st1 TAG=after …                          — СТ-1 (docs/ui_v2.md, 5.13): очередь стройки — сетка с номерами, полоса,
 //                                                    дела места, отмена ждущего и строящегося с возвратом, сдвиг
+//   GROUP=sb1 …                                    — СБ-1 (docs/stability.md): «Стабильность» — спокойно, шатко, мятеж близок
+//                                                    (верх и низ), мятеж
 //   GROUP=k2 …                                     — К-2 (docs/AGENTS.md, 18): кольцо над логовом, дела, окно войска,
 //                                                    подтверждение, погашенный с причиной
 //   GROUP=r4 …                                     — Р-4 (docs/AGENTS.md, 16): «Походы», цель, дела, подтверждение,
@@ -222,6 +224,40 @@ const K2_TAP = `(async () => {
   const ring = (await import('/src/world/store.ts')).useWorld.getState().ring;
   return JSON.stringify(ring ? 'кольцо: ' + ring.name : 'кольца нет');
 })()`;
+
+/**
+ * Положение стабильности для снимков СБ-1: ступень, сдвиг, полосы, смены ступени (игровые дни от сейчас) и рычаги партии
+ * (налог, указ, паёк, хлеб, весть на стол) — затем раздел «Стабильность». `seen` — подсказка первого открытия уже показана;
+ * `scroll` — прокрутить раздел вниз на столько пикселей.
+ */
+function sb1(level: number, drift: number, st: Record<string, unknown>, set: Record<string, unknown>, seen = true, scroll = 0): string {
+  return `(async () => {
+    window.__ui.reset();
+    const set = ${JSON.stringify(set)};
+    const st = ${JSON.stringify(st)};
+    window.__game.getState().act((s) => {
+      if (set.tax) s.tax = set.tax;
+      if (set.decree) s.decree = set.decree;
+      if (set.ration) s.ration = set.ration;
+      if (set.food !== undefined) s.resources.food = set.food;
+      if (set.pop !== undefined) s.pop = set.pop;
+      s.stab = { level: ${level}, drift: ${drift}, folk: st.folk, hungry: st.hungry, past: (st.past ?? []).map(([d, l]) => [s.time + d * 60, l]),
+        bought: 0, spent: 0, revolts: st.revolts ?? 0, held: 0, ...(st.revolt ? { revolt: st.revolt } : {}) };
+      s.hints = { seen: ${seen} ? ['stability', 'revolt', 'upgrade', 'army', 'neighbors', 'march', 'games'] : ['revolt', 'upgrade', 'army', 'neighbors', 'march', 'games'] };
+      if (set.raise) s.inbox = [{ defId: set.raise, at: s.time, until: Date.now() + 20 * 3600 * 1000 }];
+      // Строки летописи стабильности — по сменам ступени, теми словами, что пишет шаг (\`data/stability.STAB_LOG\`).
+      const names = { '-3': 'Смута', '-2': 'Раздор', '-1': 'Шатко', '0': 'Мир', '1': 'Лад', '2': 'Достаток', '3': 'Благоденствие' };
+      const up = (i, a) => a[i][1] > (i > 0 ? a[i - 1][1] : 0);
+      const lines = (st.past ?? []).map(([d, l], i, a) => ({ at: s.time + d * 60, text: 'Стабильность: ' + names[l] + '. ' + (up(i, a) ? 'Тихие дни сделали своё.' : 'Недовольство взяло своё.'), kind: up(i, a) ? 'good' : 'bad', topic: 'stab' }));
+      s.log = [...lines.reverse(), ...s.log.filter((e) => e.topic !== 'stab')];
+      return null;
+    });
+    (await import('/src/ui/realm/open.ts')).useRealm.getState().show('stability');
+    await new Promise((r) => setTimeout(r, 700));
+    document.querySelector('.nx-rbody')?.scrollTo(0, ${scroll});
+    return JSON.stringify('ok');
+  })()`;
+}
 
 const GROUPS: Record<string, Step[]> = {
   city: [
@@ -1124,6 +1160,17 @@ const GROUPS: Record<string, Step[]> = {
       })()`,
       wait: 900,
     },
+  ],
+  // СБ-1 (docs/stability.md): раздел «Стабильность» в четырёх положениях — спокойно (первое открытие, с подсказкой), шатко,
+  // мятеж близок, мятеж; положение кладётся в партию стендом (`window.__game`), раздел открывается дверью державы. В положении
+  // «мятеж близок» — ещё середина (полосы с причинами и сроком мятежа) и низ (укрепление и летопись).
+  sb1: [
+    { name: 'sb1-calm', run: sb1(1, 0, { folk: 36, hungry: 0, past: [[-60, 1]] }, { tax: 'high' }, false), wait: 1500 },
+    { name: 'sb1-shaky', run: sb1(-1, -45, { folk: 64, hungry: 12, past: [[-120, 1], [-70, 0], [-25, -1]] }, { tax: 'high', decree: 'order', ration: 'lean' }), wait: 1500 },
+    { name: 'sb1-near', run: sb1(-2, -30, { folk: 86, hungry: 64, past: [[-130, 1], [-90, 0], [-40, -1], [-12, -2]] }, { tax: 'high', decree: 'order', ration: 'lean', pop: 80 }), wait: 1500 },
+    { name: 'sb1-near-groups', run: sb1(-2, -30, { folk: 86, hungry: 64, past: [[-130, 1], [-90, 0], [-40, -1], [-12, -2]] }, { tax: 'high', decree: 'order', ration: 'lean', pop: 80 }, true, 400), wait: 1500 },
+    { name: 'sb1-near-low', run: sb1(-2, -30, { folk: 86, hungry: 64, past: [[-130, 1], [-90, 0], [-40, -1], [-12, -2]] }, { tax: 'high', decree: 'order', ration: 'lean', pop: 80 }, true, 1000), wait: 1500 },
+    { name: 'sb1-revolt', run: sb1(-3, 0, { folk: 100, hungry: 70, past: [[-140, 0], [-60, -1], [-20, -2], [-2, -3]], revolt: { group: 'folk', rebels: 40 }, revolts: 1 }, { tax: 'high', ration: 'lean', food: 0, raise: 'revolt_folk' }), wait: 1500 },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.

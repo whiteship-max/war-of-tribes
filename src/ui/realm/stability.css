@@ -218,6 +218,33 @@
   color: var(--muted);
 }
 
+.sb-revolt {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--m-gules-dark);
+  border: 1px solid var(--m-gules-rim);
+  box-shadow: var(--m-plate-bevel), inset 0 0 0 1px rgba(224, 107, 90, 0.5);
+  color: var(--text);
+}
+.sb-revolt > svg {
+  width: 28px;
+  height: 28px;
+}
+.sb-revolt b {
+  display: block;
+  font-family: var(--font-title);
+  font-size: 16px;
+}
+.sb-revolt small {
+  display: block;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--text);
+}
 .sb-steady {
   display: grid;
   gap: 8px;
@@ -300,8 +327,12 @@
 }
 .sb-chart .line {
   fill: none;
-  stroke-width: 2.5;
-  stroke-linejoin: round;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.sb-chart .step {
+  stroke: rgba(255, 220, 170, 0.35);
+  stroke-width: 1;
 }
 .sb-chart .line.good {
   stroke: var(--good);
@@ -329,15 +360,16 @@
 .sb-annals li {
   padding-left: 10px;
   border-left: 2px solid var(--line);
+  color: var(--text);
 }
-.sb-annals li.bad {
+.sb-annals li.sb-k-bad {
   border-left-color: var(--bad);
 }
-.sb-annals li.good {
+.sb-annals li.sb-k-good {
   border-left-color: var(--good);
 }
 
-/* Ступень в строке очков державы: щит со ступенью — дверь в раздел (`RealmNew.PointsRow`). */
+/* Ступень в строке очков державы: колонна и число — дверь в раздел (`RealmNew.PointsRow`); имя ступени — в самом разделе. */
 .nx-pcell.sb-cellbtn b.good {
   color: var(--good);
 }

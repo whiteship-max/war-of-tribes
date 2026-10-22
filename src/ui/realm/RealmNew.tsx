@@ -213,7 +213,6 @@ function PointsRow() {
       >
         <Icon name="ui-pillar" />
         <b className={level > 0 ? 'good' : level < 0 ? 'bad' : ''}>{stabSigned(level)}</b>
-        <small>{stabName(level)}</small>
       </button>
     </div>
   );
