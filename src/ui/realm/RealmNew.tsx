@@ -27,6 +27,9 @@ import { useRealm, type RealmView } from './open';
 import { Section, useRealmYield } from './RealmMenu';
 import { BRANCH_ICON, BRANCH_WORD } from './branches';
 import { DecreesNew, FaithNew, QuestsNew, RulerNew } from './RealmTabs';
+import { StabilityTab } from './Stability';
+import { stabLevel } from '@/game/sim/stability';
+import { stabName, stabSigned } from '@/game/data/stability';
 import type { IconName } from '@/ui/icons/alias';
 
 // Ветви словами словаря и их значки — общие с вкладками (`branches.ts`).
@@ -167,14 +170,23 @@ function TabBody({ view }: { view: RealmView }) {
       return <FaithNew />;
     case 'quests':
       return <QuestsNew />;
+    case 'stability':
+      return <StabilityTab />;
     default:
       return <Section view={view} />;
   }
 }
 
-/** Строка очков правителя: три ячейки-справки, тап — приток и потолок. */
+/**
+ * Строка очков правителя: три ячейки-справки (тап — приток и потолок) и четвёртой — ступень стабильности, как в верхней строке
+ * EU4 рядом с очками монарха: тап ведёт в раздел «Стабильность» (СБ-1, docs/stability.md, раздел 4, решение 7) — туда, где
+ * её поднимают теми же очками.
+ */
 function PointsRow() {
   const s = useGame((g) => g.s);
+  const view = useRealm((r) => r.view);
+  const go = useRealm((r) => r.go);
+  const level = stabLevel(s);
   return (
     <div className="nx-points">
       {REALM_BRANCHES.map((b) => {
@@ -192,6 +204,17 @@ function PointsRow() {
           </button>
         );
       })}
+      <button
+        className={`nx-pcell sb-cellbtn${view === 'stability' ? ' on' : ''}`}
+        data-tut="realm-stability"
+        aria-label={`Стабильность: ${stabName(level)}`}
+        aria-pressed={view === 'stability'}
+        onClick={() => go('stability')}
+      >
+        <Icon name="ui-pillar" />
+        <b className={level > 0 ? 'good' : level < 0 ? 'bad' : ''}>{stabSigned(level)}</b>
+        <small>{stabName(level)}</small>
+      </button>
     </div>
   );
 }

@@ -27,6 +27,7 @@ import { ProfilePanel } from '../panels/ProfilePanel';
 import { Mail } from './Mail';
 import { RulerTab } from './Ruler';
 import { TechTab } from './Tech';
+import { StabilityTab } from './Stability';
 import { useRealm, type RealmView } from './open';
 import { REALM_TABS, type RealmTab } from './tabs';
 import { QuestsPanel } from '../panels/QuestsPanel';
@@ -90,6 +91,8 @@ export function Section({ view }: { view: RealmView }) {
       return <TechTab />;
     case 'decisions':
       return <Mail />;
+    case 'stability':
+      return <StabilityTab />;
     default:
       return <Closed tab={view} />;
   }

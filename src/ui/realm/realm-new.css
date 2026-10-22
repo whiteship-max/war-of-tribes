@@ -140,8 +140,9 @@
 }
 .nx-points {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  /* Три вида очков и ступень стабильности (СБ-1): четыре ячейки по 84 px на 390 — «240/240» и «+1 Лад» входят. */
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
   flex: none;
 }
 .nx-pcell {

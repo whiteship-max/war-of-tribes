@@ -215,7 +215,7 @@ export function groupsOf(s: GameState, mb: MoraleBreakdown = moraleBreakdown(s))
       target: null,
       rising: late > 0 && army < 100,
       eta: late > 0 && army < 100 ? asGame(Math.max(0, grace - late)) : null,
-      lines: late > 0 ? [line('pay', 'hud-army', (s.pay?.debt ?? 0) > 0 ? 'Жалованье не плачено' : 'Войску нечего есть', 100, 'терпит до срока Статуи', 'army')] : [],
+      lines: late > 0 ? [line('pay', 'hud-army', (s.pay?.debt ?? 0) > 0 ? 'Жалованье не плачено' : 'Дружине нечего есть', 100, 'терпит до срока Статуи', 'army')] : [],
     },
   ];
 }

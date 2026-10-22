@@ -1,0 +1,350 @@
+/*
+ * Раздел «Стабильность» меню державы (`Stability.tsx`, СБ-1, docs/stability.md). Едет куском меню державы.
+ * Шкала — врезанный в доску жёлоб из семи клеток (красное — «Смута», золото — «Благоденствие»), над ним — герб державы.
+ */
+.sb {
+  gap: 10px;
+}
+.sb-hint {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--m-parch);
+  color: var(--m-parch-ink);
+  border: 1px solid var(--m-gold-rim);
+}
+.sb-hint b {
+  font-family: var(--font-title);
+  font-size: 16px;
+}
+.sb-hint p {
+  /* Чернила — от `.sb-hint`: у строки своего фона нет, она лежит на его пергаменте. */
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.sb-hint .btn {
+  justify-self: end;
+}
+
+.sb-scale {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px 8px;
+  border-radius: 14px;
+  background: var(--m-plate);
+  border: 1px solid var(--m-plate-rim);
+  box-shadow: var(--m-plate-bevel), inset 0 0 0 1px rgba(222, 172, 88, 0.14);
+}
+.sb-name {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+}
+.sb-name b {
+  font-family: var(--font-title);
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.sb-name span {
+  font-family: var(--font-title);
+  font-size: 22px;
+  color: var(--text);
+}
+.sb-name .good,
+.sb-drift.good {
+  color: var(--good);
+}
+.sb-name .bad {
+  color: var(--bad);
+}
+.sb-name .mid {
+  color: var(--accent);
+}
+.sb-track {
+  position: relative;
+  padding-top: 40px;
+}
+.sb-pointer {
+  position: absolute;
+  top: 0;
+  width: 34px;
+  height: 40px;
+  margin-left: -17px;
+  display: grid;
+  place-items: center;
+  transition: left 0.4s cubic-bezier(0.2, 0.8, 0.3, 1);
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.55));
+}
+.sb-pointer::after {
+  /* Остриё указателя — к клетке ступени. */
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: var(--accent);
+  border-bottom: 0;
+}
+.sb-cells {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  height: 18px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--m-groove);
+  border: 1px solid var(--m-plate-rim);
+  box-shadow: var(--m-groove-edge);
+}
+.sb-cell {
+  border-radius: 6px;
+  opacity: 0.55;
+}
+.sb-cell.bad {
+  background: var(--m-gules);
+}
+.sb-cell.mid {
+  background: var(--m-iron);
+}
+.sb-cell.good {
+  background: var(--m-gold);
+}
+.sb-cell.on {
+  opacity: 1;
+  box-shadow: 0 0 0 2px rgba(255, 236, 190, 0.85);
+}
+.sb-ticks,
+.sb-ends {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.sb-ticks .on {
+  color: var(--text);
+  font-weight: 700;
+}
+.sb-ends {
+  display: flex;
+  justify-content: space-between;
+}
+.sb-drift,
+.sb-gain {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text);
+  text-align: center;
+}
+.sb-drift.bad {
+  color: var(--bad);
+}
+.sb-gain {
+  color: var(--muted);
+}
+
+.sb-lines,
+.sb-groups,
+.sb-causes {
+  display: grid;
+  gap: 4px;
+}
+.sb-group {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: var(--m-plate);
+  border: 1px solid var(--m-plate-rim);
+  box-shadow: var(--m-plate-bevel);
+}
+.sb-group.hot {
+  border-color: var(--m-gules-rim);
+  box-shadow: var(--m-plate-bevel), inset 0 0 0 1px rgba(224, 107, 90, 0.45);
+}
+.sb-ghead {
+  display: grid;
+  grid-template-columns: 24px 92px 1fr 48px;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap);
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.sb-ghead > svg {
+  width: 24px;
+  height: 24px;
+}
+.sb-gname {
+  font-size: 14px;
+  font-weight: 600;
+}
+.sb-ghead b {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+.sb-ghead b.good {
+  color: var(--good);
+}
+.sb-ghead b.warn {
+  color: var(--warn);
+}
+.sb-ghead b.bad {
+  color: var(--bad);
+}
+.sb-eta {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bad);
+}
+.sb-target,
+.sb-quiet {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sb-steady {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--m-plate);
+  border: 1px solid var(--m-gold-rim);
+  box-shadow: var(--m-plate-bevel), inset 0 0 0 1px rgba(222, 172, 88, 0.22);
+}
+.sb-shead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sb-shead b {
+  font-family: var(--font-title);
+  font-size: 17px;
+}
+.sb-shead small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.sb-price {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.sb-price span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--m-groove);
+  border: 1px solid var(--m-plate-rim);
+  font-variant-numeric: tabular-nums;
+}
+.sb-price svg {
+  width: 20px;
+  height: 20px;
+}
+.sb-price b {
+  font-size: 15px;
+}
+.sb-price i {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sb-price .no b {
+  color: var(--bad);
+}
+.sb-why {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.sb-steady .nx-go.wide {
+  width: 100%;
+}
+
+.sb-chart {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  background: var(--m-groove);
+  border: 1px solid var(--m-plate-rim);
+}
+.sb-chart .grid {
+  stroke: rgba(255, 220, 170, 0.08);
+  stroke-width: 1;
+}
+.sb-chart .zero {
+  stroke: rgba(255, 220, 170, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.sb-chart .line {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+.sb-chart .line.good {
+  stroke: var(--good);
+}
+.sb-chart .line.mid {
+  stroke: var(--accent);
+}
+.sb-chart .line.bad {
+  stroke: var(--bad);
+}
+.sb-chart text {
+  fill: var(--muted);
+  font-size: 12px;
+  font-family: var(--font-sans);
+}
+.sb-annals {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.sb-annals li {
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+.sb-annals li.bad {
+  border-left-color: var(--bad);
+}
+.sb-annals li.good {
+  border-left-color: var(--good);
+}
+
+/* Ступень в строке очков державы: щит со ступенью — дверь в раздел (`RealmNew.PointsRow`). */
+.nx-pcell.sb-cellbtn b.good {
+  color: var(--good);
+}
+.nx-pcell.sb-cellbtn b.bad {
+  color: var(--bad);
+}
+.nx-pcell.sb-cellbtn.on {
+  background: var(--m-lit);
+  box-shadow: var(--m-lit-bevel);
+}

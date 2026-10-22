@@ -74,6 +74,9 @@ function goTo(go: HintGo): () => void {
       return () => g.openMap();
     case 'trades':
       return () => useTrades.getState().show();
+    case 'mail':
+      // Туда же, куда кнопка низа «Вести» (`next/Nav`).
+      return () => useRealm.getState().show('decisions');
   }
 }
 

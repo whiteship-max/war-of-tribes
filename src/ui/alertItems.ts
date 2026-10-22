@@ -9,6 +9,8 @@ import { HIRE_AT } from '@/game/data/hire';
 import { hireWhere } from '@/game/sim/hire';
 import { bareGeneral } from '@/game/sim/agents';
 import { placeOpen } from '@/game/sim/tech';
+import { stabOf } from '@/game/sim/stability';
+import { GROUP_META } from '@/game/data/stability';
 import type { BuildingTypeId } from '@/game/types';
 import { useRaidWords } from '@/ui/parts/raidWords';
 import { openRaid, useRealm } from '@/ui/realm/open';
@@ -142,6 +144,22 @@ export function useAlertItems(): AlertItem[] {
       urgent: false,
       go: statue ? () => openBuilding(statue.id) : null,
       goWord: 'К Статуе',
+    });
+  }
+  // Стабильность (СБ-1, docs/stability.md, 2.8): «мятеж близок» — полоса группы выше порога и растёт; ведёт в раздел, где
+  // сказано, что злит и как унять. Невольники и войско тревожат своими строками (ропот, уход) — здесь только новые полосы.
+  for (const g of stabOf(s).near ?? []) {
+    if (g !== 'folk' && g !== 'hungry') continue;
+    const name = GROUP_META[g].name;
+    out.push({
+      key: `stab-near-${g}`,
+      icon: GROUP_META[g].icon,
+      text: `Мятеж близок: ${name.toLowerCase()} на пределе`,
+      title: `Мятеж близок: ${name.toLowerCase()}`,
+      body: 'Что злит и как унять — в разделе «Стабильность».',
+      urgent: true,
+      go: () => useRealm.getState().show('stability'),
+      goWord: 'Стабильность',
     });
   }
   for (const a of alerts(s)) {

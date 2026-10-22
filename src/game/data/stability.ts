@@ -30,7 +30,7 @@ export const GROUP_META: Record<StabGroup, { name: string; icon: IconName }> = {
   folk: { name: 'Податные', icon: ico('nav-people') },
   hungry: { name: 'Голодные', icon: ico('ui-bowl') },
   bonded: { name: 'Невольники', icon: ico('ui-chain') },
-  army: { name: 'Войско', icon: ico('hud-army') },
+  army: { name: 'Дружина', icon: ico('hud-army') },
 };
 
 /** Вести мятежа в общей таблице событий (`data/events`): своя ячейка стола, как у мятежа невольников (`sim/mail`). */
@@ -50,7 +50,7 @@ export const STAB_LOG = {
     bought: 'Правитель укрепил державу.',
     revolt: 'Город поднялся.',
     mutiny: 'Невольники поднялись.',
-    army: 'Войско перестало ждать жалованья.',
+    army: 'Дружина перестала ждать жалованья.',
     fallen: 'Город пал.',
     terms: 'Мятежники не разошлись.',
   },
