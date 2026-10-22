@@ -17,7 +17,7 @@ import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
 import { EVENT_BY_ID } from '../data/events';
 import { CROWN, CROWN_BY_ID } from '../data/crown';
 import { CROWN_WORDS, crownText } from '../data/crownWords';
-import { BOON_BY_ID } from '../data/boons';
+import { BOON_BY_ID, MOOD_SMALL } from '../data/boons';
 import { SEASON_DAYS } from '../data/seasons';
 import { POINTS_CAP } from '../data/realm';
 import {
@@ -35,7 +35,8 @@ import { STAB_CALM, STAB_SELF_MAX } from '../stabrules';
 import { LETTER_PAUSE_MIN } from '@/world/data/tuning';
 import { BANNED } from '@/ui/next/voice.test';
 import { applyCrown, crownArrived, crownFx, crownOf, crownPick, crownRate, crownRates, crownWords } from './crown';
-import { stabNudge, stabOf, stabilityTick } from './stability';
+import { folkParts, stabNudge, stabOf, stabilityTick, targetOf } from './stability';
+import { mailSlots } from './tech';
 import { pointsOf } from './points';
 import { resolveEvent } from './actions';
 import { EVENT_TTL, eventId, lapseEvent, mailArrive, raiseEvent } from './mail';
@@ -240,6 +241,22 @@ describe('без повторов и не больше одной за вход'
     expect(worst).toBe(1);
   });
 
+  it('за окно — одна, даже если стол сгонит её чужой вестью: вторая в то же окно не приходит', () => {
+    let kicked = 0;
+    for (let seed = 1; seed <= 80; seed++) {
+      const s = town(seed);
+      s.pop = 100;
+      // Стол почти полон вестями без срока — у вести державы, пришедшей в окно, срок ближе всех, и её сгонит следующая.
+      const T = 50 * CROWN_SLOT_MS;
+      for (let i = 0; i < mailSlots(s) - 1; i++) s.inbox.push({ defId: ['fire', 'berries', 'storm', 'trade'][i % 4], at: s.time, until: T + 10 * EVENT_TTL });
+      mailArrive(s, T, T + EVENT_TTL);
+      const came = crownOf(s).n + s.inbox.filter((e) => isCrown(e.defId)).length;
+      if (crownOf(s).n > 0) kicked++;
+      expect(came, `сид ${seed}`).toBeLessThanOrEqual(1);
+    }
+    expect(kicked, 'точка внутри: весть державы сгонялась со стола в окне').toBeGreaterThan(0);
+  });
+
   it('пауза сетки на сервере — пауза писем мира', () => {
     expect(CROWN_SLOT_MS).toBe(LETTER_PAUSE_MIN);
   });
@@ -288,17 +305,27 @@ describe('выбор и последствия', () => {
     expect((s.boons ?? []).some((b) => b.id === 'cr_liberty')).toBe(true);
   });
 
-  it('обида группы — причиной у полосы: цель податных растёт на размер обиды', () => {
+  it('обида группы — причиной у полосы: цель податных растёт ровно на размер обиды, и полоса идёт к ней', () => {
     const s = town();
-    const mb = moraleBreakdown(s);
-    const target0 = s.stab!.folk;
+    const twin = town();
+    // Без налога цель податных у нуля: полоса не упирается в свою скорость, и обида видна целиком.
+    s.tax = 'none';
+    twin.tax = 'none';
+    const before = targetOf(folkParts(s));
+    expect(before + MOOD_SMALL, 'точка внутри: цель ниже суточного шага полосы').toBeLessThan(33);
     lay(s, 'cr_comet');
     applyCrown(s, 'cr_comet', 2);
     expect((s.boons ?? []).some((b) => b.id === 'cr_omen')).toBe(true);
-    // Шаг полосы идёт к цели — поднимается на обиду (за время, меньшее, чем нужно полосе на весь путь).
-    s.time += 1;
-    stabilityTick(s, DAY_LENGTH, mb);
-    expect(s.stab!.folk).toBeGreaterThan(target0);
+    const parts = folkParts(s);
+    expect(parts.find((p) => p.id === 'boon:cr_omen')?.value).toBeCloseTo(MOOD_SMALL, 9);
+    expect(targetOf(parts) - before).toBeCloseTo(MOOD_SMALL, 9);
+    // Полоса идёт к цели: за день — выше, чем у того же города без обиды (обида — внутри срока усилителя).
+    expect(DAY_LENGTH, 'точка внутри срока обиды').toBeLessThan(BOON_BY_ID.cr_omen.days * DAY_LENGTH);
+    for (const x of [s, twin]) {
+      x.time += DAY_LENGTH;
+      stabilityTick(x, DAY_LENGTH, moraleBreakdown(x));
+    }
+    expect(s.stab!.folk).toBeGreaterThan(twin.stab!.folk);
   });
 
   it('следствие: риск — костью партии на наборе сидов, наверняка — всегда', () => {
