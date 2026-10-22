@@ -17,7 +17,8 @@ import { POINTS_CAP, REALM_BRANCHES, levelPrice, levelsOf } from '../data/realm'
 import { TAX_BY_ID } from '../data/policy';
 import { EVENT_BY_ID } from '../data/events';
 import { REVOLT_EVENT, TERMS_EVENT } from '../data/stability';
-import { freeShare, housingCapacity, moraleBreakdown, orderBreakdown, productionPerDay } from '../derived';
+import { freeShare, housingCapacity, moraleBreakdown, orderBreakdown, orderState, productionPerDay } from '../derived';
+import { MUTINY_EVENT } from '../data/order';
 import {
   GROUP_FALL,
   GROUP_RISE,
@@ -39,7 +40,7 @@ import { REVOLT_NEAR } from '../stabrules';
 import { pointsOf } from './points';
 import { tick } from './tick';
 import { resolveEvent } from './actions';
-import { eventId } from './mail';
+import { EVENT_TTL, eventId, mailArrive, mailStep } from './mail';
 import { settleGate } from './gate';
 
 /** Спокойный посёлок: обучение пройдено, склад полон, ступень задана. */
@@ -217,6 +218,21 @@ describe('мятеж: на −3 реален, на −2 — нет (цель Ц3
   });
 });
 
+describe('мятеж невольников — прежний, и стоит ступени', () => {
+  it('ропот дошёл до срока — мятеж невольников на столе и ступень вниз, ровно раз', () => {
+    const s = town(1);
+    s.bonded = 400;
+    s.unrest = MUTINY_FUSE - 1;
+    expect(orderState(s), 'точка внутри области: идёт ропот').toBe('unrest');
+    tick(s, 2);
+    expect(s.inbox.some((e) => e.defId === MUTINY_EVENT), 'мятеж невольников на столе').toBe(true);
+    expect(stabLevel(s), 'поднятый мятеж стоит ступени').toBe(0);
+    expect(stabOf(s).revolts).toBe(1);
+    tick(s, 2);
+    expect(stabLevel(s), 'второй раз за тот же мятеж ступень не берётся').toBe(0);
+  });
+});
+
 describe('исход мятежа', () => {
   /** Посёлок с поднятым мятежом податных на столе. */
   function risen(): GameState {
@@ -285,6 +301,22 @@ describe('исход мятежа', () => {
       expect(def.options[def.silence].cost, `${id}: молчание ничего не стоит`).toBeUndefined();
     }
     expect(EVENT_BY_ID[REVOLT_EVENT.folk].silence).toBe(0);
+  });
+});
+
+describe('мятеж, созревший без игрока, молчанием не решается', () => {
+  it('в отлучке вести не идут и срок ответа не ставится; ставит его первый шаг почты при игроке', () => {
+    const s = town(0, { folk: 100 });
+    s.tax = 'high';
+    s.pop = housingCapacity(s) * 3;
+    tick(s, 1);
+    const ev = s.inbox.find((e) => e.defId === REVOLT_EVENT.folk);
+    expect(ev, 'точка внутри области: мятеж на столе').toBeDefined();
+    const T = 1_900_000_000_000;
+    expect(mailArrive(s, T, T + 2 * EVENT_TTL), 'в отлучке при мятеже вести не идут').toBe(0);
+    expect(ev!.until, 'срок ответа отлучка не ставит').toBeUndefined();
+    mailStep(s, T + 3 * EVENT_TTL);
+    expect(ev!.until, 'срок ставит первый шаг почты при игроке').toBe(T + 4 * EVENT_TTL);
   });
 });
 

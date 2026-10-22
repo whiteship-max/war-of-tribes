@@ -176,15 +176,11 @@ export function stabAfterBattle(s: GameState, o: { battle?: 'won' | 'lost' | nul
 function push(s: GameState, d: number): void {
   const st = own(s);
   st.drift += d;
-  if (st.drift >= STAB_DRIFT) {
-    if (st.level < STAB_SELF_MAX) stepBy(s, 1, 'calm');
-    else st.drift = 0;
-  } else if (st.drift <= -STAB_DRIFT) {
-    if (st.level > STAB_MIN) stepBy(s, -1, 'drift');
-    else st.drift = 0;
-  }
+  // Края — одним правилом: на «Ладе» и выше сдвиг вверх не копится, на «Смуте» — вниз.
   if (st.level >= STAB_SELF_MAX && st.drift > 0) st.drift = 0;
   if (st.level <= STAB_MIN && st.drift < 0) st.drift = 0;
+  if (st.drift >= STAB_DRIFT) stepBy(s, 1, 'calm');
+  else if (st.drift <= -STAB_DRIFT) stepBy(s, -1, 'drift');
 }
 
 // ---------- Шаг ----------

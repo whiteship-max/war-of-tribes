@@ -136,26 +136,26 @@ describe('таблица правил города: каждое правило 
     expect(await forged.push(card({ clock: later, time: t, stab: stab({ level: 3 }) }), later)).toBe(200);
     const rec = await forged.watch();
     expect(kinds(rec)).toContain('stab');
-    expect(warnings(rec).some((x) => /подняться выше \+1 она не могла/.test(x))).toBe(true);
+    expect(warnings(rec).some((x) => /подняться выше \+1 она не могла/.test(x)), 'подъём выше «Лада» без покупки').toBe(true);
 
     const greedy = player(5192);
     expect(await greedy.push(card({ stab: stab() }), NOW)).toBe(200);
     expect(await greedy.push(card({ clock: later, time: t, stab: stab({ level: 1, bought: 1, spent: 100_000 }) }), later)).toBe(200);
-    expect(warnings(await greedy.watch()).some((x) => /правитель дал бы не больше/.test(x))).toBe(true);
+    expect(warnings(await greedy.watch()).some((x) => /правитель дал бы не больше/.test(x)), 'очков сверх правителя').toBe(true);
 
     const cheap = player(5193);
     expect(await cheap.push(card({ stab: stab() }), NOW)).toBe(200);
     expect(await cheap.push(card({ clock: later, time: t, stab: stab({ level: 1, bought: 1, spent: 1 }) }), later)).toBe(200);
-    expect(warnings(await cheap.watch()).some((x) => /ступень стоит не меньше/.test(x))).toBe(true);
+    expect(warnings(await cheap.watch()).some((x) => /ступень стоит не меньше/.test(x)), 'ступень дешевле цены').toBe(true);
 
     const bloodless = player(5194);
     expect(await bloodless.push(card({ stab: stab({ level: -1, revolts: 1 }) }), NOW)).toBe(200);
     expect(await bloodless.push(card({ clock: later, time: t, stab: stab({ level: -1, revolts: 1, held: 1 }) }), later)).toBe(200);
-    expect(warnings(await bloodless.watch()).some((x) => /Подавлено мятежей 1/.test(x))).toBe(true);
+    expect(warnings(await bloodless.watch()).some((x) => /Подавлено мятежей 1/.test(x)), 'подавлен без выигранного боя').toBe(true);
 
     const range = player(5195);
     expect(await range.push(card({ stab: stab({ level: 7 }) }), NOW)).toBe(200);
-    expect(warnings(await range.watch()).some((x) => /вне шкалы/.test(x))).toBe(true);
+    expect(warnings(await range.watch()).some((x) => /вне шкалы/.test(x)), 'ступень вне шкалы').toBe(true);
 
     const honest = player(5196);
     expect(await honest.push(card({ stab: stab() }), NOW)).toBe(200);
