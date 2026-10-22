@@ -40,16 +40,20 @@ const PLACED: ReadonlySet<string> = new Set(BUILDINGS.flatMap((b) => b.jobs ?? [
 /** Пары перехода: двор и ушедшее в него здание. */
 export const MERGED_PAIRS: readonly { kept: BuildingTypeId; gone: string }[] = Object.entries(MERGED_INTO).map(([gone, kept]) => ({ kept, gone }));
 
+/** Своё поле таблицы, а не прототипа: тип постройки из записи — чужая строка, и «toString» таблицей не является. */
+const own = <T>(table: Readonly<Record<string, T>>, key: string): T | undefined =>
+  Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+
 /** Тип постройки, каким его знает игра сейчас: ушедший — его двор, нынешний — он сам, чужой — null. */
 export const keptType = (type: string): BuildingTypeId | null =>
-  MERGED_INTO[type] ?? (Object.prototype.hasOwnProperty.call(BUILDING_BY_ID, type) ? (type as BuildingTypeId) : null);
+  own(MERGED_INTO, type) ?? (own(BUILDING_BY_ID, type) ? (type as BuildingTypeId) : null);
 
 /** Дело, на которое встают рабочие прежнего здания этого типа; у здания без дел — null. */
-export const oldJobOf = (type: string): JobId | null => OLD_JOB[type] ?? (keptType(type) === type ? (jobsOf(type as BuildingTypeId)[0] ?? null) : null);
+export const oldJobOf = (type: string): JobId | null => own(OLD_JOB, type) ?? (keptType(type) === type ? (jobsOf(type as BuildingTypeId)[0] ?? null) : null);
 
 /** Цена прежнего здания — дела, из которого оно пришло, или самого здания, если оно не менялось. */
 const oldPrice = (type: string): { cost: Partial<Record<ResourceId, number>>; work: number } | null => {
-  const job = OLD_JOB[type];
+  const job = own(OLD_JOB, type);
   const yard = job ? YARD_BY_JOB.get(job) : undefined;
   if (yard) return { cost: yard.cost, work: yard.work };
   const kept = keptType(type);

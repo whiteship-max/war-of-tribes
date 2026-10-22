@@ -26,7 +26,7 @@ import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, START_POP } from '../../src/game/c
 import { gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
 import { upgradeWork } from '../../src/game/labour.js';
 import { rushFreeWork } from '../../src/game/gemrules.js';
-import { MERGED_INTO, foldTown } from '../../src/game/yardmerge.js';
+import { foldTown, hasGone, keptType } from '../../src/game/yardmerge.js';
 import {
   EVENT_WORK_MAX,
   POP_RATE_MAX,
@@ -151,7 +151,7 @@ export function readTown(v: unknown): TownBook | null {
   if (since <= 0 || at <= 0) return null;
   const s = (r.site && typeof r.site === 'object' ? r.site : null) as Record<string, unknown> | null;
   const site =
-    s && typeof s.type === 'string' && (s.type in BUILDING_BY_ID || s.type in MERGED_INTO) && Number.isInteger(s.level)
+    s && typeof s.type === 'string' && (s.type in BUILDING_BY_ID || hasGone([s.type])) && Number.isInteger(s.level)
       ? { type: s.type, level: Math.floor(n0(s.level)), done: n0(s.done) }
       : null;
   const peak = (r.peak && typeof r.peak === 'object' ? r.peak : {}) as Record<string, unknown>;
@@ -187,7 +187,7 @@ export function foldBook(book: TownBook): TownBook {
   const t = foldTown({ levels: book.levels, queue, site: book.site });
   const paid = book.paid.map((k) => {
     const i = k.lastIndexOf(':');
-    return Object.prototype.hasOwnProperty.call(MERGED_INTO, k.slice(0, i)) ? keyOf(MERGED_INTO[k.slice(0, i)], Number(k.slice(i + 1))) : k;
+    return hasGone([k.slice(0, i)]) ? keyOf(keptType(k.slice(0, i))!, Number(k.slice(i + 1))) : k;
   });
   if (t.levels === book.levels && paid.every((k, i) => k === book.paid[i])) return book;
   return {
