@@ -19,6 +19,7 @@ import {
   UNCAPPED,
   budgetCores,
   busyWords,
+  cpuQuota,
   foreignRuns,
   gpuRest,
   heavyWork,
@@ -44,11 +45,28 @@ describe('ядра', () => {
     // после того была половина).
     expect(CORE_SHARE).toBeCloseTo(1 / 3, 12);
     for (let n = 1; n <= 64; n++) {
-      const k = budgetCores(n);
+      const k = budgetCores(n, null);
       expect(k).toBeGreaterThanOrEqual(1);
       if (n >= 3) expect(k).toBeLessThanOrEqual(n / 3);
     }
-    expect(budgetCores(12)).toBe(4);
+    expect(budgetCores(12, null)).toBe(4);
+  });
+
+  it('в контейнере с квотой процессора бюджет — сама квота, вниз и не больше ядер', () => {
+    // Приёмка на сервере (решение владельца 22.10.2026): контейнер `tribe-ci` — `--cpus=4` на восьми ядрах, бюджет — 4.
+    expect(budgetCores(8, 4)).toBe(4);
+    expect(budgetCores(8, 2.5)).toBe(2);
+    expect(budgetCores(2, 4)).toBe(2);
+    expect(budgetCores(8, 0.5)).toBe(1);
+    const files = (map: Record<string, string>) => (f: string): string => {
+      if (!(f in map)) throw new Error(`нет ${f}`);
+      return map[f];
+    };
+    expect(cpuQuota(files({ '/sys/fs/cgroup/cpu.max': '400000 100000\n' }))).toBe(4);
+    expect(cpuQuota(files({ '/sys/fs/cgroup/cpu.max': 'max 100000\n' }))).toBeNull();
+    expect(cpuQuota(files({ '/sys/fs/cgroup/cpu/cpu.cfs_quota_us': '200000\n', '/sys/fs/cgroup/cpu/cpu.cfs_period_us': '100000\n' }))).toBe(2);
+    expect(cpuQuota(files({ '/sys/fs/cgroup/cpu/cpu.cfs_quota_us': '-1\n', '/sys/fs/cgroup/cpu/cpu.cfs_period_us': '100000\n' }))).toBeNull();
+    expect(cpuQuota(files({}))).toBeNull();
   });
 
   it('все ядра себе не берёт никто: ни тесты, ни веер, ни приёмка', () => {

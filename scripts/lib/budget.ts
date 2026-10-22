@@ -45,8 +45,37 @@ export const MACHINE_PROJECT = 'war-of-tribes';
  */
 export const CORE_SHARE = 1 / 3;
 
-/** Сколько ядер — работников тестов, процессов веера, жетонов приёмки — берёт прогон: треть, вниз, не меньше одного. */
-export function budgetCores(cores = availableParallelism()): number {
+/**
+ * Квота процессора контейнера — сколько ядер дал ему запуск (`docker run --cpus`): cgroup v2 `cpu.max` («400000 100000» —
+ * четыре ядра, «max …» — квоты нет) или v1 `cpu.cfs_quota_us` / `cpu.cfs_period_us` (−1 — нет). Не контейнер, квоты нет
+ * или файл не читается (дом, Windows) — `null`.
+ */
+export function cpuQuota(read: (file: string) => string = (f) => readFileSync(f, 'utf8')): number | null {
+  const share = (quota: string, period: string): number | null => {
+    const q = Number(quota) / Number(period);
+    return Number.isFinite(q) && q > 0 ? q : null;
+  };
+  try {
+    const [quota, period] = read('/sys/fs/cgroup/cpu.max').trim().split(/\s+/);
+    return share(quota, period); // «max» — не число: квоты нет
+  } catch {
+    // не cgroup v2 — спросить v1
+  }
+  try {
+    return share(read('/sys/fs/cgroup/cpu/cpu.cfs_quota_us').trim(), read('/sys/fs/cgroup/cpu/cpu.cfs_period_us').trim());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Сколько ядер — работников тестов, процессов веера, жетонов приёмки — берёт прогон: треть, вниз, не меньше одного. В
+ * контейнере с квотой процессора (`cpuQuota`) бюджет — сама квота, вниз и не больше ядер: её поставил запуск контейнера,
+ * держит её ядро системы, и остальная машина за ней не достаётся прогону ни при каком счёте работников (приёмка на сервере,
+ * контейнер `tribe-ci` — 4 ядра из 8; решение владельца 22.10.2026, docs/handbook/acceptance.md, «Приёмка на сервере»).
+ */
+export function budgetCores(cores = availableParallelism(), quota = cpuQuota()): number {
+  if (quota !== null) return Math.max(1, Math.min(cores, Math.floor(quota)));
   return Math.max(1, Math.floor(cores * CORE_SHARE));
 }
 
