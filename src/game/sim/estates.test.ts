@@ -326,7 +326,7 @@ describe('рычаги: опора меняет своё дело, ровный 
       return { s, base, n };
     };
     let p = pillar('merchants');
-    expect(taxIncomePerDay(p.s) - p.s.faith.id.length * 0).toBeGreaterThan(taxIncomePerDay(p.base));
+    expect(taxIncomePerDay(p.s)).toBeGreaterThan(taxIncomePerDay(p.base));
     p = pillar('guilds');
     expect(buildRate(p.s) / buildRate(p.base)).toBeCloseTo(1 + p.n.plus, 6);
     expect(estateFoodMult(p.s)).toBeCloseTo(1 + p.n.minus, 9);
@@ -360,13 +360,13 @@ describe('старое сохранение и одна дверь', () => {
     expect(s.estates).toBeUndefined();
     const raw = JSON.parse(serialize(s));
     delete raw.estates;
-    const old = deserialize(JSON.stringify(raw));
+    const old = deserialize(JSON.stringify(raw))!;
     expect(old.estates).toBeUndefined();
     for (const e of ESTATES) expect(estatesNow(old)[e].loyalty).toBe(LOYALTY_BASE);
     expect(SAVE_VERSION).toBe(JSON.parse(serialize(old)).version ?? SAVE_VERSION);
     grant(s, 'peasants', 2);
     expect(giftEstate(s, 'clergy')).toBeNull();
-    const back = deserialize(serialize(s));
+    const back = deserialize(serialize(s))!;
     expect(back.estates).toEqual(s.estates);
     expect(estatesNow(back).peasants.loyalty).toBeCloseTo(estatesNow(s).peasants.loyalty, 9);
     expect(mergeEstates({ priv: { merchants: 7, kings: 2, clergy: -1 }, grants: -3, revokes: 2.7, gifts: 'x' })).toEqual({

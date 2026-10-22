@@ -10,7 +10,7 @@ import { DAY_LENGTH, MUTINY_FUSE } from '../constants';
 import { asGame, type GameSec } from '../pace';
 import { bondedTotal, decreeOf, estatesNow, moraleBreakdown, mutinyOpen, orderBreakdown, orderState, payGraceDays, rationOf, taxOf, unrestLeft } from '../derived';
 import { GROUP_META, stabName } from '../data/stability';
-import { ESTATE_META } from '../data/estates';
+import { ESTATE_META, estateVerb } from '../data/estates';
 import { BOON_BY_ID } from '../data/boons';
 import { GROUP_RISE, REVOLT_AT, REVOLT_NEAR } from '../stabrules';
 import { barsOf, folkParts, hungryParts, pressureParts, stabLevel, stabOf, targetOf, type Part } from './stability';
@@ -82,7 +82,7 @@ function faced(s: GameState, parts: readonly Part[], bars?: Record<StabGroup, nu
       : boon
         ? { icon: boon.icon, name: boon.name, hint: 'след вести державы', go: 'mail' }
         : estate
-          ? { icon: ESTATE_META[estate].icon, name: `${ESTATE_META[estate].name} ропщет`, hint: estateHint(s, estate), go: 'estates' }
+          ? { icon: ESTATE_META[estate].icon, name: `${ESTATE_META[estate].name} ${estateVerb(estate, 'ропщет', 'ропщут')}`, hint: estateHint(s, estate), go: 'estates' }
           : FACE[p.id](s);
     return { id: p.id, value: p.value, ...face };
   });

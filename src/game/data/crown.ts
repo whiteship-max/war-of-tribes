@@ -32,7 +32,7 @@ import { amount, crowd } from './eventKit';
 import { barsOf, stabLevel, stabOf, STAB_GROUPS } from '../sim/stability';
 import { rulerAging } from '../sim/dynasty';
 import { DISLOYAL, ESTATES, ESTATE_DOMINANT, ESTATE_EVEN, LOYAL, PRIV_MAX, privOf } from '../estaterules';
-import { ESTATE_META } from './estates';
+import { ESTATE_META, estateVerb } from './estates';
 import { estateBoon } from './boons';
 
 /** Заставка вести — сцена города или покоев, нарисованная кодом (`ui/realm/crownScene.tsx`). */
@@ -194,7 +194,7 @@ function estateCrown(): CrownDef[] {
       },
       {
         id: estateCrownId('power', e),
-        title: `${m.name} требует власти`,
+        title: `${m.name} ${estateVerb(e, 'требует', 'требуют')} власти`,
         from: ESTATE_VOICE[e],
         scene: 'hall',
         weight: (s) => on(now(s).infl >= ESTATE_DOMINANT, now(s).loyalty < LOYAL ? 3 : 1),

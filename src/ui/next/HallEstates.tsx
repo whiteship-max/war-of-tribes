@@ -8,7 +8,7 @@ import './estates.css';
 import { useState } from 'react';
 import type { EstateId } from '@/game/types';
 import { useGame } from '@/game/store';
-import { ESTATE_META, LOYALTY_WORD } from '@/game/data/estates';
+import { ESTATE_META, LOYALTY_WORD, estateVerb } from '@/game/data/estates';
 import { ESTATE_TEXT, ESTATES_HINT } from '@/game/data/estateWords';
 import { ESTATES, ESTATE_DOMINANT, PRIV_MAX } from '@/game/estaterules';
 import { estateGiftPrice, estatesNow } from '@/game/derived';
@@ -84,9 +84,9 @@ function CityBand({ rows }: { rows: EstateRow[] }) {
         <b className="one-line">{city.name}</b>
         <small className="one-line">
           {city.dominant
-            ? `${ESTATE_META[city.dominant].name} в перевесе: ${Math.round(city.infl)} % — требует больше`
+            ? `${ESTATE_META[city.dominant].name} в перевесе: ${Math.round(city.infl)} % — ${estateVerb(city.dominant, 'требует', 'требуют')} больше`
             : lead
-              ? `${lead.name} держит ${Math.round(city.infl)} % влияния`
+              ? `${lead.name} ${estateVerb(city.lead!, 'держит', 'держат')} ${Math.round(city.infl)} % влияния`
               : `Ни одно сословие не держит перевеса`}
         </small>
         <span className="es-share" aria-label="Доли влияния">
@@ -274,7 +274,7 @@ function EstateSheet({ e, onClose }: { e: EstateId; onClose: () => void }) {
           {peek === 'grant' && <PreviewRows p={grantPreview(s, e)} />}
           {priv > 0 && peek !== 'grant' && (
             <p className="es-note">
-              Отнять — власть вернётся городу, а {m.name.toLowerCase()} будет помнить обиду сезон: лояльность {signed(-ESTATE_NUMBERS.own, 0)}.
+              Отнять — власть вернётся городу, а {m.name.toLowerCase()} {estateVerb(e, 'будет', 'будут')} помнить обиду сезон: лояльность {signed(-ESTATE_NUMBERS.own, 0)}.
             </p>
           )}
 

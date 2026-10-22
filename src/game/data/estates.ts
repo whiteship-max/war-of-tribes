@@ -22,6 +22,8 @@ export interface EstateMeta {
   priv: readonly [string, string];
   /** Чем сословие берёт дар: золото, крестьяне — хлеб. */
   gift: ResourceId | 'gold';
+  /** Имя во множественном числе («Цехи»): глаголы при нём — «ропщут», «требуют», «верны». */
+  many?: true;
 }
 
 export const ESTATE_META: Readonly<Record<EstateId, EstateMeta>> = {
@@ -42,6 +44,7 @@ export const ESTATE_META: Readonly<Record<EstateId, EstateMeta>> = {
     city: 'Ремесленный центр',
     priv: ['Цеховая грамота', 'Право клейма'],
     gift: 'gold',
+    many: true,
   },
   peasants: {
     name: 'Крестьянство',
@@ -78,10 +81,13 @@ export const EVEN_CITY = 'Ровный город';
 /** Ступень лояльности словами (пороги EU4 — `estaterules.LOYAL`, `DISLOYAL`). */
 export const LOYALTY_WORD = { loyal: 'Верны', wait: 'Выжидают', disloyal: 'Ропщут' } as const;
 
+/** Глагол при имени сословия: «Купечество ропщет», «Цехи ропщут». */
+export const estateVerb = (e: EstateId, one: string, many: string): string => (ESTATE_META[e].many ? many : one);
+
 /** Строки летописи сословий (род `stab`). */
 export const ESTATE_LOG = {
   granted: (e: EstateId, priv: string): string => `${ESTATE_META[e].name}: дарована привилегия «${priv}».`,
   revoked: (e: EstateId, priv: string): string => `${ESTATE_META[e].name}: отнята привилегия «${priv}». Обида продержится сезон.`,
   gifted: (e: EstateId): string => `Дар ${ESTATE_META[e].to}: лояльность выше на сезон.`,
-  lapsed: (e: EstateId, decree: string): string => `${ESTATE_META[e].name} больше не верно — указ «${decree}» снят.`,
+  lapsed: (e: EstateId, decree: string): string => `${ESTATE_META[e].name} больше не ${estateVerb(e, 'верно', 'верны')} — указ «${decree}» снят.`,
 };
