@@ -1817,9 +1817,41 @@ export interface WatchCard {
    * только дела старше. Нет поля — опись до алмазов на сервере.
    */
   gemSeen?: number;
+  /**
+   * Стабильность державы (docs/stability.md, 2.7): ступень и счёт для книги стабильности — сколько ступеней куплено и
+   * очков каждого вида на них ушло, сколько мятежей поднялось и сколько подавлено боем. Нет поля — опись до стабильности.
+   */
+  stab?: WatchStab;
+}
+
+/** Стабильность в описи — то, что сверяет книга стабильности сервера (`watch.flagsBetween`, правило «stab»). */
+export interface WatchStab {
+  /** Ступень как есть, целым: вне −3…+3 — флаг, а не поправка (подделку не прячут подрезкой). */
+  level: number;
+  bought: number;
+  spent: number;
+  revolts: number;
+  held: number;
 }
 
 const whole = (v: unknown, max: number): number => Math.floor(Math.min(max, Math.max(0, num(v) ?? 0)));
+
+/** Стабильность описи: ступень — целым как есть (в пределах ±99), счёт — неотрицательным целым; нет поля — нет. */
+function readStab(v: unknown): Pick<WatchCard, 'stab'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const level = num(r.level);
+  if (level === null) return {};
+  return {
+    stab: {
+      level: Math.round(Math.max(-99, Math.min(99, level))),
+      bought: whole(r.bought, 1e9),
+      spent: whole(r.spent, 1e12),
+      revolts: whole(r.revolts, 1e9),
+      held: whole(r.held, 1e9),
+    },
+  };
+}
 
 /** Идущая стройка описи: тип — строка до 32 знаков, уровень — целый 2..100, работа — неотрицательная. */
 function readSite(v: unknown): Pick<WatchCard, 'site'> {
@@ -1888,6 +1920,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     lead: whole(r.lead, 1e12),
     seen: whole(r.seen, 1e9),
     ...(r.gemSeen !== undefined ? { gemSeen: whole(r.gemSeen, 1e12) } : {}),
+    ...readStab(r.stab),
   };
 }
 

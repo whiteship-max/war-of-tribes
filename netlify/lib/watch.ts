@@ -18,6 +18,7 @@ import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { storageOf } from '../../src/game/build.js';
+import { STAB_BAND, STAB_MAX, STAB_MIN, STAB_PRICE_MIN, STAB_SELF_MAX, stabPointsCeil, stabSelfRiseCeil } from '../../src/game/stabrules.js';
 import { powerOfCounts } from '../../src/profile/power.js';
 import type { BuildingTypeId, ResourceId } from '../../src/game/types.js';
 import { rewrite } from './admin.js';
@@ -88,7 +89,8 @@ export type FlagKind =
   | 'eat'
   | 'walk'
   | 'queue'
-  | 'refund';
+  | 'refund'
+  | 'stab';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -111,6 +113,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   walk: 'срок пути',
   queue: 'очередь стройки',
   refund: 'возврат сверх положенного',
+  stab: 'стабильность',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -118,7 +121,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -162,6 +165,13 @@ export const CITY_RULES: readonly CityRule[] = [
     act: 'в войну — книга запасов, не меньше; флаг',
   },
   { id: 'eat', rule: 'расход хлеба в осаде не ниже пайка жителей, невольников и бойца при самом скудном рационе', formula: 'build.eatFloorPerDay', flag: 'eat', act: 'в войну — не ниже пола; флаг' },
+  {
+    id: 'stab',
+    rule: 'стабильность: ступень в −3…+3; очков на ступени не больше, чем дал бы лучший правитель, и не меньше цены купленных; подъём — не выше купленного и того, что ровная жизнь даёт сама до «Лада»; подавлено мятежей не больше выигранных боёв',
+    formula: 'stabrules.stabPointsCeil, stabPrice, stabSelfRiseCeil, STAB_SELF_MAX',
+    flag: 'stab',
+    act: 'флаг',
+  },
 ];
 
 export interface WatchFlag {
@@ -335,6 +345,10 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
       out.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости склада ${big(card.cap)} — сверх склада игра не кладёт ничего (или склад потерял уровень).` });
     }
   }
+  // Ступень стабильности — в шкале −3…+3 у каждой описи, и у первой тоже (правило «stab», docs/stability.md, 2.7).
+  if (card.stab && (card.stab.level < STAB_MIN || card.stab.level > STAB_MAX)) {
+    out.push({ kind: 'stab', text: `Стабильность ${signed(card.stab.level)} — вне шкалы ${STAB_MIN}…+${STAB_MAX}.` });
+  }
   const skew = card.clock > 0 ? card.clock - at : 0;
   if (Math.abs(skew) > CLOCK_SKEW_SECONDS * 1000) {
     out.push({ kind: 'clock', text: `Часы устройства ${skew > 0 ? 'спешат' : 'отстают'} на ${span(Math.abs(skew))} (терпим до ${span(CLOCK_SKEW_SECONDS * 1000)}).` });
@@ -410,6 +424,7 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
       }
     }
   }
+  out.push(...stabFlags(a, b, days, realMs));
   const played = b.games - a.games;
   if (played > 0) {
     // Энергия: полный запас и приток за прошедшее время партии; игра стоит `MINIGAME_COST`.
@@ -420,6 +435,45 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
     if (got > cap * played + played) {
       out.push({ kind: 'haul', text: `Добыча промыслов ${signed(got)} за ${big(played)} игр; потолок — ${big(cap)} за игру.` });
     }
+  }
+  return out;
+}
+
+/**
+ * Книга стабильности (правило «stab», docs/stability.md, 2.7): что опись говорит о стабильности между `a` и `b`, сверенное с
+ * правилами игры — теми же формулами (`game/stabrules`). Сервер партию не разбирает: ступень и счёт приходят описью, а
+ * невозможное — флаг и строка «внимание:» в журнале города. Описи без стабильности — как прежде, без проверки.
+ */
+export function stabFlags(a: WatchCard, b: WatchCard, days: number, realMs: number): { kind: FlagKind; text: string }[] {
+  const out: { kind: FlagKind; text: string }[] = [];
+  const x = b.stab;
+  const y = a.stab;
+  // Шкалу каждой описи сверяет `flagsOf`; здесь — промежуток.
+  if (!x || !y) return out;
+  const bought = Math.max(0, x.bought - y.bought);
+  const spent = x.spent - y.spent;
+  const ceil = Math.floor(stabPointsCeil(days));
+  if (spent > ceil) {
+    out.push({ kind: 'stab', text: `На стабильность ушло ${big(spent)} очков каждого вида за ${span(realMs)} — правитель дал бы не больше ${big(ceil)}.` });
+  }
+  if (bought > 0 && spent < bought * STAB_PRICE_MIN) {
+    out.push({ kind: 'stab', text: `Куплено ступеней стабильности ${big(bought)}, а очков ушло ${big(spent)} — ступень стоит не меньше ${big(STAB_PRICE_MIN)}.` });
+  }
+  // Подъём: мятежи сначала опускают, ровная жизнь поднимает сама не выше «Лада», покупки — сверху. Выше этого — не могла.
+  const revolts = Math.max(0, x.revolts - y.revolts);
+  const won = Math.max(0, b.won - a.won);
+  const low = Math.max(STAB_MIN, y.level - revolts);
+  const self = Math.max(low, Math.min(STAB_SELF_MAX, low + stabSelfRiseCeil(days, won, STAB_BAND)));
+  const top = Math.min(STAB_MAX, self + bought);
+  if (x.level > top) {
+    out.push({
+      kind: 'stab',
+      text: `Стабильность ${signed(y.level)} → ${signed(x.level)} за ${span(realMs)}: куплено ступеней ${big(bought)}, мятежей ${big(revolts)} — подняться выше ${signed(top)} она не могла.`,
+    });
+  }
+  const held = Math.max(0, x.held - y.held);
+  if (held > won || held > revolts + 1) {
+    out.push({ kind: 'stab', text: `Подавлено мятежей ${big(held)} за ${span(realMs)}, а боёв выиграно ${big(won)}, мятежей поднялось ${big(revolts)}.` });
   }
   return out;
 }

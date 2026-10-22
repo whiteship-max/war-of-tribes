@@ -14,7 +14,8 @@ import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { BUILD_QUEUE_MAX, START_POP } from '../../src/game/constants.js';
 import { START_GEMS, fullWork, rushPriceOfWork } from '../../src/game/gemrules.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
-import { gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
+import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
+import { STAB_BAND, stabPrice, stabSelfRiseCeil } from '../../src/game/stabrules.js';
 import { GOODS_SLACK, drainCeil } from './goods.js';
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { headsFoodPerDay, soldierFoodPerDay, storageOf } from '../../src/game/build.js';
@@ -115,11 +116,53 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'stab']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
     }
+  });
+
+  // Книга стабильности (docs/stability.md, 2.7): опись везёт ступень и счёт; сервер сверяет их формулами игры (`game/stabrules`).
+  // Область правила: обе описи несут стабильность, между ними — час (точка внутри: ровная жизнь за час до «Лада» не доходит).
+  it('стабильность: ступень из ничего, очки сверх правителя, подавленный мятеж без боя — «внимание:»; честная покупка — без флага', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    const stab = (o: Partial<NonNullable<WatchCard['stab']>> = {}): WatchCard['stab'] => ({ level: 0, bought: 0, spent: 0, revolts: 0, held: 0, ...o });
+    expect(stabSelfRiseCeil(gameSecondsOfMs(HOUR) / DAY_LENGTH, 0, STAB_BAND), 'точка внутри: за час сама — не больше ступени').toBeLessThanOrEqual(1);
+
+    const forged = player(5191);
+    expect(await forged.push(card({ stab: stab() }), NOW)).toBe(200);
+    expect(await forged.push(card({ clock: later, time: t, stab: stab({ level: 3 }) }), later)).toBe(200);
+    const rec = await forged.watch();
+    expect(kinds(rec)).toContain('stab');
+    expect(warnings(rec).some((x) => /подняться выше \+1 она не могла/.test(x))).toBe(true);
+
+    const greedy = player(5192);
+    expect(await greedy.push(card({ stab: stab() }), NOW)).toBe(200);
+    expect(await greedy.push(card({ clock: later, time: t, stab: stab({ level: 1, bought: 1, spent: 100_000 }) }), later)).toBe(200);
+    expect(warnings(await greedy.watch()).some((x) => /правитель дал бы не больше/.test(x))).toBe(true);
+
+    const cheap = player(5193);
+    expect(await cheap.push(card({ stab: stab() }), NOW)).toBe(200);
+    expect(await cheap.push(card({ clock: later, time: t, stab: stab({ level: 1, bought: 1, spent: 1 }) }), later)).toBe(200);
+    expect(warnings(await cheap.watch()).some((x) => /ступень стоит не меньше/.test(x))).toBe(true);
+
+    const bloodless = player(5194);
+    expect(await bloodless.push(card({ stab: stab({ level: -1, revolts: 1 }) }), NOW)).toBe(200);
+    expect(await bloodless.push(card({ clock: later, time: t, stab: stab({ level: -1, revolts: 1, held: 1 }) }), later)).toBe(200);
+    expect(warnings(await bloodless.watch()).some((x) => /Подавлено мятежей 1/.test(x))).toBe(true);
+
+    const range = player(5195);
+    expect(await range.push(card({ stab: stab({ level: 7 }) }), NOW)).toBe(200);
+    expect(warnings(await range.watch()).some((x) => /вне шкалы/.test(x))).toBe(true);
+
+    const honest = player(5196);
+    expect(await honest.push(card({ stab: stab() }), NOW)).toBe(200);
+    const price = stabPrice(1);
+    expect(await honest.push(card({ clock: later, time: t, deeds: 1, won: 1, stab: stab({ level: 1, bought: 1, spent: price, revolts: 1, held: 1 }) }), later)).toBe(200);
+    const fair = await honest.watch();
+    expect(kinds(fair)).not.toContain('stab');
   });
 
   it('уровень выше книги: все постройки десятого уровня с первой записи — подтверждён посёлок новой партии, «внимание:», запись принята', async () => {

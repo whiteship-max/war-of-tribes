@@ -9,7 +9,7 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard } from '../../netlify/lib/contract';
+import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchStab } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { SAVE_VERSION } from '@/game/state';
 import {
@@ -37,6 +37,7 @@ import { hiredAt } from '@/game/sim/army';
 import { minigameCap } from '@/game/sim/minigames';
 import { adminSeen } from '@/game/sim/admin';
 import { gemSeen } from '@/game/sim/gems';
+import { stabLevel, stabOf } from '@/game/sim/stability';
 import { deviceNow, leadAt } from './clock';
 import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
@@ -144,7 +145,15 @@ export function watchOf(s: GameState): WatchCard {
     lead: whole(leadAt()),
     seen,
     gemSeen: gemmed,
+    // Книга стабильности сервера (docs/stability.md, 2.7): ступень и счёт покупок, трат и мятежей.
+    stab: stabCard(s),
   };
+}
+
+/** Стабильность для описи — чтением одной двери (`sim/stability.stabOf`): у партии без поля — ступень 0 и нули. */
+function stabCard(s: GameState): WatchStab {
+  const st = stabOf(s);
+  return { level: stabLevel(s), bought: st.bought, spent: st.spent, revolts: st.revolts, held: st.held };
 }
 
 /** Раненые по видам одним набором: в лазарете и при полководце (книга войска сервера считает тела, docs/pvp.md). */
