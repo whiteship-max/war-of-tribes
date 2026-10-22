@@ -50,6 +50,18 @@ describe('дверь перехода ЗД-1 — своей докачкой', (
     expect(s.workers).toMatchObject({ farmer: 4, herder: 6 });
   });
 
+  it('запись младше 24-й без ушедших построек — тоже только с дверью: рабочие по номерам не теряются молча', async () => {
+    const raw = JSON.parse(await oldRecord()) as { buildings: { type: string }[]; workers: Record<string, number> };
+    // Область: версия младше 24-й, а построек, которых нет в игре, в записи нет — читать её было бы чем и без двери.
+    raw.buildings = raw.buildings.filter((b) => b.type !== 'pen');
+    expect(Object.keys(raw.workers).every((k) => /^\d+$/.test(k)), 'рабочие — по номерам построек').toBe(true);
+    const json = JSON.stringify(raw);
+    const save = await import('./save');
+    expect(save.deserialize(json), 'без двери — не читается').toBeNull();
+    await save.readyToRead(json);
+    expect(save.deserialize(json)!.workers.farmer, 'с дверью — поле на своём деле').toBe(4);
+  });
+
   it('вход подгружает дверь сам: старая партия на диске открывается приведённой, а не новой', async () => {
     const json = await oldRecord();
     const save = await import('./save');

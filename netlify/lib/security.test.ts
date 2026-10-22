@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROUTES } from './routes/index.js';
 import { botWith } from './routes/bot.js';
 import { STORES } from './kv.js';
-import { CITY_RULES, WARN, bookOf, confirmedPower, flagsBetween, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
+import { CITY_RULES, WARN, bookOf, confirmedOf, confirmedPower, flagsBetween, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
 import { readLedger, settlePurchase } from './gems.js';
 import { ROSTER_KEY, readRoster } from './roster.js';
 import { eatFloorOf, seedTown } from './town.js';
@@ -733,6 +733,17 @@ describe('ЗД-1: объединённые дворы на сервере — п
     for (const t of ['pen', 'gathering', 'quarry']) expect(rec.town!.levels, t).not.toHaveProperty(t);
     expect(rec.town!.levels.farm).toBe(1);
     expect(kinds(rec)).toEqual([]);
+  });
+
+  it('запись, сохранённая сервером до объединения, читается сведённой: рейтинг и реестр видят двор, а не две постройки', () => {
+    // Запись прежней выкладки: опись и книга стройки с Загоном выше Фермы — так они лежат в хранилище.
+    const levels = { ...OLD1, farm: 3, pen: 6 };
+    const raw = JSON.parse(JSON.stringify({ first: NOW, last: NOW, card: old({ buildings: levels }), town: { ...seedTown(NOW), levels } }));
+    expect(raw.card.buildings.pen, 'область: в записи правда прежние постройки').toBe(6);
+    const rec = readWatchRecord(raw);
+    expect(rec.card!.buildings, 'опись сведена').not.toHaveProperty('pen');
+    expect(rec.card!.buildings.farm, 'двор в описи — больший из двух').toBe(6);
+    expect(confirmedOf(rec)!.levels.farm, 'подтверждено — больший из двух').toBe(6);
   });
 
   it('опись сборки 24 называет ушедшие постройки — «постройки до объединения», «внимание:»; сборки 23 — нет', async () => {
