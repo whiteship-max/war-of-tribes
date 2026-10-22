@@ -294,6 +294,19 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     name: 'город: погода',
     door: /\/src\/render\/city\/precip\.ts$/,
     owns: [/\/src\/render\/city\/precip\.ts$/],
+  },  {
+    // Совет Ратуши (РТ-1, docs/city_v3.md): окно совета, просители, найм и слова окна — кусок нового вида (`ui/next`, его тянет
+    // ратуша); шагу партии нужен только сидящий (`sim/council`), он в первой загрузке.
+    name: 'совет: просители',
+    door: /\/src\/ui\/next\/index\.ts$/,
+    owns: [/\/src\/ui\/next\/HallCouncil\.tsx$/, /\/src\/game\/sim\/candidates\.ts$/, /\/src\/game\/data\/councilWords\.ts$/],
+  },
+  {
+    // Рейтинг и молва края на карте (РТ-1, в зачёт первой загрузки): окна по кнопке; лента и точка новых (`map/feedState`) — в
+    // главном куске.
+    name: 'карта: рейтинг и молва',
+    door: /\/src\/ui\/map\/(Rating|Feed)\.tsx$/,
+    owns: [/\/src\/ui\/map\/(Rating|Feed|feedWords)\.tsx?$/],
   },
 ];
 

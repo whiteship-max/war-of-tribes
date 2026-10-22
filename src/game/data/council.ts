@@ -1,5 +1,6 @@
-// Совет Ратуши (РТ-1): слова должностей, черт и летописи. Числа — `game/councilrules.ts`, дверь — `sim/council.ts`.
-import type { AdvisorPost, AdvisorTrait } from '../types';
+// Совет Ратуши (РТ-1): имена должностей, летопись и весть о пустом месте — то, что нужно шагу партии. Слова окна совета (польза,
+// дело должности, черты) — `data/councilWords.ts`, едут с окном. Числа — `game/councilrules.ts`, дверь — `sim/council.ts`.
+import type { AdvisorPost } from '../types';
 import { MAX_ADVISOR_LEVEL } from '../councilrules';
 
 /**
@@ -10,30 +11,6 @@ export function postTitle(post: AdvisorPost, tier: number): string {
   if (post === 'steward') return tier >= MAX_ADVISOR_LEVEL ? 'Бургомистр' : 'Староста';
   return post === 'treasurer' ? 'Казначей' : 'Воевода';
 }
-
-/** Чем должность полезна — словом к числу пользы: «+10 % к стройке и добыче». */
-export const POST_GIFT: Readonly<Record<AdvisorPost, string>> = {
-  steward: 'к стройке и добыче',
-  treasurer: 'к налогу и торговле',
-  marshal: 'к стойкости дружины',
-};
-
-/** Что должность ведёт — одной строкой под именем места, пока оно пустует. */
-export const POST_DUTY: Readonly<Record<AdvisorPost, string>> = {
-  steward: 'Ведёт стройку и дворы за стеной',
-  treasurer: 'Считает подати и выручку рынка',
-  marshal: 'Учит дружину стоять в строю',
-};
-
-/** Черта: имя и что она делает — без чисел, числа считает окно теми же формулами (`councilrules`). */
-export const TRAIT_WORD: Readonly<Record<AdvisorTrait, { name: string; does: string; good: boolean }>> = {
-  zealous: { name: 'Усердный', does: 'польза — как у уровня выше', good: true },
-  scholar: { name: 'Книжник', does: 'очко в день сверх уровня', good: true },
-  frugal: { name: 'Бережливый', does: 'найм без платы вперёд', good: true },
-  hale: { name: 'Крепкий', does: 'доживёт до покоя', good: true },
-  frail: { name: 'Хворый', does: 'умрёт на службе', good: false },
-  greedy: { name: 'Корыстный', does: 'жалованье — как у уровня выше', good: false },
-};
 
 /**
  * Возраст, который показывает лицо: годы ступенями по пять — портрет и облик в покоях седеют вместе с человеком, но не
@@ -57,16 +34,13 @@ export const COUNCIL_LOG = {
           : `${title} ${name} отставлен.`,
 };
 
-/** Весть о пустом месте (`sim/council.councilEvents`). */
+/** Весть о пустом месте (`sim/council.vacancyDef`): выбор нового — в совете Ратуши, туда ведёт дверь вести. */
 export const COUNCIL_EVENT = {
   id: (post: AdvisorPost): string => `council_${post}`,
   title: (title: string): string => `Место: ${title.toLowerCase()}`,
   from: 'Писарь ратуши',
   text: (title: string, name: string | null, why: CouncilGone | null): string =>
-    `${name ? `${COUNCIL_LOG.gone(title, name, why ?? 'rest')} ` : ''}Место пустует. В ратуше ждут просители — назначь нового или оставь место пустым.`,
+    `${name ? `${COUNCIL_LOG.gone(title, name, why ?? 'rest')} ` : ''}Место пустует. В ратуше ждут просители — выбери нового или оставь место пустым.`,
   later: 'Подождать',
   laterSaid: 'Место ждёт. Просители — в ратуше, совет.',
-  best: 'Назначить лучшего',
-  none: 'Просителей нет: место ждёт.',
-  taken: (title: string, name: string): string => `Место уже занял ${title.toLowerCase()} ${name}.`,
 };

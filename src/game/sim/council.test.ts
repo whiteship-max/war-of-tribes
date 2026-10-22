@@ -40,21 +40,14 @@ import {
 import { TAX_BY_ID, TAX_PER_POP } from '../data/policy';
 import { YARD_BY_JOB } from '../data/yards';
 import { jobsOf } from '../data/buildings';
-import {
-  bestCandidate,
-  candidatesOf,
-  councilOf,
-  councilStep,
-  dismissAdvisor,
-  hireAdvisor,
-  mergeCouncil,
-  vacancyEvent,
-} from './council';
+import { councilOf, councilStep, dismissAdvisor, mergeCouncil, vacancyEvent, vacancyPost } from './council';
+import { bestCandidate, candidatesOf, hireAdvisor } from './candidates';
 import { branchRate, pointsOf, rulerRate } from './points';
 import { livingNames } from './dynasty';
 import { tick } from './tick';
 import { deserialize, serialize } from '../save';
 import { resolveEvent } from './mail';
+import { EVENT_BY_ID } from '../data/events';
 import { playerProfile } from '@/world/bridge';
 import { assignWorker } from './workers';
 
@@ -283,19 +276,26 @@ describe('жалованье и уход', () => {
     expect(councilStep(s, 1)).toEqual([]);
   });
 
-  it('весть о пустом месте: «Подождать» бесплатно, «Назначить лучшего» — по цене найма', () => {
+  it('весть о пустом месте: один ответ «Подождать» даром, место не занимает; выбор нового — окном совета', () => {
     const s = town(11, 10);
     hire(s, 'treasurer');
     s.time = councilOf(s).seats.treasurer!.until;
     tick(s, 1);
     const ev = s.inbox.find((e) => e.defId === vacancyEvent('treasurer'))!;
     expect(ev).toBeTruthy();
-    const best = bestCandidate(s, 'treasurer')!;
+    const def = EVENT_BY_ID[ev.defId];
+    expect(def.options.map((o) => o.label)).toEqual(['Подождать']);
+    expect(def.silence).toBe(0);
     const gold = s.gold;
-    const r = resolveEvent(s, 1, `${ev.defId}:${ev.at}`);
+    const r = resolveEvent(s, 0, `${ev.defId}:${ev.at}`);
     expect(r.error).toBeNull();
-    expect(councilOf(s).seats.treasurer?.n).toBe(best.n);
-    expect(s.gold).toBeCloseTo(gold - best.price, 6);
+    expect(councilOf(s).seats.treasurer).toBeUndefined();
+    expect(s.gold).toBe(gold);
+    expect(vacancyPost(ev.defId)).toBe('treasurer');
+    expect(vacancyPost('wolves')).toBeNull();
+    // Выбор — в совете: тот же лучший проситель назначается окном.
+    expect(hireAdvisor(s, 'treasurer', bestCandidate(s, 'treasurer')!.n)).toBeNull();
+    expect(councilOf(s).seats.treasurer).toBeTruthy();
   });
 });
 

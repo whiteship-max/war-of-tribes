@@ -12,8 +12,9 @@ import { createInitialState } from '@/game/state';
 import { buildingOfType } from '@/game/derived';
 import { startUpgrade } from '@/game/sim/actions';
 import { ADVISOR_POSTS, advisorWage, candidateCount, giftOf } from '@/game/councilrules';
-import { POST_GIFT, TRAIT_WORD } from '@/game/data/council';
-import { bestCandidate, candidatesOf, councilOf, hireAdvisor, titleOf } from '@/game/sim/council';
+import { POST_GIFT, TRAIT_WORD } from '@/game/data/councilWords';
+import { councilOf, titleOf, vacancyEvent } from '@/game/sim/council';
+import { bestCandidate, candidatesOf, hireAdvisor } from '@/game/sim/candidates';
 import { TUTORIAL } from '@/game/data/tutorial';
 import { HINTS } from '@/game/data/hints';
 import { hallTiles } from './hall';
@@ -161,6 +162,15 @@ describe('совет Ратуши в окне', () => {
     }
     expect(html.match(/>Назначить</g)?.length).toBe(list.length);
     if (list.some((c) => c.price === 0)) expect(html).toContain('без платы вперёд');
+  });
+
+  it('весть о пустом месте ведёт в Ратушу: дверь в карточке почты, раздел «Советники»', async () => {
+    const { eventDispatch } = await import('@/ui/realm/dispatch');
+    const s = town();
+    const ev = { defId: vacancyEvent('marshal'), at: s.time };
+    expect(eventDispatch(s, ev as never, s.time)!.council).toBe(true);
+    expect(eventDispatch(s, { ...ev, defId: 'wolves' } as never, s.time)?.council).toBeUndefined();
+    expect(code('ui/realm/Mail.tsx')).toMatch(/d\.council && \([\s\S]*?setTownTab\('council'\);[\s\S]*?goTo\(\{ kind: 'building', type: 'town_hall' \}\)[\s\S]*?<b>Ратуша<\/b>/);
   });
 
   it('«Сословия» — раздел оставлен и закрыт', async () => {

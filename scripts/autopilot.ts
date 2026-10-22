@@ -54,7 +54,7 @@ import { recruitCost, startRecruit } from '@/game/sim/army';
 import { forgeCost, startForge } from '@/game/sim/smithy';
 import { dismissSoldiers } from '@/game/sim/upkeep';
 import { hireMasters, mastersInfo } from '@/game/sim/masters';
-import { bestCandidate, hireAdvisor } from '@/game/sim/council';
+import { bestCandidate, hireAdvisor } from '@/game/sim/candidates';
 import { advisorWage } from '@/game/councilrules';
 import {
   armySize,
