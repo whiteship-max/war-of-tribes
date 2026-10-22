@@ -110,11 +110,28 @@ function bootMinifyPlugin(): Plugin {
  */
 const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
   {
-    // Карта мира (РТ-2, docs/stability.md, «РТ-2»: первая загрузка не растёт от сословий) — своим куском по кнопке низа,
-    // подтягивается после входа в партию (`App.mapUi`).
+    // Карта мира (РТ-2, docs/stability.md, «РТ-2»: первая загрузка не растёт от сословий) — своим куском по кнопке низа;
+    // код подтягивается в фоне, когда замок встал, в простое и не на медленной сети (`boot/warm`, `ui/map/chunks`, РТ-2б).
     name: 'карта мира',
     door: /\/src\/ui\/map\/WorldMap\.tsx$/,
     owns: [/\/src\/ui\/map\/WorldMap\.tsx$/],
+  },
+  {
+    // «Рейтинг» и «Молва края» (РТ-1) — окна кнопок карты; подтягиваются в фоне следом за картой (РТ-2б).
+    name: 'рейтинг',
+    door: /\/src\/ui\/map\/Rating\.tsx$/,
+    owns: [/\/src\/ui\/map\/Rating\.tsx$/],
+  },
+  {
+    name: 'молва края',
+    door: /\/src\/ui\/map\/Feed\.tsx$/,
+    owns: [/\/src\/ui\/map\/Feed\.tsx$/],
+  },
+  {
+    // Тело окна «Скоро зима» (РТ-2б) — к своему часу или в фоне после замка; страж слоя модалок (`WinterModal`) — в первой.
+    name: 'окно зимы',
+    door: /\/src\/ui\/WinterBody\.tsx$/,
+    owns: [/\/src\/ui\/WinterBody\.tsx$/],
   },
   {
     // Замеры с телефонов (docs/telemetry.md): в первую загрузку едет только счёт кадров (`perf/telemetry`), а сборка пачки

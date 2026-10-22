@@ -101,7 +101,7 @@ export const VOICE1 = [
   'ui/parts/BugReport.tsx', 'ui/parts/TownHall.tsx', 'ui/parts/TownBuild.tsx', 'ui/parts/Barracks.tsx', 'ui/parts/Muster.tsx',
   'ui/parts/Market.tsx', 'ui/parts/Masters.tsx', 'ui/parts/Tavern.tsx', 'ui/parts/Walls.tsx', 'ui/parts/Statue.tsx',
   'ui/parts/Provisions.tsx', 'ui/parts/policyWords.ts', 'ui/panels/BuildingPanel.tsx', 'ui/panels/PeoplePanel.tsx',
-  'ui/panels/PopPanel.tsx', 'ui/panels/MoralePanel.tsx', 'ui/OfflineModal.tsx', 'ui/WinterModal.tsx', 'ui/map/Rating.tsx',
+  'ui/panels/PopPanel.tsx', 'ui/panels/MoralePanel.tsx', 'ui/OfflineModal.tsx', 'ui/WinterBody.tsx', 'ui/map/Rating.tsx',
   'game/data/hints.ts', 'game/data/tutorial.ts', 'game/data/policy.ts', 'game/data/quests.ts', 'game/data/troops.ts',
   'game/data/equipment.ts', 'game/data/buildings.ts', 'game/data/jobs.ts', 'game/data/yards.ts',
   // Стабильность державы (СБ-1, docs/stability.md): слова механики, раздела и вестей мятежа.
@@ -133,7 +133,7 @@ export const VOICE4 = [
   'src/ui/parts/Frozen.tsx', 'src/ui/parts/Temple.tsx', 'src/ui/parts/daily/Quiz.tsx', 'src/ui/parts/daily/DailyPage.tsx',
   'src/ui/parts/TroopCardView.tsx', 'src/ui/SceneTrouble.tsx', 'src/scenelog.ts', 'src/ui/panels/QuestsPanel.tsx',
   'src/ui/panels/ProfilePanel.tsx', 'src/ui/panels/ArmyPanel.tsx', 'src/ui/panels/OrderPanel.tsx', 'src/ui/panels/SeasonPanel.tsx',
-  'src/ui/realm/Mail.tsx', 'src/ui/WinterModal.tsx', 'src/ui/next/Treasury.tsx', 'src/game/sim/survey.ts', 'src/game/sim/daily.ts',
+  'src/ui/realm/Mail.tsx', 'src/ui/WinterBody.tsx', 'src/ui/next/Treasury.tsx', 'src/game/sim/survey.ts', 'src/game/sim/daily.ts',
   'src/game/sim/hire.ts', 'src/game/sim/tower.ts', 'src/game/sim/workers.ts', 'src/world/works.ts', 'src/game/data/troops.ts',
 ];
 

@@ -111,7 +111,7 @@ describe('где стоит ловушка', () => {
     // С РТ-1 — и «Здания» низа: окно той же шторки.
     const atEntry = new Set(['Hud', 'Alerts', 'WarSigns', 'Nav', 'TipLayer', 'Hints', 'CityNaming', 'WorldNew', 'MarchesNew', 'ArmyPanel', 'PeoplePanel', 'SiegePanel', 'SortiePanel', 'CampPanel', 'MoralePanel', 'OrderPanel', 'BuildingPanel', 'ReportPanel', 'PopPanel', 'QuestsPanel', 'SeasonPanel', 'BuildingsPanel']);
     const onTap = lazies.filter((n) => !atEntry.has(n));
-    // С РТ-2 — и карта мира: своим куском по кнопке низа (подтягивается после входа).
+    // С РТ-2 — и карта мира: своим куском по кнопке низа (код подтягивается в фоне, когда замок встал, — `boot/warm`, РТ-2б).
     expect(onTap.sort()).toEqual(['BugReport', 'Minigame', 'Prologue', 'RealmMenu', 'Trades', 'Treasury', 'WorldMap']);
     for (const name of [...onTap, 'SheetContent', 'WorldMap']) expect(guarded(app, name), name).toBe(true);
   });

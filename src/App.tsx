@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
 import { Sheet } from './ui/Sheet';
-import { WinterModal } from './ui/WinterModal';
+import { WinterModal, winterUi } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
 import { PaceModal } from './ui/PaceModal';
@@ -22,6 +22,8 @@ import { tutorialActive } from './game/data/tutorial';
 import { Leave } from './ui/parts/leave';
 import { openFromLink } from '@/ui/realm/golink';
 import { Crash } from './ui/Crash';
+import { warmAfter } from './boot/warm';
+import { MAP_CHUNKS, mapUi } from './ui/map/chunks';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -55,10 +57,9 @@ const SeasonPanel = lazy(() => import('./ui/panels/SeasonPanel').then((m) => ({ 
  */
 const nextUi = () => import('./ui/next');
 /**
- * Карта мира — своим куском (РТ-2: первая загрузка не растёт от сословий): открывается по кнопке, а кусок подтягивается сразу
- * после входа в партию (`mapPrefetch`), и первое открытие его уже не ждёт.
+ * Карта мира — своим куском (РТ-2: первая загрузка не растёт от сословий): открывается по кнопке, а её код вместе с
+ * «Рейтингом» и «Молвой края» подтягивается в фоне, когда замок встал и браузер простаивает (`boot/warm`, РТ-2б).
  */
-const mapUi = () => import('./ui/map/WorldMap');
 const WorldMap = lazy(() => mapUi().then((m) => ({ default: m.WorldMap })));
 const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
 const Alerts = lazy(() => nextUi().then((m) => ({ default: m.Alerts })));
@@ -282,9 +283,10 @@ export function App() {
     if (ready) void bootWorld();
   }, [ready, bootWorld]);
 
-  // Кусок карты — сразу после входа в партию: игрок открывает её кнопкой низа, и ждать куска ему не придётся.
+  // Карта, «Рейтинг», «Молва края» и окно зимы — кодом, без отрисовки: после входа в партию, когда замок встал целиком, в
+  // простое и не на медленной сети (`boot/warm`, РТ-2б). На медленной куски едут по касанию (зима — к своему часу).
   useEffect(() => {
-    if (ready && started) void mapUi();
+    if (ready && started) return warmAfter([...MAP_CHUNKS, winterUi]);
   }, [ready, started]);
 
   // Весть Telegram о предложении соседа ведёт кнопкой прямо к нему (ДП-1): когда игрок вошёл в партию и мир поднят.
