@@ -65,7 +65,7 @@ export const MAID_LOOKS: Record<MaidId, MaidLook> = {
 };
 
 /** Облик покоев — лучший по оценке (docs/characters.md, ЛЦ-6, «Оценка»). */
-export const BEST: MaidId = 'a';
+export const BEST: MaidId = 'b';
 
 /** Облик по адресу (`?maid=a|b|c`), иначе — лучший. */
 export function maidOf(search: string | null = typeof location !== 'undefined' ? location.search : null): MaidId {

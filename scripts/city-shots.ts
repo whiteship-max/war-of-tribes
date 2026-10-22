@@ -530,7 +530,7 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     // сразу (`ChambersLife.stage`); списком — несколько (`LIFE='[{"who":"maid"},{"cat":"floor"}]'`).
     if (process.env.LIFE) {
       // Супруга и гонец — своими ленивыми кусками (ЛЦ-2, ЛЦ-3): ставим, когда они приехали, иначе в кадре — запасная сетка.
-      const r = await tab.eval<string>(`(async () => { const l = window.__chambers.life; await l.consortReady; await l.heraldReady; await l.advisorReady; await l.catReady; for (const s of [].concat(${process.env.LIFE})) l.stage(s); return JSON.stringify('жизнь: ' + JSON.stringify(l.view())); })()`);
+      const r = await tab.eval<string>(`(async () => { const l = window.__chambers.life; await l.consortReady; await l.heraldReady; await l.advisorReady; await l.maidReady; await l.catReady; for (const s of [].concat(${process.env.LIFE})) l.stage(s); return JSON.stringify('жизнь: ' + JSON.stringify(l.view())); })()`);
       console.log(`  ${r}`);
       if (process.env.BENCH) {
         await sleep(1500);

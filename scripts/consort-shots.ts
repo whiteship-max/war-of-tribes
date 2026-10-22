@@ -43,7 +43,7 @@ const LIGHT = process.env.LIGHT === 'night' ? 'night' : 'day';
 const WHO = process.env.WHO === 'herald' ? 'herald' : process.env.WHO === 'advisor' ? 'advisor' : process.env.WHO === 'maid' ? 'maid' : 'wife';
 /** Облики: у супруги — `looks`, у гонца — `heralds`, у советника — `advisors`; рядом — первый облик каждого (`WIFE`, `HERALD`, `ADVISOR`). */
 const looksOf = (ids: string[]): Record<string, unknown> => (WHO === 'herald' ? { who: 'herald', heralds: ids } : WHO === 'advisor' ? { who: 'advisor', advisors: ids } : WHO === 'maid' ? { who: 'maid', maids: ids } : { looks: ids });
-const PAIR = { looks: [process.env.WIFE ?? 'b'], heralds: [process.env.HERALD ?? 'b'], advisors: [process.env.ADVISOR ?? 'a'], maids: [process.env.MAID ?? 'a'] };
+const PAIR = { looks: [process.env.WIFE ?? 'b'], heralds: [process.env.HERALD ?? 'b'], advisors: [process.env.ADVISOR ?? 'a'], maids: [process.env.MAID ?? 'b'] };
 const JPG = process.env.PNG !== '1';
 
 async function snap(tab: Tab, name: string, w: number, h: number, ask: Record<string, unknown>): Promise<void> {

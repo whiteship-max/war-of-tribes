@@ -418,7 +418,9 @@ describe('покои: бюджет живых (Г-7)', () => {
     knock(room);
     // Кусок ещё не приехал (жизнь покоев только что родилась): служанка ждёт внизу.
     expect(room.life.order('wine')).toBe(true);
-    run(room, 6);
+    // Граница области: слуга уже ушёл, и служанку уже позвали бы (3 с после его ухода) — вот здесь она ждёт куска.
+    run(room, 15);
+    expect(room.life.personOf('servant'), 'слуга ушёл — служанку позвали').toBeNull();
     expect(room.life.personOf('maid'), 'кусок в пути — служанки нет').toBeNull();
     expect(room.life.view().busy, 'сцена держит просьбы').toBe(true);
     await room.life.maidReady;

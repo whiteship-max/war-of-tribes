@@ -405,8 +405,8 @@ describe('служанка: живость (ЛЦ-6)', () => {
     for (let i = 0; i < 120; i++) {
       const p = mo.pose(i / 60, (i / 60) * 6, 1, STILL, STILL);
       ys.push(p.lift[1]);
-      skirt.push(p.turns.skirtF[2]);
-      braid.push(p.turns.braid[0]);
+      skirt.push(p.turns.skirtF?.[2] ?? 0);
+      braid.push(p.turns.braid?.[0] ?? 0);
     }
     expect(Math.max(...ys) - Math.min(...ys), 'таз плывёт ровно').toBeLessThan(0.012);
     expect(Math.max(...skirt) - Math.min(...skirt), 'юбка — шагом').toBeGreaterThan(0.05);
