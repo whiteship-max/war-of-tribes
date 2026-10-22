@@ -86,7 +86,7 @@ describe('посадка города на рельеф', () => {
         const lo = Math.min(...rect(c.x, c.z, Math.cos(c.rot), Math.sin(c.rot), c.w, c.d, 5).map(([x, z]) => g(x, z)));
         if (lo - 0.5 > s.lo + 0.3) bad.push(`цоколь ${name} висит`);
       }
-      expect(halls.length).toBeGreaterThan(15);
+      expect(halls.length).toBeGreaterThanOrEqual(15);
       expect(bad).toEqual([]);
     });
 

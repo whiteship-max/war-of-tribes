@@ -10,6 +10,7 @@ import { ART } from '../../../scripts/icons/set';
 import { ALIAS, FIRST_SCREEN, drawnOf } from './alias';
 import { DRAWN_ICONS, FIRST_ICONS, FIRST_SHEET } from './generated';
 import { DAY_PARTS, ICON_GROUPS, ICON_MANIFEST, ICON_PREFIXES, MOOD_STEPS, daypartOf, groupOf, iconName, moodOf } from './registry';
+import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { symbolOf } from './sheet';
 import { KIND_META } from '@/battle/names';
 
@@ -72,10 +73,17 @@ describe('набор значков: опись и рисунки', () => {
   });
 
   it('ссылки: профессия — своей постройкой, лето — солнцем; символ берётся по нарисованному имени', () => {
-    expect(drawnOf('job-farmer')).toBe('bld-farm');
+    expect(drawnOf('job-woodcutter')).toBe('bld-sawmill');
     expect(drawnOf('season-summer')).toBe('season-sun');
-    expect(drawnOf('bld-farm')).toBe('bld-farm');
-    expect(symbolOf('job-farmer')).toBe('#i-bld-farm');
+    expect(drawnOf('bld-sawmill')).toBe('bld-sawmill');
+    expect(symbolOf('job-woodcutter')).toBe('#i-bld-sawmill');
+    // Двор с двумя делами (ЗД-1): у здания свой знак, у каждого дела — свой, и ни одно дело не берёт знак здания.
+    for (const type of ['farm', 'hunter_hut', 'mine'] as const) {
+      const deeds = BUILDING_BY_ID[type].jobs ?? [];
+      expect(deeds.length, type).toBe(2);
+      for (const job of deeds) expect(drawnOf(`job-${job}`), `${type}: ${job}`).not.toBe(drawnOf(`bld-${type}`));
+      expect(drawnOf(`job-${deeds[0]}`), type).not.toBe(drawnOf(`job-${deeds[1]}`));
+    }
     for (const to of Object.values(ALIAS)) expect(DRAWN_ICONS, to).toContain(to);
   });
 

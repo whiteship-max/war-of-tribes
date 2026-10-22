@@ -127,7 +127,7 @@ export const ALIAS = {
   'evt-cr_plague': 'ui-skull',
   'evt-cr_collector': 'ui-whiteflag',
   'evt-cr_interdict': 'ui-candle',
-  'evt-harvest_feast': 'bld-farm',
+  'evt-harvest_feast': 'job-farmer',
   'evt-fair': 'bld-market',
   'evt-spring_flood': 'ui-wave',
   'evt-silt': 'season-spring',

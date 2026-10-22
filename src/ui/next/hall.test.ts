@@ -53,8 +53,8 @@ describe('группы построек — из данных игры', () => {
     for (const d of BUILDINGS) {
       const g = groupOf(d.id);
       expect(HALL_GROUPS.map((x) => x.id), d.id).toContain(g);
-      const y = d.job ? JOB_BY_ID[d.job].yield : {};
-      if ((y.food ?? 0) > 0) expect(g, `${d.id}: двор с едой`).toBe('food');
+      const food = (d.jobs ?? []).some((job) => (JOB_BY_ID[job].yield.food ?? 0) > 0);
+      if (food) expect(g, `${d.id}: двор с едой`).toBe('food');
       else if (yieldsOf(d.id).length > 0 || RAW_SERVICES.has(d.id)) expect(g, `${d.id}: двор с сырьём или мастерская`).toBe('raw');
       else expect(g, `${d.id}: не двор`).toBe(WAR.has(d.id) ? 'war' : 'city');
     }
@@ -199,14 +199,23 @@ describe('окно ратуши: сетка всех построек в ква�
     const { HallCard } = await import('./HallBuild');
     const s = createInitialState(7);
     for (const r of Object.keys(s.resources) as (keyof typeof s.resources)[]) s.resources[r] = 5000;
-    const farm = buildingOfType(s, 'farm')!;
-    s.workers = { ...s.workers, [farm.id]: 4 };
+    // Двор с одним делом — ряд рабочих и таблица выхода под ним.
+    const mill = buildingOfType(s, 'sawmill')!;
+    s.workers = { ...s.workers, woodcutter: 4 };
     stores.game = { s, act: () => undefined, sheet: null, openBuilding: () => undefined };
+    const one = renderToStaticMarkup(h(HallCard, { id: mill.id, onClose: () => undefined }));
+    expect(one).toContain('class="nx-wrow"');
+    expect(one).toContain('Выход в день');
+    expect(one).toContain('Рабочие 4');
+    expect(one).toContain('Итого');
+    // Двор с двумя делами (ЗД-1) — две плашки дел, у каждого свои руки и места; разбор — по касанию строки «В день».
+    const farm = buildingOfType(s, 'farm')!;
+    s.workers = { ...s.workers, farmer: 4, herder: 2 };
     const html = renderToStaticMarkup(h(HallCard, { id: farm.id, onClose: () => undefined }));
-    expect(html).toContain('class="nx-wrow"');
-    expect(html).toContain('Выход в день');
-    expect(html).toContain('Рабочие 4');
-    expect(html).toContain('Итого');
+    expect(html.match(/class="nx-deed"/g) ?? []).toHaveLength(2);
+    expect(html).toMatch(/>Поле<\/small><b>4<\/b><small>\/12</);
+    expect(html).toMatch(/>Загон<\/small><b>2<\/b><small>\/12</);
+    expect(html).not.toContain('Выход в день');
     expect(html).toContain('class="cost"');
     expect(html).toContain('data-tut="upgrade-farm"');
     expect(html).toMatch(/data-tut="list-farm"[^>]*>.*Открыть ›/);

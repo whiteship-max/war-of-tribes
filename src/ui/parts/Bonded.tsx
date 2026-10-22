@@ -130,7 +130,13 @@ export function BondedRelease() {
           act((st) => releaseBonded(st, count));
         }}
       >
-        {armed ? 'Точно?' : `${ORDER_TEXT.bondedIcon} Отпустить ${count} из ${total}`}
+        {armed ? (
+          'Точно?'
+        ) : (
+          <>
+            <Icon name={ORDER_TEXT.bondedIcon} /> Отпустить {count} из {total}
+          </>
+        )}
       </button>
     </>
   );

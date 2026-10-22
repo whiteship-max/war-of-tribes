@@ -19,7 +19,10 @@ import { STAB_BAND, stabPrice, stabSelfRiseCeil } from '../../src/game/stabrules
 import { crownAnswersCeil, crownEvery } from '../../src/game/crownrules.js';
 import { GOODS_SLACK, drainCeil } from './goods.js';
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
-import { headsFoodPerDay, soldierFoodPerDay, storageOf } from '../../src/game/build.js';
+import { headsFoodPerDay, prodCeil, soldierFoodPerDay, storageOf } from '../../src/game/build.js';
+import { oldUpgradeCost } from '../../src/game/yardmerge.js';
+import { createInitialState } from '../../src/game/state.js';
+import { productionPerDay } from '../../src/game/derived.js';
 import { powerOfCounts } from '../../src/profile/power.js';
 import { TEST_TOKEN, signInit, sqliteHome, type Home } from '../vps/testkit.js';
 
@@ -117,7 +120,7 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'stab', 'crown']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'stab', 'crown', 'prod', 'merge']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
@@ -671,5 +674,102 @@ describe('СТ-1: очередь стройки — порядок, оплата
     const first = fullWork('houses', 2) - 50;
     const ok = await gems(5607, NOW + 2000, { op: 'rush', key: 'k-rush-q002', building: 'houses', level: 2, work: first, price: rushPriceOfWork(first) });
     expect(ok.body.error ?? '').not.toBe('Такой стройки нет.');
+  });
+});
+
+describe('ЗД-1: объединённые дворы на сервере — переход без флагов, подделка — «внимание:»', () => {
+  /** Посёлок сборки до объединения: те же постройки первого уровня и три ушедших — Загон, Навес собирателей, Каменоломня. */
+  const OLD1 = { ...LEVEL1, pen: 1, gathering: 1, quarry: 1 };
+  const old = (over: Partial<WatchCard> = {}): WatchCard => card({ build: 'сохр. 23 · index-old', buildings: { ...OLD1 }, ...over });
+  const next = (a: WatchCard, over: Partial<WatchCard> = {}): WatchCard =>
+    card({ build: 'сохр. 24 · index-new', clock: NOW + MIN, time: a.time + gameSecondsOfMs(MIN), ...over });
+
+  it('стройка обеих частей на один уровень — одной стройкой двора: книга сводит её, флагов нет', async () => {
+    const p = player(5701);
+    const a = old({
+      site: { type: 'pen', level: 2, done: 40 },
+      queue: [
+        { type: 'pen', level: 2 },
+        { type: 'farm', level: 2 },
+      ],
+    });
+    expect(await p.push(a, NOW)).toBe(200);
+    const first = await p.watch();
+    // Книга после перехода: ушедших построек в ней нет, стройка двора — первая, с работой загона.
+    expect(Object.keys(first.town!.levels)).not.toContain('pen');
+    expect(first.town!.queue).toEqual(['farm:2']);
+    // Работу на первой записи книга не подтверждает (времени у неё ещё не было) — место стройки и уровень те же.
+    expect(first.town!.site).toMatchObject({ type: 'farm', level: 2 });
+    expect(await p.push(next(a, { site: { type: 'farm', level: 2, done: 40 }, queue: [{ type: 'farm', level: 2 }] }), NOW + MIN)).toBe(200);
+    const rec = await p.watch();
+    expect(kinds(rec)).toEqual([]);
+    expect(warnings(rec)).toEqual([]);
+  });
+
+  it('стройка одной части — возврат полной цены разовым делом: флагов нет; тот же рост без разового дела — «рост склада»', async () => {
+    const back = oldUpgradeCost('pen', 2);
+    expect(back.wood ?? 0, 'точка внутри правила: возврат больше выработки минуты').toBeGreaterThan(100);
+    const a = old({ site: { type: 'pen', level: 2, done: 30 }, queue: [{ type: 'pen', level: 2 }] });
+    const grown = Object.fromEntries(Object.entries(a.stock).map(([k, v]) => [k, v + ((back as Record<string, number>)[k] ?? 0)]));
+
+    const honest = player(5702);
+    expect(await honest.push(a, NOW)).toBe(200);
+    expect(await honest.push(next(a, { queue: [], stock: grown, deeds: a.deeds + 1 }), NOW + MIN)).toBe(200);
+    const fair = await honest.watch();
+    expect(fair.town!.queue).toEqual([]);
+    expect(fair.town!.site).toBeNull();
+    expect(kinds(fair)).toEqual([]);
+
+    const sly = player(5703);
+    expect(await sly.push(a, NOW)).toBe(200);
+    expect(await sly.push(next(a, { queue: [], stock: grown }), NOW + MIN)).toBe(200);
+    expect(kinds(await sly.watch())).toContain('stock');
+  });
+
+  it('уровень двора — больший из двух прежних: книга сводит подтверждённое старой описи, рейтинг не теряет уровней', async () => {
+    const p = player(5704);
+    expect(await p.push(old(), NOW)).toBe(200);
+    const rec = await p.watch();
+    for (const t of ['pen', 'gathering', 'quarry']) expect(rec.town!.levels, t).not.toHaveProperty(t);
+    expect(rec.town!.levels.farm).toBe(1);
+    expect(kinds(rec)).toEqual([]);
+  });
+
+  it('опись сборки 24 называет ушедшие постройки — «постройки до объединения», «внимание:»; сборки 23 — нет', async () => {
+    const cheat = player(5705);
+    expect(await cheat.push(card({ build: 'сохр. 24 · index-new', buildings: { ...OLD1, pen: 6 } }), NOW)).toBe(200);
+    const rec = await cheat.watch();
+    expect(kinds(rec)).toContain('gone');
+    expect(warnings(rec).some((t) => /которых с объединения дворов нет: Загон 6/.test(t))).toBe(true);
+    // Сведено правилом перехода, а подтверждено — не больше книги: шестой уровень загона с первой записи — не Ферма 6, а то,
+    // что стройка даёт без времени (даровые минуты уровня, как у всякой постройки), и флаг стройки сверх подтверждённой.
+    expect(rec.town!.levels.farm).toBeLessThanOrEqual(2);
+    expect(kinds(rec)).toContain('built');
+
+    const before = player(5706);
+    expect(await before.push(old(), NOW)).toBe(200);
+    expect(kinds(await before.watch())).not.toContain('gone');
+  });
+
+  it('выработка выше мест дел — «выработка сверх мест», «внимание:»; честная — без флага', async () => {
+    const s = createInitialState(3);
+    // Оба дела Фермы и оба дела Охотничьего двора полны: честная выработка — у потолка мест первого уровня.
+    s.workers = { farmer: 12, herder: 12 };
+    s.pop = START_POP;
+    const made = productionPerDay(s);
+    const prod = Object.fromEntries(Object.entries(made).map(([k, v]) => [k, Math.round(v)]));
+    const ceil = prodCeil(LEVEL1, START_POP);
+    expect(prod.food, 'точка внутри правила: еда есть, и она ниже потолка').toBeGreaterThan(0);
+    expect(prod.food).toBeLessThanOrEqual(ceil.food);
+
+    const honest = player(5707);
+    expect(await honest.push(card({ prod }), NOW)).toBe(200);
+    expect(kinds(await honest.watch())).not.toContain('prod');
+
+    const cheat = player(5708);
+    expect(await cheat.push(card({ prod: { ...prod, food: Math.ceil(ceil.food * 3) } }), NOW)).toBe(200);
+    const rec = await cheat.watch();
+    expect(kinds(rec)).toContain('prod');
+    expect(warnings(rec).some((t) => /выработка сверх мест/.test(t) && /еда/.test(t))).toBe(true);
   });
 });

@@ -1,11 +1,11 @@
-import type { ActiveEvent, GameState, LogEntry } from './types';
+import type { ActiveEvent, BuildingTypeId, GameState, LogEntry } from './types';
 import { bonesToCharcoal } from './charcoal';
-import { foldParty, oldUpgradeCost, type PartyFold } from './yardmerge';
+import { MERGED_PAIRS, foldParty, oldUpgradeCost, type PartyFold } from './yardmerge';
 import { DAY_LENGTH } from './constants';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS } from './data/upkeep';
 import { PACE_TEXT } from './data/pace';
 import { daysSpan } from './span';
-import { buildingTitle, taxIncomePerDay, wagesPerDay } from './derived';
+import { buildingOfType, buildingTitle, taxIncomePerDay, wagesPerDay } from './derived';
 import { refund } from './sim/pay';
 import { YARD_BY_JOB } from './data/yards';
 import { jobsOf } from './data/buildings';
@@ -252,13 +252,12 @@ function migrate(s: GameState, from: number, data: SavedState, fold: PartyFold |
  */
 function settleFold(s: GameState, fold: PartyFold): void {
   for (const r of fold.refunds) refund(s, oldUpgradeCost(r.type, r.level), 1);
-  if (fold.merged.length === 0) return;
-  const deeds = (type: (typeof fold.merged)[number]['kept']): string =>
+  const deeds = (type: BuildingTypeId): string =>
     jobsOf(type)
       .map((job) => YARD_BY_JOB.get(job)?.deed.toLowerCase())
       .filter(Boolean)
       .join(' и ');
-  const yards = fold.merged.map((m) => `${buildingTitle(s, m.kept)} (${deeds(m.kept)}) — ур. ${m.level}`).join(', ');
+  const yards = MERGED_PAIRS.map(({ kept }) => `${buildingTitle(s, kept)} (${deeds(kept)}) — ур. ${buildingOfType(s, kept)?.level ?? 1}`).join(', ');
   tell(s, `Дворы за стеной собраны по два дела: ${yards}. Уровень — больший из двух прежних, люди остались на своих делах.`, 'info');
   if (fold.refunds.length > 0) {
     tell(s, `Стройка ${fold.refunds.length === 1 ? 'прежнего двора отменена' : 'прежних дворов отменена'}, цена вернулась на склад целиком.`, 'info');

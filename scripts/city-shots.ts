@@ -7,7 +7,9 @@
 //   BUDGET=1 npm run city:shots                — бюджет по уровням счётом (без браузера); `BUILD_MS=1` — и цена сборки мира
 //   GAME=1 QUALITY=medium npm run city:shots   — сама игра по адресу `?look=city`: стартовый кадр
 //   GAME=1 PANEL=barracks,stable npm run city:shots — окна построек: открытое и прокрученное к «Найму» (Р-3)
-//                                                (сцена города в игре, не стенд), TAG и QUALITY те же
+//                                                (сцена города в игре, не стенд), TAG и QUALITY те же;
+//                                                `PANELSTATE='{"workers":{"farmer":8}}'` — поля партии поверх перед окнами,
+//                                                печатает, влезает ли окно без прокрутки (ЗД-1, docs/city_v3.md)
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
 //                                                точка плана; `…:60:150` — камера повёрнута на 150°), `WXMAP=1` —
@@ -309,6 +311,7 @@ async function panelShots(tab: Tab): Promise<void> {
     s.nextEventAt = s.time + 1e9;
     for (const k of Object.keys(s.resources)) s.resources[k] += 500;
     for (const k of Object.keys(s.equipment)) s.equipment[k] += 20;
+    Object.assign(s, ${JSON.stringify(JSON.parse(process.env.PANELSTATE ?? '{}'))});
     window.__game.setState({ s: { ...s } });
     return JSON.stringify('ok');
   })()`);
@@ -326,6 +329,9 @@ async function panelShots(tab: Tab): Promise<void> {
       console.log(`  окно ${type} → .city-shots/${name}`);
     };
     await snap(`${TAG}-${type}-open.png`);
+    // Влезает ли окно без прокрутки: тело шторки не длиннее своего окна (ЗД-1: окно двора на 390×844).
+    const fit = await tab.eval<{ scroll: number; client: number }>(`JSON.stringify((() => { const b = document.querySelector('.sheet.open .sheet-body'); return { scroll: b ? b.scrollHeight : 0, client: b ? b.clientHeight : 0 }; })())`);
+    console.log(`  окно ${type}: тело ${fit.scroll} px из ${fit.client} — ${fit.scroll <= fit.client + 1 ? 'без прокрутки' : 'с прокруткой'}`);
     const found = await tab.eval<boolean>(`JSON.stringify((() => { const h = [...document.querySelectorAll('h3')].find((e) => e.textContent.trim() === 'Найм'); if (h) h.scrollIntoView({ block: 'start' }); return !!h; })())`);
     await sleep(800);
     if (found) await snap(`${TAG}-${type}-hire.png`);

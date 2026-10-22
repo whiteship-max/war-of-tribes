@@ -170,6 +170,9 @@ export { levelOutputMult } from './selfcost';
  */
 export const deedSlots = (b: Building): number => slotsAt(BUILDING_BY_ID[b.type], b.level);
 
+/** Дела здания по порядку — профессии, которым оно даёт места (ЗД-1); у здания без мест — пусто. */
+export const deedsOf = (type: BuildingTypeId): readonly JobId[] => jobsOf(type);
+
 /** Рабочих мест в здании — на всех его делах. */
 export function buildingSlots(b: Building): number {
   return deedSlots(b) * jobsOf(b.type).length;

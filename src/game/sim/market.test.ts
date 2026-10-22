@@ -17,6 +17,9 @@ import {
   buildingOfType,
   buildingSlots,
   dayOf,
+  deedBuilding,
+  deedSlots,
+  deedWorkers,
   foodConsumptionPerDay,
   marketLeft,
   marketOffer,
@@ -68,14 +71,11 @@ function city(pop = 700, marketLevel = MAX_BUILDING_LEVEL): GameState {
   for (const type of [
     'houses',
     'storage',
-    'gathering',
     'sawmill',
-    'quarry',
     'hunter_hut',
     'mine',
     'workshop',
     'farm',
-    'pen',
     'church',
     'town_hall',
     'smithy',
@@ -103,17 +103,17 @@ function hungryTribe(): GameState {
   s.pop = 240;
   s.workers = {};
   s.freeJobs = {};
-  for (const type of ['houses', 'storage', 'sawmill', 'quarry', 'mine', 'town_hall'] as const) {
+  for (const type of ['houses', 'storage', 'sawmill', 'mine', 'town_hall'] as const) {
     place(s, type, 5);
   }
-  // Единственный источник еды — маленький навес собирателей: поле, загон и
-  // охотничий домик стоят пустыми, люди ушли на лес, камень и руду.
-  place(s, 'gathering', 2);
+  // Единственный источник еды — сбор маленького Охотничьего двора: поле, загон и
+  // охота стоят пустыми, люди ушли на лес, камень и руду.
+  place(s, 'hunter_hut', 2);
   place(s, 'market', 5);
-  for (const type of ['sawmill', 'quarry', 'mine', 'gathering'] as const) {
-    const b = buildingOfType(s, type)!;
-    while (workerCount(s, b.id) < buildingSlots(b)) {
-      if (assignWorker(s, b.id) !== null) break;
+  for (const job of ['woodcutter', 'stonecutter', 'miner', 'gatherer'] as const) {
+    const b = deedBuilding(s, job)!;
+    while (deedWorkers(s, job) < deedSlots(b)) {
+      if (assignWorker(s, b.id, 1, job) !== null) break;
     }
   }
   s.resources = { wood: 2000, stone: 1000, food: 1200, hides: 200, charcoal: 200, copper: 0, iron: 0 };

@@ -176,7 +176,7 @@ describe('стройка: головы, а не процент', () => {
     assignWorker(t, hall(t).id, 4);
     const base = buildRate(t);
     t.masters = 6;
-    const crafters = t.workers[hall(t).id];
+    const crafters = t.workers.crafter;
     expect(crafters, 'точка внутри области: в Мастерской есть и свои люди').toBe(4);
     expect(mastersBuildShare(t), 'панель показывает ровно прибавку').toBeCloseTo(buildRate(t) - base, 9);
     expect(mastersBuildShare(t), 'шесть мастеров — шесть голов из десяти').toBeCloseTo(crafterBuildShare(t) * (6 / 10), 9);
@@ -282,13 +282,13 @@ describe('места: мастер стоит на месте Мастерско
     const slots = buildingSlots(b);
     assignWorker(s, b.id, slots - 20);
     expect(hireMasters(s, 20)).toBeNull();
-    const workers = s.workers[b.id];
+    const workers = s.workers.crafter;
     b.level -= 1;
     const over = handsCount(s, b.id) - buildingSlots(b);
     expect(over, 'точка внутри области: мест не хватает').toBeGreaterThan(0);
     expect(over, 'и мастеров хватает, чтобы уйти за всех').toBeLessThanOrEqual(20);
     normalizeAssignments(s);
-    expect(s.workers[b.id], 'люди Мастерской на местах').toBe(workers);
+    expect(s.workers.crafter, 'люди Мастерской на местах').toBe(workers);
     expect(mastersCount(s), 'ушли наёмные').toBe(20 - over);
   });
 });

@@ -28,14 +28,14 @@ function sources(): { file: string; code: string }[] {
 
 /** Тело функции `name` в исходнике: от объявления до закрывающей скобки в начале строки. */
 function body(code: string, name: string): string {
-  const at = code.search(new RegExp(`export function ${name}\\(`));
+  const at = code.search(new RegExp(`(?:export )?function ${name}\\(`));
   if (at < 0) return '';
   const end = code.indexOf('\n}\n', at);
   return code.slice(at, end < 0 ? undefined : end);
 }
 
 describe('плата и возврат цены — одна дверь', () => {
-  it('возврат цены зовут ровно четыре отмены, и своего возврата ни у одной нет', () => {
+  it('возврат цены зовут ровно четыре отмены и ступень перехода ЗД-1, и своего возврата ни у одной нет', () => {
     // Вызовы `refund` по всему `src`, кроме самой двери, — поимённо.
     const calls: string[] = [];
     for (const { file, code } of sources()) {
@@ -44,7 +44,7 @@ describe('плата и возврат цены — одна дверь', () => 
       if (n > 0) calls.push(`${file} ×${n}`);
     }
     expect(calls.sort()).toEqual(
-      ['game/sim/actions.ts ×1', 'game/sim/army.ts ×1', 'game/sim/smithy.ts ×1', 'game/sim/survey.ts ×1'].sort(),
+      ['game/save.ts ×1', 'game/sim/actions.ts ×1', 'game/sim/army.ts ×1', 'game/sim/smithy.ts ×1', 'game/sim/survey.ts ×1'].sort(),
     );
 
     // Каждая отмена возвращает через дверь и не пишет в склад сама: пятая копия
@@ -54,6 +54,8 @@ describe('плата и возврат цены — одна дверь', () => 
       ['game/sim/army.ts', 'cancelRecruit'],
       ['game/sim/smithy.ts', 'cancelForge'],
       ['game/sim/survey.ts', 'cancelSurvey'],
+      // Стройка ушедших частей пары, которую не на что перенести (ступень 23 → 24, `yardmerge.foldSites`).
+      ['game/save.ts', 'settleFold'],
     ];
     const all = new Map(sources().map((x) => [x.file, x.code]));
     for (const [file, name] of cancels) {

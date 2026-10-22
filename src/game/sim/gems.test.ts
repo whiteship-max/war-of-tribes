@@ -353,13 +353,13 @@ describe('ратуша ускоряет стройку', () => {
     const shop = buildingOfType(s, 'workshop')!;
     shop.level = 3;
     s.pop = 200;
-    s.workers[shop.id] = 10;
+    s.workers.crafter = 10;
     // Точка внутри области: множитель ратуши не единица, ремесленники есть.
     expect(townHallBuildMult(s)).toBeGreaterThan(1);
     expect(crafterBuildRate(s)).toBeGreaterThan(0);
     const full = buildRate(s);
     const share = crafterBuildShare(s);
-    s.workers[shop.id] = 0;
+    s.workers.crafter = 0;
     // Сняли ремесленников — они стали свободными руками: их простой труд вычитается отдельно.
     const withoutShop = buildRate(s) - 10 * BUILDER_RATE * seasonMods(s).build * townHallBuildMult(s);
     expect(full - withoutShop).toBeCloseTo(share, 6);

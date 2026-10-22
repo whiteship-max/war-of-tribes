@@ -18,6 +18,7 @@
 import type { JobId } from '../types';
 import { FEAST_DAYS, RITE_MORALE } from '../constants';
 import { SEASON_DAYS } from './seasons';
+import { YARDS } from './yards';
 import { TAX_BY_ID } from './policy';
 import { discontentOf } from '../stabrules';
 import type { IconName } from '@/ui/icons/alias';
@@ -68,7 +69,7 @@ export const MOOD_BIG = discontentOf(TAX_BY_ID.moderate.moralePenalty);
 const LONG = 2 * SEASON_DAYS;
 
 export const BOONS: BoonDef[] = [
-  { id: 'harvest_joy', icon: 'bld-farm', name: 'Праздник урожая', days: FEAST_DAYS, morale: BOON_JOY },
+  { id: 'harvest_joy', icon: 'job-farmer', name: 'Праздник урожая', days: FEAST_DAYS, morale: BOON_JOY },
   { id: 'fair', icon: 'bld-market', name: 'Ярмарка', days: FEAST_DAYS, jobs: { crafter: BOON_UP }, morale: BOON_CHEER },
   { id: 'flood', icon: 'ui-wave', name: 'Залитые поля', days: SEASON_DAYS, jobs: { farmer: BOON_DOWN } },
   { id: 'silt_field', icon: 'season-spring', name: 'Ил на полях', days: SEASON_DAYS, jobs: { farmer: BOON_UP } },
@@ -102,19 +103,16 @@ export const BOONS: BoonDef[] = [
 
 export const BOON_BY_ID = Object.fromEntries(BOONS.map((b) => [b.id, b])) as Record<string, BoonDef>;
 
-/** Чем назван двор в строке усилителя. */
-const JOB_WORD: Record<JobId, string> = {
+/**
+ * Чем названо дело в строке усилителя. Дело двора — своим именем из таблицы дворов (ЗД-1: «Поле», «Загон», «Руда»,
+ * «Камень» — те же слова, что в окне двора), прочие — здесь.
+ */
+const JOB_WORD: Partial<Record<JobId, string>> = {
   idle: 'Свободные руки',
-  gatherer: 'Сбор',
-  hunter: 'Охота',
-  woodcutter: 'Лес',
-  stonecutter: 'Каменоломня',
-  miner: 'Рудник',
-  farmer: 'Поля',
-  herder: 'Выпас',
   crafter: 'Мастерские',
   smith: 'Кузница',
   priest: 'Служители',
+  ...Object.fromEntries(YARDS.map((y) => [y.job, y.deed])),
 };
 
 /** «+25%», «−25%»: множитель как сдвиг в процентах, минус длинный. */
@@ -129,7 +127,7 @@ const moodPct = (d: number): string => `${d > 0 ? '+' : '−'}${Math.round(Math.
 /** Что усилитель делает — словами, по полю на кусок: «Поля −25%, мораль −4». Числа — из самого усилителя. */
 export function boonWords(b: BoonDef): string {
   const parts: string[] = [];
-  for (const [job, m] of Object.entries(b.jobs ?? {}) as [JobId, number][]) parts.push(`${JOB_WORD[job]} ${pct(m)}`);
+  for (const [job, m] of Object.entries(b.jobs ?? {}) as [JobId, number][]) parts.push(`${JOB_WORD[job] ?? job} ${pct(m)}`);
   if (b.build !== undefined) parts.push(`стройка ${pct(b.build)}`);
   if (b.food !== undefined) parts.push(`еды уходит ${pct(b.food)}`);
   if (b.heating !== undefined) parts.push(`дров на тепло ${pct(b.heating)}`);

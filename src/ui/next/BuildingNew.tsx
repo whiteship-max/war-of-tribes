@@ -12,7 +12,7 @@
 import { type ReactNode } from 'react';
 import type { Building, JobId } from '@/game/types';
 import { useGame } from '@/game/store';
-import { MAX_BUILDING_LEVEL } from '@/game/constants';
+import { MAX_BUILDING_LEVEL, RESOURCE_IDS } from '@/game/constants';
 import { dec } from '@/game/num';
 import { BUILDING_BY_ID, jobsOf } from '@/game/data/buildings';
 import { YARD_BY_JOB } from '@/game/data/yards';
@@ -23,6 +23,7 @@ import {
   bondedTotal,
   buildRate,
   buildingById,
+  buildingProduction,
   buildingTitle,
   deedBonded,
   deedMasters,
@@ -34,8 +35,11 @@ import {
   isOutsideWall,
   isSite,
   maxLevelFor,
+  seasonMods,
+  seasonOf,
   upgradeInfo,
 } from '@/game/derived';
+import { SEASON_META } from '@/game/data/seasons';
 import { assignBonded, assignWorker, cancelUpgrade, startUpgrade, unassignBonded, unassignWorker } from '@/game/sim/actions';
 import { asGame } from '@/game/pace';
 import { Icon } from '@/ui/icons/Icon';
@@ -106,6 +110,8 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
               </i>
             </span>
           )}
+          {/* Двор за стеной — меткой под уровнем; что это значит — в подсказке по значку (`buildingTip`). */}
+          {isOutsideWall(b.type) && <small className="nx-bout">за стеной</small>}
         </div>
         {canLevel && !site && !top && (
           <button className="nx-go nx-up" disabled={up.blocked !== null} onClick={() => act((st) => startUpgrade(st, b.id))}>
@@ -146,8 +152,6 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
           <RushButton b={b} />
         </div>
       )}
-
-      {isOutsideWall(b.type) && <div className="nx-bwarn">Двор стоит за стеной. Прорвавшийся набег разгонит людей.</div>}
 
       {jobsOf(b.type).length > 1 ? (
         <Deeds b={b} gains={gains} trades />
@@ -192,6 +196,10 @@ function TradeLink({ id }: { id: MinigameId }) {
  * листе постройки ратуши (`HallBuild.HallCard`, без промыслов).
  */
 export function Deeds({ b, gains, trades = false }: { b: Building; gains: UpgradeGain[] | null; trades?: boolean }) {
+  const s = useGame((g) => g.s);
+  // Итог двора за день — `buildingProduction`, сумма дел той же дверью, что кладёт добро на склад (правило 18).
+  const all = buildingProduction(s, b);
+  const sum = RESOURCE_IDS.filter((r) => all[r] > 0.005);
   return (
     <div className="nx-deeds">
       {jobsOf(b.type).map((job) => (
@@ -200,6 +208,16 @@ export function Deeds({ b, gains, trades = false }: { b: Building; gains: Upgrad
           {trades && <DeedTrades job={job} />}
         </div>
       ))}
+      {sum.length > 0 && (
+        <p className="nx-dsum">
+          Двор за день:
+          {sum.map((r) => (
+            <span key={r}>
+              <Icon name={iconName('res', r)} /> {dec(all[r], 1)}
+            </span>
+          ))}
+        </p>
+      )}
     </div>
   );
 }
@@ -248,6 +266,9 @@ export function WorkerRow({ b, gains, job: deed }: { b: Building; gains: Upgrade
   // Что даёт шаг (отзыв тестеров 11.10): выработка в день сейчас и с ещё одним — под рядом.
   const yields = workerYield(s, b, id);
   const why = many ? deedTip(s, b, id) : null;
+  // Сезон дела — у двора с двумя делами он у каждого свой (поле зимой не родит, загон почти не проседает): множитель
+  // сейчас, с вестями поверх (`derived.seasonMods`), если он не единица.
+  const season = many ? (seasonMods(s).jobs[id] ?? 1) : 1;
 
   return (
     <>
@@ -281,30 +302,64 @@ export function WorkerRow({ b, gains, job: deed }: { b: Building; gains: Upgrade
             </span>
           ))}
           {yields.some((y) => y.more !== null) && <small>с ещё одним</small>}
+          {Math.abs(season - 1) > 1e-9 && (
+            <em className={season > 1 ? 'up' : 'down'}>
+              {SEASON_META[seasonOf(s.time)].name.toLowerCase()} ×{dec(season, 2)}
+            </em>
+          )}
         </p>
       )}
-      {bondedRow && (
-        <div className="nx-wrow">
-          <button
-            className="nx-wico"
-            onClick={(e) => tipAt(e.currentTarget, { title: 'Невольники', body: `Без места: ${bondedIdle(s)}. Места общие с вольными.` })}
-            aria-label={many ? `${label}: невольники` : 'Невольники: места'}
-          >
-            {ORDER_TEXT.bondedIcon}
-          </button>
-          <span className="nx-wcount">
-            <b>{bonded}</b>
-            <small>/{slots - workers}</small>
-          </span>
-          <Steps
-            value={bonded}
-            max={slots - workers}
-            spare={bondedIdle(s)}
-            step={10}
-            onChange={(d) => act((st) => (d > 0 ? assignBonded(st, b.id, d, id) : unassignBonded(st, b.id, -d, id)))}
-          />
-        </div>
-      )}
+      {bondedRow &&
+        (many ? (
+          // У двора с двумя делами — тонким рядом в плашке дела: значок, «3/4» и шаг по одному (ЗД-1: окно без прокрутки).
+          <div className="nx-wrow nx-brow">
+            <button
+              className="nx-wico"
+              onClick={(e) => tipAt(e.currentTarget, { title: ORDER_TEXT.bondedName, body: `Без места: ${bondedIdle(s)}. Места общие с вольными.` })}
+              aria-label={`${label}: невольники`}
+            >
+              <Icon name={ORDER_TEXT.bondedIcon} />
+            </button>
+            <span className="nx-wcount">
+              <small className="nx-wlbl">{ORDER_TEXT.bondedName}</small>
+              <b>{bonded}</b>
+              <small>/{slots - workers}</small>
+            </span>
+            <span className="nx-bsteps">
+              <button disabled={bonded <= 0} onClick={() => act((st) => unassignBonded(st, b.id, 1, id))} aria-label={`${label}: снять невольника`}>
+                −
+              </button>
+              <button
+                disabled={bonded >= slots - workers || bondedIdle(s) <= 0}
+                onClick={() => act((st) => assignBonded(st, b.id, 1, id))}
+                aria-label={`${label}: поставить невольника`}
+              >
+                +
+              </button>
+            </span>
+          </div>
+        ) : (
+          <div className="nx-wrow">
+            <button
+              className="nx-wico"
+              onClick={(e) => tipAt(e.currentTarget, { title: ORDER_TEXT.bondedName, body: `Без места: ${bondedIdle(s)}. Места общие с вольными.` })}
+              aria-label="Невольники: места"
+            >
+              <Icon name={ORDER_TEXT.bondedIcon} />
+            </button>
+            <span className="nx-wcount">
+              <b>{bonded}</b>
+              <small>/{slots - workers}</small>
+            </span>
+            <Steps
+              value={bonded}
+              max={slots - workers}
+              spare={bondedIdle(s)}
+              step={10}
+              onChange={(d) => act((st) => (d > 0 ? assignBonded(st, b.id, d, id) : unassignBonded(st, b.id, -d, id)))}
+            />
+          </div>
+        ))}
     </>
   );
 }

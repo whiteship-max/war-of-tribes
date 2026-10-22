@@ -17,6 +17,7 @@ import {
   deedWorkers,
   handsCount,
   idleCount,
+  isOutsideWall,
   townHallBuildMult,
   workerCount,
 } from '@/game/derived';
@@ -43,7 +44,7 @@ export function buildingFacts(s: GameState, b: Building): string | null {
     // Невольники стоят на тех же местах: занятые места — это все руки, а не одни вольные.
     const bonded = bondedCount(s, b.id);
     return bonded > 0
-      ? `Рабочих: ${handsCount(s, b.id)}/${slots} · ${ORDER_TEXT.bondedIcon} ${bonded}`
+      ? `Рабочих: ${handsCount(s, b.id)}/${slots} · ${ORDER_TEXT.bondedName.toLowerCase()} ${bonded}`
       : `Рабочих: ${workerCount(s, b.id)}/${slots}`;
   }
   const facts: string[] = [];
@@ -66,12 +67,17 @@ export function buildingFacts(s: GameState, b: Building): string | null {
 export function buildingTip(s: GameState, b: Building): TipContent {
   const def = BUILDING_BY_ID[b.type];
   const now = buildingFacts(s, b);
+  const body = now ? `${def.description} ${now[0].toUpperCase()}${now.slice(1)}.` : def.description;
   return {
     title: buildingTitle(s, b.type),
     lore: def.flavor,
-    body: now ? `${def.description} ${now[0].toUpperCase()}${now.slice(1)}.` : def.description,
+    // Двор за стеной — словом здесь, меткой «за стеной» в шапке окна: прорвавшийся набег разгоняет его людей.
+    body: isOutsideWall(b.type) ? `${body} ${OUTSIDE_WORDS}` : body,
   };
 }
+
+/** Что значит «за стеной» — одна фраза на подсказку постройки. */
+export const OUTSIDE_WORDS = 'Двор за стеной: прорвавшийся набег разгонит людей.';
 
 /**
  * Подсказка по значку рабочих: сколько занято из скольких, сколько свободных рук в племени, дадут ли что-то

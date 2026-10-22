@@ -69,7 +69,7 @@ const MOODS: HallMood[] = ['day', 'night', 'alarm'];
 
 describe('голос здания: у каждого свой', () => {
   it('у каждого здания игры — четыре варианта и два слоя богатства, и каждый звучит', () => {
-    expect(TYPES.length).toBeGreaterThanOrEqual(24);
+    expect(TYPES.length).toBeGreaterThanOrEqual(21);
     for (const type of TYPES) {
       const def = HALL_VOICES[type];
       expect(def, `${type}: есть голос`).toBeDefined();

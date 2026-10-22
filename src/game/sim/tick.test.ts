@@ -44,6 +44,10 @@ import {
   winterForecast,
   workerCount,
   yearOf,
+  deedBuilding,
+  deedHands,
+  deedSlots,
+  deedWorkers,
 } from '../derived';
 import {
   DAY_LENGTH,
@@ -54,7 +58,7 @@ import {
   SLOTS_PER_LEVEL,
 } from '../constants';
 import { playerProfile } from '@/world/bridge';
-import { BUILDINGS, BUILDING_BY_ID } from '../data/buildings';
+import { BUILDINGS, BUILDING_BY_ID, jobsOf } from '../data/buildings';
 import { SEASONS, SEASON_DAYS, SEASON_SECONDS, YEAR_DAYS } from '../data/seasons';
 import { QUESTS } from '../data/quests';
 import {
@@ -334,7 +338,7 @@ describe('герой', () => {
 describe('стена и хозяйство за ней', () => {
   it('снаружи стоит ровно производство, и план поселения говорит то же самое', () => {
     expect(BUILDINGS.map((d) => d.id).filter(isOutsideWall).sort()).toEqual(
-      ['farm', 'gathering', 'hunter_hut', 'mine', 'pen', 'quarry', 'sawmill'].sort(),
+      ['farm', 'hunter_hut', 'mine', 'sawmill'].sort(),
     );
     // Внутри — жильё, власть, склад, ремесло и оборона: до них набег не доходит.
     for (const type of ['houses', 'town_hall', 'storage', 'smithy', 'workshop', 'barracks', 'market', 'church', 'palisade', 'tower'] as BuildingTypeId[]) {
@@ -347,10 +351,11 @@ describe('стена и хозяйство за ней', () => {
     idleAll(s);
     for (const b of s.buildings) {
       b.level = 5;
-      s.workers[b.id] = 4;
+      for (const job of jobsOf(b.type)) s.workers[job] = 4;
     }
     s.pop = 200;
     const before = new Map(s.buildings.map((b) => [b.id, { level: b.level, men: workerCount(s, b.id) }]));
+    const deeds = new Map(s.buildings.flatMap((b) => jobsOf(b.type)).map((job) => [job, deedWorkers(s, job)]));
 
     const names = sackOutskirts(s, 1);
     expect(names.length, 'разор должен быть назван поимённо').toBeGreaterThan(0);
@@ -360,7 +365,8 @@ describe('стена и хозяйство за ней', () => {
     for (const b of s.buildings) {
       const was = before.get(b.id)!;
       if (isOutsideWall(b.type)) {
-        if (workerCount(s, b.id) !== was.men) touched++;
+        // Разор бьёт по делам (ЗД-1): поле и загон — два двора работы, как два прежних здания.
+        for (const job of jobsOf(b.type)) if (deedWorkers(s, job) !== deeds.get(job)) touched++;
         if (b.level !== was.level) burned++;
         expect(b.level, `${b.type} нельзя снести набегом`).toBeGreaterThanOrEqual(1);
       } else {
@@ -368,7 +374,7 @@ describe('стена и хозяйство за ней', () => {
         expect(b.level, `${b.type} за стеной, уровень терять не должен`).toBe(was.level);
       }
     }
-    // Три двора встали. Уровня набег здесь не снимает: у падения уровней один
+    // Три дела встали. Уровня набег здесь не снимает: у падения уровней один
     // источник — участь взятого города (`fallBuildings`), и он же знает, какие
     // постройки и насколько. Прежде самый людный двор терял уровень и здесь.
     expect(touched).toBe(3);
@@ -565,7 +571,7 @@ describe('здания', () => {
     expect(assignWorker(s, mill.id)).toMatch(/места заняты/);
 
     // Даже если лишних вписали в обход действий, нормализация их выставит.
-    s.workers[mill.id] = SLOTS_PER_LEVEL + 5;
+    s.workers.woodcutter = SLOTS_PER_LEVEL + 5;
     normalizeAssignments(s);
     expect(workerCount(s, mill.id)).toBe(SLOTS_PER_LEVEL);
   });
@@ -721,7 +727,7 @@ describe('здания', () => {
     expect(maxLevelFor('houses')).toBe(MAX_BUILDING_LEVEL);
 
     // Пять зданий добычи можно укомплектовать целиком — это и есть рабочее ядро посёлка.
-    const core: BuildingTypeId[] = ['gathering', 'sawmill', 'quarry', 'hunter_hut', 'farm'];
+    const core: BuildingTypeId[] = ['sawmill', 'hunter_hut', 'farm'];
     const coreSlots = core.reduce((n, t) => n + buildingSlots(buildingOfType(s, t)!), 0);
     expect(coreSlots).toBeLessThanOrEqual(housing);
     // Всех мест разом больше, чем людей — но не в разы: выбор есть, абсурда нет.
@@ -741,8 +747,8 @@ describe('здания', () => {
     s.buildings.splice(s.buildings.indexOf(farm), 1);
     tick(s, 0.5);
     // Записи о снесённых зданиях не остаются: все руки вернулись к костру.
-    expect(s.workers[mill.id]).toBeUndefined();
-    expect(s.workers[farm.id]).toBeUndefined();
+    expect(s.workers.woodcutter).toBeUndefined();
+    expect(s.workers.farmer).toBeUndefined();
     expect(jobCounts(s).woodcutter).toBe(0);
     expect(jobCounts(s).farmer).toBe(0);
     expect(jobCounts(s).idle).toBe(s.pop);
@@ -870,12 +876,12 @@ function tribe(pop: number, food: number, wood: number): GameState {
   place(s, 'houses', Math.max(1, Math.ceil((pop - 55) / 60) + 1));
   place(s, 'storage', 2);
   place(s, 'farm', 4);
-  place(s, 'gathering', 1);
+  place(s, 'hunter_hut', 1);
   // Ставка на земледелие: большинство в поле, немного на сборе. Лесорубов нет
   // нарочно — дрова у такого племени только со склада, и зима спрашивает за них
   // так же, как за еду.
-  assignWorker(s, buildingOfType(s, 'farm')!.id, Math.round(pop * 0.6));
-  assignWorker(s, buildingOfType(s, 'gathering')!.id, Math.round(pop * 0.1));
+  assignWorker(s, buildingOfType(s, 'farm')!.id, Math.round(pop * 0.6), 'farmer');
+  assignWorker(s, buildingOfType(s, 'hunter_hut')!.id, Math.round(pop * 0.1), 'gatherer');
   // Награды за задания посыпались бы в первый же тик и подменили бы собой запас,
   // а проверяем мы именно запас — поэтому задания считаем уже закрытыми.
   s.completedQuests = QUESTS.map((q) => q.id);
@@ -887,17 +893,16 @@ function tribe(pop: number, food: number, wood: number): GameState {
 
 /** Снимает `n` человек с работы этой профессии, откуда бы они ни работали. */
 function release(s: GameState, job: JobId, n = 1): void {
-  const b = s.buildings.find((x) => BUILDING_BY_ID[x.type].job === job && workerCount(s, x.id) > 0);
-  if (b) unassignWorker(s, b.id, n);
+  const b = deedBuilding(s, job);
+  if (b && deedWorkers(s, job) > 0) unassignWorker(s, b.id, n, job);
   else changeFreeJob(s, job, -n);
 }
 
 /** Ставит `n` человек на работу: место в здании вдвое выгоднее вольного сбора. */
 function hire(s: GameState, job: JobId, n = 1): boolean {
-  const b = s.buildings.find(
-    (x) => BUILDING_BY_ID[x.type].job === job && x.level > 0 && workerCount(s, x.id) < buildingSlots(x),
-  );
-  return (b ? assignWorker(s, b.id, n) : changeFreeJob(s, job, n)) === null;
+  const at = deedBuilding(s, job);
+  const b = at && at.level > 0 && deedHands(s, job) < deedSlots(at) ? at : null;
+  return (b ? assignWorker(s, b.id, n, job) : changeFreeJob(s, job, n)) === null;
 }
 
 /** Кого и сколько держать на работах при нынешнем размере племени. */

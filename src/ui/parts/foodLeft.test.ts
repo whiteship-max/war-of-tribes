@@ -13,7 +13,7 @@ import { DAY_LENGTH, MORALE_GROWTH_ZERO } from '@/game/constants';
 import { armySize, foodConsumptionPerDay, housingCapacity, moraleTarget, productionPerDay, seasonOf } from '@/game/derived';
 import { tick } from '@/game/sim/tick';
 import { RATIONS } from '@/game/data/policy';
-import type { GameState } from '@/game/types';
+import type { GameState, JobId } from '@/game/types';
 import { foodLeft } from './foodLeft';
 
 const DT = 0.25;
@@ -38,13 +38,13 @@ function settled(ration: GameState['ration'], hands: 'none' | 'some'): GameState
   // Замер короткий — меньше дня, — а мораль стоит на своей цели: иначе за замер она
   // сдвинула бы добычу, и шаг разошёлся бы со строкой не по вине строки. Цель морали
   // сама зависит от запаса, поэтому подгонка идёт в несколько проходов.
-  const ids = Object.keys(s.workers).map(Number);
+  const ids = Object.keys(s.workers) as JobId[];
   const drain = (): number => foodConsumptionPerDay(s) - productionPerDay(s).food;
   for (let pass = 0; pass < 4; pass++) {
     s.morale = moraleTarget(s);
     for (let k = 0; hands === 'some' && drain() < 0.25 * foodConsumptionPerDay(s) && k < 400; k++) {
       const id = ids[k % ids.length];
-      if (s.workers[id] > 0) s.workers[id] -= 1;
+      if ((s.workers[id] ?? 0) > 0) s.workers[id] = (s.workers[id] ?? 0) - 1;
     }
     s.resources.food = Math.max(1, 0.6 * drain());
   }

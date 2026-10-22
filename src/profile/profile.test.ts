@@ -116,7 +116,9 @@ describe('сейв профиля', () => {
     expect(g.equipment.spear).toBe(7);
     expect(buildingOfType(g, 'town_hall')!.level).toBe(4);
     expect(buildingOfType(g, 'houses')!.level).toBe(5);
-    expect(g.workers[5]).toBe(20);
+    // Рабочие Фермы — на деле «поле» (ступень 23 → 24, ЗД-1): ключ назначения — профессия, а не номер постройки.
+    expect(g.workers.farmer).toBe(20);
+    expect(g.workers.smith).toBe(4);
     expect(g.freeJobs.gatherer).toBe(6);
     expect(g.completedQuests).toEqual(['first_hunt', 'first_scout']);
     expect(g.stats.battlesWon).toBe(3);

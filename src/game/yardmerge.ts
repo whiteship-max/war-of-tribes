@@ -17,7 +17,7 @@
  * читает серверная часть.
  */
 import type { BuildingTypeId, JobId, ResourceId } from './types';
-import { BUILDING_BY_ID, jobsOf } from './data/buildings';
+import { BUILDINGS, BUILDING_BY_ID, jobsOf } from './data/buildings';
 import { YARD_BY_JOB } from './data/yards';
 import { upgradeCost, upgradeWork } from './labour';
 
@@ -33,6 +33,9 @@ const OLD_JOB: Readonly<Record<string, JobId>> = {
   mine: 'miner',
   quarry: 'stonecutter',
 };
+
+/** Дела, у которых есть место в здании, — ключи назначений `workers` и `bondedWork`. */
+const PLACED: ReadonlySet<string> = new Set(BUILDINGS.flatMap((b) => b.jobs ?? []));
 
 /** Пары перехода: двор и ушедшее в него здание. */
 export const MERGED_PAIRS: readonly { kept: BuildingTypeId; gone: string }[] = Object.entries(MERGED_INTO).map(([gone, kept]) => ({ kept, gone }));
@@ -206,8 +209,9 @@ export function foldParty(data: Record<string, unknown>): PartyFold {
     const was = data[key] && typeof data[key] === 'object' ? (data[key] as Record<string, unknown>) : {};
     const now: Partial<Record<JobId, number>> = {};
     for (const [id, n] of Object.entries(was)) {
-      const type = typeOfId.get(Number(id));
-      const job = type !== undefined ? oldJobOf(type) : null;
+      // Ключ — номер постройки (до 24-й) или уже дело: запись, собранная новой сборкой, проходит как есть.
+      const type = /^\d+$/.test(id) ? typeOfId.get(Number(id)) : undefined;
+      const job = type !== undefined ? oldJobOf(type) : PLACED.has(id) ? (id as JobId) : null;
       if (job && num(n) > 0) now[job] = (now[job] ?? 0) + Math.floor(num(n));
     }
     data[key] = now;

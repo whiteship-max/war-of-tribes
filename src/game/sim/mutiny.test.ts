@@ -45,11 +45,9 @@ import {
   buildRate,
   buildingOfType,
   buildingProduction,
-  buildingSlots,
   dayOf,
   defense,
   foodConsumptionPerDay,
-  handsCount,
   hiddenStash,
   housingCapacity,
   marketOffer,
@@ -69,6 +67,11 @@ import {
   townHallBuildMult,
   unrestLeft,
   workerMultiplier,
+  deedBonded,
+  deedBuilding,
+  deedHands,
+  deedSlots,
+  deedWorkers,
 } from '../derived';
 import { absence, awayGameSeconds, catchUp, tick } from './tick';
 import { resolveEvent } from './actions';
@@ -119,27 +122,34 @@ describe('невольники встают в общую систему раб�
     for (const id of ['hunter', 'smith', 'priest', 'crafter'] as const) expect(JOB_BY_ID[id].bonded).toBeFalsy();
     const s = town();
     s.bonded = 50;
-    for (const type of ['hunter_hut', 'smithy', 'church', 'workshop'] as BuildingTypeId[]) {
+    for (const type of ['smithy', 'church', 'workshop'] as BuildingTypeId[]) {
       expect(assignBonded(s, at(s, type), 1), type).not.toBeNull();
     }
-    expect(assignBonded(s, at(s, 'quarry'), 1)).toBeNull();
+    // У двора с двумя делами (ЗД-1) спрашивает дело: на охоту невольника не ставят, на сбор того же двора — ставят.
+    expect(assignBonded(s, at(s, 'hunter_hut'), 1, 'hunter'), 'охота').not.toBeNull();
+    expect(assignBonded(s, at(s, 'hunter_hut'), 1, 'gatherer'), 'сбор').toBeNull();
+    expect(assignBonded(s, at(s, 'mine'), 1, 'stonecutter')).toBeNull();
   });
 
-  it('места у здания общие: занятое одним не достаётся другому', () => {
+  it('места у дела общие: занятое одним не достаётся другому', () => {
     const s = town(1, 100);
     s.bonded = 100;
     const farm = at(s, 'farm');
-    const slots = buildingSlots(buildingOfType(s, 'farm')!);
-    expect(assignBonded(s, farm, 8)).toBeNull();
+    // Места — у каждого дела свои (ЗД-1): поле и загон Фермы — как два прежних здания.
+    const slots = deedSlots(buildingOfType(s, 'farm')!);
+    expect(assignBonded(s, farm, 8, 'farmer')).toBeNull();
     // Вольных встанет ровно столько, сколько осталось мест, — ни одним больше.
-    expect(assignWorker(s, farm, 100)).toBeNull();
-    expect(handsCount(s, farm)).toBe(slots);
-    expect(assignWorker(s, farm, 1)).not.toBeNull();
-    expect(assignBonded(s, farm, 1)).not.toBeNull();
+    expect(assignWorker(s, farm, 100, 'farmer')).toBeNull();
+    expect(deedHands(s, 'farmer')).toBe(slots);
+    expect(assignWorker(s, farm, 1, 'farmer')).not.toBeNull();
+    expect(assignBonded(s, farm, 1, 'farmer')).not.toBeNull();
+    // Загон того же двора — свои места: поле полно, а в загон ставят.
+    expect(assignWorker(s, farm, 1, 'herder')).toBeNull();
+    expect(deedWorkers(s, 'herder')).toBe(1);
     // Сняли невольника — место снова свободно для вольного.
-    expect(unassignBonded(s, farm, 3)).toBeNull();
-    expect(assignWorker(s, farm, 3)).toBeNull();
-    expect(handsCount(s, farm)).toBe(slots);
+    expect(unassignBonded(s, farm, 3, 'farmer')).toBeNull();
+    expect(assignWorker(s, farm, 3, 'farmer')).toBeNull();
+    expect(deedHands(s, 'farmer')).toBe(slots);
   });
 
   it('выработка — та же строка той же профессии, на объявленную долю', () => {
@@ -182,7 +192,7 @@ describe('невольники встают в общую систему раб�
     const mods = seasonMods(s);
     expect(buildRate(s) - base).toBeCloseTo(50 * BONDED_OUTPUT * BUILDER_RATE * mods.build * townHallBuildMult(s), 6);
     // Поставили на места — со стройки ушли ровно они.
-    expect(assignBonded(s, at(s, 'quarry'), 20)).toBeNull();
+    expect(assignBonded(s, at(s, 'mine'), 20, 'stonecutter')).toBeNull();
     expect(buildRate(s) - base).toBeCloseTo(30 * BONDED_OUTPUT * BUILDER_RATE * mods.build * townHallBuildMult(s), 6);
   });
 
@@ -219,14 +229,14 @@ describe('невольники встают в общую систему раб�
   it('убыль снимает сперва тех, кто без места, потом с самого многолюдного двора', () => {
     const s = town();
     addBonded(s, 30);
-    expect(assignBonded(s, at(s, 'farm'), 12)).toBeNull();
-    expect(assignBonded(s, at(s, 'quarry'), 8)).toBeNull();
+    expect(assignBonded(s, at(s, 'farm'), 12, 'farmer')).toBeNull();
+    expect(assignBonded(s, at(s, 'mine'), 8, 'stonecutter')).toBeNull();
     expect(bondedIdle(s)).toBe(10);
     expect(loseBonded(s, 14)).toBe(14);
     expect(bondedIdle(s)).toBe(0);
     // Четверо сверх тех, кто без места, ушли с поля — оно было многолюднее.
-    expect(bondedCount(s, at(s, 'farm'))).toBe(8);
-    expect(bondedCount(s, at(s, 'quarry'))).toBe(8);
+    expect(deedBonded(s, 'farmer')).toBe(8);
+    expect(deedBonded(s, 'stonecutter')).toBe(8);
     expect(s.bonded).toBe(16);
   });
 
@@ -235,18 +245,19 @@ describe('невольники встают в общую систему раб�
     s.pop = 100;
     s.bonded = 30;
     const farm = buildingOfType(s, 'farm')!;
-    expect(assignWorker(s, farm.id, 14)).toBeNull();
-    expect(assignBonded(s, farm.id, 10)).toBeNull();
+    expect(assignWorker(s, farm.id, 14, 'farmer')).toBeNull();
+    expect(assignBonded(s, farm.id, 10, 'farmer')).toBeNull();
     farm.level = 1;
     normalizeAssignments(s);
-    expect(handsCount(s, farm.id)).toBe(buildingSlots(farm));
-    expect(s.workers[farm.id]).toBe(12);
+    // Места — у каждого дела свои (ЗД-1): поле на первом уровне держит своих двенадцать.
+    expect(deedHands(s, 'farmer')).toBe(deedSlots(farm));
+    expect(s.workers.farmer).toBe(12);
     expect(bondedCount(s, farm.id)).toBe(0);
     // Невольников стало меньше, чем стоит по местам, — места пустеют сами.
-    expect(assignBonded(s, at(s, 'quarry'), 12)).toBeNull();
+    expect(assignBonded(s, at(s, 'mine'), 12, 'stonecutter')).toBeNull();
     s.bonded = 5;
     normalizeAssignments(s);
-    expect(bondedCount(s, at(s, 'quarry'))).toBe(5);
+    expect(deedBonded(s, 'stonecutter')).toBe(5);
     expect(bondedIdle(s)).toBe(0);
   });
 });
@@ -442,8 +453,9 @@ describe('мятеж не наступает раньше, чем игрок м�
   it('пока мятеж ждёт ответа, невольники стоят — в поле и на стройке; ответили — работают', () => {
     const s = restless();
     const yard = s.buildings.find((b) => b.type === 'farm')!;
-    s.bondedWork = { [yard.id]: 20 };
-    s.workers = { [yard.id]: 10 };
+    expect(yard.type).toBe('farm');
+    s.bondedWork = { farmer: 20 };
+    s.workers = { farmer: 10 };
     const free = structuredClone(s);
     free.bonded = 0;
     free.bondedWork = {};
@@ -698,8 +710,8 @@ describe('сохранение: новые поля версию не подни
     // Невольники версию не подняли: 14 — жалованье, 15 — стол событий почты, 16 — поворот
     // времени, 17 — дом правителя, 18 — дипломатическая ветвь, 19 — военная, 20 — участь
     // покупной ступенью, 21 — административная ветвь и наёмные мастера, 22 — алмазы ушли на сервер, 23 — кости стали
-    // углём (не их поля).
-    expect(SAVE_VERSION).toBe(23);
+    // углём, 24 — дворы объединены и назначения легли по делам (не их поля).
+    expect(SAVE_VERSION).toBe(24);
     expect(s!.version).toBe(SAVE_VERSION);
     expect(s!.bonded).toBe(0);
     expect(s!.bondedWork).toEqual({});

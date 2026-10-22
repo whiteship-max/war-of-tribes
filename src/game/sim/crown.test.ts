@@ -143,7 +143,7 @@ describe('условия', () => {
     s.time = 4 * 4 * summer + summer + DAY_LENGTH;
     expect(s.workers && Object.values(s.workers).some((n) => n > 0)).toBe(true);
     const farm = s.buildings.find((b) => b.type === 'farm');
-    if (farm) s.workers[farm.id] = Math.max(1, s.workers[farm.id] ?? 0);
+    if (farm) s.workers.farmer = Math.max(1, s.workers.farmer ?? 0);
     expect(w('cr_drought'), 'лето').toBeGreaterThan(0);
     s.time -= summer;
     expect(w('cr_drought'), 'весна').toBe(0);

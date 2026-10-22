@@ -10,13 +10,14 @@ const strip = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, ' ').rep
 const read = (name: string): string => strip(readFileSync(join(__dirname, name), 'utf8'));
 
 describe('дворы — одна таблица', () => {
-  it('за стеной стоят ровно дворы, и у каждого двора одна строка', () => {
+  it('за стеной стоят ровно дворы, и у каждого дела одна строка', () => {
     const outside = BUILDINGS.filter((b) => b.outside).map((b) => b.id);
-    expect(outside.sort()).toEqual(YARDS.map((y) => y.building).sort());
-    // Здание, профессия и сезон одного двора сходятся без сверки глазами.
+    expect(outside.sort()).toEqual([...new Set(YARDS.map((y) => y.building))].sort());
+    expect(new Set(YARDS.map((y) => y.job)).size, 'у каждого дела своя профессия').toBe(YARDS.length);
+    // Здание, профессия и сезон одного дела сходятся без сверки глазами.
     for (const y of YARDS) {
       const b = BUILDINGS.find((d) => d.id === y.building)!;
-      expect(b.job, `${y.building}: профессия здания`).toBe(y.job);
+      expect(b.jobs, `${y.building}: дело здания`).toContain(y.job);
       expect(JOB_BY_ID[y.job].building, `${y.job}: здание профессии`).toBe(y.building);
       expect(JOB_BY_ID[y.job].yield, `${y.job}: выработка`).toBe(y.yield);
       for (const season of SEASONS) {
@@ -42,8 +43,14 @@ describe('дворы — одна таблица', () => {
     const buildings = read('buildings.ts');
     // Поле «за стеной» и профессия двора приходят из строки двора, а не литералом.
     expect(buildings, 'buildings.ts: outside литералом').not.toMatch(/\boutside:\s*true/);
-    expect(buildings, 'buildings.ts: профессия двора литералом').not.toMatch(new RegExp(`\\bjob:\\s*'(${yardJobs})'`));
-    expect((buildings.match(/\.\.\.yardBuilding\('/g) ?? []).length).toBe(YARDS.length);
+    expect(buildings, 'buildings.ts: профессия двора литералом').not.toMatch(new RegExp(`'(${yardJobs})'`));
+    expect((buildings.match(/\.\.\.yardBuilding\('/g) ?? []).length).toBe(new Set(YARDS.map((y) => y.building)).size);
+    // Цена двора — не литералом: её кладёт строка двора суммой цен дел (ЗД-1).
+    for (const id of new Set(YARDS.map((y) => y.building))) {
+      const at = buildings.indexOf(`id: '${id}'`);
+      const entry = buildings.slice(at, buildings.indexOf('\n  },', at));
+      expect(entry, `${id}: цена литералом`).not.toMatch(/\b(cost|work):/);
+    }
 
     const jobs = read('jobs.ts');
     // Выработка с ресурсом бывает только у двора, а дворы пришли из таблицы.

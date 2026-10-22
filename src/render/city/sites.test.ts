@@ -83,7 +83,7 @@ function fingerSomewhere(cam: THREE.Camera, type: BuildingTypeId): boolean {
   return false;
 }
 
-describe('город: 24 постройки игры', () => {
+describe('город: 21 постройка игры', () => {
   it('у каждой постройки игры — своё здание в городе, и ни одной лишней', () => {
     expect([...CITY_OWNERS].sort()).toEqual(BUILDINGS.map((b) => b.id).sort());
     for (const t of CITY_OWNERS) expect(sites.some((s) => s.type === t), `место у ${t}`).toBe(true);
@@ -106,7 +106,7 @@ describe('город: 24 постройки игры', () => {
     }
     // Граница области: дворов за стеной столько, сколько их у игры.
     expect(outside).toBe(BUILDINGS.filter((b) => isOutsideWall(b.id)).length);
-    expect(outside).toBe(7);
+    expect(outside).toBe(4);
   });
 });
 
@@ -126,7 +126,7 @@ describe('город: касание по раскладке', () => {
     expect(seen.length).toBeGreaterThanOrEqual(15);
   });
 
-  it('все 24 постройки: панорамой к любой её открывает палец в 33 px', () => {
+  it('все 21 постройка: панорамой к любой её открывает палец в 33 px', () => {
     let checked = 0;
     for (const t of CITY_OWNERS) {
       const m = main(t);
@@ -134,9 +134,9 @@ describe('город: касание по раскладке', () => {
       expect(fingerSomewhere(cam, t), `${t}: квадрат ${FINGER} px открывает постройку`).toBe(true);
       checked++;
     }
-    // Граница области: проверены все постройки игры — двадцать четыре, а не часть.
+    // Граница области: проверены все постройки игры — двадцать одна (ЗД-1: три пары дворов стали тремя), а не часть.
     expect(checked).toBe(BUILDINGS.length);
-    expect(checked).toBe(24);
+    expect(checked).toBe(21);
   });
 
   it('время и сход пальца — общий судья жеста: 620 мс и 31 px — тап, 780 мс и 33 px — уже не тап', () => {
