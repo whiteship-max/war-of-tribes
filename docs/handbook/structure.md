@@ -18,9 +18,9 @@
   - `types.ts`, `constants.ts` — состояние и константы (день = 60 сек, уровни и множители зданий,
     `BUILDER_RATE`, `CRAFTER_BUILD`, `TOWN_HALL_BUILD_STEP`, `BASE_DEFENSE`, `MORALE_BASE`,
     `TEST_GEMS`).
-  - `data/` — контент: `buildings.ts`, `jobs.ts`, `yards.ts` (семь дворов за стеной одной
-    таблицей: здание, профессия, выработка, вольный сбор, невольники и сезоны — `BUILDINGS`,
-    `JOBS` и `SEASON_MODIFIERS` берут строку двора отсюда, и завести двор мимо неё не даёт тест),
+  - `data/` — контент: `buildings.ts`, `jobs.ts`, `yards.ts` (семь дел четырёх дворов за стеной одной
+    таблицей: здание, дело, профессия, выработка, цена части, вольный сбор, невольники и сезоны — `BUILDINGS`,
+    `JOBS` и `SEASON_MODIFIERS` берут строку дела отсюда, и завести дело мимо неё не даёт тест; ЗД-1),
     `quests.ts`, `events.ts`, `names.ts`, `seasons.ts`,
     `policy.ts` (указы, рацион, налог, `TAX_PER_POP`), `equipment.ts` (снаряжение), `troops.ts`
     (войска), `market.ts` (товары рынка, цены, запас, ассортимент дня), `gems.ts` (наборы

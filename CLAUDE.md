@@ -337,6 +337,11 @@ HEAD один на всех, см. правило 8). Значит развес�
   сериализация и миграции;
 - `src/game/charcoal.ts` — ступень «кости → уголь» (docs/economy.md), одна на партию (`SAVE_VERSION` 23) и мир
   (`WORLD_SAVE_VERSION` 10): разойдись она у двух читателей — уголь старой партии пропал бы со склада или из добычи молча;
+- `src/game/yardmerge.ts`, `src/game/yardstep.ts` и `src/game/merged.ts` — переход ЗД-1 (дворы с двумя делами, docs/city_v3.md,
+  «Решения ЗД-1»; `SAVE_VERSION` 24): сведение записи до 24-й (уровень — больший из двух, рабочие — на свои дела, очередь
+  стройки — на двор или возвратом) одной дверью на партию и на книги сервера (`foldParty`, `foldTown`), докачкой на клиенте
+  (`save.loadFold`); `merged.ts` — малая таблица «куда ушла постройка» для миров, слов и сервера. Разойдись правило у двоих —
+  сервер счёл бы честный двор подделкой или партия потеряла бы рабочих при переходе;
 - `src/profile/types.ts` — профиль игрока лежит в сохранении племени целиком: имя, лицо и
   имя города (`ProfileState.city`) — его поля;
 - `src/world/local/state.ts` — `WORLD_SAVE_VERSION` и миграции мира;
@@ -633,6 +638,9 @@ HEAD один на всех, см. правило 8). Значит развес�
   `security.test.ts`; economy).
 - **Палец** — `src/gestures.ts`, один судья на деревню и карту (gestures).
 - **Плата со склада** — `sim/pay` (`pay`, `refund`); цена в интерфейсе — `ui/parts/Cost.tsx` (ui, economy).
+- **Двор с двумя делами** — дело — профессия (`BuildingDef.jobs`); места, рабочие и невольники — по делу (`derived.deedSlots`,
+  `deedWorkers`, `deedBonded`, ключ `JobId`), цена — сумма частей (`labour.partsOf`); переход старой записи — одна дверь
+  `game/yardmerge` на клиент и сервер (`yardmerge.test.ts`, `foldlazy.test.ts`, `security.test.ts`; village, docs/city_v3.md, «ЗД-1»).
 - **Очередь стройки** — чтение `derived.buildQueue` (начатое — первым, `currentSite` — первое место), запись `sim/actions`
   (`startUpgrade`, `cancelUpgrade`, `moveUpgrade`), длина `BUILD_QUEUE_MAX`, возврат `labour.cancelRefund`; ускоряется только
   строящееся (`sim/gems.rushQueued`, сервер — `town.rushFloor`); сервер держит порядок и возврат (`town.queueFaults`,

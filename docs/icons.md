@@ -51,7 +51,7 @@
 | **Верх: запасы** | `res-wood` поленница, `res-stone` блок, `res-food` окорок, `res-hides` шкура, `res-charcoal` уголь, `res-copper` медный слиток, `res-iron` крицы, `res-gem` самоцвет |
 | **Тревоги** (`ui/alertItems.ts`, `ui/warSigns.ts`, П-7) | набег `alert-raid` (факел), осада `alert-siege` (лестница у стены), свой лагерь `stage-camp`, голод `alert-starving` → `ui-bowl`, холод `alert-freezing` → `season-winter`, нет еды и дров `res-food`, `res-wood`, жалованье `ui-pouch`, кузня без заказа `bld-smithy`, раскол `ui-flame`, мятеж `spy-revolt` (кулак), пустое место агента `fig-scout` / `fig-general` |
 | **Над крышами** (`render/Scene.ts`) | никого на работе `attn-idle`, кузнецы без заказа `attn-order` → `bld-smithy`; в ратуше — свободное место `attn-slot`, пора улучшить `attn-upgrade` |
-| **Постройки** (24) | `bld-campfire` костёр, `bld-town_hall` ратуша, `bld-houses` жилища, `bld-storage` амбар, `bld-gathering` корзина, `bld-sawmill` бревно и пила, `bld-quarry` блок и кирка, `bld-hunter_hut` сруб с рогами, `bld-mine` штольня, `bld-workshop` молот и пила, `bld-farm` сноп, `bld-pen` загон, `bld-church` храм, `bld-statue` статуя, `bld-infirmary` ступка, `bld-watch` вышка, `bld-stable` подкова, `bld-cache` сундук, `bld-tavern` кружка, `bld-palisade` частокол, `bld-tower` башня, `bld-smithy` наковальня, `bld-market` лоток, `bld-barracks` щит и копья. Профессия — значком своей постройки (`job-*`, ссылки) |
+| **Постройки** (21) | `bld-campfire` костёр, `bld-town_hall` ратуша, `bld-houses` жилища, `bld-storage` амбар, `bld-sawmill` бревно и пила, `bld-hunter_hut` сруб с рогами (Охотничий двор), `bld-mine` штольня (Шахта), `bld-workshop` молот и пила, `bld-farm` мельница (Ферма), `bld-church` храм, `bld-statue` статуя, `bld-infirmary` ступка, `bld-watch` вышка, `bld-stable` подкова, `bld-cache` сундук, `bld-tavern` кружка, `bld-palisade` частокол, `bld-tower` башня, `bld-smithy` наковальня, `bld-market` лоток, `bld-barracks` щит и копья. Профессия — значком своей постройки (`job-*`, ссылки); у дела двора с двумя делами — свой знак: охота `job-hunter` → олень, сбор `job-gatherer` корзина, руда `job-miner` → кирка, камень `job-stonecutter` блок и кирка, поле `job-farmer` сноп, загон `job-herder` загон (ЗД-1) |
 | **Войска и снаряжение** | `troop-clubman`, `-spearman`, `-archer`, `-axeman`, `-swordsman`, `-shieldman`, `-rider`, `-knight`, `-legionary`, `-horse`; `gear-spear`, `-bow`, `-axe`, `-shield`, `-sword`, `-armor`; роды боя (`battle/names.ts`) — значками видов |
 | **Дружина** (`next/ArmyNew`, `parts/Muster`) | гарнизон `ui-home`, отряд `fig-general`, казармы `bld-barracks`, виды `troop-*` |
 | **Отчёт о бое** (`battle/report.ts`) | ливень стрел `bat-volley`, перестрелка проиграна `bat-ranged-lost` (сломанный лук), копья держат `bat-spears-held`, конница разбита `bat-cavalry-broke`, остановлена `bat-cavalry-stopped`, фланг `bat-flank`, тыл `bat-rear`, участок сломан `bat-sector-broken`, резерв `bat-reserve`, мораль `bat-morale` → белый флаг, перебиты `bat-annihilated` → череп, размен `bat-outfought` → весы, погоня `bat-pursuit`, удача и место боя `bat-dice` → кость |
@@ -304,3 +304,19 @@
   на Telegram Desktop.
 
 ЗН-2: ГОТОВО
+
+## ЗД-1: знаки объединённых дворов
+
+Три пары дворов слились в три двора с двумя делами (docs/city_v3.md, «Решения ЗД-1»), и знак у них разошёлся на два уровня:
+**у здания — свой, у каждого дела — свой**. Окно двора, сетка Ратуши и строка «Рабочие» показывают знак дела, а не
+здания: иначе два дела одного двора читались бы одной картинкой.
+
+- Здания: Охотничий двор — прежний сруб с рогами, Шахта — прежняя штольня, Ферма — новая мельница (`windmill`,
+  `scripts/icons/motifs.ts`): сноп ушёл делу «поле», а мельница при поле — то, чем Ферма отличается от поля.
+- Дела: прежние рисунки ушедших построек стали знаками дел — корзина (сбор), блок с киркой (камень), сноп (поле),
+  загон (загон); охота и руда — ссылками на готовые олень (`ui-deer`) и кирку (`ui-pick`) (`ui/icons/alias.ts`).
+- Ушли `bld-gathering`, `bld-quarry`, `bld-pen`. Сноп, который вести и вера брали знаком Фермы (`bld-farm`), теперь берут
+  знаком дела: весть «Праздник урожая», её усилитель и Дожинки веры — `job-farmer`.
+- Вес (`npm run icons:build`, облако, 22.10.2026): лист `assets/icons/sprite.svg` — 161 → 162 значка, 169,3 → 172,7 КБ на
+  диске, 25,9 → 26,4 КБ по сети; лист грузится после первого кадра, первая загрузка от него не растёт. Первый экран
+  (`FIRST_SHEET`) не тронут.
