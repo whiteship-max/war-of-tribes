@@ -560,7 +560,7 @@ function answer(g: GameState, l: Ledger): void {
       continue;
     }
     const def = EVENT_BY_ID[ev.defId];
-    const i = def ? def.options.findIndex((o) => !o.cost) : -1;
+    const i = def ? def.options.findIndex((o) => !o.cost && !o.points) : -1;
     if (resolveEvent(g, Math.max(0, i), eventId(ev)).error === null) l.answered++;
   }
 }

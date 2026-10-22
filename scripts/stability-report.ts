@@ -17,6 +17,13 @@
 //   npm run stability:report                 — цели на записанных числах
 //   npm run stability:report -- --derive     — вывод `STAB_DRAG` и `STAB_CALM` (пишет в src/game/stabrules.ts)
 //   SEEDS=1,2,3 DAYS=96 npm run stability:report — набор Ц1 (по умолчанию сиды 1…3, 96 игр. дн.)
+//   CROWN_SEEDS=1,…,6 CROWN_DAYS=480 — набор вестей державы (СБ-2, раздел «Вести державы»: частота, дрейф, вывод `CROWN_MTTH`)
+//
+// Вести державы (СБ-2):
+//  Ц4. Ровная игра видит около одной вести державы в настоящие сутки (`CROWN_PER_DAY`), и сдвиг стабильности от вестей в ней
+//      около нуля: средний сдвиг за настоящие сутки — в пределах ±`CROWN_DRIFT_BAND` % ступени, и при ответах автопилота
+//      (первый бесплатный), и при молчании. Срок `CROWN_MTTH` выводится из частоты (`--derive`): на приходе сетки весть
+//      державы выпадает с вероятностью `1 − exp(−Δ·S/M)`, где S — сумма весов по редкости в ровной игре, Δ — шаг сетки.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +51,11 @@ import {
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { JOB_BY_ID } from '@/game/data/jobs';
 import { pilot, player, stand } from './autopilot';
+import { CROWN_MTTH, CROWN_RULES, crownStab } from '@/game/crownrules';
+import { CROWN_BY_ID } from '@/game/data/crown';
+import { crownOf, crownRates } from '@/game/sim/crown';
+import { AWAY_STEP } from '@/game/sim/mail';
+import { gameDaysOfMs } from '@/game/pace';
 
 /** Ц1: за сколько игровых дней ровная игра поднимается из 0 в +1 — сутки отлучки (`MAX_OFFLINE_DAYS`). */
 const DAYS_TO_LAD = 48;
@@ -93,6 +105,93 @@ async function even(seed: number): Promise<Even> {
     },
   });
   return { seed, levels, atZero, revolts: stabOf(g).revolts, bought: stabOf(g).bought };
+}
+
+// ---------- Ц4: вести державы в ровной игре ----------
+
+/** Ц4: около одной вести державы в настоящие сутки ровной игры. */
+const CROWN_PER_DAY = 1;
+/** Ц4: средний сдвиг стабильности от вестей за настоящие сутки — в пределах ±этого, % ступени. */
+const CROWN_DRIFT_BAND = 5;
+/** Настоящие сутки — игровых дней (сутки отлучки). */
+const REAL_DAY = 48;
+const CROWN_SEEDS = (process.env.CROWN_SEEDS ?? '1,2,3,4,5,6').split(',').map(Number).filter((n) => n > 0);
+const CROWN_DAYS = Number(process.env.CROWN_DAYS) > 0 ? Number(process.env.CROWN_DAYS) : 480;
+
+interface CrownRun {
+  seed: number;
+  /** Ответы: вид, номер ответа и номер молчания. */
+  answers: { id: string; opt: number }[];
+  /** Сумма весов по редкости (S = Σλ × CROWN_MTTH) на конец каждого игрового дня. */
+  s: number[];
+}
+
+async function crownRun(seed: number): Promise<CrownRun> {
+  const g = createInitialState(seed);
+  autoAssign(g);
+  const answers: CrownRun['answers'] = [];
+  const s: number[] = [];
+  let n = 0;
+  let day = dayOf(g.time);
+  await pilot({
+    g,
+    seconds: CROWN_DAYS * DAY_LENGTH,
+    player: player('means', { tax: 'high' }),
+    world: { seed, pulse: 30, raids: true },
+    economy: 'live',
+    tick: 1,
+    decide: 30,
+    watch: {
+      after: ({ g: x }) => {
+        const c = crownOf(x);
+        for (const e of c.last) if (e.n > n) answers.push({ id: e.id, opt: e.opt });
+        n = c.n;
+        const d = dayOf(x.time);
+        if (d === day) return;
+        day = d;
+        s.push(crownRates(x).reduce((t, [, l]) => t + l, 0) * CROWN_MTTH);
+      },
+    },
+  });
+  return { seed, answers, s };
+}
+
+interface CrownMeasure {
+  runs: CrownRun[];
+  /** Средняя S ровной игры. */
+  sMean: number;
+}
+
+async function crownAll(): Promise<CrownMeasure> {
+  const runs: CrownRun[] = [];
+  for (const seed of CROWN_SEEDS) runs.push(await crownRun(seed));
+  const all = runs.flatMap((r) => r.s);
+  return { runs, sMean: all.length > 0 ? all.reduce((a, b) => a + b, 0) / all.length : 0 };
+}
+
+/** Шаг сетки почты, игровых дней, и сколько приходов в настоящие сутки. */
+const SLOT_DAYS = gameDaysOfMs(AWAY_STEP);
+const SLOTS_PER_DAY = REAL_DAY / SLOT_DAYS;
+
+/** Срок, при котором ровная игра видит `CROWN_PER_DAY` вестей державы в сутки: `1 − exp(−Δ·S/M) = CROWN_PER_DAY / слотов`. */
+const mtthFor = (sMean: number): number => Math.round((SLOT_DAYS * sMean) / -Math.log(1 - CROWN_PER_DAY / SLOTS_PER_DAY));
+
+function printCrown(m: CrownMeasure): void {
+  const days = (CROWN_DAYS / REAL_DAY) * m.runs.length;
+  const all = m.runs.flatMap((r) => r.answers);
+  console.log(`Ц4. Вести державы: ровная игра (как Ц1), ${CROWN_DAYS} игр. дн. (${CROWN_DAYS / REAL_DAY} настоящих суток), сиды ${CROWN_SEEDS.join(', ')}`);
+  console.log(`  CROWN_MTTH ${CROWN_MTTH}; сумма весов по редкости S — ${m.sMean.toFixed(2)}; шаг сетки ${SLOT_DAYS.toFixed(0)} игр. дн.`);
+  console.log(`  вестей ${all.length} — ${(all.length / days).toFixed(2)} в настоящие сутки (цель ${CROWN_PER_DAY}); выведенный срок ${mtthFor(m.sMean)}`);
+  const kinds = ['good', 'bad', 'choice', 'chain'] as const;
+  const word = { good: 'добрых', bad: 'дурных', choice: 'выборов', chain: 'следствий' };
+  console.log(`  по нраву: ${kinds.map((k) => `${word[k]} ${all.filter((a) => CROWN_RULES[a.id]?.kind === k).length}`).join(', ')}`);
+  const drift = all.reduce((t, a) => t + crownStab(a.id, a.opt), 0) / days;
+  const quiet = all.reduce((t, a) => t + crownStab(a.id, CROWN_BY_ID[a.id]?.silence ?? 0), 0) / days;
+  const ok = (v: number): string => (Math.abs(v) <= CROWN_DRIFT_BAND ? 'в цели' : 'ВНЕ ЦЕЛИ');
+  console.log(`  сдвиг стабильности от вестей за настоящие сутки: ответы автопилота ${drift >= 0 ? '+' : '−'}${Math.abs(drift).toFixed(1)} % ступени (${ok(drift)}), молчание ${quiet >= 0 ? '+' : '−'}${Math.abs(quiet).toFixed(1)} % (${ok(quiet)}); цель ±${CROWN_DRIFT_BAND}`);
+  const by = new Map<string, number>();
+  for (const a of all) by.set(a.id, (by.get(a.id) ?? 0) + 1);
+  console.log(`  какие: ${[...by.entries()].sort((a, b) => b[1] - a[1]).map(([id, k]) => `${CROWN_BY_ID[id]?.title ?? id} ${k}`).join('; ')}`);
 }
 
 // ---------- Ц2: тяжёлый налог с голодом ----------
@@ -157,14 +256,16 @@ interface Measure {
   g0: number;
   evens: Even[];
   hard: Hard;
+  /** Вести державы (Ц4); в замере тяги и тихих дней не меряются — им не нужны. */
+  crown: CrownMeasure | null;
 }
 
-async function measureAll(): Promise<Measure> {
+async function measureAll(crown = true): Promise<Measure> {
   const evens: Even[] = [];
   for (const seed of SEEDS) evens.push(await even(seed));
   const zero = evens.flatMap((e) => e.atZero);
   const g0 = zero.length > 0 ? zero.reduce((n, v) => n + v, 0) / zero.length : 0;
-  return { g0, evens, hard: hard() };
+  return { g0, evens, hard: hard(), crown: crown ? await crownAll() : null };
 }
 
 function print(m: Measure): void {
@@ -201,6 +302,10 @@ function print(m: Measure): void {
       `  ${stabSigned(l).padStart(2)} ${stabName(l).padEnd(13)} подъём ${price > 0 ? `${price} (${days.toFixed(0)} игр. дн.)` : '—'}; выработка ×${stabOutputMult(l).toFixed(4)}`,
     );
   }
+  if (m.crown) {
+    console.log('');
+    printCrown(m.crown);
+  }
 }
 
 // ---------- Вывод неподвижной точкой ----------
@@ -214,9 +319,16 @@ function writeRules(drag: number, calm: number): void {
   writeFileSync(RULES, src);
 }
 
+const CROWN_FILE = fileURLToPath(new URL('../src/game/crownrules.ts', import.meta.url));
+
+function writeMtth(m: number): void {
+  writeFileSync(CROWN_FILE, readFileSync(CROWN_FILE, 'utf8').replace(/export const CROWN_MTTH = \d+;/, `export const CROWN_MTTH = ${m};`));
+}
+
 /** Один замер в дочернем процессе: модули игры читают записанные числа заново. */
-function child(): Measure {
-  const r = spawnSync('npx', ['vite-node', fileURLToPath(import.meta.url), '--', '--measure'], { encoding: 'utf8', env: process.env });
+function child(crown = false): Measure {
+  const args = ['vite-node', fileURLToPath(import.meta.url), '--', '--measure', ...(crown ? ['--crown'] : [])];
+  const r = spawnSync('npx', args, { encoding: 'utf8', env: process.env });
   const line = r.stdout.split('\n').find((x) => x.startsWith('MEASURE '));
   if (!line) throw new Error(`замер не вернул числа:\n${r.stdout}\n${r.stderr}`);
   return JSON.parse(line.slice('MEASURE '.length)) as Measure;
@@ -251,13 +363,31 @@ async function derive(): Promise<void> {
     drag = next;
   }
   writeRules(drag, calmOf(drag));
-  console.log(`DERIVE ${JSON.stringify({ drag, calm: calmOf(drag) })}`);
+  // Срок вестей державы (Ц4) — после тяги и тихих дней: частота считается на ровной игре с ними. S от срока зависит слабо
+  // (пришедшая весть ждёт срок повтора), поэтому повтор — до неподвижной точки; качается между двумя — полусумма.
+  let mtth = CROWN_MTTH;
+  const tried: number[] = [];
+  for (let step = 1; step <= 6; step++) {
+    const m = child(true).crown!;
+    const next = mtthFor(m.sMean);
+    console.log(`  вести, шаг ${step}: CROWN_MTTH ${mtth} → S ${m.sMean.toFixed(3)}, выведено ${next}`);
+    if (Math.abs(next - mtth) <= Math.max(2, mtth * 0.01)) break;
+    if (tried.includes(next)) {
+      mtth = Math.round((mtth + next) / 2);
+      writeMtth(mtth);
+      break;
+    }
+    tried.push(mtth);
+    mtth = next;
+    writeMtth(mtth);
+  }
+  console.log(`DERIVE ${JSON.stringify({ drag, calm: calmOf(drag), mtth })}`);
 }
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args.includes('--measure')) {
-    console.log(`MEASURE ${JSON.stringify(await measureAll())}`);
+    console.log(`MEASURE ${JSON.stringify(await measureAll(args.includes('--crown')))}`);
     return;
   }
   if (args.includes('--derive')) {

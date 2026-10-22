@@ -53,12 +53,12 @@ export const CROWN_RULES: Readonly<Record<string, CrownRule>> = {
   cr_lower_fire: { kind: 'bad', rarity: 'uncommon', opts: [o(-1), o(-1), o(-2)] },
   cr_plague_near: { kind: 'bad', rarity: 'uncommon', opts: [o(-1), o(0), o(0)] },
   cr_escape: { kind: 'bad', rarity: 'common', opts: [o(1), o(-1), o(0)] },
-  cr_crown_debt: { kind: 'bad', rarity: 'uncommon', opts: [o(0), o(0), o(-4)] },
+  cr_crown_debt: { kind: 'bad', rarity: 'uncommon', opts: [o(0), o(0), o(-2)] },
   cr_ruler_ill: { kind: 'bad', rarity: 'common', opts: [o(0), o(1), o(-2)] },
   cr_bad_harvest: { kind: 'bad', rarity: 'common', opts: [o(0), o(-1), o(0)] },
   // ---------- Выбор с ценой ----------
   cr_preacher: { kind: 'choice', rarity: 'common', opts: [o(1), o(0), o(-1)] },
-  cr_guild: { kind: 'choice', rarity: 'common', opts: [o(-1), o(0), o(2)] },
+  cr_guild: { kind: 'choice', rarity: 'common', opts: [o(0), o(0), o(2)] },
   cr_legate: { kind: 'choice', rarity: 'uncommon', opts: [o(2), o(0), o(-2)] },
   cr_commune: { kind: 'choice', rarity: 'uncommon', opts: [o(2), o(0)] },
   cr_crusade: { kind: 'choice', rarity: 'rare', opts: [o(2), o(2, ['war', 20]), o(-1)] },
@@ -70,7 +70,7 @@ export const CROWN_RULES: Readonly<Record<string, CrownRule>> = {
   // ---------- Следствия ----------
   cr_rain: { kind: 'chain', rarity: 'common', opts: [o(2), o(1)] },
   cr_plague: { kind: 'chain', rarity: 'common', opts: [o(-2), o(-4)] },
-  cr_collector: { kind: 'chain', rarity: 'common', opts: [o(0), o(-4)] },
+  cr_collector: { kind: 'chain', rarity: 'common', opts: [o(0), o(-2)] },
   cr_interdict: { kind: 'chain', rarity: 'common', opts: [o(1), o(-8)] },
 };
 
@@ -96,7 +96,7 @@ export const CROWN_GAIN_MAX = Math.max(...CROWN_IDS.flatMap((id) => CROWN_RULES[
  * Среднее время до наступления обычной вести, игровых дней, при весе 1. **Выводит `npm run stability:report`** (раздел
  * «Вести державы», цель — около одной вести державы в настоящие сутки ровной игры); руками не правится.
  */
-export const CROWN_MTTH = 375;
+export const CROWN_MTTH = 250;
 
 /** Во сколько раз дольше ждёт своего часа весть этой редкости. */
 export const RARITY_SLOW: Record<CrownRarity, number> = { common: 1, uncommon: 2, rare: 4, once: 4 };
