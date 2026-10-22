@@ -4,7 +4,11 @@ import { POINTS_CAP, REALM_BRANCHES, levelsOf } from '@/game/data/realm';
 import { levelName } from '@/game/sim/tech';
 import { createInitialState } from '@/game/state';
 import { TUTORIAL } from '@/game/data/tutorial';
-import { BRANCH_WORD, cellName, pointsTip } from './RealmNew';
+import { BRANCH_WORD, NEW_TABS, cellName, pointsTip, questCell, questCellWord } from './RealmNew';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { QUESTS } from '@/game/data/quests';
+import { dailyStatus } from '@/game/sim/daily';
 import { coatView } from './open';
 import { count } from '@/ui/parts/plural';
 
@@ -37,6 +41,34 @@ describe('держава нового вида', () => {
     expect(pointsTip('admin', POINTS_CAP, 2).body).toContain('На потолке, новые не копятся.');
     // «Приток нулевой» → «Очки не копятся» (docs/voice.md: слово дела, а не счётчика).
     expect(pointsTip('diplo', 10, 0).body).toBe('Очки не копятся.');
+  });
+
+  // СБ-2б (решение владельца 22.10.2026): «Стабильность» — разделом в ряду на месте «Заданий», «Задания» — ячейкой строки очков.
+  it('ряд: пять разделов, «Стабильность» на месте «Заданий» своим значком; «Заданий» в ряду нет', () => {
+    expect(NEW_TABS.map((t) => t.id)).toEqual(['lineage', 'government', 'tech', 'faith', 'stability']);
+    expect(NEW_TABS.find((t) => t.id === 'stability')?.icon).toBe('ui-stability');
+    const src = readFileSync(join(__dirname, 'RealmNew.tsx'), 'utf8');
+    // Строка очков: ячейка «Задания» ведёт в раздел заданий, ячейки ступени больше нет.
+    expect(src).toMatch(/data-tut="realm-quests"[\s\S]{0,200}onClick=\{\(\) => go\('quests'\)\}/);
+    expect(src).not.toMatch(/go\('stability'\)/);
+  });
+
+  it('ячейка «Задания»: число открытых заданий и отметка, пока задание дня сегодня ждёт', () => {
+    const s = createInitialState(5);
+    const day = 20_000;
+    // Область: новая партия — заданий открыто больше нуля, задание дня сегодня не сыграно.
+    expect(dailyStatus(s, day).played, 'точка внутри: задание дня не начато').toBe(false);
+    const fresh = questCell(s, day);
+    expect(fresh.open).toBe(QUESTS.length);
+    expect(fresh.open).toBeGreaterThan(0);
+    expect(fresh.daily).toBe(true);
+    expect(questCellWord(fresh)).toBe(`Задания: открыто ${QUESTS.length}, задание дня ждёт`);
+    s.completedQuests.push(QUESTS[0].id);
+    expect(questCell(s, day).open).toBe(QUESTS.length - 1);
+    s.daily = { ...s.daily, day, result: 'won' };
+    expect(dailyStatus(s, day).played, 'точка внутри: сегодня уже сыграно').toBe(true);
+    expect(questCell(s, day).daily, 'сыграно — отметки нет').toBe(false);
+    expect(questCellWord(questCell(s, day))).toBe(`Задания: открыто ${QUESTS.length - 1}`);
   });
 
   it('герб на шаге обучения «Изучи копьё» открывает технологии: путь словами шагу не нужен', () => {

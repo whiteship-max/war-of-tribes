@@ -369,14 +369,3 @@
   border-left-color: var(--good);
 }
 
-/* Ступень в строке очков державы: колонна и число — дверь в раздел (`RealmNew.PointsRow`); имя ступени — в самом разделе. */
-.nx-pcell.sb-cellbtn b.good {
-  color: var(--good);
-}
-.nx-pcell.sb-cellbtn b.bad {
-  color: var(--bad);
-}
-.nx-pcell.sb-cellbtn.on {
-  background: var(--m-lit);
-  box-shadow: var(--m-lit-bevel);
-}

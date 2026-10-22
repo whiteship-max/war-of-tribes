@@ -27,6 +27,8 @@
 //                                                    (верх и низ), мятеж
 //   GROUP=sb2 …                                    — СБ-2 (docs/stability.md, «СБ-2»): вести державы — заставка, текст,
 //                                                    ответы и «что изменится» у раскрытого ответа; итог ответа
+//   GROUP=sb2b …                                   — СБ-2б: ряд державы со «Стабильностью» на месте «Заданий», ячейка
+//                                                    «Задания» в строке очков, раздел стабильности, раздел заданий
 //   GROUP=k2 …                                     — К-2 (docs/AGENTS.md, 18): кольцо над логовом, дела, окно войска,
 //                                                    подтверждение, погашенный с причиной
 //   GROUP=r4 …                                     — Р-4 (docs/AGENTS.md, 16): «Походы», цель, дела, подтверждение,
@@ -298,6 +300,32 @@ function sb2(defId: string, set: Record<string, unknown>, pick: number | null): 
       document.querySelector('.cr-opt.on')?.scrollIntoView({ block: 'center' });
     }
     return JSON.stringify('ok');
+  })()`;
+}
+
+/**
+ * Держава на разделе `view` (СБ-2б): печатает, какие подписи ряда обрезаны (ширина подписи больше ячейки) — «все видны», если
+ * ни одной. `cell` — открыть раздел касанием ячейки «Задания».
+ */
+function sb2b(view: string, cell = false): string {
+  return `(async () => {
+    ${STAY}
+    window.__ui.reset();
+    window.__game.getState().act((s) => {
+      s.hints = { seen: ['stability', 'revolt', 'upgrade', 'army', 'neighbors', 'march', 'games'] };
+      s.stab = { level: 1, drift: 30, folk: 36, hungry: 0, past: [[s.time - 3000, 1]], bought: 0, spent: 0, revolts: 0, held: 0 };
+      return null;
+    });
+    const R = (await import('/src/ui/realm/open.ts')).useRealm;
+    R.getState().show(${JSON.stringify(cell ? 'lineage' : view)});
+    await new Promise((r) => setTimeout(r, 500));
+    if (${cell}) {
+      document.querySelector('[data-tut="realm-quests"]')?.click();
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    const cut = [...document.querySelectorAll('.nx-rtabs button > span:last-child')].filter((e) => e.scrollWidth > e.clientWidth + 0.5).map((e) => e.textContent);
+    const w = [...document.querySelectorAll('.nx-rtabs button')].map((b) => Math.round(b.getBoundingClientRect().width)).join('/');
+    return JSON.stringify(cut.length ? 'обрезаны: ' + cut.join(', ') + ' (' + w + ')' : 'подписи все видны (' + w + ')');
   })()`;
 }
 
@@ -1226,6 +1254,11 @@ const GROUPS: Record<string, Step[]> = {
       run: `(async () => { ${STAY} document.querySelectorAll('.cr-pick')[1]?.click(); await new Promise((r) => setTimeout(r, 200)); document.querySelector('.cr-go')?.click(); await new Promise((r) => setTimeout(r, 500)); return JSON.stringify('ok'); })()`,
       wait: 1200,
     },
+  ],
+  sb2b: [
+    { name: 'sb2b-ruler', run: sb2b('lineage'), wait: 1200 },
+    { name: 'sb2b-stability', run: sb2b('stability'), wait: 1500 },
+    { name: 'sb2b-quests', run: sb2b('quests', true), wait: 1500 },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.
