@@ -265,8 +265,12 @@ function sb1(level: number, drift: number, st: Record<string, unknown>, set: Rec
  * Весть державы на столе (СБ-2): партия под условие вести (`set` — вера, святыня, налог, люди, золото), весть ложится на стол
  * и открывается в «Вестях»; `pick` — номер ответа, который раскрыт («что изменится»), прокрученный к середине экрана.
  */
+/** Окно «Игра открыта дважды» стенда (свой же прошлый шаг под потолком кадров): вести партию здесь. */
+const STAY = `[...document.querySelectorAll('.modal button')].find((b) => b.textContent.includes('Продолжить здесь'))?.click();`;
+
 function sb2(defId: string, set: Record<string, unknown>, pick: number | null): string {
   return `(async () => {
+    ${STAY}
     window.__ui.reset();
     const set = ${JSON.stringify(set)};
     let ev = null;
@@ -1219,7 +1223,7 @@ const GROUPS: Record<string, Step[]> = {
     { name: 'sb2-miracle', run: sb2('cr_miracle', { faith: 'orthodox', relic: true, stab: [-1, 60] }, 0), wait: 1500 },
     {
       name: 'sb2-done',
-      run: `(async () => { document.querySelectorAll('.cr-pick')[1]?.click(); await new Promise((r) => setTimeout(r, 200)); document.querySelector('.cr-go')?.click(); await new Promise((r) => setTimeout(r, 500)); return JSON.stringify('ok'); })()`,
+      run: `(async () => { ${STAY} document.querySelectorAll('.cr-pick')[1]?.click(); await new Promise((r) => setTimeout(r, 200)); document.querySelector('.cr-go')?.click(); await new Promise((r) => setTimeout(r, 500)); return JSON.stringify('ok'); })()`,
       wait: 1200,
     },
   ],

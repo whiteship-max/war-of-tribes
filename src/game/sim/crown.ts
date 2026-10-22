@@ -164,7 +164,7 @@ function book(s: GameState, id: string, opt: number): void {
 // ---------- Слова последствий ----------
 
 /** «+21 %», «−43 %» — сдвиг стабильности целыми процентами, минус длинный. */
-const pct = (d: number): string => `${d > 0 ? '+' : '−'}${Math.round(Math.abs(d))} %`;
+const pct = (d: number): string => `${d > 0 ? '+' : '−'}${Math.round(Math.abs(d))}\u00a0%`;
 const signed = (d: number): string => `${d > 0 ? '+' : '−'}${Math.abs(Math.round(d))}`;
 
 /** Одно последствие словами. */

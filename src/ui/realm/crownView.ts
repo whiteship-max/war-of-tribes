@@ -24,7 +24,8 @@ export interface FxLine {
 }
 
 const sign = (n: number): string => (Math.round(n) === 0 ? '0' : `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`);
-const pct = (n: number): string => `${sign(n)} %`;
+/** Проценты с неразрывным пробелом: «+11 %» не рвётся на строке. */
+const pct = (n: number): string => `${sign(n)}\u00a0%`;
 
 /** Стабильность после ответа — примеркой на копии: та же дверь и те же края, что у ответа. */
 export function stabLine(s: GameState, d: number): FxLine | null {
@@ -38,11 +39,11 @@ export function stabLine(s: GameState, d: number): FxLine | null {
   const icon: IconName = 'ui-pillar';
   if (now.level !== was.level) return { icon, tone, text: `Стабильность: «${stabName(was.level)}» → «${stabName(now.level)}»` };
   if (Math.round(now.drift) !== Math.round(was.drift)) {
-    return { icon, tone, text: `Стабильность ${pct(d)} ступени: сдвиг ${pct(was.drift)} → ${pct(now.drift)}` };
+    return { icon, tone, text: `Стабильность ${pct(d)}: сдвиг ${sign(was.drift)} → ${pct(now.drift)}` };
   }
   // Край шкалы: сдвиг не копится — сказано прямо, чтобы обещание не висело пустым.
   const why = d > 0 && stabLevel(s) >= STAB_MAX ? 'выше некуда' : d < 0 && stabLevel(s) <= STAB_MIN ? 'ниже некуда' : 'без перемен';
-  return { icon, tone: 'flat', text: `Стабильность ${pct(d)} ступени: ${why}` };
+  return { icon, tone: 'flat', text: `Стабильность ${pct(d)}: ${why}` };
 }
 
 /** Одно последствие строкой. */

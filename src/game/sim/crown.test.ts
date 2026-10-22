@@ -31,7 +31,7 @@ import {
   crownStab,
   isCrown,
 } from '../crownrules';
-import { STAB_CALM, STAB_SELF_MAX } from '../stabrules';
+import { STAB_SELF_MAX } from '../stabrules';
 import { LETTER_PAUSE_MIN } from '@/world/data/tuning';
 import { BANNED } from '@/ui/next/voice.test';
 import { applyCrown, crownArrived, crownFx, crownOf, crownPick, crownRate, crownRates, crownWords } from './crown';
@@ -286,7 +286,8 @@ describe('выбор и последствия', () => {
     applyCrown(s, 'cr_good_year', 0);
     expect(stabOf(s).level).toBe(1);
     // Подпись ответа называет тот же сдвиг, что исполнился.
-    expect(crownWords(s, 'cr_comet', 2)).toContain(`стабильность −${Math.round(4 * STAB_CALM)} %`);
+    expect(crownStab('cr_comet', 2), 'точка внутри: сдвиг — минус').toBeLessThan(0);
+    expect(crownWords(s, 'cr_comet', 2)).toContain(`стабильность −${Math.round(-crownStab('cr_comet', 2))}\u00a0%`);
   });
 
   it('цена очками гасит ответ, пока очков нет; есть — списывается одной дверью', () => {
