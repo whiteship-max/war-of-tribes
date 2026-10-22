@@ -5,9 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BUILDINGS } from '@/game/data/buildings';
 import type { BuildingTypeId } from '@/game/types';
-import { DEFAULT_GAINS } from '../settings';
-import { SKIT_MIX } from './skits';
-import { ALARM_VOICES, HALL_GAP, HALL_MAX, HALL_MIN, HALL_MIX, HALL_SWAP, HALL_VOICES, HallVoices, layersAt, type HallMood } from './halls';
+import { ALARM_VOICES, HALL_GAP, HALL_LOUD, HALL_MAX, HALL_MIN, HALL_MIX, HALL_SWAP, HALL_VOICES, HallVoices, layersAt, type HallMood } from './halls';
 import { HALL_LATE, HallCue, type HallPlayer } from './hallcue';
 import { seeded } from './rng';
 import type { Kit } from './synth';
@@ -78,7 +76,7 @@ describe('голос здания: у каждого свой', () => {
       expect(def.more.length, type).toBe(2);
       for (let v = 0; v < 4; v++) {
         const f = fake(v + 1);
-        def.day[v]({ kit: f.kit, out: {} as AudioNode, r: f.kit.rnd, t: 0, dur: 2, end: 1.7, v: HALL_MIX });
+        def.day[v]({ kit: f.kit, out: {} as AudioNode, r: f.kit.rnd, t: 0, dur: 2, end: 1.7, v: HALL_MIX[type] });
         expect(f.starts.length, `${type}, вариант ${v} звучит`).toBeGreaterThan(0);
       }
     }
@@ -157,13 +155,16 @@ describe('голос здания: не раздражает', () => {
     expect(fades).toEqual([fadeA]);
   });
 
-  it('тише событий фона: на выходе не громче сценок ЖГ-2, и ни один голос не выходит за свой потолок', () => {
-    expect(HALL_MIX * DEFAULT_GAINS.fx).toBeLessThanOrEqual(Math.max(...Object.values(SKIT_MIX)) * DEFAULT_GAINS.amb);
-    for (const type of TYPES)
+  it('тише событий фона: сила каждого здания в своём потолке, и ни один слой его не превышает', () => {
+    // Сам уровень на выходе меряет стенд (`npm run audio:samples`, образцы `zv1-*`): пики −22…−26 дБ, ниже событий фона.
+    for (const type of TYPES) {
+      expect(HALL_MIX[type], type).toBeGreaterThan(0);
+      expect(HALL_MIX[type], type).toBeLessThanOrEqual(HALL_LOUD);
       for (const mood of MOODS) {
         const p = new HallVoices(fake().kit, {} as AudioNode).play(type, 10, mood, 0);
-        if (p) expect(p.peak, `${type} ${mood}`).toBeLessThanOrEqual(HALL_MIX * 1.4);
+        if (p) expect(p.peak, `${type} ${mood}`).toBeLessThanOrEqual(HALL_MIX[type] * 1.4);
       }
+    }
   });
 });
 

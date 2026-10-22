@@ -47,10 +47,38 @@ export const HALL_GAP = 4;
 /** Постоянная времени, за которую новое касание гасит прежний голос, с. */
 export const HALL_SWAP = 0.06;
 /**
- * Сила голоса на выходе «эффектов». Выставлена офлайн-отрисовкой (`npm run audio:samples`, образцы `zv1-*`): пики
- * −22…−26 дБ — как сценки ЖГ-2, ниже событий фона (−13.7…−18.1).
+ * Сила голоса на выходе «эффектов», своя у каждого здания: голоса разные (шорох корзин тише колокола), а слышно их должно быть
+ * ровно. Выставлена офлайн-отрисовкой (`npm run audio:samples`, образцы `zv1-*`, docs/city_v3.md, ЗВ-1): пик здания десятого
+ * уровня — около −24 дБ, как сценки ЖГ-2 (−22…−29), ниже событий фона (−13.7…−18.1).
  */
-export const HALL_MIX = 0.03;
+export const HALL_MIX: Record<BuildingTypeId, number> = {
+  campfire: 0.19,
+  town_hall: 0.064,
+  houses: 0.19,
+  storage: 0.085,
+  gathering: 0.25,
+  sawmill: 0.083,
+  quarry: 0.074,
+  hunter_hut: 0.27,
+  mine: 0.1,
+  workshop: 0.17,
+  farm: 0.13,
+  pen: 0.2,
+  church: 0.074,
+  statue: 0.16,
+  infirmary: 0.17,
+  watch: 0.25,
+  stable: 0.13,
+  cache: 0.11,
+  tavern: 0.06,
+  palisade: 0.15,
+  tower: 0.11,
+  smithy: 0.11,
+  market: 0.15,
+  barracks: 0.077,
+};
+/** Потолок силы голоса: громче этого здание не говорит, какой бы тихой ни была его сценка. */
+export const HALL_LOUD = 0.3;
 /** Ночью дома тише; трактир — громче (`HallVoice.nightGain`). */
 export const NIGHT_GAIN = 0.55;
 /** В тревогу дом слышен из-под звона оружия. */
@@ -90,6 +118,8 @@ const pan = (s: Stage, w = 0.4): number => span(s.r, -w, w);
 
 /** Огибающая: `hit` — удар и спад, иначе — набег и спад. */
 function env(p: AudioParam, at: number, dur: number, vel: number, hit: boolean): void {
+  // Ноль и до начала: источник, начавший на отсчёт раньше события, не щёлкает (как `synth.pluck`).
+  p.value = 0;
   if (hit) {
     strike(p, at, vel, 0.003, dur);
     return;
@@ -562,7 +592,7 @@ export interface HallPlay {
   mood: HallMood;
   variant: number;
   layers: number;
-  /** Самая громкая сила слоя на выходе (доля `HALL_MIX`, умноженная на него). */
+  /** Самая громкая сила слоя на выходе (`HALL_MIX` здания, умноженная на долю слоя). */
   peak: number;
   t: number;
   dur: number;
@@ -606,6 +636,7 @@ export class HallVoices {
     this.fade = fade;
     const dur = span(r, 1.9, 2.7);
     const shape = ctx.createGain();
+    shape.gain.value = 0;
     shape.gain.setValueAtTime(0, at);
     shape.gain.linearRampToValueAtTime(1, at + 0.04);
     shape.gain.setValueAtTime(1, at + dur - 0.35);
@@ -616,8 +647,8 @@ export class HallVoices {
     const gain = quiet ? NIGHT_GAIN : mood === 'night' ? (def.nightGain ?? 1) : 1;
     let peak = 0;
     const stage = (v: number): Stage => {
-      peak = Math.max(peak, HALL_MIX * v);
-      return { kit: this.kit, out: shape, r, t: at, dur, end: at + dur - 0.3, v: HALL_MIX * v };
+      peak = Math.max(peak, HALL_MIX[type] * v);
+      return { kit: this.kit, out: shape, r, t: at, dur, end: at + dur - 0.3, v: HALL_MIX[type] * v };
     };
     // Уровень слышен всегда: слои богатства — и днём, и ночью, и под звоном тревоги.
     const rich = layersAt(level);

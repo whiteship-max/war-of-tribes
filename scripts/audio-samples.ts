@@ -3,6 +3,7 @@
 //
 //   npm run audio:samples            образцы в docs/audio-samples/*.mp3 и таблица уровней
 //   ONLY=city-day,map npm run audio:samples
+//   ONLY=zv1 npm run audio:samples   голоса зданий (ЗВ-1) — в docs/audio/zv1-*.mp3; имя без дефиса — все образцы с этим началом
 //
 // Что меряется, на каждый образец: пик с ограничителем (что слышит игрок) и **без** него (запас до перегруза — сколько
 // отсчётов за ±1, если бы страховки не было), средняя громкость (RMS, дБ полной шкалы), самая громкая и самая тихая
@@ -139,12 +140,12 @@ async function main(): Promise<void> {
   try {
     const tab = await Tab.open(PORT, 'about:blank');
     await tab.eval(`${code};"null"`);
-    const names = await tab.eval<{ name: string; title: string; probe: boolean }[]>('JSON.stringify(__audio.names)');
+    const names = await tab.eval<{ name: string; title: string; probe: boolean; dir?: string }[]>('JSON.stringify(__audio.names)');
     const only = process.env.ONLY?.split(',');
     const rows: string[] = [];
-    rows.push('образец        пик   где        пик-без-огр  за ±1  RMS    громкая  тихая  скачок  щелчки  файл');
+    rows.push('образец           пик   где        пик-без-огр  за ±1  RMS    громкая  тихая  скачок  щелчки  файл');
     for (const s of names) {
-      if (only && !only.includes(s.name)) continue;
+      if (only && !only.some((o) => o === s.name || (!o.includes('-') && s.name.startsWith(`${o}-`)))) continue;
       const limited = await tab.eval<Rendered>(`__audio.render(${JSON.stringify(s.name)}, true)`);
       const raw = await tab.eval<Rendered>(`__audio.render(${JSON.stringify(s.name)}, false)`);
       const m = measure(limited);
@@ -152,13 +153,15 @@ async function main(): Promise<void> {
       if (!s.probe) {
         const w = join(tmp, `${s.name}.wav`);
         wav(limited, w);
-        const mp3 = join(OUT, `${s.name}.mp3`);
+        const dir = s.dir ? join(ROOT, 'docs', s.dir) : OUT;
+        mkdirSync(dir, { recursive: true });
+        const mp3 = join(dir, `${s.name}.mp3`);
         // Моно 48 кбит/с: послушать замысел хватает, в репозитории — по сотне килобайт.
         execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', w, '-ac', '1', '-b:a', '48k', mp3]);
         file = `${s.name}.mp3 ${(statSync(mp3).size / 1024).toFixed(0)} КБ`;
       }
       rows.push(
-        `${s.name.padEnd(14)} ${db(limited.peak).padStart(5)} @${String(m.topAt).padStart(4)} с ${db(raw.peak).padStart(8)} ${String(raw.over).padStart(9)}  ${String(m.rms).padStart(5)} ${String(m.loud).padStart(7)} ${String(m.quiet).padStart(6)} ${String(m.jump).padStart(6)} ${String(m.clicks).padStart(7)}  ${file}`,
+        `${s.name.padEnd(17)} ${db(limited.peak).padStart(5)} @${String(m.topAt).padStart(4)} с ${db(raw.peak).padStart(8)} ${String(raw.over).padStart(9)}  ${String(m.rms).padStart(5)} ${String(m.loud).padStart(7)} ${String(m.quiet).padStart(6)} ${String(m.jump).padStart(6)} ${String(m.clicks).padStart(7)}  ${file}`,
       );
       console.log(rows[rows.length - 1]);
     }

@@ -177,6 +177,9 @@ export function pluck(kit: Kit, dest: AudioNode, at: number, midi: number, vel: 
   const src = kit.ctx.createBufferSource();
   src.buffer = pluckBuffer(kit, midi);
   const g = kit.ctx.createGain();
+  // Ноль и до начала: иначе отсчёт, на котором источник уже идёт, а событие громкости ещё нет, звучит во всю силу — щелчок
+  // (образец `zv1-tavern`, ЗВ-1: −11 дБ на первом отсчёте струны).
+  g.gain.value = 0;
   g.gain.setValueAtTime(0, at);
   g.gain.linearRampToValueAtTime(vel, at + 0.003);
   src.connect(g);
