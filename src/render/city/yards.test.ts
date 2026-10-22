@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { BuildingTypeId } from '@/game/types';
 import { HALL_MIX } from '@/sound/epoch/halls';
-import { cityPlan, distSeg, FARM_TIERS, heightAt, hillsAt, MINE_HILLS, MINE_PORTAL, RIDGE_CRAGS, SAWMILL_BRIDGE, type P, type Street } from './layout';
+import { cityPlan, distSeg, FARM_TIERS, heightAt, hillsAt, MINE_HILLS, MINE_PORTAL, RIDGE_CRAGS, riverX, RIVER_HALF, SAWMILL_BRIDGE, type P, type Street } from './layout';
 import { buildStatic } from './budget';
 import { waterDepth } from './banks';
 import { Builder } from './geom';
@@ -116,6 +116,23 @@ describe('ЗД-2: дороги и местность у дворов', () => {
     expect(near, 'точек тропы у подножия гряды').toBeGreaterThan(30);
   });
 
+  it('у реки гряды нет: берег и уровень воды у гряды — прежние', () => {
+    const near = RIVER_HALF + 12;
+    let tested = 0;
+    for (let z = 66; z <= 230; z += 2) {
+      for (let d = 0; d <= near; d += 1) {
+        for (const side of [-1, 1]) {
+          tested++;
+          expect(hillsAt(riverX(z) + side * d, z), `гряда у реки (${d} м, z ${z})`).toBe(0);
+        }
+      }
+    }
+    expect(tested).toBeGreaterThan(1000);
+    // Граница области: гряда подходит к берегу ближе, чем на свой радиус, — без защиты она заходила бы в русло и на берег.
+    const reach = Math.min(...MINE_HILLS.map((c) => Math.abs(c.x - riverX(c.z)) - c.r - near));
+    expect(reach, 'край холма гряды — у самой полосы берега').toBeLessThan(0);
+  });
+
   it('проходы свободны: утварь дворов не стоит на полосе проезда — и там, где тропа идёт по двору', () => {
     // Полоса проезда — середина дороги (у края — полоса в 1,3 м, как у улиц, `square.test.ts`); настил моста — сама дорога.
     const found = new Set<string>();
@@ -196,8 +213,10 @@ describe('ЗД-2: мельница Фермы', () => {
     // Ночь — после разгона на новую скорость (за пять постоянных разгона): точки — внутри «ночи», а не на переходе.
     const night = run(1, 0, 5 * SAIL_EASE);
     const n2 = run(1, 0, 20, night.s);
-    expect(n2.turned, 'ночью за 20 с').toBeLessThan(day.turned * (SAIL_NIGHT + 0.05));
-    expect(n2.turned, 'ночью крылья всё же идут').toBeGreaterThan(day.turned * (SAIL_NIGHT - 0.05));
+    // Обещание — «ночью медленнее, но идут»: не быстрее 0,6 дневного хода и не медленнее 0,2.
+    expect(n2.turned, 'ночью за 20 с').toBeLessThan(day.turned * 0.6);
+    expect(n2.turned, 'ночью крылья всё же идут').toBeGreaterThan(day.turned * 0.2);
+    expect(n2.turned / day.turned, 'ночь — по SAIL_NIGHT').toBeCloseTo(SAIL_NIGHT, 1);
     // Тревога: встают за несколько постоянных разгона и стоят.
     const stop = run(0, 1, 8 * SAIL_EASE);
     expect(stop.s.speed, 'в тревогу — стоят').toBe(0);
