@@ -384,6 +384,21 @@ describe('стена и хозяйство за ней', () => {
     expect(idleCount(s)).toBeGreaterThan(0);
   });
 
+  it('набег бьёт по делам, а не по зданиям (ЗД-1): два самых людных дела одного двора разоряются оба', () => {
+    const s = createInitialState();
+    idleAll(s);
+    for (const b of s.buildings) b.level = 5;
+    s.pop = 200;
+    s.workers = { farmer: 30, herder: 25, woodcutter: 6, hunter: 5, miner: 4 };
+    // Область: бой кончился так, что встают два дела; самые людные — поле и загон одной Фермы.
+    expect(1 + Math.floor(0.5 * 2.99)).toBe(2);
+    const names = sackOutskirts(s, 0.5);
+    expect(s.workers.farmer ?? 0, 'поле').toBe(0);
+    expect(s.workers.herder ?? 0, 'загон того же двора — тоже').toBe(0);
+    expect(s.workers.woodcutter, 'лесопилку разор не задел').toBe(6);
+    expect(names).toEqual(['Ферма: поле', 'Ферма: загон']);
+  });
+
   it('лёгкий набег останавливает работу, но уровня не снимает', () => {
     const s = createInitialState();
     for (const b of s.buildings) b.level = 4;
