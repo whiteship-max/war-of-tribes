@@ -194,6 +194,9 @@ function SheetContent({ view }: { view: SheetView }) {
 export function App() {
   const ready = useGame((g) => g.ready);
   const sheet = useGame((g) => g.sheet);
+  // Окна-списки во всю высоту шторки (РТ-1): «Здания» — сетка всех построек, Ратуша — совет тремя карточками.
+  const hallId = useGame((g) => g.s.buildings.find((b) => b.type === 'town_hall')?.id ?? null);
+  const tallSheet = (sheet?.kind === 'tab' && sheet.tab === 'buildings') || (sheet?.kind === 'building' && sheet.id === hallId);
   const closeSheet = useGame((g) => g.closeSheet);
   const toast = useGame((g) => g.toast);
   const init = useGame((g) => g.init);
@@ -333,7 +336,7 @@ export function App() {
           ничего, и столбец возвращается на своё место сам. */}
       {!mapOpen && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
       {!mapOpen && <Suspense fallback={null}><WarSigns where="city" /></Suspense>}
-      <Sheet open={sheet !== null} onClose={closeSheet} tall={sheet?.kind === 'tab' && sheet.tab === 'buildings'}>
+      <Sheet open={sheet !== null} onClose={closeSheet} tall={tallSheet}>
         {shown && (
           <Crash key={JSON.stringify(shown)} where={`шторка ${shown.kind}`} onClose={closeSheet} inline>
             <SheetContent view={shown} />

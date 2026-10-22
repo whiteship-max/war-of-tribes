@@ -46,6 +46,7 @@ import { shieldVillagers } from '@/world/lairs';
 import { pilot, player, staff } from './autopilot';
 import { upkeepSection } from './pop-upkeep';
 import { GOLD_WORLD, goldRun, goldStreams } from './pop-gold';
+import { councilSection } from './pop-council';
 
 const HOURS = Number(process.env.HOURS ?? 10);
 /** Как часто автопилот принимает решения, игровых секунд; тем же тактом пульсует мир. */
@@ -379,6 +380,7 @@ async function main(): Promise<void> {
   }
 
   await upkeepSection();
+  await councilSection();
 }
 
 await main();
