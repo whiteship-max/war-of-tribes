@@ -107,7 +107,7 @@ describe('белый список видов', () => {
    * «указы» дали свои вести — `build` (клиент, прогнозом стройки партии) и `grant` (сервер, указ админа); без них их
    * переключатели ничего бы не переключали. Напоминаний «вернись в игру» по-прежнему нет.
    */
-  it('четырнадцать видов поимённо, вида «вернись в игру» быть не может', () => {
+  it('шестнадцать видов поимённо, вида «вернись в игру» быть не может', () => {
     // Фаза осады — пролом и мор (`siege-phase` у осады логова, `war-phase` у войны; docs/siege_v2.md, 8.3). Переговоры у стен
     // (`war-parley`, раздел 7) — только у войны: с логовом переговоры идут в игре, без вестей.
     // Пакт и выручка союзника (`war-pact`, `war-relief`, docs/siege_v2.md, 19.2) — слово владельца 13.10.2026.
@@ -126,6 +126,9 @@ describe('белый список видов', () => {
       'war-relief',
       'build',
       'grant',
+      // Стабильность (СБ-1, docs/stability.md, 2.8): «мятеж близок» и «мятеж» — слово владельца в задании СБ-1.
+      'stab-near',
+      'stab-revolt',
     ]);
     const put = accept(emptyNotify(), { computedAt: NOW, items: [item({ kind: 'come-back' as never, key: 'come-back:1' })] }, PLAYER, NOW);
     expect(put.fail).toEqual({ status: 400, error: 'bad-body' });
@@ -134,11 +137,43 @@ describe('белый список видов', () => {
   /** Войну знает только сервер: клиент, приславший «бой был» о войне, назвал бы исход, которого сервер не считал. */
   it('клиент не может прислать вид войны — отказ всему списку', () => {
     // Стройку клиент знает сам (ВС-1); указ отдаёт админ на сервере — его клиент прислать не может, как войну.
-    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'build']);
+    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'build', 'stab-near', 'stab-revolt']);
     for (const kind of ['war', 'war-fight', 'war-fall', 'war-spy', 'war-phase', 'war-parley', 'war-pact', 'war-relief', 'grant'] as const) {
       const fake = item({ kind, key: `${kind}:x`, p: { ...item().p, role: 'def', won: true } });
       expect(accept(emptyNotify(), { computedAt: NOW, items: [fake] }, PLAYER, NOW).fail, kind).toEqual({ status: 400, error: 'bad-body' });
     }
+  });
+});
+
+describe('вести стабильности (СБ-1, docs/stability.md, 2.8)', () => {
+  const stab = (kind: 'stab-near' | 'stab-revolt', group?: string): NoticeItem =>
+    item({ kind, key: `${kind}:${group ?? 'x'}:0`, p: { from: 'держава', fate: 'plunder', about: NOW - MIN, ...(group ? { group: group as never } : {}) } });
+
+  it('принимаются с группой из списка и только с ней; род — «Держава», важность обычная', () => {
+    for (const kind of ['stab-near', 'stab-revolt'] as const) {
+      for (const group of ['folk', 'hungry', 'bonded', 'army']) {
+        const put = accept(emptyNotify(), { computedAt: NOW, items: [stab(kind, group)] }, PLAYER, NOW);
+        expect(put.fail, `${kind} ${group}`).toBeNull();
+        expect(topicOf(stab(kind, group))).toBe('realm');
+        expect(tierOf(stab(kind, group))).toBe('normal');
+      }
+      for (const bad of [undefined, 'nobles', '__proto__']) {
+        const put = accept(emptyNotify(), { computedAt: NOW, items: [stab(kind, bad)] }, PLAYER, NOW);
+        expect(put.fail, `${kind} без группы или с чужой`).toEqual({ status: 400, error: 'bad-body' });
+      }
+    }
+  });
+
+  it('слова: кто недоволен и куда идти; без чисел, которые устареют', () => {
+    const near = noticeText(stab('stab-near', 'hungry'), DEFAULT_PREFS.tz);
+    expect(near).toContain('Мятеж близок');
+    expect(near).toContain('голодные');
+    expect(near).toContain('«Стабильность»');
+    expect(near).not.toMatch(/\d/);
+    const rose = noticeText(stab('stab-revolt', 'folk'), DEFAULT_PREFS.tz);
+    expect(rose).toContain('податные');
+    expect(rose).toContain('«Вестях»');
+    expect(rose).not.toMatch(/\d/);
   });
 });
 

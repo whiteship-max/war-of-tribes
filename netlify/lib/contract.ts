@@ -370,6 +370,8 @@ export const NOTICE_KINDS = [
   'war-relief',
   'build',
   'grant',
+  'stab-near',
+  'stab-revolt',
 ] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
@@ -377,7 +379,10 @@ export type NoticeKind = (typeof NOTICE_KINDS)[number];
  * Что может прислать клиент. Войну знает только сервер: её поручения клиент составить не может; указ — тоже: его отдаёт
  * админ на сервере.
  */
-export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'build'] as const satisfies readonly NoticeKind[];
+export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'build', 'stab-near', 'stab-revolt'] as const satisfies readonly NoticeKind[];
+
+/** Группа недовольных в вестях стабильности (docs/stability.md, 2.8) — те же имена, что `StabGroup` игры. */
+export const NOTICE_GROUPS = ['folk', 'hungry', 'bonded', 'army'] as const;
 
 /**
  * Исход фазы осады в вести (docs/siege_v2.md, 8.3). Весть идёт о значимом — пролом, мор в лагере, сработавший наказ;
@@ -458,6 +463,8 @@ export interface NoticeFacts {
   /** Стройка (`build`): какая постройка (`BuildingTypeId`) и до какого уровня дошла. */
   building?: string;
   level?: number;
+  /** Вести стабильности (`stab-near`, `stab-revolt`): чья полоса — податные, голодные, невольники, войско. */
+  group?: (typeof NOTICE_GROUPS)[number];
   /** Указ (`grant`): номер у игрока и что он прибавил (+) или убавил (−) — те же виды, что у `AdminGrant`. */
   n?: number;
   stock?: Partial<Record<StockKey, number>>;
@@ -646,6 +653,11 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (!building || !/^[a-z_]+$/.test(building) || level === null || level < 2 || level > 99) return null;
       facts.building = building;
       facts.level = Math.floor(level);
+    }
+    if (kind === 'stab-near' || kind === 'stab-revolt') {
+      const group = oneOf(NOTICE_GROUPS, p.group);
+      if (!group) return null;
+      facts.group = group;
     }
     if (kind === 'grant') {
       const n = num(p.n);

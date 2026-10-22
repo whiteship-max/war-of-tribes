@@ -12,7 +12,8 @@ import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
 import { buildForecast } from '@/game/buildEta';
 import { realMs } from '@/game/pace';
-import { draftBuild } from './notice';
+import { draftBuild, draftStab } from './notice';
+import { stabForecast, stabOf } from '@/game/sim/stability';
 import type { ProposalAct } from './proposals';
 import { pacts, proposals, provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { log } from '@/game/sim/log';
@@ -102,6 +103,27 @@ function withBuild(items: NoticeItem[], now: number): NoticeItem[] {
   const f = buildForecast(s);
   const item = draftBuild(f && { type: f.type, level: f.level, doneAt: now + realMs(f.sec), party: s.seed }, now);
   return item ? [...items, item] : items;
+}
+
+/**
+ * Вести стабильности (docs/stability.md, 2.8): «мятеж близок» и «мятеж» по прогнозу полос партии (`stabForecast`), минута —
+ * серверными часами пульса. Места в списке им — после мира и стройки: список полон — стабильность молчит.
+ */
+function withStab(items: NoticeItem[], now: number): NoticeItem[] {
+  const s = useGame.getState().s;
+  const episode = stabOf(s).revolts;
+  const out = [...items];
+  for (const f of stabForecast(s)) {
+    for (const [kind, sec] of [
+      ['stab-near', f.near],
+      ['stab-revolt', f.revolt],
+    ] as const) {
+      if (sec === null || out.length >= NOTICE_LIMITS.items) continue;
+      const item = draftStab({ group: f.group, kind, at: now + realMs(sec), episode }, now);
+      if (item) out.push(item);
+    }
+  }
+  return out;
 }
 
 /**
@@ -519,7 +541,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       now: pulse.now,
     });
     // Черновики уведомлений — после пульса, из того, что он оставил в сохранении мира, и стройка партии (ВС-1).
-    if (NOTIFY_ON) void notifying?.notices().then((d) => notifyDrafts(withBuild(d.items, pulse.now), pulse.now));
+    if (NOTIFY_ON) void notifying?.notices().then((d) => notifyDrafts(withStab(withBuild(d.items, pulse.now), pulse.now), pulse.now));
     // Стол писем перечитывается тем же пульсом: срок письма разбирает мир в
     // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
     // иначе протухшее висело бы в столбике до следующего действия игрока.

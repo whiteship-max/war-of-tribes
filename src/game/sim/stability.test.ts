@@ -32,7 +32,9 @@ import {
   stabOutputMult,
   stabPrice,
 } from '../stabrules';
-import { folkCauses, groupsOf, pressureOf, stabLevel, stabOf, stabilityTick, steady, steadyInfo } from './stability';
+import { folkCauses, groupsOf, pressureOf, stabForecast, stabLevel, stabOf, stabilityTick, steady, steadyInfo } from './stability';
+import { draftStab } from '@/world/notice';
+import { REVOLT_NEAR } from '../stabrules';
 import { pointsOf } from './points';
 import { tick } from './tick';
 import { resolveEvent } from './actions';
@@ -318,5 +320,31 @@ describe('сохранение', () => {
     const back = deserialize(serialize(s))!;
     expect(back.stab).toEqual(s.stab);
     expect(back.version).toBe(SAVE_VERSION);
+  });
+});
+
+describe('вести в бот: прогноз полос', () => {
+  it('«мятеж близок» и «мятеж» — по скорости шага: прогноз сходится с самим шагом', () => {
+    const s = town(-3);
+    s.tax = 'high';
+    const f = stabForecast(s).find((x) => x.group === 'folk')!;
+    expect(f, 'точка внутри области: полоса растёт к мятежу').toBeDefined();
+    expect(f.near).toBeCloseTo((REVOLT_NEAR / GROUP_RISE) * DAY_LENGTH, 6);
+    expect(f.revolt).toBeCloseTo((100 / GROUP_RISE) * DAY_LENGTH, 6);
+    // Шаг доходит до порога «близок» ровно к прогнозу.
+    stabFor(s, Math.ceil(f.near!), 1);
+    expect(stabOf(s).folk).toBeGreaterThanOrEqual(REVOLT_NEAR - 1e-6);
+    expect(stabOf(s).near).toContain('folk');
+  });
+
+  it('полоса не растёт — прогноза нет; черновик — один ключ на случай', () => {
+    const calm = town(0);
+    calm.tax = 'none';
+    expect(stabForecast(calm)).toEqual([]);
+    const item = draftStab({ group: 'folk', kind: 'stab-revolt', at: 1_000_000_123, episode: 2 }, 1_000_000_000)!;
+    expect(item.key).toBe('stab-revolt:folk:2');
+    expect(item.fireAt % 60_000).toBe(0);
+    expect(item.p.group).toBe('folk');
+    expect(draftStab({ group: 'folk', kind: 'stab-near', at: 1e15, episode: 0 }, 0), 'дальше потолка списка — молчание').toBeNull();
   });
 });

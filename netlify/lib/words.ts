@@ -144,8 +144,21 @@ export function noticeText(item: NoticeItem, tz: string): string {
       return `Достроили: ${buildLine(item)}. ${AFTER.build}`;
     case 'grant':
       return `Пришёл указ: ${grantLine(item)}. ${AFTER.grants}`;
+    // Стабильность (docs/stability.md, 2.8): одна весть, когда мятеж близок, и одна — о мятеже; без чисел, которые устареют.
+    case 'stab-near':
+      return `Мятеж близок: ${GROUP_WORD[p.group ?? 'folk'].who} на пределе. Что их злит и как унять — в игре, раздел «Стабильность».`;
+    case 'stab-revolt':
+      return `${GROUP_WORD[p.group ?? 'folk'].rose} Ответ — в игре, в «Вестях»: без ответа стража выйдет сама.`;
   }
 }
+
+/** Группы недовольных в вестях стабильности — словами получателя. */
+const GROUP_WORD: Record<NonNullable<NoticeItem['p']['group']>, { who: string; rose: string }> = {
+  folk: { who: 'податные', rose: 'Мятеж в городе: податные бросили работу.' },
+  hungry: { who: 'голодные', rose: 'Хлебный бунт: голодные вышли на площадь.' },
+  bonded: { who: 'невольники', rose: 'Мятеж невольников: работа стоит.' },
+  army: { who: 'войско', rose: 'Войско не ждёт жалованья.' },
+};
 
 /** Весть о союзе словами получателя (ДП-1). */
 function pactText(item: NoticeItem): string {
@@ -311,6 +324,7 @@ const HEAD: Record<Head, (n: number) => string> = {
   build: (n) => `Достроено ${count(n, 'постройка', 'постройки', 'построек')}:`,
   grants: (n) => `${count(n, 'указ', 'указа', 'указов')}:`,
   neighbors: (n) => `${news(n)} от соседей:`,
+  realm: (n) => `${news(n)} державы:`,
   mix: (n) => `Пока тебя не было — ${news(n)}:`,
   night: (n) => `За ночь — ${news(n)}:`,
 };
@@ -340,9 +354,9 @@ export function letterText(letter: Pick<Letter, 'head' | 'items' | 'n'>, tz: str
 // ------------------------------------------------ настройки вестей: /notify (ВС-1) ---
 
 /** Роды на кнопках настроек. */
-const TOPIC_NAME: Record<Topic, string> = { fights: 'Бои', sieges: 'Осады', build: 'Стройка', grants: 'Указы', neighbors: 'Соседи' };
+const TOPIC_NAME: Record<Topic, string> = { fights: 'Бои', sieges: 'Осады', build: 'Стройка', grants: 'Указы', neighbors: 'Соседи', realm: 'Держава' };
 /** Роды в строке «бот пишет о …». */
-const TOPIC_ABOUT: Record<Topic, string> = { fights: 'боях', sieges: 'осадах', build: 'стройке', grants: 'указах', neighbors: 'соседях' };
+const TOPIC_ABOUT: Record<Topic, string> = { fights: 'боях', sieges: 'осадах', build: 'стройке', grants: 'указах', neighbors: 'соседях', realm: 'державе' };
 
 const listed = (xs: string[]): string => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} и ${xs[xs.length - 1]}`);
 
@@ -380,7 +394,7 @@ export function panelRows(rec: Pick<NotifyRecord, 'prefs' | 'bot'>): PanelButton
   const topic = (t: Topic): PanelButton => ({ text: `${TOPIC_NAME[t]}: ${yes(!bot.mute.includes(t))}`, act: callbackTopic(t) });
   return [
     [topic('fights'), topic('sieges'), topic('build')],
-    [topic('grants'), topic('neighbors')],
+    [topic('grants'), topic('neighbors'), topic('realm')],
     [{ text: `Тихий час: ${quietWords(bot.quiet)}`, act: CALLBACK_QUIET }],
     [{ text: `Только срочное: ${yes(bot.urgent)}`, act: CALLBACK_URGENT }],
     [prefs.on ? { text: BUTTON_OFF, act: CALLBACK_PANEL_OFF } : { text: BUTTON_ON, act: CALLBACK_PANEL_ON }],

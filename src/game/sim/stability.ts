@@ -493,3 +493,42 @@ export function termsRefuse(s: GameState): void {
   st[r.group] = 50;
   stepBy(s, -1, 'terms');
 }
+
+// ---------- Вести в бот ----------
+
+/** Когда полоса дойдёт до «мятеж близок» и до мятежа (у войска — до ухода), игровых секунд от сейчас; null — не дойдёт. */
+export interface StabForecast {
+  group: StabGroup;
+  near: GameSec | null;
+  revolt: GameSec | null;
+}
+
+/**
+ * Прогноз полос для вестей в бот (docs/stability.md, 2.8): при нынешних причинах — когда полоса перейдёт «мятеж близок»
+ * (`REVOLT_NEAR`) и когда дойдёт до мятежа. Скорость — та же, что у шага (`GROUP_RISE`, срок ропота, срок Статуи): своей
+ * арифметики у прогноза нет. Мятеж на столе и полоса, которая не растёт, — без прогноза: о них игрок уже знает или нечего.
+ */
+export function stabForecast(s: GameState): StabForecast[] {
+  const st = stabOf(s);
+  const out: StabForecast[] = [];
+  const days = (from: number, to: number): GameSec => asGame((Math.max(0, to - from) / GROUP_RISE) * DAY_LENGTH);
+  const mb = moraleBreakdown(s);
+  for (const [group, lines] of [
+    ['folk', folkCauses(s, mb)],
+    ['hungry', hungryCauses(s, mb)],
+  ] as const) {
+    if (st.revolt) break;
+    const v = st[group];
+    const t = Math.min(100, targetOf(lines));
+    if (t < REVOLT_NEAR || t <= v) continue;
+    out.push({ group, near: days(v, REVOLT_NEAR), revolt: t >= REVOLT_AT ? days(v, 100) : null });
+  }
+  if (orderState(s) === 'unrest' && !mutinyOpen(s)) {
+    const u = Math.max(0, s.unrest ?? 0);
+    out.push({ group: 'bonded', near: asGame(Math.max(0, (REVOLT_NEAR / 100) * MUTINY_FUSE - u)), revolt: asGame(Math.max(0, MUTINY_FUSE - u)) });
+  }
+  const late = Math.max(0, s.pay?.late ?? 0);
+  const grace = payGraceDays(s) * DAY_LENGTH;
+  if (late > 0 && late < grace) out.push({ group: 'army', near: asGame(Math.max(0, (REVOLT_NEAR / 100) * grace - late)), revolt: null });
+  return out;
+}
