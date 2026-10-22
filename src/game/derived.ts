@@ -70,6 +70,7 @@ import {
 } from './constants';
 import { asGame, sessionSec, type GameSec } from './pace';
 import { BUILDING_BY_ID, MASTERS_AT, jobsOf, type BuildingStats, slotsAt } from './data/buildings';
+import { keptType } from './merged';
 import { surveyRadiusOf } from './data/survey';
 import { buildRateOf, defenseOf, hallBuildMult, headsFoodPerDay, heatingWood, housingOf, keenAt, towerSeatsAt, soldierFoodPerDay as soldierFoodAt, stashAt, storageOf, type Levels } from './build';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
@@ -1786,8 +1787,11 @@ export const fervour = (s: GameState): number => (riteActive(s) ? faithTilt(s).f
  * из-за подписи нельзя.
  */
 export function buildingTitle(s: GameState, type: BuildingTypeId): string {
-  if (type !== 'church') return BUILDING_BY_ID[type].name;
-  return faithDef(s)?.temple ?? BUILDING_BY_ID[type].name;
+  // Старая запись мира (донесение, выстрел) может назвать здание, ушедшее в двор (ЗД-1): имя — двора.
+  const kept = BUILDING_BY_ID[type] ? type : keptType(type);
+  if (!kept) return String(type);
+  if (kept !== 'church') return BUILDING_BY_ID[kept].name;
+  return faithDef(s)?.temple ?? BUILDING_BY_ID[kept].name;
 }
 
 /** Сбор веры за игровой день: десятина в казну (плюс) или закят из неё (минус). */

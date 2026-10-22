@@ -44,7 +44,7 @@ describe('плата и возврат цены — одна дверь', () => 
       if (n > 0) calls.push(`${file} ×${n}`);
     }
     expect(calls.sort()).toEqual(
-      ['game/save.ts ×1', 'game/sim/actions.ts ×1', 'game/sim/army.ts ×1', 'game/sim/smithy.ts ×1', 'game/sim/survey.ts ×1'].sort(),
+      ['game/sim/actions.ts ×1', 'game/sim/army.ts ×1', 'game/sim/smithy.ts ×1', 'game/sim/survey.ts ×1', 'game/yardstep.ts ×1'].sort(),
     );
 
     // Каждая отмена возвращает через дверь и не пишет в склад сама: пятая копия
@@ -55,7 +55,7 @@ describe('плата и возврат цены — одна дверь', () => 
       ['game/sim/smithy.ts', 'cancelForge'],
       ['game/sim/survey.ts', 'cancelSurvey'],
       // Стройка ушедших частей пары, которую не на что перенести (ступень 23 → 24, `yardmerge.foldSites`).
-      ['game/save.ts', 'settleFold'],
+      ['game/yardstep.ts', 'settleParty'],
     ];
     const all = new Map(sources().map((x) => [x.file, x.code]));
     for (const [file, name] of cancels) {

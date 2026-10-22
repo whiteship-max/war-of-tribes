@@ -1,14 +1,11 @@
-import type { ActiveEvent, BuildingTypeId, GameState, LogEntry } from './types';
+import type { ActiveEvent, GameState, LogEntry } from './types';
 import { bonesToCharcoal } from './charcoal';
-import { MERGED_PAIRS, foldParty, oldUpgradeCost, type PartyFold } from './yardmerge';
+import type { PartyFold } from './yardmerge';
 import { DAY_LENGTH } from './constants';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS } from './data/upkeep';
 import { PACE_TEXT } from './data/pace';
 import { daysSpan } from './span';
-import { buildingOfType, buildingTitle, taxIncomePerDay, wagesPerDay } from './derived';
-import { refund } from './sim/pay';
-import { YARD_BY_JOB } from './data/yards';
-import { jobsOf } from './data/buildings';
+import { taxIncomePerDay, wagesPerDay } from './derived';
 import { emptyArmy } from './data/troops';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
@@ -243,25 +240,29 @@ function migrate(s: GameState, from: number, data: SavedState, fold: PartyFold |
   // 23 → 24: ресурсные дворы объединены (ЗД-1). Постройки, стройка, рабочие и невольники сведены ещё до слияния
   // (`deserialize` → `yardmerge.foldParty`); здесь — возврат цены стройки, которую не на что перенести, дверью склада
   // (`sim/pay.refund`, разовое дело описи), и строка игроку.
-  if (from < 24 && fold) settleFold(s, fold);
+  if (from < 24 && fold && door) door.settleParty(s, fold, (text, kind) => tell(s, text, kind));
 }
 
 /**
- * Конец ступени 23 → 24: возврат цены и слова игроку. Двор назван своим именем и делами, уровень — больший из двух прежних,
- * и сказано, что люди остались на своих делах: молча переход не делается.
+ * Ступень 23 → 24 (`game/yardstep.ts`, правило — `game/yardmerge.ts`) — своей докачкой: она нужна только партии младше 24-й, а
+ * первая загрузка не должна расти ради тех, у кого старой партии нет. Подгружает её `loadFold` — вход (`loadGame`) и взятие
+ * серверной партии (`net/sync`) зовут его до чтения, если запись старше; без неё старая запись не читается (`deserialize` →
+ * null) и ничего не затирается.
  */
-function settleFold(s: GameState, fold: PartyFold): void {
-  for (const r of fold.refunds) refund(s, oldUpgradeCost(r.type, r.level), 1);
-  const deeds = (type: BuildingTypeId): string =>
-    jobsOf(type)
-      .map((job) => YARD_BY_JOB.get(job)?.deed.toLowerCase())
-      .filter(Boolean)
-      .join(' и ');
-  const yards = MERGED_PAIRS.map(({ kept }) => `${buildingTitle(s, kept)} (${deeds(kept)}) — ур. ${buildingOfType(s, kept)?.level ?? 1}`).join(', ');
-  tell(s, `Дворы за стеной собраны по два дела: ${yards}. Уровень — больший из двух прежних, люди остались на своих делах.`, 'info');
-  if (fold.refunds.length > 0) {
-    tell(s, `Стройка ${fold.refunds.length === 1 ? 'прежнего двора отменена' : 'прежних дворов отменена'}, цена вернулась на склад целиком.`, 'info');
-  }
+type FoldDoor = typeof import('./yardstep');
+let door: FoldDoor | null = null;
+
+/** Подгрузить ступень 23 → 24. Повторный вызов — та же. */
+export async function loadFold(): Promise<void> {
+  door ??= await import('./yardstep');
+}
+
+/** Версия записи без разбора всей строки: поле `version` пишет `serialize` первым. */
+const versionOf = (json: string): number => Number(/"version":\s*(\d+)/.exec(json)?.[1] ?? SAVE_VERSION);
+
+/** Готовность прочесть запись: партии младше 24-й нужна дверь перехода — подгрузить её до чтения. */
+export async function readyToRead(json: string): Promise<void> {
+  if (versionOf(json) < 24) await loadFold();
 }
 
 /**
@@ -408,7 +409,9 @@ export function deserialize(json: string): GameState | null {
     if (from < 23) bonesToCharcoal(data);
     // 23 → 24: дворы объединены (ЗД-1). До слияния: трёх построек больше нет, и назначения ложатся по делам — иначе
     // слияние привезло бы постройки, которых в игре нет, и рабочих по номерам (ступень — в `migrate`).
-    const fold = from < 24 ? foldParty(data as Record<string, unknown>) : null;
+    // Двери нет — запись не читается, и ничего не затирается: её подгружает тот, кто читает (`readyToRead`).
+    if (from < 24 && !door) return null;
+    const fold = from < 24 && door ? door.foldParty(data as Record<string, unknown>) : null;
     const base = createInitialState();
     // Простое слияние: новые поля из createInitialState, остальное из сохранения.
     const s = {
@@ -582,6 +585,7 @@ export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
   // живые копии и спросит игрока — молча за него не выберет никто.
   const lifted = json ? null : await rescueFromCloud(KEY);
   const chosen = json ?? lifted;
+  if (chosen) await readyToRead(chosen);
   const read = chosen ? deserialize(chosen) : null;
   // Партия прошлой эпохи мира: сервер с тех пор стёрт (`/wipeworld ДА`), и её не загружают — ни с диска, ни из облака.
   // Начинается новая; старая строка на диске ляжет под первой же записью новой партии (docs/test_world.md).

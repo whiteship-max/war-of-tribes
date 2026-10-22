@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import {
   buildRate,
@@ -35,8 +35,11 @@ import { DAILY_GAMES } from '../data/daily';
 import { SOCIAL_LINKS } from '../data/social';
 import { dailyReward } from './daily';
 import { tick } from './tick';
-import { deserialize, enter, serialize } from '../save';
+import { deserialize, enter, serialize, loadFold } from '../save';
 import { SAVE_VERSION } from '../state';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 /**
  * Алмазы в партии (docs/gems.md). Баланс и журнал — на сервере (`netlify/lib/gems.test.ts` держит начисление, повтор

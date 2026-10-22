@@ -311,6 +311,7 @@ import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from
 import { campFight, campHolds, guardKinds, holdMinute, homeLosses, machineFight, wallFight, type CampPartIn, type HoldIn } from '../fights';
 import { AIM_NAME, GUN_AIM_NAME, aimBlock, artilleryAimOf as artilleryAim, aimWords, artilleryAt, gunAfter, gunAimBlock, gunAimOf, gunAimWords, gunBlock, gunsAt, idleBuildings, lostLevel, shotsApplied, shotsText } from '../shelling';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { keptType } from '@/game/merged';
 import { BLOCKADE_BREAKS, BLOCKADE_GIVES, BREAKOUT_GIVES, BREAKOUT_SHARE, BREAK_WORDS, blockadeAfter, blockadeAt, blockadeBlock, blockadeDeeds, blockadeHolds, blockadeRatio, blockadeSince, ratioWords, type BlockadeBreak } from '../blockade';
 import { BLOCKADE_RATIO } from '../data/blockade';
 import { SIEGE_PHASE as PHASE_MS } from '../data/siegeroll';
@@ -1485,7 +1486,8 @@ export class LocalWorld implements WorldApi {
   }
 
   /** Имя постройки по ключу — для журнала фаз с выстрелами по городу (Р-5). */
-  private buildingName = (b: string): string => BUILDING_BY_ID[b as keyof typeof BUILDING_BY_ID]?.name ?? b;
+  // Прежняя постройка из записи до объединения дворов (ЗД-1) — именем её двора (`game/merged.keptType`).
+  private buildingName = (b: string): string => BUILDING_BY_ID[keptType(b) ?? (b as keyof typeof BUILDING_BY_ID)]?.name ?? b;
 
   /** Цель артиллерии лагеря глазами окна (Р-5, `world/shelling`): что даст каждая цель — до нажатия. */
   private aimView(w: SiegeWindow, now: number): AimView {

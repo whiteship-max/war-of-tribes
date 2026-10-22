@@ -11,18 +11,18 @@
  * переносится одной стройкой двора с суммой сделанной работы — оплачена она ровно ценой двора (сумма цен дел); всякая
  * другая стройка ушедших частей возвращает цену целиком (`sim/pay.refund`), потому что перенести её не на что.
  *
- * Читают дверь: ступень сохранения 23 → 24 (`game/save.ts`, `foldParty`), книга стройки и опись сервера
- * (`netlify/lib/town.ts`, `watch.ts` — `foldLevels`, `foldSites`), и всё, что мир или старая запись везут с прежним
- * типом постройки (`keptType`): падение города, выстрел по постройке, донесение, весть бота. Чистая, без `@/`: модуль
- * читает серверная часть.
+ * Читают дверь: ступень сохранения 23 → 24 (`game/save.ts`, `foldParty` — своей докачкой, только у партии младше 24-й,
+ * `save.loadFold`), книга стройки и опись сервера (`netlify/lib/town.ts`, `watch.ts` — `foldTown`, `foldLevels`,
+ * `foldSites`). Таблица ушедших и чтение прежнего типа (`keptType`: падение города, выстрел по постройке, донесение, весть
+ * бота) — в `game/merged.ts`, она нужна игре в первом куске. Чистая, без `@/`: модуль читает серверная часть.
  */
 import type { BuildingTypeId, JobId, ResourceId } from './types';
 import { BUILDINGS, BUILDING_BY_ID, jobsOf } from './data/buildings';
 import { YARD_BY_JOB } from './data/yards';
 import { upgradeCost, upgradeWork } from './labour';
+import { MERGED_INTO, hasGone, keptType, own } from './merged';
 
-/** Ушедшее здание → двор, в который оно вошло. */
-export const MERGED_INTO: Readonly<Record<string, BuildingTypeId>> = { pen: 'farm', gathering: 'hunter_hut', quarry: 'mine' };
+export { MERGED_INTO, hasGone, keptType } from './merged';
 
 /** Дело прежнего здания пары: его рабочие встают на это дело двора. Остальные здания несли одно дело — оно и есть. */
 const OLD_JOB: Readonly<Record<string, JobId>> = {
@@ -40,14 +40,6 @@ const PLACED: ReadonlySet<string> = new Set(BUILDINGS.flatMap((b) => b.jobs ?? [
 /** Пары перехода: двор и ушедшее в него здание. */
 export const MERGED_PAIRS: readonly { kept: BuildingTypeId; gone: string }[] = Object.entries(MERGED_INTO).map(([gone, kept]) => ({ kept, gone }));
 
-/** Своё поле таблицы, а не прототипа: тип постройки из записи — чужая строка, и «toString» таблицей не является. */
-const own = <T>(table: Readonly<Record<string, T>>, key: string): T | undefined =>
-  Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
-
-/** Тип постройки, каким его знает игра сейчас: ушедший — его двор, нынешний — он сам, чужой — null. */
-export const keptType = (type: string): BuildingTypeId | null =>
-  own(MERGED_INTO, type) ?? (own(BUILDING_BY_ID, type) ? (type as BuildingTypeId) : null);
-
 /** Дело, на которое встают рабочие прежнего здания этого типа; у здания без дел — null. */
 export const oldJobOf = (type: string): JobId | null => own(OLD_JOB, type) ?? (keptType(type) === type ? (jobsOf(type as BuildingTypeId)[0] ?? null) : null);
 
@@ -64,12 +56,6 @@ const oldPrice = (type: string): { cost: Partial<Record<ResourceId, number>>; wo
 export const oldUpgradeCost = (type: string, level: number): Partial<Record<ResourceId, number>> => {
   const p = oldPrice(type);
   return p ? upgradeCost(p, level) : {};
-};
-
-/** Есть ли среди типов ушедшие — значит, запись ещё до перехода. */
-export const hasGone = (types: Iterable<string>): boolean => {
-  for (const t of types) if (Object.prototype.hasOwnProperty.call(MERGED_INTO, t)) return true;
-  return false;
 };
 
 /** Уровни по типам после перехода: двор — больший из двух прежних, ушедших типов нет. Вход не меняется. */

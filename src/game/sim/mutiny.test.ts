@@ -13,10 +13,10 @@
 //  7. тексты буднично-нейтральны: ни похвалы сделке, ни шутки, ни людей штуками.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { BuildingTypeId, GameState } from '../types';
 import { createInitialState, SAVE_VERSION } from '../state';
-import { deserialize, serialize } from '../save';
+import { deserialize, serialize, loadFold } from '../save';
 import {
   BONDED_OUTPUT,
   BUILDER_RATE,
@@ -91,6 +91,9 @@ import { mutinyFalls, mutinyRelease, mutinySuppress, releaseBonded, unrestTick }
 import { applyExpedition } from './expedition';
 import { seeded, setRandom } from './random';
 import { plunder } from '@/world/spoils';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 beforeEach(() => setRandom(seeded(11)));
 

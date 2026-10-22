@@ -7,6 +7,7 @@ import type { GameState } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
 import { gameDaysPerHour, gameSecondsOfMs } from '@/game/pace';
 import { breadCap } from '@/game/sim/siege';
+import { keptType } from '@/game/merged';
 import {
   bondedTotal,
   buildingOfType,
@@ -297,7 +298,8 @@ export function syncSiege(s: GameState, view: SiegeView | null, now: number): bo
   const ration = Boolean(view.ration);
   // Кольцо блокады и постройки под обстрелом (Р-5): решает мир, племя только живёт по ним.
   const ring = Boolean(view.blockade?.on);
-  const idle = [...(view.idle ?? [])].sort();
+  // Постройка под обстрелом, названная до объединения дворов (ЗД-1), — её двор.
+  const idle = [...new Set((view.idle ?? []).map((t) => keptType(t) ?? t))].sort();
   // Хлеб осаждённого города — хлеб окна (docs/siege_v2.md, 21.1): склад не держит больше его остатка.
   const capped = view.bread !== undefined && breadCap(s, view.bread);
   const same =

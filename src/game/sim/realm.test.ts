@@ -1,8 +1,8 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { createInitialState, SAVE_VERSION } from '../state';
-import { deserialize, enter, serialize } from '../save';
+import { deserialize, enter, serialize, loadFold } from '../save';
 import { DAY_LENGTH, MAX_OFFLINE_DAYS } from '../constants';
 import {
   MAX_RULER_SKILL,
@@ -22,6 +22,9 @@ import { placeOpen, study } from './tech';
 import { nameAgents } from './agents';
 import { FIGURE_IDS } from '@/world/data/figures';
 import type { GameState } from '../types';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 /** Партия с известной верой: имена дому и местам агентов даёт первый же шаг, как в игре. */
 function party(seed = 7): GameState {

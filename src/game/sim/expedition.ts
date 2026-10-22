@@ -5,6 +5,7 @@ import type { BuildingTypeId, EquipmentId, GameState, LogEntry, ResourceId } fro
 import { RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID, jobsOf } from '../data/buildings';
 import { YARD_BY_JOB } from '../data/yards';
+import { keptType } from '../merged';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
 import {
   buildingOfType,
@@ -173,8 +174,9 @@ export interface LevelLoss {
 export function fallBuildings(s: GameState, fallen: { id: string; from: number; to: number }[]): LevelLoss[] {
   const out: LevelLoss[] = [];
   for (const f of fallen) {
-    const type = f.id as BuildingTypeId;
-    if (FALL_SPARED.includes(type)) continue;
+    // Участь, выбранная до объединения дворов (ЗД-1), может назвать прежнюю постройку — уровень теряет её двор.
+    const type = keptType(f.id);
+    if (!type || FALL_SPARED.includes(type)) continue;
     const b = buildingOfType(s, type);
     const drop = Math.max(0, Math.floor(f.from - f.to));
     if (!b || drop <= 0) continue;
@@ -202,8 +204,8 @@ export function levelLossText(s: GameState, lost: LevelLoss[], struck = lost.len
 /** То, что уехало в отчёт мира (`Report.fallen`), — теми же словами, что в летописи. */
 export function fallenText(s: GameState, fallen: { id: string; from: number; to: number }[]): string {
   const lost: LevelLoss[] = fallen
-    .filter((f) => f.to < f.from)
-    .map((f) => ({ type: f.id as BuildingTypeId, from: f.from, to: f.to }));
+    .filter((f) => f.to < f.from && keptType(f.id) !== null)
+    .map((f) => ({ type: keptType(f.id)!, from: f.from, to: f.to }));
   return levelLossText(s, lost, fallen.length);
 }
 

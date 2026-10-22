@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULT_ARMS, armsBone, armsCode, randomArms } from '@/heraldry/arms';
 import { createInitialState, SAVE_VERSION } from '@/game/state';
-import { MIN_SAVE_VERSION, deserialize, enter, serialize } from '@/game/save';
+import { MIN_SAVE_VERSION, deserialize, enter, serialize, loadFold } from '@/game/save';
 import { tick } from '@/game/sim/tick';
 import { startUpgrade } from '@/game/sim/actions';
 import { applyExpedition } from '@/game/sim/expedition';
@@ -19,6 +19,9 @@ import {
   setTelegramIdentity,
 } from './stats';
 import { power } from './power';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 /**
  * Сохранение восьмой версии, записанное до профиля. Оно зафиксировано строкой

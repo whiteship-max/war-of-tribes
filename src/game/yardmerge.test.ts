@@ -6,7 +6,7 @@
 // новую цену с прежней, а не с самой собой.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import type { BuildingTypeId, GameState, JobId, ResourceId } from './types';
 import { MAX_BUILDING_LEVEL, RESOURCE_IDS, SLOTS_PER_LEVEL } from './constants';
 import { BUILDINGS, BUILDING_BY_ID, jobsOf } from './data/buildings';
@@ -16,11 +16,14 @@ import { QUESTS } from './data/quests';
 import { TUTORIAL } from './data/tutorial';
 import { cancelRefund, upgradeCost, upgradeWork } from './labour';
 import { createInitialState } from './state';
-import { deserialize, serialize } from './save';
+import { deserialize, serialize, loadFold } from './save';
 import { prodCeil } from './build';
 import { buildingOfType, deedProduction, deedSlots, levelsOf, productionPerDay, workerMultiplier } from './derived';
 import { assignWorker } from './sim/workers';
 import { MERGED_INTO, foldLevels, foldSites, foldTown, keptType, oldUpgradeCost } from './yardmerge';
+
+// Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
+beforeAll(() => loadFold());
 
 /** Прежние здания пар — цена и профессия, как до объединения. */
 const OLD: Record<string, { cost: Partial<Record<ResourceId, number>>; work: number; job: JobId }> = {
