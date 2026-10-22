@@ -46,7 +46,8 @@ export function forestAt(x: number, z: number, plan: CityPlan): number {
 
 /**
  * Где до ЗД-1 стояли рудник и каменоломня — на восточном склоне мыса под замком (docs/city_v3.md, ЗД-2): дворы ушли в Шахту,
- * их поляны заросли перелеском. Середина и радиус, м.
+ * их поляны заросли перелеском (у стены замка, на гласисе, — луг), камней склона там нет (`banks.slopeRocks`). Середина и
+ * радиус, м.
  */
 export const OLD_YARDS: readonly { x: number; z: number; r: number }[] = [
   { x: 106, z: -116, r: 26 },

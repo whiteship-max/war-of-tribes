@@ -6,7 +6,7 @@ import type { V3 } from './geom';
 import { distPoly, heightAt, hillsAt, insidePoly, MINE_PORTAL, RACE, RACE_HALF, RACE_LEVEL, raceRibbon, riverLevel, riverRibbon, riverX, RIVER_HALF, smoothPath, type CityPlan } from './layout';
 import { fieldAt, openLand } from './ground';
 import { nearRoad } from './roads';
-import { forestAt } from './nature';
+import { forestAt, OLD_YARDS } from './nature';
 import { rnd, sstep, vnoise } from './noise';
 import { SHORE_CAP } from './spec';
 
@@ -129,7 +129,7 @@ export function shoreItems(plan: CityPlan, q: Quality, seed = 4243): { reeds: Re
 }
 
 /** Сколько валунов у Шахты и на гряде по уровню (ЗД-2): модель и меш — те же, что у камней берега, вызова не прибавляют. */
-export const RIDGE_STONES: Record<Quality, number> = { low: 24, medium: 50, high: 90 };
+export const RIDGE_STONES: Record<Quality, number> = { low: 40, medium: 90, high: 150 };
 
 /**
  * Валуны и осыпи Шахты и гряды (ЗД-2): по голым верхам холмов (`layout.hillsAt` выше полутора метров) гуще к вершине, и
@@ -199,6 +199,8 @@ export function slopeRocks(plan: CityPlan, q: Quality, seed: number): Stone[] {
       if (insidePoly({ x, z }, plan.wall) || insidePoly({ x, z }, plan.castleWall)) continue;
       if (distPoly({ x, z }, plan.wall, true) < 3 || distPoly({ x, z }, plan.castleWall, true) < 3) continue;
       if (!openLand(x, z, plan, 1) || fieldAt(x, z, plan) > 0 || forestAt(x, z, plan) > 0.6) continue;
+      // Где стояли рудник и каменоломня (до ЗД-1), камня нет: под гласисом замка там луг, дальше — перелесок (ЗД-2).
+      if (OLD_YARDS.some((o) => Math.hypot(x - o.x, z - o.z) < o.r)) continue;
       const s = 0.3 + Math.pow(rnd(i, j, seed + 4), 2.2) * 1.3;
       out.push({ x, y: heightAt(x, z) - s * 0.32, z, rot: rnd(i, j, seed + 5) * Math.PI * 2, s });
     }

@@ -7,7 +7,9 @@ import type { BuildingTypeId } from '@/game/types';
 import { HALL_MIX } from '@/sound/epoch/halls';
 import { cityPlan, distSeg, FARM_TIERS, heightAt, hillsAt, MINE_HILLS, MINE_PORTAL, RIDGE_CRAGS, riverX, RIVER_HALF, SAWMILL_BRIDGE, type P, type Street } from './layout';
 import { buildStatic } from './budget';
-import { waterDepth } from './banks';
+import { shoreItems, waterDepth } from './banks';
+import { forestAt, OLD_YARDS } from './nature';
+import { nearRoad } from './roads';
 import { Builder } from './geom';
 import { ADIT, GATHER_SHED, PEN, WINDMILL, aditSill, deckAt, windmillAt, yard, yardHalls } from './outskirts';
 import { FarmView, SAIL_EASE, SAIL_NIGHT, SAIL_SPIN, growthCount, sailStep, sailTarget, type SailSpin } from './mill';
@@ -180,6 +182,39 @@ describe('ЗД-2: дороги и местность у дворов', () => {
     expect(lane('Тропа к реке', 'mine'), 'тропа к реке — по двору Шахты').toBeLessThan(0);
     expect(lane('Дорога к хутору', 'farm'), 'дорога к хутору — по двору Фермы').toBeLessThan(0);
     expect(lane('Дорога к хутору', 'pen'), 'и по загону').toBeLessThan(0);
+  });
+
+  it('на месте прежних рудника и каменоломни — ни камня: перелесок, у стены замка — луг', () => {
+    const rocks = shoreItems(plan, 'high').rocks;
+    for (const o of OLD_YARDS) {
+      const left = rocks.filter((r) => Math.hypot(r.x - o.x, r.z - o.z) < o.r);
+      expect(left.length, `камни на месте двора (${o.x}, ${o.z})`).toBe(0);
+      // Граница области: склон там крутой — камни склона (`slopeRocks`, круче 0,23) легли бы сюда, не будь запрета.
+      let steep = 0;
+      for (let k = 0; k < 200; k++) {
+        const a = k * 2.4;
+        const d = o.r * Math.sqrt((k + 0.5) / 200);
+        const x = o.x + Math.cos(a) * d;
+        const z = o.z + Math.sin(a) * d;
+        const g = Math.hypot(heightAt(x + 1.2, z) - heightAt(x - 1.2, z), heightAt(x, z + 1.2) - heightAt(x, z - 1.2)) / 2.4;
+        if (g > 0.23) steep++;
+      }
+      expect(steep, `крутизна у (${o.x}, ${o.z})`).toBeGreaterThan(10);
+    }
+    // Рудник стоял дальше от стены замка — его поляна заросла; тропа к Охотничьему двору идёт сквозь перелесок.
+    const mine = OLD_YARDS[0];
+    let wood = 0;
+    let n = 0;
+    for (let k = 0; k < 120; k++) {
+      const d = mine.r * (0.3 + 0.6 * ((k * 0.618) % 1));
+      const x = mine.x + Math.cos(k * 2.4) * d;
+      const z = mine.z + Math.sin(k * 2.4) * d;
+      if (nearRoad(x, z, plan, 8)) continue;
+      wood += forestAt(x, z, plan);
+      n++;
+    }
+    expect(n, 'точек перелеска вне тропы').toBeGreaterThan(40);
+    expect(wood / n, 'перелесок на месте рудника').toBeGreaterThan(0.4);
   });
 
   it('загон — у хутора, через проезд: усадьба одна, а не хутор и выгон в полутораста метрах', () => {

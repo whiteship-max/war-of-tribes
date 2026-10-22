@@ -516,7 +516,9 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         if (vRock > 0.004) {
           vec4 trp = texture(cityTex, vec3(wp * ${T('rubble')} * 1.7 + 0.37, ${L.rubble}.0));
           float rk = smoothstep(0.1, 0.7, vRock + (macro - 0.5) * 0.6) * (1.0 - bw.x);
-          vec3 scree = mix(td.rgb * vec3(0.82, 0.8, 0.76), trp.rgb * vec3(0.8, 0.78, 0.74), smoothstep(0.55, 0.85, trp.a) * 0.45);
+          // Земля под щебнем — серее бурой дороги: камень гряды, а не вытоптанный двор.
+          vec3 grit = mix(td.rgb, vec3(dot(td.rgb, vec3(0.34, 0.4, 0.26))), 0.55) * vec3(0.9, 0.9, 0.87);
+          vec3 scree = mix(grit, trp.rgb * vec3(0.8, 0.78, 0.74), smoothstep(0.55, 0.85, trp.a) * 0.5);
           col = mix(col, scree, rk);
         }
         // Полог дальнего леса: листва слоя в масштабе крон (клетка — 5–6 м) и пятна пород.
