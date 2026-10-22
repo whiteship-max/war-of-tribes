@@ -16,6 +16,7 @@ import { START_GEMS, fullWork, rushPriceOfWork } from '../../src/game/gemrules.j
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
 import { STAB_BAND, stabPrice, stabSelfRiseCeil } from '../../src/game/stabrules.js';
+import { crownAnswersCeil, crownEvery } from '../../src/game/crownrules.js';
 import { GOODS_SLACK, drainCeil } from './goods.js';
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { headsFoodPerDay, soldierFoodPerDay, storageOf } from '../../src/game/build.js';
@@ -116,7 +117,7 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'stab']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'stab', 'crown']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
@@ -163,6 +164,54 @@ describe('таблица правил города: каждое правило 
     expect(await honest.push(card({ clock: later, time: t, deeds: 1, won: 1, stab: stab({ level: 1, bought: 1, spent: price, revolts: 1, held: 1 }) }), later)).toBe(200);
     const fair = await honest.watch();
     expect(kinds(fair)).not.toContain('stab');
+  });
+
+  // Книга вестей державы (СБ-2, docs/stability.md, «СБ-2»): ответы описи сверяются с таблицей правил (`game/crownrules`). Область
+  // правила: обе описи несут книгу, между ними — час; за час сетка почты приносит не больше двух ответов — точка внутри.
+  it('вести державы: незнакомая весть, ответ вне таблицы, повтор ближе срока, ответов больше сетки — «внимание:»; честная весть выше «Лада» — без флагов', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    const stab = (level: number): WatchCard['stab'] => ({ level, bought: 0, spent: 0, revolts: 0, held: 0 });
+    type Entry = NonNullable<WatchCard['crown']>['last'][number];
+    const book = (n: number, last: Entry[]): WatchCard['crown'] => ({ n, last });
+    expect(crownAnswersCeil(HOUR), 'точка внутри: за час — не больше двух ответов').toBe(2);
+    expect(crownEvery('cr_comet') / DAY_LENGTH, 'точка внутри: повтор кометы — дольше часа').toBeGreaterThan(gameSecondsOfMs(HOUR) / DAY_LENGTH);
+
+    const ghost = player(5291);
+    expect(await ghost.push(card({ crown: book(0, []) }), NOW)).toBe(200);
+    expect(await ghost.push(card({ clock: later, time: t, crown: book(1, [{ n: 1, id: 'cr_ghost', opt: 0, at: t }]) }), later)).toBe(200);
+    const g = await ghost.watch();
+    expect(kinds(g)).toContain('crown');
+    expect(warnings(g).some((x) => /которой в игре нет/.test(x)), 'незнакомая весть').toBe(true);
+
+    const odd = player(5292);
+    expect(await odd.push(card({ crown: book(0, []) }), NOW)).toBe(200);
+    expect(await odd.push(card({ clock: later, time: t, crown: book(1, [{ n: 1, id: 'cr_comet', opt: 5, at: t }]) }), later)).toBe(200);
+    expect(warnings(await odd.watch()).some((x) => /ответа №6 нет/.test(x)), 'ответ вне таблицы').toBe(true);
+
+    const twice = player(5293);
+    const first: Entry = { n: 1, id: 'cr_comet', opt: 0, at: 1000 };
+    expect(await twice.push(card({ crown: book(1, [first]) }), NOW)).toBe(200);
+    expect(await twice.push(card({ clock: later, time: t, crown: book(2, [first, { n: 2, id: 'cr_comet', opt: 2, at: t }]) }), later)).toBe(200);
+    expect(warnings(await twice.watch()).some((x) => /пришла дважды/.test(x)), 'повтор ближе срока').toBe(true);
+
+    const flood = player(5294);
+    const many = ['cr_wedding', 'cr_song', 'cr_guild', 'cr_match', 'cr_scholar'].map((id, i): Entry => ({ n: i + 1, id, opt: 1, at: t }));
+    expect(await flood.push(card({ crown: book(0, []) }), NOW)).toBe(200);
+    expect(await flood.push(card({ clock: later, time: t, crown: book(5, many) }), later)).toBe(200);
+    expect(warnings(await flood.watch()).some((x) => /почта принесла бы не больше 2/.test(x)), 'ответов больше сетки').toBe(true);
+
+    // Весть подняла выше «Лада»: подъём сервер считает с ней — без флага стабильности; та же ступень без вести — флаг.
+    const honest = player(5295);
+    expect(await honest.push(card({ stab: stab(1), crown: book(0, []) }), NOW)).toBe(200);
+    expect(await honest.push(card({ clock: later, time: t, stab: stab(2), crown: book(1, [{ n: 1, id: 'cr_miracle', opt: 0, at: t }]) }), later)).toBe(200);
+    const fair = await honest.watch();
+    expect(kinds(fair)).not.toContain('crown');
+    expect(kinds(fair)).not.toContain('stab');
+    const bare = player(5296);
+    expect(await bare.push(card({ stab: stab(1), crown: book(0, []) }), NOW)).toBe(200);
+    expect(await bare.push(card({ clock: later, time: t, stab: stab(2), crown: book(0, []) }), later)).toBe(200);
+    expect(kinds(await bare.watch()), 'та же ступень без вести').toContain('stab');
   });
 
   it('уровень выше книги: все постройки десятого уровня с первой записи — подтверждён посёлок новой партии, «внимание:», запись принята', async () => {

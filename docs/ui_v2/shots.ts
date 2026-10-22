@@ -25,6 +25,8 @@
 //                                                    дела места, отмена ждущего и строящегося с возвратом, сдвиг
 //   GROUP=sb1 …                                    — СБ-1 (docs/stability.md): «Стабильность» — спокойно, шатко, мятеж близок
 //                                                    (верх и низ), мятеж
+//   GROUP=sb2 …                                    — СБ-2 (docs/stability.md, «СБ-2»): вести державы — заставка, текст,
+//                                                    ответы и «что изменится» у раскрытого ответа; итог ответа
 //   GROUP=k2 …                                     — К-2 (docs/AGENTS.md, 18): кольцо над логовом, дела, окно войска,
 //                                                    подтверждение, погашенный с причиной
 //   GROUP=r4 …                                     — Р-4 (docs/AGENTS.md, 16): «Походы», цель, дела, подтверждение,
@@ -255,6 +257,42 @@ function sb1(level: number, drift: number, st: Record<string, unknown>, set: Rec
     (await import('/src/ui/realm/open.ts')).useRealm.getState().show('stability');
     await new Promise((r) => setTimeout(r, 700));
     document.querySelector('.nx-rbody')?.scrollTo(0, ${scroll});
+    return JSON.stringify('ok');
+  })()`;
+}
+
+/**
+ * Весть державы на столе (СБ-2): партия под условие вести (`set` — вера, святыня, налог, люди, золото), весть ложится на стол
+ * и открывается в «Вестях»; `pick` — номер ответа, который раскрыт («что изменится»), прокрученный к середине экрана.
+ */
+function sb2(defId: string, set: Record<string, unknown>, pick: number | null): string {
+  return `(async () => {
+    window.__ui.reset();
+    const set = ${JSON.stringify(set)};
+    let ev = null;
+    window.__game.getState().act((s) => {
+      if (set.faith) s.faith.id = set.faith;
+      if (set.relic) s.faith.relic = set.faith;
+      if (set.tax) s.tax = set.tax;
+      if (set.pop !== undefined) s.pop = set.pop;
+      if (set.gold !== undefined) s.gold = set.gold;
+      if (set.stab) s.stab = { level: set.stab[0], drift: set.stab[1], folk: 20, hungry: 0, past: [], bought: 0, spent: 0, revolts: 0, held: 0 };
+      s.hints = { seen: ['stability', 'revolt', 'upgrade', 'army', 'neighbors', 'march', 'games'] };
+      ev = { defId: ${JSON.stringify(defId)}, at: s.time, until: Date.now() + 20 * 3600 * 1000 };
+      s.inbox = [ev];
+      return null;
+    });
+    const R = (await import('/src/ui/realm/open.ts')).useRealm;
+    R.getState().show('decisions');
+    await new Promise((r) => setTimeout(r, 300));
+    R.getState().openMail((await import('/src/ui/realm/unread.ts')).eventKey(ev));
+    await new Promise((r) => setTimeout(r, 500));
+    const pick = ${JSON.stringify(pick)};
+    if (pick !== null) {
+      document.querySelectorAll('.cr-pick')[pick]?.click();
+      await new Promise((r) => setTimeout(r, 300));
+      document.querySelector('.cr-opt.on')?.scrollIntoView({ block: 'center' });
+    }
     return JSON.stringify('ok');
   })()`;
 }
@@ -1171,6 +1209,19 @@ const GROUPS: Record<string, Step[]> = {
     { name: 'sb1-near-groups', run: sb1(-2, -30, { folk: 86, hungry: 64, past: [[-130, 1], [-90, 0], [-40, -1], [-12, -2]] }, { tax: 'high', decree: 'order', ration: 'lean', pop: 80 }, true, 400), wait: 1500 },
     { name: 'sb1-near-low', run: sb1(-2, -30, { folk: 86, hungry: 64, past: [[-130, 1], [-90, 0], [-40, -1], [-12, -2]] }, { tax: 'high', decree: 'order', ration: 'lean', pop: 80 }, true, 1000), wait: 1500 },
     { name: 'sb1-revolt', run: sb1(-3, 0, { folk: 100, hungry: 70, past: [[-140, 0], [-60, -1], [-20, -2], [-2, -3]], revolt: { group: 'folk', rebels: 40 }, revolts: 1 }, { tax: 'high', ration: 'lean', food: 0, raise: 'revolt_folk' }), wait: 1500 },
+  ],
+  sb2: [
+    { name: 'sb2-comet', run: sb2('cr_comet', {}, null), wait: 1500 },
+    { name: 'sb2-legate', run: sb2('cr_legate', { faith: 'catholic', gold: 400 }, 2), wait: 1500 },
+    { name: 'sb2-fire', run: sb2('cr_lower_fire', { gold: 400 }, 2), wait: 1500 },
+    { name: 'sb2-tournament', run: sb2('cr_tournament', { gold: 400 }, 0), wait: 1500 },
+    { name: 'sb2-ruler', run: sb2('cr_ruler_ill', { stab: [1, 0] }, 1), wait: 1500 },
+    { name: 'sb2-miracle', run: sb2('cr_miracle', { faith: 'orthodox', relic: true, stab: [-1, 60] }, 0), wait: 1500 },
+    {
+      name: 'sb2-done',
+      run: `(async () => { document.querySelectorAll('.cr-pick')[1]?.click(); await new Promise((r) => setTimeout(r, 200)); document.querySelector('.cr-go')?.click(); await new Promise((r) => setTimeout(r, 500)); return JSON.stringify('ok'); })()`,
+      wait: 1200,
+    },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.

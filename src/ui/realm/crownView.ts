@@ -12,7 +12,7 @@ import { daysSpan } from '@/game/span';
 import { SEASON_DAYS } from '@/game/data/seasons';
 import { crownFx } from '@/game/sim/crown';
 import { stabNudge, stabOf, stabLevel } from '@/game/sim/stability';
-import { STAB_SELF_MAX, STAB_MIN } from '@/game/stabrules';
+import { STAB_MAX, STAB_MIN } from '@/game/stabrules';
 import { people } from '@/game/data/eventKit';
 import { BRANCH_ICON, BRANCH_WORD } from './branches';
 
@@ -23,7 +23,7 @@ export interface FxLine {
   tone: 'good' | 'bad' | 'flat';
 }
 
-const sign = (n: number): string => `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`;
+const sign = (n: number): string => (Math.round(n) === 0 ? '0' : `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))}`);
 const pct = (n: number): string => `${sign(n)} %`;
 
 /** Стабильность после ответа — примеркой на копии: та же дверь и те же края, что у ответа. */
@@ -41,7 +41,7 @@ export function stabLine(s: GameState, d: number): FxLine | null {
     return { icon, tone, text: `Стабильность ${pct(d)} ступени: сдвиг ${pct(was.drift)} → ${pct(now.drift)}` };
   }
   // Край шкалы: сдвиг не копится — сказано прямо, чтобы обещание не висело пустым.
-  const why = d > 0 && stabLevel(s) >= STAB_SELF_MAX ? `выше «${stabName(STAB_SELF_MAX)}» сама не растёт` : stabLevel(s) <= STAB_MIN ? 'ниже некуда' : 'без перемен';
+  const why = d > 0 && stabLevel(s) >= STAB_MAX ? 'выше некуда' : d < 0 && stabLevel(s) <= STAB_MIN ? 'ниже некуда' : 'без перемен';
   return { icon, tone: 'flat', text: `Стабильность ${pct(d)} ступени: ${why}` };
 }
 

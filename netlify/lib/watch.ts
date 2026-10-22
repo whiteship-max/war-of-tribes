@@ -18,7 +18,7 @@ import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { storageOf } from '../../src/game/build.js';
-import { STAB_BAND, STAB_MAX, STAB_MIN, STAB_PRICE_MIN, STAB_SELF_MAX, stabPointsCeil, stabSelfRiseCeil } from '../../src/game/stabrules.js';
+import { STAB_BAND, STAB_MAX, STAB_MIN, STAB_PRICE_MIN, STAB_SELF_MAX, stabEventRiseCeil, stabPointsCeil, stabSelfRiseCeil } from '../../src/game/stabrules.js';
 import { CROWN_GAIN_MAX, CROWN_RULES, CROWN_STAB_MAX, crownAnswersCeil, crownEvery, crownGain, crownStab, isCrown } from '../../src/game/crownrules.js';
 import { powerOfCounts } from '../../src/profile/power.js';
 import type { BuildingTypeId, ResourceId } from '../../src/game/types.js';
@@ -476,8 +476,9 @@ export function stabFlags(a: WatchCard, b: WatchCard, days: number, realMs: numb
   const revolts = Math.max(0, x.revolts - y.revolts);
   const won = Math.max(0, b.won - a.won);
   const low = Math.max(STAB_MIN, y.level - revolts);
-  const self = Math.max(low, Math.min(STAB_SELF_MAX, low + stabSelfRiseCeil(days, won, STAB_BAND, credit.rise)));
-  const top = Math.min(STAB_MAX, self + bought);
+  const self = Math.max(low, Math.min(STAB_SELF_MAX, low + stabSelfRiseCeil(days, won, STAB_BAND)));
+  // Вести державы поднимают и выше «Лада» (СБ-2): их сдвиг — поверх.
+  const top = Math.min(STAB_MAX, self + bought + stabEventRiseCeil(credit.rise));
   if (x.level > top) {
     out.push({
       kind: 'stab',
