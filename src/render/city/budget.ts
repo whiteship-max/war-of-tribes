@@ -8,7 +8,7 @@ import { cityPlan, MOAT_Z, type CityPlan, type Civic, type P, type TowerKind } f
 import type { Detail } from './kit';
 import { palisadeRing, timberTower } from './palisade';
 import { ownerCode, siteOf, wallSites, type Site } from './sites';
-import { millWheel, yard, yardHalls } from './outskirts';
+import { farmGrowth, millWheel, ridgeCrags, sails, sailsStill, yard, yardHalls } from './outskirts';
 import { house, houseStoop } from './kit';
 import { cityWall, tower, twinFlag } from './forts';
 import { civic, civicStoop, fireBowl, marketProps, stall, statue, well } from './civic';
@@ -40,6 +40,10 @@ export interface StaticBuild {
   marks: { houses: number; forts: number; civic: number; outside: number };
   /** Колесо лесопилки, что крутится, — своим мешем (docs/city.md, 16.4); на «Низком» его нет: колесо стоит в общем. */
   wheel: ReturnType<typeof millWheel> | null;
+  /** Крылья мельницы Фермы — своим мешем на всех уровнях: крутятся, ночью медленнее, в тревогу стоят (ЗД-2, `mill.SailMill`). */
+  sails: ReturnType<typeof sails> | null;
+  /** Рост Фермы с уровнем — своим мешем ступенями (ЗД-2, `outskirts.farmGrowth`). */
+  growth: ReturnType<typeof farmGrowth> | null;
 }
 
 /** Чья постройка — большое здание города (docs/city.md, раздел 5); палас — замок, казна в нём. */
@@ -172,10 +176,12 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
       pts = r.lights;
       chimneys.push(...r.chimneys);
     });
-    // Шахта — факел у входа, прочие дворы — фонарь у двери.
-    lit(pts, y.kind === 'mine' ? 'torch' : 'lantern');
+    // Фонари у двери двора; у Шахты — на стойке крепи у входа, у Фермы — ещё над дверью мельницы (ЗД-2).
+    lit(pts, 'lantern');
     for (const h of yardHalls(y)) civicStoop(b, h);
   }
+  // Скальные выходы гряды Шахты — ничьи, как ступени: касание по ним — не постройка (ЗД-2).
+  ridgeCrags(b, d);
   // Фонари улиц и площади — в городе; ролику у стены их не нужно (его улицы — за стеной ролика, вдали).
   if (!opts) lamps.push(...streetLamps(b, plan, lamps));
   // Железо огней — ничьё: тап по факелу — не тап по башне.
@@ -183,7 +189,25 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
   for (const l of lamps) fixture(b, l);
   const mill = d > 0 ? plan.yards.find((y) => y.kind === 'sawmill') : undefined;
   const wheel = mill ? millWheel(mill, d) : null;
-  return { b, lamps, chimneys, flagTops, sites, marks: { houses, forts, civic: civicT, outside: b.mark().t }, wheel };
+  const farm = plan.yards.find((y) => y.kind === 'farm');
+  const pen = plan.yards.find((y) => y.kind === 'pen');
+  // Ролик у стены своих мешей мельницы не держит: крылья там стоят в общем меше, рост — нет (уровни ролику не нужны).
+  if (opts && farm) {
+    b.owner = ownerCode('farm');
+    sailsStill(b, farm, dAt(farm.x, farm.z));
+    b.owner = 0;
+  }
+  return {
+    b,
+    lamps,
+    chimneys,
+    flagTops,
+    sites,
+    marks: { houses, forts, civic: civicT, outside: b.mark().t },
+    wheel,
+    sails: farm && !opts ? sails(farm, d) : null,
+    growth: farm && pen && !opts ? farmGrowth(farm, pen, d) : null,
+  };
 }
 
 export interface CityCounts {
@@ -204,7 +228,7 @@ const FAR: readonly Species[] = ['broadFar', 'spruceFar'];
 
 export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts {
   const spec = CITY_SPEC[q];
-  const { b, wheel, lamps } = buildStatic(plan, q);
+  const { b, wheel, sails: sail, growth, lamps } = buildStatic(plan, q);
   const ground = spec.groundCells * spec.groundCells * 2;
   const trees = placeTrees(plan, spec.treeNear, spec.nearStep, spec.farStep, spec.treeReach);
   let treeTris = 0;
@@ -238,6 +262,9 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   calls += 2 + (cap.lanterns > 0 ? 1 : 0);
   // Колесо лесопилки крутится своим мешем (с тенью) и брызжет точками — три вызова (docs/city.md, 16.4).
   if (wheel) calls += 3;
+  // Крылья мельницы и рост Фермы — по мешу с тенью (ЗД-2): счёт берёт Ферму десятого уровня — весь рост.
+  if (sail) calls += 2;
+  if (growth) calls += 2;
   // Горожане — по вызову на вид (на низком — один), копейщики у ворот — вызов (docs/city.md, 16.2).
   const gates = plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate').length;
   calls += (q === 'low' ? 0 : 2) + 1;
@@ -266,7 +293,7 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   const shadowBytes = spec.shadowMap * spec.shadowMap * 8;
   return {
     calls,
-    triangles: (b.triangleCount + (wheel?.b.triangleCount ?? 0)) * 2 + ground + treeTris + treeShadow + life + shore + lamps.filter(pooled).length * 2,
+    triangles: (b.triangleCount + (wheel?.b.triangleCount ?? 0) + (sail?.b.triangleCount ?? 0) + (growth?.b.triangleCount ?? 0)) * 2 + ground + treeTris + treeShadow + life + shore + lamps.filter(pooled).length * 2,
     buildings: b.triangleCount,
     ground,
     trees: treeTris,

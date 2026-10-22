@@ -8,7 +8,7 @@ import { cityPlan, type CityPlan } from './layout';
 import { buildStatic } from './budget';
 import { groundGrid, groundMap } from './ground';
 import { landMap, placeTrees, type Species, type TreeInst } from './nature';
-import { groundWet, shoreItems, type Reed, type Stone } from './banks';
+import { groundWet, rockAt, shoreItems, type Reed, type Stone } from './banks';
 import { mudAt } from './roads';
 import type { Site } from './sites';
 import { CITY_SPEC } from './spec';
@@ -53,6 +53,10 @@ export interface CityWorld {
   shore: { reeds: Reed[]; stones: Stone[]; rocks: Stone[] };
   /** Колесо лесопилки, что крутится (docs/city.md, 16.4): модель вокруг оси и где стоит; на «Низком» — нет. */
   wheel: { mesh: MeshArrays; at: V3; fx: number; fz: number; R: number; water: number } | null;
+  /** Крылья мельницы Фермы (ЗД-2): модель вокруг оси и где ступица. */
+  sails: { mesh: MeshArrays; at: V3; fx: number; fz: number; R: number } | null;
+  /** Рост Фермы (ЗД-2): меш и где кончается каждая ступень индексов (`outskirts.growthCount`). */
+  growth: { mesh: MeshArrays; tiers: number[] } | null;
   /** Сколько стоила каждая часть, мс — подписи стенда и таблице бюджета. */
   ms: { plan: number; build: number; ground: number; trees: number };
 }
@@ -88,13 +92,15 @@ export function buildWorld(q: Quality): CityWorld {
     trees,
     shore,
     wheel: st.wheel ? { mesh: arraysOf(st.wheel.b), at: st.wheel.at, fx: st.wheel.fx, fz: st.wheel.fz, R: st.wheel.R, water: st.wheel.water } : null,
+    sails: st.sails ? { mesh: arraysOf(st.sails.b), at: st.sails.at, fx: st.sails.fx, fz: st.sails.fz, R: st.sails.R } : null,
+    growth: st.growth ? { mesh: arraysOf(st.growth.b), tiers: st.growth.tiers } : null,
     ms: { plan: t1 - t0, build: t2 - t1, ground: t3 - t2, trees: t4 - t3 },
   };
 }
 
 /**
- * Вершинам сетки земли — пара на вершину: сырость берега (`banks.groundWet`) и грязь (`roads.mudAt`); шейдер земли читает её
- * атрибутом `cwet` (`material.groundMaterial`).
+ * Вершинам сетки земли — пара на вершину: сырость берега (`banks.groundWet`) и грязь (`roads.mudAt`) — или, где грязи нет,
+ * каменистая земля гряды минусом (`banks.rockAt`, ЗД-2); шейдер земли читает её атрибутом `cwet` (`material.groundMaterial`).
  */
 export function wetAndMud(positions: Float32Array, plan: CityPlan): Float32Array {
   const n = positions.length / 3;
@@ -103,7 +109,9 @@ export function wetAndMud(positions: Float32Array, plan: CityPlan): Float32Array
     const x = positions[k * 3];
     const z = positions[k * 3 + 2];
     out[k * 2] = groundWet(x, z);
-    out[k * 2 + 1] = mudAt(x, z, plan);
+    // Грязь — плюсом, каменистая земля гряды (ЗД-2) — минусом: где одна, там нет другой, и атрибут остаётся парой.
+    const mud = mudAt(x, z, plan);
+    out[k * 2 + 1] = mud > 0.01 ? mud : -rockAt(x, z);
   }
   return out;
 }
@@ -111,7 +119,8 @@ export function wetAndMud(positions: Float32Array, plan: CityPlan): Float32Array
 /** Буферы, которые поток передаёт, а не копирует. */
 export function transferables(w: CityWorld): ArrayBuffer[] {
   const b = w.buildings;
-  const wh = w.wheel?.mesh;
-  const wheel = wh ? [wh.pos, wh.nor, wh.uv, wh.col, wh.cfg, wh.idx] : [];
-  return [b.pos, b.nor, b.uv, b.col, b.cfg, b.idx, w.map, w.land, w.grid.positions, w.grid.normals, w.grid.index, w.wet, ...wheel].map((a) => a.buffer as ArrayBuffer);
+  const own = (m: MeshArrays | undefined): ArrayBufferView[] => (m ? [m.pos, m.nor, m.uv, m.col, m.cfg, m.idx] : []);
+  return [b.pos, b.nor, b.uv, b.col, b.cfg, b.idx, w.map, w.land, w.grid.positions, w.grid.normals, w.grid.index, w.wet, ...own(w.wheel?.mesh), ...own(w.sails?.mesh), ...own(w.growth?.mesh)].map(
+    (a) => a.buffer as ArrayBuffer,
+  );
 }

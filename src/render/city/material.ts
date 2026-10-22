@@ -431,10 +431,10 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
     Object.assign(shader.uniforms, u, extra);
     patchVertex(shader);
     // Сырость берега и грязь — в вершинах земли (`banks.groundWet` по высоте над водой, `roads.mudAt` у ворот и конюшен);
-    // между вершинами — плавно.
+    // между вершинами — плавно. Каменистая земля гряды (ЗД-2, `banks.rockAt`) едет в той же паре знаком минус у грязи.
     shader.vertexShader =
-      'attribute vec2 cwet;\nvarying float vWet;\nvarying float vMud;\n' +
-      shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n    vWet = cwet.x;\n    vMud = cwet.y;');
+      'attribute vec2 cwet;\nvarying float vWet;\nvarying float vMud;\nvarying float vRock;\n' +
+      shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n    vWet = cwet.x;\n    vMud = max(cwet.y, 0.0);\n    vRock = max(-cwet.y, 0.0);');
     const T = (n: (typeof LAYERS)[number]): string => `vec2(${(1 / TILE_M[n][0]).toFixed(5)}, ${(1 / TILE_M[n][1]).toFixed(5)})`;
     shader.fragmentShader =
       /* glsl */ `uniform sampler2D cityMap;
@@ -443,6 +443,7 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
       uniform vec3 cLandAt;
       varying float vWet;
       varying float vMud;
+      varying float vRock;
       #define C_DETAIL ${detail}
       ` +
       COMMON_FRAG +
@@ -511,6 +512,13 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         vec3 dirt = mix(td.rgb, td.rgb * vec3(0.56, 0.52, 0.47), smoothstep(0.1, 0.8, vMud));
         vec3 col = cob * bw.x + dirt * bw.y + crop * bw.z + grass * bw.w;
         col = mix(col, tr.rgb, wr);
+        // Каменистая земля Шахты и гряды (ЗД-2): голая серая земля, щебень пятнами по высоте фактуры — не на мостовой.
+        if (vRock > 0.004) {
+          vec4 trp = texture(cityTex, vec3(wp * ${T('rubble')} * 1.7 + 0.37, ${L.rubble}.0));
+          float rk = smoothstep(0.1, 0.7, vRock + (macro - 0.5) * 0.6) * (1.0 - bw.x);
+          vec3 scree = mix(td.rgb * vec3(0.82, 0.8, 0.76), trp.rgb * vec3(0.8, 0.78, 0.74), smoothstep(0.55, 0.85, trp.a) * 0.45);
+          col = mix(col, scree, rk);
+        }
         // Полог дальнего леса: листва слоя в масштабе крон (клетка — 5–6 м) и пятна пород.
         vec4 cp1 = texture(cityTex, vec3(wp / 170.0, ${L.foliage}.0));
         vec4 cp2 = texture(cityTex, vec3(wp.yx / 61.0 + 0.4, ${L.foliage}.0));

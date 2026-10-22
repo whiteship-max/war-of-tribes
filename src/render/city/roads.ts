@@ -184,8 +184,9 @@ function mudBlobs(plan: CityPlan): (readonly [number, number, number, number])[]
     out.push([c.x + fx * (c.d / 2 + 4), c.z + fz * (c.d / 2 + 4), Math.max(c.w, c.d) * 0.55 + 3, k]);
   }
   for (const y of plan.yards) {
-    const k = y.kind === 'pen' ? 0.85 : y.kind === 'farm' ? 0.6 : 0;
-    if (k > 0) out.push([y.x, y.z, y.r * 0.75, k]);
+    // Загон — у ворот и корыта, а не весь выгон: целиком грязный, он читался лужей (ЗД-2).
+    const k = y.kind === 'pen' ? 0.6 : y.kind === 'farm' ? 0.6 : 0;
+    if (k > 0) out.push([y.x, y.z, y.r * (y.kind === 'pen' ? 0.5 : 0.75), k]);
   }
   // Коновязь и поилка у западного края рынка (`precinct.SQUARE_PROPS`): копыта и пролитая вода — пятнами на мостовой.
   const { rail, trough } = SQUARE_PROPS;

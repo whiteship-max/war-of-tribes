@@ -4,7 +4,7 @@
 // three: модели — построители, расстановка — массивы.
 import { CITY } from './palette';
 import { Builder, tint, type V3 } from './geom';
-import { distPoly, heightAt, insidePoly, riverX, RIVER_HALF, yardTreeHeight, type CityPlan, type P } from './layout';
+import { distPoly, heightAt, hillsAt, insidePoly, riverX, RIVER_HALF, yardTreeHeight, type CityPlan, type P } from './layout';
 import { fieldAt, openLand } from './ground';
 import { L, TILE_M } from './tex';
 import { fbm, hash3, rnd, sstep, vnoise } from './noise';
@@ -39,7 +39,29 @@ export function forestAt(x: number, z: number, plan: CityPlan): number {
   const groves = sstep(0.57, 0.7, fbm(x / 100 + 11, z / 100 + 11, 1e6, 3, 61)) * 0.95;
   const base = Math.max(west * 0.95, north * 0.95, sstep(0.48, 0.62, big) * (1 - near) + groves * near);
   const clear = sstep(0.3, 0.42, mid);
-  return Math.min(1, base * clear * glacis * bank);
+  // Гряда Шахты (ЗД-2): холмы — луг и камень, лес — у подножий: под пологом леса гряды сверху не видно.
+  const bare = 1 - sstep(0.8, 3, hillsAt(x, z));
+  return Math.min(1, Math.max(base * clear, copseAt(x, z)) * glacis * bank) * bare;
+}
+
+/**
+ * Где до ЗД-1 стояли рудник и каменоломня — на восточном склоне мыса под замком (docs/city_v3.md, ЗД-2): дворы ушли в Шахту,
+ * их поляны заросли перелеском. Середина и радиус, м.
+ */
+export const OLD_YARDS: readonly { x: number; z: number; r: number }[] = [
+  { x: 106, z: -116, r: 26 },
+  { x: 68, z: -172, r: 30 },
+];
+
+/** Перелесок на месте ушедшего двора, 0..1: густо в середине, край — рваный. */
+function copseAt(x: number, z: number): number {
+  let c = 0;
+  for (const o of OLD_YARDS) {
+    const d = Math.hypot(x - o.x, z - o.z);
+    if (d > o.r + 8) continue;
+    c = Math.max(c, 0.92 * (1 - sstep(o.r * 0.45, o.r, d + (vnoise(x / 11, z / 11, 1e6, 59) - 0.5) * 14)));
+  }
+  return c;
 }
 
 /**

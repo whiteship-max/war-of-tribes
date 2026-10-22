@@ -17,7 +17,8 @@
 //                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3);
 //                                                `MOOD=feast` — состояние города адресом (`?mood=`: feast, siege, hunger,
 //                                                plague, gloom, cheer, mourn; docs/city_v3.md, ЖГ-1), `POP=150` — население партии;
-//                                                `SKIT=brawl` — сценка жителей адресом (`?skit=`, ЖГ-2: у точки `WXLOOK` ближе 134 м)
+//                                                `SKIT=brawl` — сценка жителей адресом (`?skit=`, ЖГ-2: у точки `WXLOOK` ближе 134 м);
+//                                                `LEVELS=farm:7` — уровни построек партии перед кадром (ЗД-2: рост Фермы)
 //   GAME=1 WX=clear CHAMBERS=desk npm run city:shots — покои правителя (docs/city_v3.md, Г-4): точка интереса
 //                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`;
 //                                                `FIGHT=stance|at:…|hit:dx:dy`, `FIGHTSHOT=swing:dx:dy` — бой мечом (Г-11);
@@ -469,6 +470,18 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       })()`);
       await sleep(1500);
     }
+  }
+  // `LEVELS=farm:7,mine:4` — уровни построек партии перед кадром (ЗД-2: рост Фермы с уровнем виден).
+  if (process.env.LEVELS) {
+    const levels = Object.fromEntries(list(process.env.LEVELS, '').map((p) => p.split(':')).map(([t, n]) => [t, Number(n)]));
+    await tab.eval<string>(`(() => {
+      const g = window.__game.getState();
+      const lv = ${JSON.stringify(levels)};
+      for (const b of g.s.buildings) if (lv[b.type]) b.level = lv[b.type];
+      window.__game.setState({ s: { ...g.s } });
+      return JSON.stringify('ok');
+    })()`);
+    await sleep(800);
   }
   const near = process.env.WXLOOK;
   if (near && !map) {

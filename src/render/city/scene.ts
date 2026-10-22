@@ -642,6 +642,8 @@ export class CityScene extends TribeScene {
       this.garrison?.update(t, this.camera);
       // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
       c.mill?.update(t);
+      // Крылья мельницы Фермы: днём мелют, ночью медленнее, в тревогу стоят (ЗД-2).
+      c.farm?.update(dt, night, this.mood.alarm);
       // Суета судит о льде: на реке без льда утки и лодки остаются и зимой.
       this.bustle?.update(t, night, ice);
       if (this.deeds) {
@@ -897,6 +899,10 @@ export class CityScene extends TribeScene {
       this.folk?.setStations(this.stations);
     }
     this.folk?.setMood(this.mood, lookOf(this.mood));
+    // Усадьба растёт с уровнем Фермы: житница и ульи, потом голубятня и хлев, стога и скот (ЗД-2).
+    const farm = s.buildings.find((b) => b.type === 'farm')?.level ?? 1;
+    this.town?.farm?.setLevel(farm);
+    this.folk?.setHerd(farm);
   }
 
   /** Группа здания — на главное место его постройки, значок — над крышей. */
