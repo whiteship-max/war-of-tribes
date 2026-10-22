@@ -17,7 +17,7 @@
 import type { FaithId, GameState, Season, TroopId } from '@/game/types';
 import type { TaxId } from '@/game/data/policy';
 import { createInitialState } from '@/game/state';
-import { deserialize, serialize } from '@/game/save';
+import { deserialize, loadFold, serialize } from '@/game/save';
 import { seeded, setRandom } from '@/game/sim/random';
 import {
   armySize,
@@ -443,6 +443,9 @@ export async function upkeepSection(): Promise<void> {
   }
 
   // --- Начатые партии ---
+  // Запись 13-й версии читается дверью перехода дворов (ЗД-1, `save.loadFold`), как у всякого читателя записи младше 24-й:
+  // без неё `deserialize` старой записи не читает. Запись собрана нынешней сборкой — дверь проводит её как есть.
+  await loadFold();
   console.log(
     `\nНачатые партии — настоящим чтением сохранения 13-й версии: отсрочка ${WAGE_AMNESTY_DAYS} дн. с минуты входа. ` +
       '«первый» — через сколько игровых дней ушёл первый боец; «час» — войско через час игры (60 дн.).',
