@@ -342,6 +342,12 @@ HEAD один на всех, см. правило 8). Значит развес�
   стройки — на двор или возвратом) одной дверью на партию и на книги сервера (`foldParty`, `foldTown`), докачкой на клиенте
   (`save.loadFold`); `merged.ts` — малая таблица «куда ушла постройка» для миров, слов и сервера. Разойдись правило у двоих —
   сервер счёл бы честный двор подделкой или партия потеряла бы рабочих при переходе;
+- `src/game/sim/council.ts` и `src/game/councilrules.ts` — совет Ратуши (РТ-1, docs/city_v3.md, «Решения РТ-1»):
+  `GameState.council` — необязательное поле (кто сидит, кого из окна взяли, счёт наймов, платы и жалованья), пишет его одна
+  дверь `sim/council` (`seat`, `dismissAdvisor`, `councilStep`, чтение `mergeCouncil`); числа и формулы (ступень по ратуше,
+  просители окна, польза, жалованье, очки, конец службы) — `councilrules`, одни на игру и на книгу совета сервера (правило
+  «council», `WatchCard.council`). Разойдись они у двоих — сервер счёл бы подделкой честного советника или засчитал бы
+  пользу, которой ратуша не давала; просители и найм — `sim/candidates` (докачкой, плата — `outlay`);
 - `src/profile/types.ts` — профиль игрока лежит в сохранении племени целиком: имя, лицо и
   имя города (`ProfileState.city`) — его поля;
 - `src/world/local/state.ts` — `WORLD_SAVE_VERSION` и миграции мира;
@@ -641,6 +647,12 @@ HEAD один на всех, см. правило 8). Значит развес�
 - **Двор с двумя делами** — дело — профессия (`BuildingDef.jobs`); места, рабочие и невольники — по делу (`derived.deedSlots`,
   `deedWorkers`, `deedBonded`, ключ `JobId`), цена — сумма частей (`labour.partsOf`); переход старой записи — одна дверь
   `game/yardmerge` на клиент и сервер (`yardmerge.test.ts`, `foldlazy.test.ts`, `security.test.ts`; village, docs/city_v3.md, «ЗД-1»).
+- **Совет Ратуши** — запись `sim/council` (найм `sim/candidates.hireAdvisor` → `council.seat`), числа `councilrules`; польза —
+  `derived.stewardMult` (стройка и дворы), `treasurerMult` (налог и продажа невольников), Воевода — к стойкости (`bridge`);
+  очки — `points.branchRate` (не выше лучшего правителя); жалованье — в ведомости войска (`wagesPerDay`); весть о пустом месте
+  ведёт в Ратушу; сервер — правило «council» (`council.test.ts`, `rt1.test.ts`, `security.test.ts`; docs/city_v3.md, «РТ-1»).
+- **Низ «Здания»** — вся стройка посёлка (`BuildingsPanel`); Ратуша — своё здание с разделами «Советники» и «Сословия»
+  (`rt1.test.ts`; ui).
 - **Очередь стройки** — чтение `derived.buildQueue` (начатое — первым, `currentSite` — первое место), запись `sim/actions`
   (`startUpgrade`, `cancelUpgrade`, `moveUpgrade`), длина `BUILD_QUEUE_MAX`, возврат `labour.cancelRefund`; ускоряется только
   строящееся (`sim/gems.rushQueued`, сервер — `town.rushFloor`); сервер держит порядок и возврат (`town.queueFaults`,

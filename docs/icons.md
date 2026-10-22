@@ -46,7 +46,7 @@
 
 | Где | Значки (имя набора) |
 | --- | --- |
-| **Низ** (`ui/next/Nav.tsx`) | Ратуша `bld-town_hall`, Жители `nav-people`, Карта `hud-map` / Город `ui-home`, Дружина `hud-army`, Вести `ui-mail`; счётчики — метка набора |
+| **Низ** (`ui/next/Nav.tsx`) | Здания `nav-buildings` (РТ-1; прежде — Ратуша `bld-town_hall`), Жители `nav-people`, Карта `hud-map` / Город `ui-home`, Дружина `hud-army`, Вести `ui-mail`; счётчики — метка набора |
 | **Верх: показатели** (`ui/next/Hud.tsx`) | золото `res-gold`, жители `hud-pop` → `nav-people`, порядок `hud-order` (ключ), дружина `hud-army`, энергия `ui-energy` (ладонь), мораль `mood-good` / `mood-mid` / `mood-bad`, сезон `season-spring` / `season-sun` / `season-autumn` / `season-winter`, время суток `day-morning` / `season-sun` / `day-evening` / `day-night` |
 | **Верх: запасы** | `res-wood` поленница, `res-stone` блок, `res-food` окорок, `res-hides` шкура, `res-charcoal` уголь, `res-copper` медный слиток, `res-iron` крицы, `res-gem` самоцвет |
 | **Тревоги** (`ui/alertItems.ts`, `ui/warSigns.ts`, П-7) | набег `alert-raid` (факел), осада `alert-siege` (лестница у стены), свой лагерь `stage-camp`, голод `alert-starving` → `ui-bowl`, холод `alert-freezing` → `season-winter`, нет еды и дров `res-food`, `res-wood`, жалованье `ui-pouch`, кузня без заказа `bld-smithy`, раскол `ui-flame`, мятеж `spy-revolt` (кулак), пустое место агента `fig-scout` / `fig-general` |
@@ -320,3 +320,18 @@
 - Вес (`npm run icons:build`, облако, 22.10.2026): лист `assets/icons/sprite.svg` — 161 → 162 значка, 169,3 → 172,7 КБ на
   диске, 25,9 → 26,4 КБ по сети; лист грузится после первого кадра, первая загрузка от него не растёт. Первый экран
   (`FIRST_SHEET`) не тронут.
+
+## РТ-1: «Здания» в низу и должности совета
+
+Ратуша ушла из низа своим зданием, а на её место встали «Здания» (docs/city_v3.md, «Решения РТ-1»), и у совета три должности.
+
+- `nav-buildings` — два дома и молот поверх (`houses` и `hammer`, `scripts/icons/set.ts`): «стройка всех построек», а не
+  одно здание. Знак Ратуши `bld-town_hall` остался у самой постройки; на первом экране его место занял `nav-buildings`
+  (`FIRST_SCREEN`, первый экран 5,6 → 5,8 КБ по сети, потолок 6,0).
+- Должности (`post-*`, группа `post` в `registry.ts`): поясной человек с вещью должности той же сборкой `troop`, что
+  бойцы, — Староста `post-steward` в шапке и с ключом (`key`), Казначей `post-treasurer` в шапке и с кошелём (`pouch`),
+  Воевода `post-marshal` в шлеме и со стягом (`banner`); шапка — новый мотив `cap(cloth)` (сукно своей должности,
+  `scripts/icons/motifs.ts`). Вести о пустом месте берут знак своей должности ссылкой
+  (`evt-council_*` → `post-*`, `ui/icons/alias.ts`).
+- Вес (`npm run icons:build`, облако, 22.10.2026): лист — 197 → 201 рисунок, 26,2 → 27,2 КБ по сети (после первого кадра).
+
