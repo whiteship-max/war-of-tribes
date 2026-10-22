@@ -4,7 +4,7 @@
 //
 // Люди приходят и уходят толпой. Поимённых жителей в игре нет, поэтому событие
 // про человека — это событие про группу: беженцы у ворот, бродячая артель, мор.
-import type { GameState, ResourceId } from '../types';
+import type { GameState, LogTopic, RealmBranch, ResourceId } from '../types';
 import {
   DAY_LENGTH,
   FAITH_REFUSAL_STRAIN,
@@ -61,6 +61,9 @@ import { BOON_BY_ID, boonWords } from './boons';
 import { SEASON_DAYS } from './seasons';
 import { grantBoon } from '../sim/boons';
 import { scheduleChain } from '../sim/chains';
+import { crownEvents } from '../sim/crown';
+import { pointsOf, spend } from '../sim/points';
+import { BRANCH_NAME, REALM_BRANCHES } from './realm';
 
 /** Что вариант просит отдать. Золото — не ресурс, но плата бывает и в нём. */
 export type EventCost = Partial<Record<ResourceId | 'gold', number>>;
@@ -84,6 +87,11 @@ export interface EventOption {
    * получает состояние уже оплаченным и о цене не знает.
    */
   cost?: (s: GameState) => EventCost;
+  /**
+   * Что вариант просит из очков правителя (вести державы, СБ-2): та же цена на три дела, что `cost` — показ, запрет и
+   * списание; списывает одна дверь трат (`sim/points.spend`).
+   */
+  points?: Partial<Record<RealmBranch, number>>;
   /** Применяет выбор и возвращает текст результата. */
   apply: (s: GameState) => string;
 }
@@ -97,8 +105,16 @@ export interface EventDef {
    * управитель и мастера — как управитель, служитель — как летописец о вере.
    */
   from: string | ((s: GameState) => string);
-  text: string | ((s: GameState) => string);
+  /**
+   * Текст вести. Нет поля — текст едет куском «Вестей» (вести державы, `data/crownWords`): шагу партии он не нужен, и первая
+   * загрузка за него не платит.
+   */
+  text?: string | ((s: GameState) => string);
   options: EventOption[];
+  /** Род строки летописи, которую оставит ответ (`sim/log`): у вестей державы — «Стабильность». */
+  topic?: LogTopic;
+  /** Исход не называет выбранного ответа — летопись ставит его перед исходом сама (`sim/mail.closeEvent`). */
+  named?: true;
   /** Вес выбора (0 — событие сейчас невозможно). */
   weight: (s: GameState) => number;
   /** Чем подписан срок донесения вместо общего «Ждёт ответа» — слова о том, что случится без ответа. */
@@ -743,6 +759,7 @@ export const EVENTS: EventDef[] = [
     ],
   },
   ...revoltEvents(),
+  ...crownEvents(),
   {
     id: 'relic_offer',
     silence: 1,
@@ -842,7 +859,7 @@ export function pickEvent(s: GameState): EventDef | null {
   return weighted[weighted.length - 1][0];
 }
 
-export const eventText = (e: EventDef, s: GameState): string => (typeof e.text === 'function' ? e.text(s) : e.text);
+export const eventText = (e: EventDef, s: GameState): string => (typeof e.text === 'function' ? e.text(s) : (e.text ?? ''));
 
 /** Кто пишет весть — словами самой вести (`EventDef.from`). */
 export const eventFrom = (e: EventDef, s: GameState): string => (typeof e.from === 'function' ? e.from(s) : e.from);
@@ -880,6 +897,7 @@ export function eventBlock(o: EventOption, s: GameState): string | null {
     if (need > Math.floor(s.resources[r])) short.push(RESOURCE_META[r].name.toLowerCase());
   }
   if ((cost.gold ?? 0) > Math.floor(s.gold)) short.push('золото');
+  for (const b of REALM_BRANCHES) if ((o.points?.[b] ?? 0) > pointsOf(s, b)) short.push(BRANCH_NAME[b].toLowerCase());
   if (short.length === 0) return null;
   return 'Не хватает';
 }
@@ -896,6 +914,10 @@ export function payEventCost(o: EventOption, s: GameState): void {
   }
   const gold = cost.gold ?? 0;
   if (gold > 0) s.gold = Math.max(0, s.gold - gold);
+  for (const b of REALM_BRANCHES) {
+    const need = o.points?.[b] ?? 0;
+    if (need > 0) spend(s, b, need);
+  }
 }
 
 /**

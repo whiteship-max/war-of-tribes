@@ -94,7 +94,7 @@ async function fightAtGate(pop: number, seed: number, foe: GateFoe, silent = fal
   expect(raiseEvent(t.s, foe), 'событие легло на стол').toBe(true);
   const ev = t.s.inbox.find((e) => e.defId === foe)!;
   const text = EVENT_BY_ID[foe].text;
-  const shown = typeof text === 'function' ? text(t.s) : text;
+  const shown = typeof text === 'function' ? text(t.s) : (text ?? '');
   const option = EVENT_BY_ID[foe].options.findIndex((o) => !o.cost);
   if (silent) lapseEvent(t.s, eventId(ev));
   else expect(resolveEvent(t.s, option, eventId(ev)).error).toBeNull();

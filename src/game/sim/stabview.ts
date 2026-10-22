@@ -10,12 +10,13 @@ import { DAY_LENGTH, MUTINY_FUSE } from '../constants';
 import { asGame, type GameSec } from '../pace';
 import { bondedTotal, decreeOf, moraleBreakdown, mutinyOpen, orderBreakdown, orderState, payGraceDays, rationOf, taxOf, unrestLeft } from '../derived';
 import { GROUP_META, stabName } from '../data/stability';
+import { BOON_BY_ID } from '../data/boons';
 import { GROUP_RISE, REVOLT_AT, REVOLT_NEAR } from '../stabrules';
 import { barsOf, folkParts, hungryParts, pressureParts, stabLevel, stabOf, targetOf, type Part } from './stability';
 import type { IconName } from '@/ui/icons/alias';
 
 /** Куда ведёт «Где изменить»: имя двери интерфейса, а не сама дверь — симуляция интерфейса не знает. */
-export type StabGo = 'decrees' | 'storage' | 'build' | 'faith' | 'army' | 'order' | 'market' | 'tech';
+export type StabGo = 'decrees' | 'storage' | 'build' | 'faith' | 'army' | 'order' | 'market' | 'tech' | 'mail';
 
 /** Строка разбора: слагаемое давления (% ступени в день) или причина недовольства (%). */
 export interface StabLine {
@@ -66,9 +67,12 @@ const FACE: Record<string, (s: GameState) => Face> = {
 function faced(s: GameState, parts: readonly Part[], bars?: Record<StabGroup, number>): StabLine[] {
   return parts.map((p) => {
     const group = p.id.startsWith('g-') ? (p.id.slice(2) as StabGroup) : null;
+    const boon = p.id.startsWith('boon:') ? BOON_BY_ID[p.id.slice(5)] : undefined;
     const face: Face = group
       ? { icon: GROUP_META[group].icon, name: `${GROUP_META[group].name} недовольны`, hint: `полоса ${Math.round(bars?.[group] ?? 0)} %` }
-      : FACE[p.id](s);
+      : boon
+        ? { icon: boon.icon, name: boon.name, hint: 'след вести державы', go: 'mail' }
+        : FACE[p.id](s);
     return { id: p.id, value: p.value, ...face };
   });
 }

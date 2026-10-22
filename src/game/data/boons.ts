@@ -18,6 +18,8 @@
 import type { JobId } from '../types';
 import { FEAST_DAYS, RITE_MORALE } from '../constants';
 import { SEASON_DAYS } from './seasons';
+import { TAX_BY_ID } from './policy';
+import { discontentOf } from '../stabrules';
 import type { IconName } from '@/ui/icons/alias';
 
 /** Сколько двигает двор добрая весть: середина хороших сезонов дворов. */
@@ -47,7 +49,23 @@ export interface BoonDef {
   heating?: number;
   /** Прибавка к цели морали — после потолка шкалы, как у пира. */
   morale?: number;
+  /**
+   * Прибавка к цели недовольства податных, % (вести державы, СБ-2): причиной у полосы своим именем и сроком
+   * (`sim/stability.folkParts`). Минус — милость, плюс — обида.
+   */
+  folk?: number;
+  /** То же у голодных (`sim/stability.hungryParts`). */
+  hungry?: number;
 }
+
+/**
+ * Обида и милость вести державы — доля налога (`data/policy`): малая — половина умеренного, заметная — умеренный налог
+ * целиком. Весть злит или радует город так, как его злил бы налог, не сильнее.
+ */
+export const MOOD_SMALL = discontentOf(TAX_BY_ID.moderate.moralePenalty) / 2;
+export const MOOD_BIG = discontentOf(TAX_BY_ID.moderate.moralePenalty);
+/** Обида надолго — два сезона. */
+const LONG = 2 * SEASON_DAYS;
 
 export const BOONS: BoonDef[] = [
   { id: 'harvest_joy', icon: 'bld-farm', name: 'Праздник урожая', days: FEAST_DAYS, morale: BOON_JOY },
@@ -60,6 +78,26 @@ export const BOONS: BoonDef[] = [
   { id: 'vein', icon: 'ui-pick', name: 'Богатая жила', days: SEASON_DAYS, jobs: { miner: BOON_UP } },
   { id: 'shut_vein', icon: 'ui-barrier', name: 'Забой закрыт', days: SEASON_DAYS, jobs: { miner: BOON_DOWN } },
   { id: 'mercs', icon: 'gear-shield', name: 'Вольная рота на стройке', days: SEASON_DAYS, build: BOON_UP },
+  // Вести державы (СБ-2): обида и милость групп, засуха, грамоты.
+  { id: 'cr_fair_right', icon: 'bld-market', name: 'Ярмарочная грамота', days: LONG, jobs: { crafter: BOON_UP }, folk: -MOOD_SMALL },
+  { id: 'cr_law', icon: 'ui-scroll', name: 'Закон правителя', days: LONG, folk: -MOOD_BIG },
+  { id: 'cr_liberty', icon: 'ui-scroll', name: 'Городские вольности', days: LONG, folk: -MOOD_BIG },
+  { id: 'cr_promise', icon: 'ui-scroll', name: 'Пустое обещание', days: SEASON_DAYS, folk: MOOD_SMALL },
+  { id: 'cr_omen', icon: 'ui-star', name: 'Дурное знамение', days: SEASON_DAYS, folk: MOOD_SMALL },
+  { id: 'cr_drought', icon: 'season-summer', name: 'Засуха', days: SEASON_DAYS, jobs: { farmer: BOON_DOWN } },
+  { id: 'cr_drought_hard', icon: 'season-summer', name: 'Сухие колодцы', days: SEASON_DAYS, jobs: { farmer: BOON_DOWN }, hungry: MOOD_SMALL },
+  { id: 'cr_culprit', icon: 'ui-flame', name: 'Виновный найден', days: SEASON_DAYS, folk: -MOOD_SMALL },
+  { id: 'cr_ashes', icon: 'ui-flame', name: 'Пепелище нижнего города', days: SEASON_DAYS, folk: MOOD_BIG },
+  { id: 'cr_shut_gates', icon: 'ui-barrier', name: 'Ворота на запоре', days: SEASON_DAYS, folk: MOOD_SMALL },
+  { id: 'cr_pestilence', icon: 'ui-skull', name: 'Мор', days: SEASON_DAYS, folk: MOOD_SMALL },
+  { id: 'cr_mercy', icon: 'ui-chain', name: 'Милость правителя', days: SEASON_DAYS, folk: -MOOD_SMALL },
+  { id: 'cr_crown_wrath', icon: 'ui-warning', name: 'Гнев короны', days: SEASON_DAYS, folk: MOOD_SMALL },
+  { id: 'cr_interdict', icon: 'ui-candle', name: 'Интердикт', days: LONG, folk: MOOD_BIG },
+  { id: 'cr_martyr', icon: 'ui-candle', name: 'Схваченный проповедник', days: SEASON_DAYS, folk: MOOD_SMALL },
+  { id: 'cr_sermon', icon: 'ui-candle', name: 'Вольная проповедь', days: SEASON_DAYS, folk: -MOOD_SMALL },
+  { id: 'cr_guild_anger', icon: 'bld-market', name: 'Обида цеха', days: SEASON_DAYS, folk: MOOD_SMALL },
+  { id: 'cr_grain', icon: 'res-food', name: 'Купеческое зерно', days: SEASON_DAYS, hungry: -MOOD_SMALL },
+  { id: 'cr_famine', icon: 'ui-bowl', name: 'Недород', days: LONG, hungry: MOOD_BIG },
 ];
 
 export const BOON_BY_ID = Object.fromEntries(BOONS.map((b) => [b.id, b])) as Record<string, BoonDef>;
@@ -85,6 +123,9 @@ const pct = (m: number): string => {
   return `${p > 0 ? '+' : '−'}${Math.abs(p)}%`;
 };
 
+/** «+10 %», «−20 %» — недовольство, целыми процентами, минус длинный. */
+const moodPct = (d: number): string => `${d > 0 ? '+' : '−'}${Math.round(Math.abs(d))} %`;
+
 /** Что усилитель делает — словами, по полю на кусок: «Поля −25%, мораль −4». Числа — из самого усилителя. */
 export function boonWords(b: BoonDef): string {
   const parts: string[] = [];
@@ -93,6 +134,8 @@ export function boonWords(b: BoonDef): string {
   if (b.food !== undefined) parts.push(`еды уходит ${pct(b.food)}`);
   if (b.heating !== undefined) parts.push(`дров на тепло ${pct(b.heating)}`);
   if (b.morale !== undefined) parts.push(`мораль ${b.morale > 0 ? '+' : '−'}${Math.abs(b.morale)}`);
+  if (b.folk !== undefined) parts.push(`недовольство податных ${moodPct(b.folk)}`);
+  if (b.hungry !== undefined) parts.push(`недовольство голодных ${moodPct(b.hungry)}`);
   const t = parts.join(', ');
   return t ? t[0].toUpperCase() + t.slice(1) : t;
 }

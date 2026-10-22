@@ -1834,6 +1834,46 @@ export interface WatchCard {
    * очков каждого вида на них ушло, сколько мятежей поднялось и сколько подавлено боем. Нет поля — опись до стабильности.
    */
   stab?: WatchStab;
+  /**
+   * Вести державы (СБ-2, docs/stability.md, «СБ-2»): сколько ответов за партию и последние из них — для книги вестей
+   * сервера (правило «crown»). Нет поля — опись до вестей державы.
+   */
+  crown?: WatchCrown;
+}
+
+/** Ответ на весть державы в описи: номер за партию, вид, номер ответа и игровая секунда прихода. */
+export interface WatchCrownEntry {
+  n: number;
+  id: string;
+  opt: number;
+  at: number;
+}
+
+/** Книга вестей в описи — то, что сверяет сервер (`watch.crownFlags`, правило «crown»). */
+export interface WatchCrown {
+  n: number;
+  last: WatchCrownEntry[];
+}
+
+/** Сколько ответов опись везёт самое большее — по одному на строку книги игры (`crownrules.CROWN_BOOK`), с запасом. */
+const CROWN_LAST_MAX = 24;
+
+/**
+ * Книга вестей описи: счёт — неотрицательным целым, ответы — номер, вид строкой до 32 знаков, номер ответа и минута.
+ * Вид не сверяется здесь с таблицей: незнакомый вид — флаг книги, а не тихая потеря строки (подделку не прячут подрезкой).
+ */
+function readCrown(v: unknown): Pick<WatchCard, 'crown'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const last = Array.isArray(r.last) ? r.last : [];
+  const entries: WatchCrownEntry[] = [];
+  for (const e of last.slice(-CROWN_LAST_MAX)) {
+    if (!e || typeof e !== 'object') continue;
+    const x = e as Record<string, unknown>;
+    if (typeof x.id !== 'string' || x.id.length === 0 || x.id.length > 32) continue;
+    entries.push({ n: whole(x.n, 1e9), id: x.id, opt: whole(x.opt, 99), at: whole(x.at, 1e12) });
+  }
+  return { crown: { n: whole(r.n, 1e9), last: entries } };
 }
 
 /** Стабильность в описи — то, что сверяет книга стабильности сервера (`watch.flagsBetween`, правило «stab»). */
@@ -1933,6 +1973,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     seen: whole(r.seen, 1e9),
     ...(r.gemSeen !== undefined ? { gemSeen: whole(r.gemSeen, 1e12) } : {}),
     ...readStab(r.stab),
+    ...readCrown(r.crown),
   };
 }
 

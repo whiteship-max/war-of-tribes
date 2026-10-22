@@ -9,7 +9,7 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchStab } from '../../netlify/lib/contract';
+import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCrown, type WatchStab } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { SAVE_VERSION } from '@/game/state';
 import {
@@ -38,6 +38,7 @@ import { minigameCap } from '@/game/sim/minigames';
 import { adminSeen } from '@/game/sim/admin';
 import { gemSeen } from '@/game/sim/gems';
 import { stabLevel, stabOf } from '@/game/sim/stability';
+import { crownOf } from '@/game/sim/crown';
 import { deviceNow, leadAt } from './clock';
 import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
@@ -147,7 +148,15 @@ export function watchOf(s: GameState): WatchCard {
     gemSeen: gemmed,
     // Книга стабильности сервера (docs/stability.md, 2.7): ступень и счёт покупок, трат и мятежей.
     stab: stabCard(s),
+    // Книга вестей державы (СБ-2): счёт ответов и последние из них — чтением одной двери (`sim/crown.crownOf`).
+    crown: crownCard(s),
   };
+}
+
+/** Вести державы для описи: у партии без поля — ноль ответов. */
+function crownCard(s: GameState): WatchCrown {
+  const c = crownOf(s);
+  return { n: c.n, last: c.last.map((e) => ({ ...e })) };
 }
 
 /** Стабильность для описи — чтением одной двери (`sim/stability.stabOf`): у партии без поля — ступень 0 и нули. */

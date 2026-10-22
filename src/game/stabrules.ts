@@ -100,8 +100,9 @@ export const stabPointsCeil = (days: number): number => POINTS_CAP + MAX_RULER_S
 
 /**
  * На сколько ступеней стабильность может подняться сама за `days` игровых дней при `wins` выигранных боях: тихие дни без
- * единого недовольного плюс толчки побед, каждая — как бой с самой большой моралью победы (`moraleWin`). Выше `STAB_SELF_MAX`
- * сама не поднимается — это правило применяет вызывающий.
+ * единого недовольного плюс толчки побед, каждая — как бой с самой большой моралью победы (`moraleWin`), плюс `extra` —
+ * сдвиг вестей державы, % ступени (СБ-2, `crownrules.crownStab`). Выше `STAB_SELF_MAX` сама не поднимается — это правило
+ * применяет вызывающий.
  */
-export const stabSelfRiseCeil = (days: number, wins: number, moraleWin: number): number =>
-  Math.floor((STAB_CALM * Math.max(0, days) + Math.max(0, wins) * battleShock(Math.max(0, moraleWin))) / STAB_DRIFT) + 1;
+export const stabSelfRiseCeil = (days: number, wins: number, moraleWin: number, extra = 0): number =>
+  Math.floor((STAB_CALM * Math.max(0, days) + Math.max(0, wins) * battleShock(Math.max(0, moraleWin)) + Math.max(0, extra)) / STAB_DRIFT) + 1;

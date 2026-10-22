@@ -53,6 +53,7 @@ export const STAB_LOG = {
     army: 'Дружина перестала ждать жалованья.',
     fallen: 'Город пал.',
     terms: 'Мятежники не разошлись.',
+    event: 'Весть сделала своё.',
   },
   rose: (group: string, rebels: number): string => `Мятеж: ${group.toLowerCase()} встали, ${rebels} не выходят на работу.`,
   calmed: 'Мятежники разошлись по домам и вернулись к работе.',

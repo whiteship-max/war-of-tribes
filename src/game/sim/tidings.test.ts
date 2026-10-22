@@ -279,7 +279,7 @@ describe('подпись называет те же числа, что дела�
       for (const faith of ['catholic', 'orthodox', 'islam', 'pagan'] as const) {
         const s = rich();
         s.faith.id = faith;
-        const text = typeof e.text === 'function' ? e.text(s) : e.text;
+        const text = typeof e.text === 'function' ? e.text(s) : (e.text ?? '');
         expect(text.length, `${id}: «${text}»`).toBeLessThanOrEqual(160);
       }
       for (const o of e.options) expect(o.label.length, `${id}: «${o.label}»`).toBeLessThanOrEqual(28);

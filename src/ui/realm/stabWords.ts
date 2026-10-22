@@ -48,6 +48,7 @@ export const GO_SOURCE: Record<StabGo, Source> = {
   order: { kind: 'tab', tab: 'order' },
   market: { kind: 'building', type: 'market' },
   tech: { kind: 'realm', view: 'tech' },
+  mail: { kind: 'realm', view: 'decisions' },
 };
 
 /** Подпись двери: «Где изменить: Указы». */
@@ -60,6 +61,7 @@ export const GO_WORD: Record<StabGo, string> = {
   order: 'Порядок',
   market: 'Рынок',
   tech: 'Технологии',
+  mail: 'Вести',
 };
 
 /** Первая подсказка раздела (docs/onboarding.md): что такое стабильность — три строки. */

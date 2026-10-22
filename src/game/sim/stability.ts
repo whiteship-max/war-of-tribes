@@ -20,7 +20,7 @@ import {
   STARVING_MORALE,
   VILLAGER_DEFENSE,
 } from '../constants';
-import { decreeOf, moraleBreakdown, mutinyOpen, orderState, payGraceDays, rationOf, riteMorale, taxOf } from '../derived';
+import { activeBoons, decreeOf, moraleBreakdown, mutinyOpen, orderState, payGraceDays, rationOf, riteMorale, taxOf } from '../derived';
 import { TAXES, type TaxId } from '../data/policy';
 import { SEASON_DAYS } from '../data/seasons';
 import { REALM_BRANCHES } from '../data/realm';
@@ -78,6 +78,13 @@ export interface Part {
 /** Строка морали по имени — та же, что в справке «Мораль»: второй мерки тесноты, голода и ереси нет. */
 const moraleLine = (mb: MoraleBreakdown, id: string): number => mb.lines.find((l) => l.id === id)?.value ?? 0;
 
+/**
+ * Обида и милость вестей державы причиной (СБ-2): усилитель с полем группы — своим именем и сроком (`data/boons`), как налог
+ * или теснота. Своего счёта у вести нет: она кладёт усилитель, полоса идёт к цели прежней скоростью.
+ */
+const boonParts = (s: GameState, field: 'folk' | 'hungry'): Part[] =>
+  activeBoons(s).flatMap(({ def }) => (def[field] ? [{ id: `boon:${def.id}`, value: def[field] as number }] : []));
+
 /** Ступень стабильности причиной: высокая гасит недовольство, низкая разжигает. */
 const stabPart = (s: GameState): Part[] => {
   const level = stabLevel(s);
@@ -95,7 +102,7 @@ export function folkParts(s: GameState, mb: MoraleBreakdown = moraleBreakdown(s)
     { id: 'heresy', value: discontentOf(-moraleLine(mb, 'heresy')) },
     { id: 'rite', value: -discontentOf(riteMorale(s)) },
   ];
-  return [...raw.filter((p) => p.value !== 0), ...stabPart(s)];
+  return [...raw.filter((p) => p.value !== 0), ...boonParts(s, 'folk'), ...stabPart(s)];
 }
 
 /** Причины недовольства голодных — хлеб на душу тем же счётом, что у морали. */
@@ -107,7 +114,7 @@ export function hungryParts(s: GameState, mb: MoraleBreakdown = moraleBreakdown(
     // Паёк — доля урезанного от голода: тем же правилом, что осадный (`derived.rationMorale`).
     { id: 'ration', value: discontentOf((1 - rationOf(s).food) * STARVING_MORALE) },
   ];
-  return [...raw.filter((p) => p.value !== 0), ...stabPart(s)];
+  return [...raw.filter((p) => p.value !== 0), ...boonParts(s, 'hungry'), ...stabPart(s)];
 }
 
 /** Цель полосы: сумма причин, не меньше нуля. */
@@ -172,16 +179,27 @@ export function stabAfterBattle(s: GameState, o: { battle?: 'won' | 'lost' | nul
   push(s, battleShock(o.morale));
 }
 
-/** Сдвинуть на `d` процентов ступени: дошёл до края — ступень. Сама выше «Лада» не поднимается, ниже «Смуты» не копится. */
-function push(s: GameState, d: number): void {
+/**
+ * Сдвинуть на `d` процентов ступени: дошёл до края — ступень. Сама выше «Лада» не поднимается, ниже «Смуты» не копится.
+ * `why` — чем назвать смену ступени в летописи: тихие дни и недовольство или весть.
+ */
+function push(s: GameState, d: number, why: 'drift' | 'event' = 'drift'): void {
   const st = own(s);
   st.drift += d;
   // Края — одним правилом: на «Ладе» и выше сдвиг вверх не копится, на «Смуте» — вниз.
   if (st.level >= STAB_SELF_MAX && st.drift > 0) st.drift = 0;
   if (st.level <= STAB_MIN && st.drift < 0) st.drift = 0;
-  if (st.drift >= STAB_DRIFT) stepBy(s, 1, 'calm');
-  else if (st.drift <= -STAB_DRIFT) stepBy(s, -1, 'drift');
+  if (st.drift >= STAB_DRIFT) stepBy(s, 1, why === 'event' ? 'event' : 'calm');
+  else if (st.drift <= -STAB_DRIFT) stepBy(s, -1, why);
 }
+
+/**
+ * Весть державы двигает стабильность (СБ-2): тот же сдвиг, что у тихих дней и боёв, с теми же краями — сама весть не
+ * поднимает выше «Лада» и не копит вниз на «Смуте». Зовёт одна дверь вестей (`sim/crown`).
+ */
+export const stabNudge = (s: GameState, d: number): void => {
+  if (d !== 0) push(s, d, 'event');
+};
 
 // ---------- Шаг ----------
 
