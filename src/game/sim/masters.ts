@@ -27,7 +27,7 @@ import {
   mastersCount,
   mastersRoom,
   masterHands,
-  wageOf,
+  troopWage,
 } from '../derived';
 import { MASTER_PAID_AS } from '../data/upkeep';
 import { mastersBlock, mastersCap } from './tech';
@@ -79,7 +79,7 @@ export function mastersInfo(s: GameState): MastersInfo {
     gain: mastersBuildShare(s),
     each: crafterHeadShare(s),
     hands: masterHands(s),
-    inSoldiers: wageOf(s, MASTER_PAID_AS) > 0 ? wage / wageOf(s, MASTER_PAID_AS) : 0,
+    inSoldiers: troopWage(s, MASTER_PAID_AS) > 0 ? wage / troopWage(s, MASTER_PAID_AS) : 0,
     blocked,
   };
 }

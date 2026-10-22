@@ -15,8 +15,7 @@ import {
   hiddenStash,
   homeArmyPower,
   faithOf,
-  fervour,
-  councilGift,
+  armyResolve,
   intelKeen,
   mastersFoodPerDay,
   soldierFoodPerDay,
@@ -220,9 +219,10 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // сосед мог отнестись к ней прохладнее (`world/faith.faithAttitude`), — и
     // прибавка к стойкости от идущего обряда. Ни уклада, ни набожности, ни
     // реликвии мир не видит: это дела прихода, а не карты. К обряду прибавляется
-    // Воевода совета Ратуши (РТ-1): стойкость одна, и мир не спрашивает, откуда она.
+    // Воевода совета Ратуши (РТ-1) и сословия (РТ-2: рыцари прибавляют, купцы режут — `derived.armyResolve`): стойкость
+    // одна, и мир не спрашивает, откуда она.
     faith: faithOf(s),
-    fervour: fervour(s) + councilGift(s, 'marshal'),
+    fervour: armyResolve(s),
     stock,
     stash,
     // Казна едет рядом со складом, а не в нём: платят из них разными дверями,

@@ -38,6 +38,13 @@ export function goTo(src: Source): void {
     case 'treasury':
       useTreasury.getState().show('buy');
       return;
+    case 'estates': {
+      // Ратуша на разделе «Сословия» (РТ-2): вкладку ставит стор, окно — постройкой, как прочие двери.
+      const hall = buildingOfType(g.s, 'town_hall');
+      g.setTownTab('estates');
+      if (hall) g.openBuilding(hall.id);
+      return;
+    }
     case 'build': {
       // «Здания» низа (РТ-1): сетка всех построек. Уже открыта — не закрываем (`openTab` — переключатель).
       const cur = g.sheet;

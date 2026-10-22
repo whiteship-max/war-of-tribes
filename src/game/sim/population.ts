@@ -22,6 +22,7 @@ import {
   bondedTotal,
   deedBonded,
   deedWorkers,
+  estateGrowthMult,
   faithTilt,
   foodConsumptionPerDay,
   freeJobCount,
@@ -146,6 +147,11 @@ export interface GrowthInfo {
    */
   faith: number;
   /**
+   * Сословия (РТ-2): крестьянство в силе прибавляет рождений, рыцарство — отнимает (`derived.estateGrowthMult`); единица —
+   * сословия прироста не трогают. Как вера — только у прироста, не у ухода.
+   */
+  estates: number;
+  /**
    * Основа — прирост без множителей: от числа жителей (`POP_GROWTH_PER_DAY`). `perDay` — она под множителями, и разбор «в
    * день» жителей (`ui/next/hudTips`) пишет каждый множитель тем, что он прибавил к набранному.
    */
@@ -173,21 +179,22 @@ export function popGrowth(s: GameState, mods?: SeasonModifiers): GrowthInfo {
   const foodDays = s.resources.food / Math.max(1, eat);
   const food = Math.max(0, Math.min(1, foodDays / GROWTH_FOOD_DAYS));
   const ration = rationOf(s).growth;
+  const estates = estateGrowthMult(s);
   const base = POP_GROWTH_PER_DAY * (s.pop + POP_GROWTH_BASE);
 
   // Люди уходят вне зависимости от жилья и запасов: их держит не крыша, а вождь.
   if (morale < 0) {
     // Уходящих вера не удерживает: она прибавляет к росту, а не гасит убыль, —
     // иначе высокий храм отменял бы цену низкой морали.
-    return { perDay: base * morale, morale, housing, food, faith, base, ration, blocked: 'Мораль слишком низкая, жители уходят.' };
+    return { perDay: base * morale, morale, housing, food, faith, estates, base, ration, blocked: 'Мораль слишком низкая, жители уходят.' };
   }
-  const perDay = base * morale * housing * food * ration * faith;
+  const perDay = base * morale * housing * food * ration * faith * estates;
   let blocked: string | null = null;
   if (ration <= 0) blocked = 'На скудном пайке город не растёт.';
   else if (housing <= 0) blocked = 'Нет свободного жилья.';
   else if (food <= 0.01) blocked = 'Нет запаса еды.';
   else if (morale <= 0.01) blocked = 'Мораль слишком низкая.';
-  return { perDay, morale, housing, food, faith, base, ration, blocked };
+  return { perDay, morale, housing, food, faith, estates, base, ration, blocked };
 }
 
 /** Шаг прироста: накапливает дробную часть, целые головы применяет сразу. */

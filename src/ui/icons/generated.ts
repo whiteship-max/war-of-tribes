@@ -1,8 +1,8 @@
 // Файл сгенерирован scripts/build-icons.ts — руками не править. Пересобрать: npm run icons:build
 //
-// Набор ЗН-1 (docs/icons.md): 201 рисунков. Первый экран — 35 символов строкой
-// ниже (5.8 КБ по сети, едет с кодом первой загрузки); остальные 166 — лист ICON_SHEET после первого кадра
-// (27.2 КБ по сети).
+// Набор ЗН-1 (docs/icons.md): 206 рисунков. Первый экран — 35 символов строкой
+// ниже (5.8 КБ по сети, едет с кодом первой загрузки); остальные 171 — лист ICON_SHEET после первого кадра
+// (28.3 КБ по сети).
 
 export const ICON_SHEET = '/assets/icons/sprite.svg';
 
@@ -52,6 +52,11 @@ export const DRAWN_ICONS = [
   'deal-alliance',
   'dip-gift',
   'dip-insult',
+  'est-clergy',
+  'est-guilds',
+  'est-knights',
+  'est-merchants',
+  'est-peasants',
   'evt-raiders',
   'faith-catholic',
   'faith-islam',

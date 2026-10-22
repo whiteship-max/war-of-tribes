@@ -1,5 +1,6 @@
 // Производные величины от состояния: вместимость, скорости, модификаторы.
 import type {
+  EstateId,
   Advisor,
   AdvisorPost,
   Building,
@@ -116,9 +117,24 @@ import {
 } from './data/seasons';
 import { daysSpan } from './span';
 import { BOON_BY_ID, type BoonDef } from './data/boons';
+import { ESTATE_META } from './data/estates';
 import { MAX_AGENT_LEVEL } from './data/agents';
 import { STAB_STEP, stabClamp, stabOutputMult } from './stabrules';
 import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
+import {
+  ESTATES,
+  FERVOUR_SCALE,
+  LOYAL,
+  PIETY_SCALE,
+  influenceOf,
+  loyaltyFrom,
+  loyaltyParts,
+  minusOf,
+  murmurOf,
+  plusOf,
+  strengthOf,
+  type LoyaltyParts,
+} from './estaterules';
 import type { IconName } from '@/ui/icons/alias';
 
 /** На здании идёт улучшение. */
@@ -421,7 +437,7 @@ export const taxOf = (s: GameState): TaxDef => TAX_BY_ID[s.tax] ?? TAX_BY_ID.non
  * (`marketTick` не пускает золото ниже нуля).
  */
 export const taxIncomePerDay = (s: GameState): number =>
-  taxOf(s).perPop * population(s) * TAX_PER_POP * treasurerMult(s) + faithGoldPerDay(s);
+  taxOf(s).perPop * population(s) * TAX_PER_POP * treasurerMult(s) * estateGoldMult(s) + faithGoldPerDay(s);
 
 /**
  * Что даст и чего будет стоить налог `id` этому посёлку прямо сейчас — числами самой игры:
@@ -493,7 +509,7 @@ export const bondedSaleLeft = (s: GameState): number =>
  * торговцам разницу, а не заработать на ней. Казначей (РТ-1) выторговывает свою долю
  * (`treasurerMult`) — выручка рынка, как и налог; до цены ввоза ей далеко и с ним.
  */
-export const bondedSalePrice = (s?: GameState): number => Math.floor(BONDED_GOOD.price * BONDED_SALE * (s ? treasurerMult(s) : 1));
+export const bondedSalePrice = (s?: GameState): number => Math.floor(BONDED_GOOD.price * BONDED_SALE * (s ? treasurerMult(s) * merchantsMult(s) : 1));
 
 /** Во что обойдётся партия из `count` единиц. Считается поштучно. */
 export const marketCost = (s: GameState, def: GoodDef, count: number): number =>
@@ -776,7 +792,13 @@ export function wageShare(s: GameState): number {
  */
 export { baseWage, wageGear } from './battle/price';
 
-export const wageOf = (s: GameState, troop: TroopId): number => baseWage(troop) * wageShare(s);
+export const troopWage = (s: GameState, troop: TroopId): number => baseWage(troop) * wageShare(s);
+
+/**
+ * Жалованье бойца этого вида за игровой день, золотом: ставка (`troopWage`) и содержание, которого требует рыцарство в силе
+ * (РТ-2, минус рыцарей — `estateWageMult`). Мастер — не боец: его цена считается от ставки без рыцарей (`masterWage`).
+ */
+export const wageOf = (s: GameState, troop: TroopId): number => troopWage(s, troop) * estateWageMult(s);
 
 /**
  * Сколько рук даёт стройке один наёмный мастер: его ставка (`CRAFTER_BUILD` под множителем
@@ -798,7 +820,7 @@ export function masterHands(s: GameState, mods: SeasonModifiers = seasonMods(s))
  * свойство, на котором стоит спор: **единица стройки, купленная мастером, стоит ровно столько, во
  * сколько стройке обходится боец**, — и закят, множащий жалованье бойца, множит её той же долей.
  */
-export const masterWage = (s: GameState): number => wageOf(s, MASTER_PAID_AS) * masterHands(s);
+export const masterWage = (s: GameState): number => troopWage(s, MASTER_PAID_AS) * masterHands(s);
 
 /** Жалованье войска за игровой день. Новобранцев на учениях оно не касается. */
 export const armyWagesPerDay = (s: GameState): number =>
@@ -844,6 +866,100 @@ export const councilWagesPerDay = (s: GameState): number =>
     const a = councilSeat(s, p);
     return a ? n + advisorWage(a.level, a.trait) : n;
   }, 0);
+
+// ---------- Сословия (РТ-2) ----------
+//
+// Влияние и лояльность выводятся, а не хранятся (docs/stability.md, «РТ-2»): уровни построек, привилегии, указ и усилители —
+// всё, из чего они сделаны; числа и формулы — `estaterules`, одни с сервером. Здесь — чтение и рычаги, которые сословия кладут
+// в двери игры: золото, стройка, дворы, прирост, хлеб, жалованье, стойкость, недовольство податных и набожность. Привилегии и
+// дары пишет одна дверь — `sim/estates`.
+
+/** Сословие сейчас: влияние, лояльность и её слагаемые, сила, плюс и минус долями. */
+export interface EstateNow {
+  id: EstateId;
+  infl: number;
+  loyalty: number;
+  parts: LoyaltyParts;
+  strength: number;
+  plus: number;
+  minus: number;
+  /** Город живёт по указу этого сословия. */
+  decree: boolean;
+}
+
+/** Сословие, по чьему указу живёт город; указ короны — `null`. */
+export const estateDecree = (s: GameState): EstateId | null => decreeOf(s).estate ?? null;
+
+/** Что вести и дары кладут в лояльность сословия — усилителями (`data/boons`, поле `estates`). */
+export const estateMood = (s: GameState, e: EstateId): number => activeBoons(s).reduce((n, { def }) => n + (def.estates?.[e] ?? 0), 0);
+
+/** Все пять сословий сейчас — одна мерка на рычаги, окно, ропот и опись. */
+export function estatesNow(s: GameState): Record<EstateId, EstateNow> {
+  const priv = s.estates?.priv;
+  const infl = influenceOf(levelsOf(s), priv);
+  const dec = estateDecree(s);
+  const out = {} as Record<EstateId, EstateNow>;
+  for (const e of ESTATES) {
+    const parts = loyaltyParts(e, priv, infl[e], estateMood(s, e));
+    const loyalty = loyaltyFrom(parts);
+    const strength = strengthOf(infl[e], dec === e);
+    out[e] = { id: e, infl: infl[e], loyalty, parts, strength, plus: plusOf(e, strength, loyalty), minus: minusOf(e, strength), decree: dec === e };
+  }
+  return out;
+}
+
+/** Доля минуса — не больше целого: множитель «один минус доля» не уходит ниже нуля. */
+const cutOf = (minus: number): number => 1 - Math.max(0, Math.min(1, minus));
+
+/** Золото налога: купцы — плюс, крестьяне и десятина духовенства — минус. */
+export function estateGoldMult(s: GameState): number {
+  const n = estatesNow(s);
+  return (1 + n.merchants.plus) * cutOf(n.peasants.minus) * cutOf(n.clergy.minus);
+}
+
+/** Выручка рынка — купцы. */
+export const merchantsMult = (s: GameState): number => 1 + estatesNow(s).merchants.plus;
+
+/** Скорость стройки — цехи. */
+export const guildsMult = (s: GameState): number => 1 + estatesNow(s).guilds.plus;
+
+/** Добыча дворов — крестьяне. */
+export const peasantsMult = (s: GameState): number => 1 + estatesNow(s).peasants.plus;
+
+/** Прирост: крестьяне — плюс, рыцари — минус. */
+export function estateGrowthMult(s: GameState): number {
+  const n = estatesNow(s);
+  return (1 + n.peasants.plus) * cutOf(n.knights.minus);
+}
+
+/** Хлеб, который ест город: цехи в силе едят больше. */
+export const estateFoodMult = (s: GameState): number => 1 + estatesNow(s).guilds.minus;
+
+/** Содержание войска: рыцари в силе требуют больше. */
+export const estateWageMult = (s: GameState): number => 1 + estatesNow(s).knights.minus;
+
+/** Какую долю налога в недовольстве податных гасит проповедь духовенства. */
+export const clergyRelief = (s: GameState): number => Math.min(1, estatesNow(s).clergy.plus);
+
+/** Что духовенство прибавляет к набожности. */
+export const clergyPiety = (s: GameState): number => PIETY_SCALE * estatesNow(s).clergy.plus;
+
+/**
+ * Можно ли объявить указ: указ короны — всегда, указ сословия — пока сословие верно (`estaterules.LOYAL`, docs/stability.md,
+ * Р1.6). Отказ — словами с числом лояльности: кнопка и сервер спрашивают одну мерку.
+ */
+export function decreeBlock(s: GameState, id: DecreeDef['id']): string | null {
+  const e = DECREE_BY_ID[id]?.estate;
+  if (!e) return null;
+  const loyalty = estatesNow(s)[e].loyalty;
+  return loyalty >= LOYAL ? null : `${ESTATE_META[e].name}: лояльность ${Math.floor(loyalty)} из ${LOYAL} — указ откроет верное сословие.`;
+}
+
+/** Ропот сословия — причина у податных, % (`estaterules.murmurOf`). */
+export const estateMurmur = (s: GameState, e: EstateId): number => {
+  const n = estatesNow(s)[e];
+  return murmurOf(n.infl, n.loyalty);
+};
 
 /** Сколько войску причитается сейчас: в отсрочку приведённой партии — ничего. */
 export const wagesDue = (s: GameState): number => (s.time < (s.pay?.from ?? 0) ? 0 : wagesPerDay(s));
@@ -1135,7 +1251,8 @@ function deedYield(s: GameState, out: Resources, b: Building, job: JobId, mods: 
   // Постройка под обстрелом стоит фазу без работы (Р-5, `world/shelling`): её работники едят, но не дают ничего.
   if (s.siege?.idle?.includes(b.type)) return;
   // Добыча дворов — под рукой Старосты (РТ-1): дела дворов (`YARD_BY_JOB`), а не горн и не мастерская.
-  const mult = workerMultiplier(s, job, b, mods) * (YARD_BY_JOB.has(job) ? stewardMult(s) : 1);
+  // Сословия (РТ-2): дворы — под рукой крестьянства.
+  const mult = workerMultiplier(s, job, b, mods) * (YARD_BY_JOB.has(job) ? stewardMult(s) * peasantsMult(s) : 1);
   addYield(out, job, deedWorkers(s, job), mult * freeShare(s));
   addYield(out, job, deedBonded(s, job), mult * bondedShare(s));
 }
@@ -1226,7 +1343,8 @@ export function townFoodPerDay(s: GameState, mods: SeasonModifiers = seasonMods(
   // с тем же зимним множителем. Под осадой они заперты в городе вместе со всеми
   // и едят из осаждённого амбара — часы голода от них короче.
   total += bondedTotal(s);
-  return headsFoodPerDay(total, mods.food, rationOf(s).food);
+  // Цехи в силе (РТ-2) едят больше — минус ремесленного города.
+  return headsFoodPerDay(total, mods.food, rationOf(s).food) * estateFoodMult(s);
 }
 
 /**
@@ -1293,7 +1411,8 @@ export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
   // Невольники без места — на стройке, тем же трудом и на ту же долю, что в поле.
   const bonded = bondedIdle(s) * bondedShare(s);
   // Формула одна на игру и книгу стройки сервера (`game/build.buildRateOf`; потолок сервера — `buildCeil`).
-  return buildRateOf(idle, bonded, crafterBuildRate(s, mods), mods.build, buildingOfType(s, 'town_hall')?.level ?? 0, stewardMult(s));
+  // Цехи в силе (РТ-2) множат стройку той же дверью, что Староста: потолок сервера — тот же множитель (`build.buildCeil`).
+  return buildRateOf(idle, bonded, crafterBuildRate(s, mods), mods.build, buildingOfType(s, 'town_hall')?.level ?? 0, stewardMult(s) * guildsMult(s));
 }
 
 /**
@@ -1764,6 +1883,8 @@ export function pietyBreakdown(s: GameState): PietyBreakdown {
   if (foodDays < 1) add('hunger', 'res-food', 'Голодно в приходе', -PIETY_HUNGER, 'за что нам это');
   if (s.siege) add('siege', 'alert-siege', 'Под стенами враги', -PIETY_SIEGE, `осада, ${s.siege.byName}`);
   add('strain', 'ui-heartbreak', 'Надлом', -strainNow(s), 'навязанные решения ещё помнят');
+  // Духовенство в силе (РТ-2) — набожность прихода.
+  add('clergy', 'est-clergy', 'Духовенство', clergyPiety(s), 'сословие в силе');
 
   const raw = lines.reduce((n, l) => n + l.value, PIETY_BASE);
   return { base: PIETY_BASE, lines, raw, value: Math.max(0, Math.min(100, raw)) };
@@ -1812,6 +1933,16 @@ export const riteMorale = (s: GameState): number => (riteActive(s) ? RITE_MORALE
  * неоткуда (см. `LocalWorld.ownResolve` и `sim/faith.test.ts`).
  */
 export const fervour = (s: GameState): number => (riteActive(s) ? faithTilt(s).fervour : 0);
+
+/**
+ * Стойкость дружины целиком — то, что мост везёт в бой (`world/bridge`): обряд веры, Воевода совета (РТ-1) и рыцарство в силе
+ * (РТ-2, плюс рыцарей очками шкалы `FERVOUR_SCALE`), а купечество в силе снимает долю (его минус). Ниже нуля стойкости нет —
+ * бой её не принимает (`battle/sim`): купцы режут то, что дали обряд, Воевода и рыцари.
+ */
+export function armyResolve(s: GameState): number {
+  const n = estatesNow(s);
+  return Math.max(0, fervour(s) + councilGift(s, 'marshal') + FERVOUR_SCALE * n.knights.plus) * cutOf(n.merchants.minus);
+}
 
 /**
  * Как здание называется у этой деревни. Отличается от `def.name` ровно у одного

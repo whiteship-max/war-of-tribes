@@ -69,6 +69,12 @@ export const ALIAS = {
   'decree-none': 'ui-handshake',
   'decree-order': 'ui-scales',
   'decree-freedom': 'ui-lute',
+  // Указы сословий (РТ-2) — гербом своего сословия.
+  'decree-fair_rights': 'est-merchants',
+  'decree-guild_charter': 'est-guilds',
+  'decree-commons': 'est-peasants',
+  'decree-tourney': 'est-knights',
+  'decree-gods_peace': 'est-clergy',
   'ration-lean': 'ui-bowl',
   'ration-normal': 'ui-stew',
   'ration-rich': 'ui-cauldron',

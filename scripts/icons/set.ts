@@ -120,6 +120,12 @@ Object.assign(ART, {
   // Раздел «Стабильность» в ряду державы (СБ-2б): колонна под короной — свой значок, не ячейки строки очков.
   'ui-stability': m.crownedPillar,
   'ui-pouch': m.pouch,
+  // Гербы сословий (РТ-2, docs/icons.md, «РТ-2»): щит своей финифти и фигура дела — кошель, молот, сноп, меч, свеча.
+  'est-merchants': () => [...m.heater('az'), ...place(m.pouch(), { s: 0.56, o: [16, 15], y: -0.6 })],
+  'est-guilds': () => [...m.heater('gu'), ...place(m.hammer(), { s: 0.56, r: 35, o: [16, 15], y: -0.6 })],
+  'est-peasants': () => [...m.heater('ve'), ...place(m.sheaf(), { s: 0.58, o: [16, 15], y: -0.6 })],
+  'est-knights': () => [...m.heater('sa'), ...place(m.sword(), { s: 0.6, r: 45, o: [16, 15], y: -0.6 })],
+  'est-clergy': () => [...m.heater('ar'), ...place(m.candle(), { s: 0.56, o: [16, 15], y: -0.6 })],
 });
 Object.assign(ART, {
   'ui-time': m.hourglass,

@@ -964,6 +964,13 @@ export interface GameState {
    * Необязательное: версию сохранения не поднимает.
    */
   council?: CouncilState;
+  /**
+   * Сословия (РТ-2, docs/stability.md, «РТ-2»): дарованные привилегии и книга для сервера. Влияние и лояльность выводятся
+   * (`estaterules`, `derived.estatesNow`), здесь только то, из чего они сделаны и чего не вывести: сколько привилегий у кого и
+   * счёт дарований, отнятий и даров. Пишет одна дверь — `sim/estates`. Поля нет — привилегий нет и лояльность у всех ровная:
+   * так читаются и новая партия, и старая. Необязательное: версию сохранения не поднимает.
+   */
+  estates?: EstatesState;
   log: LogEntry[];
   stats: Stats;
   nextId: number;
@@ -1088,6 +1095,24 @@ export interface CouncilState {
   owed?: number;
   /** Кто ушёл с места последним и почему — его называет весть о пустом месте. */
   left?: Partial<Record<AdvisorPost, { name: string; why: 'died' | 'rest' | 'unpaid' | 'dismissed' }>>;
+}
+
+/**
+ * Сословие (РТ-2, docs/stability.md, «РТ-2»): Купечество, Цехи, Крестьянство, Рыцарство, Духовенство — по порядку окна
+ * (`estaterules.ESTATES`).
+ */
+export type EstateId = 'merchants' | 'guilds' | 'peasants' | 'knights' | 'clergy';
+
+/** Сословия партии — привилегии и книга сервера. Пишет и читает одна дверь — `sim/estates`. */
+export interface EstatesState {
+  /** Сколько привилегий даровано сословию, 0…`PRIV_MAX`; нет ключа — ни одной. */
+  priv: Partial<Record<EstateId, number>>;
+  /** Книга сервера: сколько привилегий даровано за партию. */
+  grants: number;
+  /** Сколько отнято. */
+  revokes: number;
+  /** Сколько даров отдано. */
+  gifts: number;
 }
 
 /** Подсказки новичку: показанные — по имени, раз и навсегда; `off` — игрок выключил их в настройках. */

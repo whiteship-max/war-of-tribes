@@ -6,6 +6,7 @@ import { FEAST_DAYS } from '../constants';
 import {
   buildQueue,
   buildingById,
+  decreeBlock,
   feastInfo,
   feastSeconds,
   isSite,
@@ -118,6 +119,9 @@ export function setDecree(s: GameState, id: DecreeId): string | null {
   const def = DECREE_BY_ID[id];
   if (!def) return 'Такого указа нет.';
   if (s.decree === id) return null;
+  // Указ сословия — пока сословие верно (РТ-2): мерка одна с кнопкой «Указов».
+  const why = decreeBlock(s, id);
+  if (why) return why;
   s.decree = id;
   log(s, `Объявлен указ «${def.name}».`, 'info', undefined, 'decree');
   return null;

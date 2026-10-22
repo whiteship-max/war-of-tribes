@@ -348,6 +348,11 @@ HEAD один на всех, см. правило 8). Значит развес�
   просители окна, польза, жалованье, очки, конец службы) — `councilrules`, одни на игру и на книгу совета сервера (правило
   «council», `WatchCard.council`). Разойдись они у двоих — сервер счёл бы подделкой честного советника или засчитал бы
   пользу, которой ратуша не давала; просители и найм — `sim/candidates` (докачкой, плата — `outlay`);
+- `src/game/sim/estates.ts` и `src/game/estaterules.ts` — сословия (РТ-2, docs/stability.md, «РТ-2»): `GameState.estates` —
+  необязательное поле (привилегии по сословиям, счёт дарований, отнятий и даров), пишет его одна дверь `sim/estates`
+  (`grantPrivilege`, `revokePrivilege`, `giftEstate`, `estatesStep`, чтение `mergeEstates`); влияние, лояльность, сила, плюс,
+  минус, ропот и потолки — `estaterules`, одни на игру и на книгу сословий сервера (правило «estates», `WatchCard.estates`).
+  Разойдись они у двоих — сервер счёл бы подделкой честную опору или пропустил бы указ сословия, которое его не открывало;
 - `src/profile/types.ts` — профиль игрока лежит в сохранении племени целиком: имя, лицо и
   имя города (`ProfileState.city`) — его поля;
 - `src/world/local/state.ts` — `WORLD_SAVE_VERSION` и миграции мира;
@@ -651,6 +656,12 @@ HEAD один на всех, см. правило 8). Значит развес�
   `derived.stewardMult` (стройка и дворы), `treasurerMult` (налог и продажа невольников), Воевода — к стойкости (`bridge`);
   очки — `points.branchRate` (не выше лучшего правителя); жалованье — в ведомости войска (`wagesPerDay`); весть о пустом месте
   ведёт в Ратушу; сервер — правило «council» (`council.test.ts`, `rt1.test.ts`, `security.test.ts`; docs/city_v3.md, «РТ-1»).
+- **Сословия** — запись `sim/estates` (привилегии, дары), числа `estaterules`; влияние и лояльность выводятся
+  (`derived.estatesNow`: средний уровень построек сословия и привилегии; привилегии, зависть, усилители, перевес); рычаги —
+  `derived` (`estateGoldMult`, `guildsMult`, `peasantsMult`, `estateGrowthMult`, `estateFoodMult`, `estateWageMult`,
+  `armyResolve`, `clergyRelief`, `clergyPiety`); ропот — причина у податных (`sim/stability.folkParts`); указ сословия — строка
+  `DECREES`, открывает `derived.decreeBlock`, снимает `estatesStep`; сервер — правило «estates» (`estates.test.ts`,
+  `security.test.ts`; docs/stability.md, «РТ-2»).
 - **Низ «Здания»** — вся стройка посёлка (`BuildingsPanel`); Ратуша — своё здание с разделами «Советники» и «Сословия»
   (`rt1.test.ts`; ui).
 - **Очередь стройки** — чтение `derived.buildQueue` (начатое — первым, `currentSite` — первое место), запись `sim/actions`

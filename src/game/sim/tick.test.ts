@@ -23,6 +23,7 @@ import {
   maxLevelFor,
   armySize,
   forgeInfo,
+  peasantsMult,
   productionPerDay,
   seasonDayOf,
   seasonOf,
@@ -566,12 +567,14 @@ describe('здания', () => {
     idleAll(s);
     const mill = place(s, 'sawmill', 1);
     expect(assignWorker(s, mill.id)).toBeNull();
-    const one = productionPerDay(s).wood;
+    // Лесопилка — постройка крестьянства (РТ-2): её уровень сдвигает влияние сословия и с ним добычу дворов. Здесь мерится
+    // уровень и руки — множитель крестьянства снят в обеих точках.
+    const one = productionPerDay(s).wood / peasantsMult(s);
     expect(one).toBeGreaterThan(0);
 
     mill.level = 2;
     expect(assignWorker(s, mill.id)).toBeNull();
-    const two = productionPerDay(s).wood;
+    const two = productionPerDay(s).wood / peasantsMult(s);
     // Двое рабочих на втором уровне: вдвое больше рук и +10% каждому.
     expect(two).toBeCloseTo(one * 2 * 1.1, 5);
   });

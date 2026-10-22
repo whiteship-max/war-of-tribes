@@ -35,6 +35,7 @@ import { marketTick } from './market';
 import { recruitTick } from './army';
 import { upkeepTick } from './upkeep';
 import { councilStep, vacancyEvent } from './council';
+import { estatesStep } from './estates';
 import { settleHires } from './hire';
 import { dynastyStep } from './dynasty';
 import { settleWounds } from './infirmary';
@@ -158,6 +159,8 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   upkeepTick(s, dt, hunger.army);
   // 3г. Совет Ратуши (РТ-1): книга жалованья, уход неуплатой и конец службы по часам; опустевшее место — весть на стол.
   for (const post of councilStep(s, dt)) raiseEvent(s, vacancyEvent(post));
+  // 3д. Сословия (РТ-2): указ сословия держится, пока оно верно — дар кончился, соперник получил привилегию, и указ снят.
+  estatesStep(s);
 
   // 4. Мораль плавно стремится к целевой. Пока племя мёрзнет — вдвое быстрее.
   // Разбор морали — один на шаг: из него и цель морали, и причины недовольства стабильности (`sim/stability`).

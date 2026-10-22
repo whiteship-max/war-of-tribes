@@ -4,19 +4,20 @@
 // `pressureParts`) — здесь к её числам приставляются значок, имя, пояснение и дверь «где изменить». Модуль едет куском меню
 // державы и прогнозом вестей (`world/store` берёт его, когда составляет список): шагу партии слова не нужны, и первая
 // загрузка за них не платит.
-import type { GameState, StabGroup } from '../types';
+import type { EstateId, GameState, StabGroup } from '../types';
 import type { MoraleBreakdown } from '../derived';
 import { DAY_LENGTH, MUTINY_FUSE } from '../constants';
 import { asGame, type GameSec } from '../pace';
-import { bondedTotal, decreeOf, moraleBreakdown, mutinyOpen, orderBreakdown, orderState, payGraceDays, rationOf, taxOf, unrestLeft } from '../derived';
+import { bondedTotal, decreeOf, estatesNow, moraleBreakdown, mutinyOpen, orderBreakdown, orderState, payGraceDays, rationOf, taxOf, unrestLeft } from '../derived';
 import { GROUP_META, stabName } from '../data/stability';
+import { ESTATE_META } from '../data/estates';
 import { BOON_BY_ID } from '../data/boons';
 import { GROUP_RISE, REVOLT_AT, REVOLT_NEAR } from '../stabrules';
 import { barsOf, folkParts, hungryParts, pressureParts, stabLevel, stabOf, targetOf, type Part } from './stability';
 import type { IconName } from '@/ui/icons/alias';
 
 /** Куда ведёт «Где изменить»: имя двери интерфейса, а не сама дверь — симуляция интерфейса не знает. */
-export type StabGo = 'decrees' | 'storage' | 'build' | 'faith' | 'army' | 'order' | 'market' | 'tech' | 'mail';
+export type StabGo = 'decrees' | 'storage' | 'build' | 'faith' | 'army' | 'order' | 'market' | 'tech' | 'mail' | 'estates';
 
 /** Строка разбора: слагаемое давления (% ступени в день) или причина недовольства (%). */
 export interface StabLine {
@@ -55,6 +56,7 @@ const FACE: Record<string, (s: GameState) => Face> = {
   heresy: () => ({ icon: 'ui-flame', name: 'Вера трещит', hint: 'набожность ниже раскола', go: 'faith' }),
   rite: () => ({ icon: 'ui-candle', name: 'Обряд', hint: 'идёт обряд в храме', go: 'faith' }),
   stab: (s) => ({ icon: 'ui-pillar', name: 'Стабильность', hint: stabName(stabLevel(s)) }),
+  clergy: () => ({ icon: ESTATE_META.clergy.icon, name: 'Проповедь терпения', hint: 'духовенство в силе гасит налог', go: 'estates' }),
   starving: () => ({ icon: 'ui-skull', name: 'Закрома пусты', hint: 'еды нет', go: 'storage' }),
   hungry: () => ({ icon: 'res-food', name: 'Голодно', hint: 'еды меньше чем на сутки', go: 'storage' }),
   'siege-ration': () => ({ icon: 'ui-bowl', name: 'Осадный паёк', hint: 'еды урезано', go: 'storage' }),
@@ -63,16 +65,25 @@ const FACE: Record<string, (s: GameState) => Face> = {
   siege: (s) => ({ icon: 'ui-warning', name: 'Осада у стен', hint: `под стенами ${s.siege?.byName ?? 'враг'}` }),
 };
 
+/** Пояснение ропота сословия: влияние и лояльность — числами партии. */
+const estateHint = (s: GameState, e: EstateId): string => {
+  const n = estatesNow(s)[e];
+  return `влияние ${Math.round(n.infl)} %, лояльность ${Math.floor(n.loyalty)}`;
+};
+
 /** Слагаемые словами. Слагаемое группы (`g-…`) — её значком и именем, пояснение — полоса. */
 function faced(s: GameState, parts: readonly Part[], bars?: Record<StabGroup, number>): StabLine[] {
   return parts.map((p) => {
     const group = p.id.startsWith('g-') ? (p.id.slice(2) as StabGroup) : null;
     const boon = p.id.startsWith('boon:') ? BOON_BY_ID[p.id.slice(5)] : undefined;
+    const estate = p.id.startsWith('estate:') ? (p.id.slice(7) as EstateId) : null;
     const face: Face = group
       ? { icon: GROUP_META[group].icon, name: `${GROUP_META[group].name} недовольны`, hint: `полоса ${Math.round(bars?.[group] ?? 0)} %` }
       : boon
         ? { icon: boon.icon, name: boon.name, hint: 'след вести державы', go: 'mail' }
-        : FACE[p.id](s);
+        : estate
+          ? { icon: ESTATE_META[estate].icon, name: `${ESTATE_META[estate].name} ропщет`, hint: estateHint(s, estate), go: 'estates' }
+          : FACE[p.id](s);
     return { id: p.id, value: p.value, ...face };
   });
 }

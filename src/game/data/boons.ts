@@ -15,12 +15,14 @@
 // - мораль праздника — половина обряда (`RITE_MORALE` 8): праздник по вести справляют без храма и
 //   без золота прихода; беда — та же величина с минусом; малая радость — четверть обряда;
 // - срок веселья — срок пира (`FEAST_DAYS`), срок работы и погоды — сезон (`SEASON_DAYS`).
-import type { JobId } from '../types';
+import type { EstateId, JobId } from '../types';
 import { FEAST_DAYS, RITE_MORALE } from '../constants';
 import { SEASON_DAYS } from './seasons';
 import { YARDS } from './yards';
 import { TAX_BY_ID } from './policy';
 import { discontentOf } from '../stabrules';
+import { ENVY, ESTATES, PRIV_LOYALTY } from '../estaterules';
+import { ESTATE_META } from './estates';
 import type { IconName } from '@/ui/icons/alias';
 
 /** Сколько двигает двор добрая весть: середина хороших сезонов дворов. */
@@ -57,6 +59,11 @@ export interface BoonDef {
   folk?: number;
   /** То же у голодных (`sim/stability.hungryParts`). */
   hungry?: number;
+  /**
+   * Лояльность сословий (РТ-2): дар, отнятая привилегия, милость и обида вестей — слагаемым у лояльности
+   * (`estaterules.loyaltyParts`, поле `mood`) своим именем и сроком.
+   */
+  estates?: Partial<Record<EstateId, number>>;
 }
 
 /**
@@ -99,7 +106,31 @@ export const BOONS: BoonDef[] = [
   { id: 'cr_guild_anger', icon: 'bld-market', name: 'Обида цеха', days: SEASON_DAYS, folk: MOOD_SMALL },
   { id: 'cr_grain', icon: 'res-food', name: 'Купеческое зерно', days: SEASON_DAYS, hungry: -MOOD_SMALL },
   { id: 'cr_famine', icon: 'ui-bowl', name: 'Недород', days: LONG, hungry: MOOD_BIG },
+  ...estateBoons(),
 ];
+
+/**
+ * Лояльность сословий (РТ-2, docs/stability.md, Р1.2): дар — сезон своей привилегии без власти (`PRIV_LOYALTY`), отнятая
+ * привилегия — сезон того же с минусом, милость и обида вести — зависть одной привилегии (`ENVY`). Своих чисел нет. Вид — по
+ * сословию: дар одному сословию другому не продлевается.
+ */
+function estateBoons(): BoonDef[] {
+  return ESTATES.flatMap((e): BoonDef[] => {
+    const m = ESTATE_META[e];
+    const one = (n: number): Partial<Record<EstateId, number>> => ({ [e]: n });
+    return [
+      { id: estateBoon('gift', e), icon: m.icon, name: `Дар ${m.to}`, days: SEASON_DAYS, estates: one(PRIV_LOYALTY) },
+      { id: estateBoon('rev', e), icon: m.icon, name: `Отнятая привилегия: ${m.name.toLowerCase()}`, days: SEASON_DAYS, estates: one(-PRIV_LOYALTY) },
+      { id: estateBoon('up', e), icon: m.icon, name: `Расположение ${m.of}`, days: SEASON_DAYS, estates: one(ENVY) },
+      { id: estateBoon('down', e), icon: m.icon, name: `Обида ${m.of}`, days: SEASON_DAYS, estates: one(-ENVY) },
+    ];
+  });
+}
+
+/** Вид усилителя лояльности сословия: дар, отнятая привилегия, милость и обида вести. */
+export function estateBoon(kind: 'gift' | 'rev' | 'up' | 'down', e: EstateId): string {
+  return `es_${kind}_${e}`;
+}
 
 export const BOON_BY_ID = Object.fromEntries(BOONS.map((b) => [b.id, b])) as Record<string, BoonDef>;
 
@@ -134,6 +165,8 @@ export function boonWords(b: BoonDef): string {
   if (b.morale !== undefined) parts.push(`мораль ${b.morale > 0 ? '+' : '−'}${Math.abs(b.morale)}`);
   if (b.folk !== undefined) parts.push(`недовольство податных ${moodPct(b.folk)}`);
   if (b.hungry !== undefined) parts.push(`недовольство голодных ${moodPct(b.hungry)}`);
+  for (const [e, n] of Object.entries(b.estates ?? {}) as [EstateId, number][])
+    parts.push(`лояльность ${ESTATE_META[e].of} ${n > 0 ? '+' : '−'}${Math.round(Math.abs(n))}`);
   const t = parts.join(', ');
   return t ? t[0].toUpperCase() + t.slice(1) : t;
 }
