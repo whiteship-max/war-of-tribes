@@ -20,20 +20,7 @@ import {
   STARVING_MORALE,
   VILLAGER_DEFENSE,
 } from '../constants';
-import { asGame, type GameSec } from '../pace';
-import {
-  bondedTotal,
-  decreeOf,
-  moraleBreakdown,
-  mutinyOpen,
-  orderBreakdown,
-  orderState,
-  payGraceDays,
-  rationOf,
-  riteMorale,
-  taxOf,
-  unrestLeft,
-} from '../derived';
+import { decreeOf, moraleBreakdown, mutinyOpen, orderState, payGraceDays, rationOf, riteMorale, taxOf } from '../derived';
 import { TAXES, type TaxId } from '../data/policy';
 import { SEASON_DAYS } from '../data/seasons';
 import { REALM_BRANCHES } from '../data/realm';
@@ -58,7 +45,6 @@ import {
 import { pointsOf, spend } from './points';
 import { callGate } from './gate';
 import { log } from './log';
-import type { IconName } from '@/ui/icons/alias';
 
 /** Сколько смен ступени помнит летопись раздела. */
 export const STAB_PAST = 40;
@@ -78,170 +64,85 @@ function own(s: GameState): StabilityState {
   return s.stab;
 }
 
-// ---------- Строки: что влияет и почему недовольны ----------
+// ---------- Числа: причины недовольства и давление ----------
+//
+// Здесь — только числа: имя причины и её вес. Слова, значки и двери «где изменить» к ним приставляет вид раздела
+// (`sim/stabview`), который едет куском меню державы: шагу партии слова не нужны, а первая загрузка не платит за них.
 
-/** Куда ведёт «Где изменить»: имя двери интерфейса, а не сама дверь — симуляция интерфейса не знает. */
-export type StabGo = 'decrees' | 'storage' | 'build' | 'faith' | 'army' | 'order' | 'market' | 'tech';
-
-/** Строка разбора: слагаемое давления (% ступени в день) или причина недовольства (%). */
-export interface StabLine {
+/** Слагаемое: причина недовольства (%) или давления (% ступени в день) — по имени. */
+export interface Part {
   id: string;
-  icon: IconName;
-  name: string;
   value: number;
-  /** Откуда число — живыми величинами партии. */
-  hint: string;
-  go?: StabGo;
 }
-
-/** Полоса группы: где она, куда идёт и когда мятеж. */
-export interface GroupView {
-  id: StabGroup;
-  /** Полоса, %. */
-  value: number;
-  /** Куда идёт (у податных и голодных), %. У невольников и войска цели нет — у них срок. */
-  target: number | null;
-  /** Растёт ли полоса сейчас. */
-  rising: boolean;
-  /** Сколько игровых секунд до мятежа (у войска — до ухода), если растёт к нему; null — не грозит. */
-  eta: GameSec | null;
-  /** Причины. */
-  lines: StabLine[];
-}
-
-const line = (id: string, icon: IconName, name: string, value: number, hint: string, go?: StabGo): StabLine => ({
-  id,
-  icon,
-  name,
-  value,
-  hint,
-  ...(go ? { go } : {}),
-});
 
 /** Строка морали по имени — та же, что в справке «Мораль»: второй мерки тесноты, голода и ереси нет. */
 const moraleLine = (mb: MoraleBreakdown, id: string): number => mb.lines.find((l) => l.id === id)?.value ?? 0;
 
 /** Ступень стабильности причиной: высокая гасит недовольство, низкая разжигает. */
-function stabCause(s: GameState): StabLine[] {
+const stabPart = (s: GameState): Part[] => {
   const level = stabLevel(s);
-  if (level === 0) return [];
-  return [line('stab', 'ui-scales', 'Стабильность', discontentOf(-STAB_STEP * level), stabName(level))];
-}
+  return level === 0 ? [] : [{ id: 'stab', value: discontentOf(-STAB_STEP * level) }];
+};
 
-/** Причины недовольства податных — весом их просадки морали (docs/stability.md, 2.3). */
-export function folkCauses(s: GameState, mb: MoraleBreakdown = moraleBreakdown(s)): StabLine[] {
-  const out: StabLine[] = [];
-  const tax = taxOf(s);
-  if (tax.moralePenalty > 0) out.push(line('tax', 'res-gold', `Налог: ${tax.name.toLowerCase()}`, discontentOf(tax.moralePenalty), tax.effect, 'decrees'));
-  const decree = decreeOf(s);
-  const press = -decree.moralePerDay * SEASON_DAYS;
-  if (press !== 0) out.push(line('decree', 'ui-scroll', `Указ: ${decree.name}`, discontentOf(press), decree.effect, 'decrees'));
-  const crowd = -moraleLine(mb, 'crowding');
-  if (crowd > 0) out.push(line('crowding', 'ui-ruin', 'Теснота', discontentOf(crowd), 'жителей больше, чем крыш', 'build'));
-  const cold = -moraleLine(mb, 'freezing');
-  if (cold > 0) out.push(line('freezing', 'season-winter', 'Город мёрзнет', discontentOf(cold), 'дрова кончились', 'storage'));
-  const heresy = -moraleLine(mb, 'heresy');
-  if (heresy > 0) out.push(line('heresy', 'ui-flame', 'Вера трещит', discontentOf(heresy), 'набожность ниже раскола', 'faith'));
-  const rite = riteMorale(s);
-  if (rite > 0) out.push(line('rite', 'ui-candle', 'Обряд', -discontentOf(rite), 'идёт обряд в храме', 'faith'));
-  return [...out, ...stabCause(s)];
+/** Причины недовольства податных — весом их просадки морали (docs/stability.md, 2.3). Ноль в список не идёт. */
+export function folkParts(s: GameState, mb: MoraleBreakdown = moraleBreakdown(s)): Part[] {
+  const raw: Part[] = [
+    { id: 'tax', value: discontentOf(taxOf(s).moralePenalty) },
+    // Указ — что он сделал бы с моралью за сезон: своего веса у него нет.
+    { id: 'decree', value: discontentOf(-decreeOf(s).moralePerDay * SEASON_DAYS) },
+    { id: 'crowding', value: discontentOf(-moraleLine(mb, 'crowding')) },
+    { id: 'freezing', value: discontentOf(-moraleLine(mb, 'freezing')) },
+    { id: 'heresy', value: discontentOf(-moraleLine(mb, 'heresy')) },
+    { id: 'rite', value: -discontentOf(riteMorale(s)) },
+  ];
+  return [...raw.filter((p) => p.value !== 0), ...stabPart(s)];
 }
 
 /** Причины недовольства голодных — хлеб на душу тем же счётом, что у морали. */
-export function hungryCauses(s: GameState, mb: MoraleBreakdown = moraleBreakdown(s)): StabLine[] {
-  const out: StabLine[] = [];
-  const starving = -moraleLine(mb, 'starving');
-  if (starving > 0) out.push(line('starving', 'ui-skull', 'Закрома пусты', discontentOf(starving), 'еды нет', 'storage'));
-  const hungry = -moraleLine(mb, 'hungry');
-  if (hungry > 0) out.push(line('hungry', 'res-food', 'Голодно', discontentOf(hungry), 'еды меньше чем на сутки', 'storage'));
-  const siege = -moraleLine(mb, 'ration');
-  if (siege > 0) out.push(line('siege-ration', 'ui-bowl', 'Осадный паёк', discontentOf(siege), 'еды урезано', 'storage'));
-  // Паёк — доля урезанного от голода: тем же правилом, что осадный (`derived.rationMorale`).
-  const ration = rationOf(s);
-  const cut = (1 - ration.food) * STARVING_MORALE;
-  if (cut !== 0) out.push(line('ration', 'ui-bowl', `Паёк: ${ration.name.toLowerCase()}`, discontentOf(cut), ration.effect, 'decrees'));
-  return [...out, ...stabCause(s)];
+export function hungryParts(s: GameState, mb: MoraleBreakdown = moraleBreakdown(s)): Part[] {
+  const raw: Part[] = [
+    { id: 'starving', value: discontentOf(-moraleLine(mb, 'starving')) },
+    { id: 'hungry', value: discontentOf(-moraleLine(mb, 'hungry')) },
+    { id: 'siege-ration', value: discontentOf(-moraleLine(mb, 'ration')) },
+    // Паёк — доля урезанного от голода: тем же правилом, что осадный (`derived.rationMorale`).
+    { id: 'ration', value: discontentOf((1 - rationOf(s).food) * STARVING_MORALE) },
+  ];
+  return [...raw.filter((p) => p.value !== 0), ...stabPart(s)];
 }
 
 /** Цель полосы: сумма причин, не меньше нуля. */
-const targetOf = (lines: readonly StabLine[]): number => Math.max(0, lines.reduce((n, l) => n + l.value, 0));
+export const targetOf = (parts: readonly Part[]): number => Math.max(0, parts.reduce((n, l) => n + l.value, 0));
 
 /** Полоса невольников — ропот (`s.unrest` к сроку `MUTINY_FUSE`); мятеж на столе — полная. */
-const bondedBar = (s: GameState): number => (mutinyOpen(s) ? 100 : Math.min(100, (100 * Math.max(0, s.unrest ?? 0)) / MUTINY_FUSE));
+export const bondedBar = (s: GameState): number => (mutinyOpen(s) ? 100 : Math.min(100, (100 * Math.max(0, s.unrest ?? 0)) / MUTINY_FUSE));
 
 /** Полоса войска — терпение (`PayState.late` к сроку Статуи). */
-function armyBar(s: GameState): number {
+export function armyBar(s: GameState): number {
   const late = Math.max(0, s.pay?.late ?? 0);
   if (late <= 0) return 0;
   const grace = payGraceDays(s) * DAY_LENGTH;
   return grace > 0 ? Math.min(100, (100 * late) / grace) : 100;
 }
 
-/** Срок до ста при полосе `v`, идущей к цели `t` (только если цель — мятеж). */
-const etaTo = (v: number, t: number): GameSec | null =>
-  t >= REVOLT_AT && v < 100 ? asGame(((100 - v) / GROUP_RISE) * DAY_LENGTH) : null;
+/** Полосы групп в эту минуту, %. */
+export type Bars = Record<StabGroup, number>;
 
-/** Полосы всех четырёх групп — для раздела, тревоги и давления. */
-export function groupsOf(s: GameState, mb: MoraleBreakdown = moraleBreakdown(s)): GroupView[] {
+/** Полосы всех четырёх групп — одна мерка на шаг, раздел и тревогу. */
+export const barsOf = (s: GameState): Bars => {
   const st = stabOf(s);
-  const revolt = st.revolt?.group;
-  const folkLines = folkCauses(s, mb);
-  const hungryLines = hungryCauses(s, mb);
-  const fT = targetOf(folkLines);
-  const hT = targetOf(hungryLines);
-  const order = orderBreakdown(s);
-  const ropot = orderState(s) === 'unrest';
-  const late = s.pay?.late ?? 0;
-  const grace = payGraceDays(s) * DAY_LENGTH;
-  const bonded = bondedBar(s);
-  const army = armyBar(s);
-  return [
-    { id: 'folk', value: st.folk, target: fT, rising: revolt !== 'folk' && fT > st.folk, eta: revolt ? null : etaTo(st.folk, fT), lines: folkLines },
-    { id: 'hungry', value: st.hungry, target: hT, rising: revolt !== 'hungry' && hT > st.hungry, eta: revolt ? null : etaTo(st.hungry, hT), lines: hungryLines },
-    {
-      id: 'bonded',
-      value: bonded,
-      target: null,
-      rising: ropot && !mutinyOpen(s),
-      eta: ropot ? unrestLeft(s) : null,
-      lines:
-        bondedTotal(s) > 0
-          ? [line('order', 'hud-order', `Порядок ${Math.round(order.value)}`, ropot ? 100 : 0, `надзор держит ${Math.round(order.hold)} из ${order.bonded}`, 'order')]
-          : [],
-    },
-    {
-      id: 'army',
-      value: army,
-      target: null,
-      rising: late > 0 && army < 100,
-      eta: late > 0 && army < 100 ? asGame(Math.max(0, grace - late)) : null,
-      lines: late > 0 ? [line('pay', 'hud-army', (s.pay?.debt ?? 0) > 0 ? 'Жалованье не плачено' : 'Дружине нечего есть', 100, 'терпит до срока Статуи', 'army')] : [],
-    },
-  ];
+  return { folk: st.folk, hungry: st.hungry, bonded: bondedBar(s), army: armyBar(s) };
+};
+
+/** Слагаемые давления, % ступени за игровой день: тихие дни, тяга недовольных групп, осада. */
+export function pressureParts(s: GameState, bars: Bars): Part[] {
+  const out: Part[] = [{ id: 'calm', value: STAB_CALM }];
+  for (const id of STAB_GROUPS) if (bars[id] > 0) out.push({ id: `g-${id}`, value: (-STAB_DRAG * bars[id]) / 100 });
+  if (s.siege) out.push({ id: 'siege', value: -STAB_DRAG });
+  return out;
 }
 
-/** Полосы групп в эту минуту. */
-type Bars = Record<StabGroup, number>;
-
-/** Слагаемые давления по полосам — одна функция на раздел и на шаг. */
-function pressureLines(s: GameState, bars: Bars): StabLine[] {
-  const lines: StabLine[] = [line('calm', 'ui-home', 'Тихие дни', STAB_CALM, 'ровная жизнь держит лад')];
-  for (const id of ['folk', 'hungry', 'bonded', 'army'] as const) {
-    const v = bars[id];
-    if (v <= 0) continue;
-    const meta = GROUP_META[id];
-    lines.push(line(`g-${id}`, meta.icon, `${meta.name} недовольны`, (-STAB_DRAG * v) / 100, `полоса ${Math.round(v)} %`));
-  }
-  if (s.siege) lines.push(line('siege', 'ui-warning', 'Осада у стен', -STAB_DRAG, `под стенами ${s.siege.byName}`));
-  return lines;
-}
-
-/** Что влияет на стабильность: слагаемые давления, % ступени за игровой день. */
-export function pressureOf(s: GameState, groups: readonly GroupView[] = groupsOf(s)): { lines: StabLine[]; total: number } {
-  const bars = Object.fromEntries(groups.map((g) => [g.id, g.value])) as Bars;
-  const lines = pressureLines(s, bars);
-  return { lines, total: lines.reduce((n, l) => n + l.value, 0) };
-}
+/** Группы недовольных по порядку раздела. */
+export const STAB_GROUPS: readonly StabGroup[] = ['folk', 'hungry', 'bonded', 'army'];
 
 // ---------- Ступень ----------
 
@@ -309,12 +210,12 @@ export function stabilityTick(s: GameState, dt: number, mb: MoraleBreakdown): St
     log(s, STAB_LOG.calmed, 'info', undefined, 'stab');
   }
   const days = dt / DAY_LENGTH;
-  const fT = targetOf(folkCauses(s, mb));
-  const hT = targetOf(hungryCauses(s, mb));
+  const fT = targetOf(folkParts(s, mb));
+  const hT = targetOf(hungryParts(s, mb));
   const move = (v: number, t: number): number => (t > v ? Math.min(t, v + GROUP_RISE * days) : Math.max(t, v - GROUP_FALL * days));
   if (st.revolt?.group !== 'folk') st.folk = move(st.folk, Math.min(100, fT));
   if (st.revolt?.group !== 'hungry') st.hungry = move(st.hungry, Math.min(100, hT));
-  const bars: Bars = { folk: st.folk, hungry: st.hungry, bonded: bondedBar(s), army: armyBar(s) };
+  const bars = barsOf(s);
 
   // «Мятеж близок» названо — снимается, когда полоса спала ниже половины.
   const rising: Record<StabGroup, () => boolean> = {
@@ -324,7 +225,7 @@ export function stabilityTick(s: GameState, dt: number, mb: MoraleBreakdown): St
     army: () => bars.army < 100,
   };
   const near = new Set(st.near ?? []);
-  for (const id of ['folk', 'hungry', 'bonded', 'army'] as const) {
+  for (const id of STAB_GROUPS) {
     if (bars[id] >= REVOLT_NEAR && rising[id]()) near.add(id);
     else if (bars[id] < 50) near.delete(id);
   }
@@ -354,7 +255,7 @@ export function stabilityTick(s: GameState, dt: number, mb: MoraleBreakdown): St
     stepBy(s, -1, 'army');
   } else if (bars.army <= 0 && st.armyOut) delete st.armyOut;
 
-  push(s, pressureLines(s, bars).reduce((n, l) => n + l.value, 0) * days);
+  push(s, pressureParts(s, bars).reduce((n, l) => n + l.value, 0) * days);
   return raise;
 }
 
@@ -492,43 +393,4 @@ export function termsRefuse(s: GameState): void {
   r.until = s.time + 2 * DECLINE;
   st[r.group] = 50;
   stepBy(s, -1, 'terms');
-}
-
-// ---------- Вести в бот ----------
-
-/** Когда полоса дойдёт до «мятеж близок» и до мятежа (у войска — до ухода), игровых секунд от сейчас; null — не дойдёт. */
-export interface StabForecast {
-  group: StabGroup;
-  near: GameSec | null;
-  revolt: GameSec | null;
-}
-
-/**
- * Прогноз полос для вестей в бот (docs/stability.md, 2.8): при нынешних причинах — когда полоса перейдёт «мятеж близок»
- * (`REVOLT_NEAR`) и когда дойдёт до мятежа. Скорость — та же, что у шага (`GROUP_RISE`, срок ропота, срок Статуи): своей
- * арифметики у прогноза нет. Мятеж на столе и полоса, которая не растёт, — без прогноза: о них игрок уже знает или нечего.
- */
-export function stabForecast(s: GameState): StabForecast[] {
-  const st = stabOf(s);
-  const out: StabForecast[] = [];
-  const days = (from: number, to: number): GameSec => asGame((Math.max(0, to - from) / GROUP_RISE) * DAY_LENGTH);
-  const mb = moraleBreakdown(s);
-  for (const [group, lines] of [
-    ['folk', folkCauses(s, mb)],
-    ['hungry', hungryCauses(s, mb)],
-  ] as const) {
-    if (st.revolt) break;
-    const v = st[group];
-    const t = Math.min(100, targetOf(lines));
-    if (t < REVOLT_NEAR || t <= v) continue;
-    out.push({ group, near: days(v, REVOLT_NEAR), revolt: t >= REVOLT_AT ? days(v, 100) : null });
-  }
-  if (orderState(s) === 'unrest' && !mutinyOpen(s)) {
-    const u = Math.max(0, s.unrest ?? 0);
-    out.push({ group: 'bonded', near: asGame(Math.max(0, (REVOLT_NEAR / 100) * MUTINY_FUSE - u)), revolt: asGame(Math.max(0, MUTINY_FUSE - u)) });
-  }
-  const late = Math.max(0, s.pay?.late ?? 0);
-  const grace = payGraceDays(s) * DAY_LENGTH;
-  if (late > 0 && late < grace) out.push({ group: 'army', near: asGame(Math.max(0, (REVOLT_NEAR / 100) * grace - late)), revolt: null });
-  return out;
 }

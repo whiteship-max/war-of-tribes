@@ -28,7 +28,8 @@ import { MEAN_RULER_SKILL, POINTS_PER_SKILL_PER_DAY } from '@/game/data/realm';
 import { stabName, stabSigned } from '@/game/data/stability';
 import { dayOf, moraleBreakdown } from '@/game/derived';
 import { autoAssign } from '@/game/sim/workers';
-import { groupsOf, stabLevel, stabOf } from '@/game/sim/stability';
+import { stabLevel, stabOf } from '@/game/sim/stability';
+import { groupsOf } from '@/game/sim/stabview';
 import {
   STAB_BAND,
   STAB_CALM,

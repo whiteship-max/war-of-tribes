@@ -32,7 +32,8 @@ import {
   stabOutputMult,
   stabPrice,
 } from '../stabrules';
-import { folkCauses, groupsOf, pressureOf, stabForecast, stabLevel, stabOf, stabilityTick, steady, steadyInfo } from './stability';
+import { stabLevel, stabOf, stabilityTick, steady, steadyInfo } from './stability';
+import { folkCauses, groupsOf, pressureOf, stabForecast } from './stabview';
 import { draftStab } from '@/world/notice';
 import { REVOLT_NEAR } from '../stabrules';
 import { pointsOf } from './points';

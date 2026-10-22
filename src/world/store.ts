@@ -13,7 +13,7 @@ import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
 import { buildForecast } from '@/game/buildEta';
 import { realMs } from '@/game/pace';
 import { draftBuild, draftStab } from './notice';
-import { stabForecast, stabOf } from '@/game/sim/stability';
+import { stabOf } from '@/game/sim/stability';
 import type { ProposalAct } from './proposals';
 import { pacts, proposals, provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { log } from '@/game/sim/log';
@@ -109,7 +109,9 @@ function withBuild(items: NoticeItem[], now: number): NoticeItem[] {
  * Вести стабильности (docs/stability.md, 2.8): «мятеж близок» и «мятеж» по прогнозу полос партии (`stabForecast`), минута —
  * серверными часами пульса. Места в списке им — после мира и стройки: список полон — стабильность молчит.
  */
-function withStab(items: NoticeItem[], now: number): NoticeItem[] {
+async function withStab(items: NoticeItem[], now: number): Promise<NoticeItem[]> {
+  // Прогноз — словами раздела (`sim/stabview`): своим куском, первая загрузка за него не платит.
+  const { stabForecast } = await import('@/game/sim/stabview');
   const s = useGame.getState().s;
   const episode = stabOf(s).revolts;
   const out = [...items];
@@ -541,7 +543,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       now: pulse.now,
     });
     // Черновики уведомлений — после пульса, из того, что он оставил в сохранении мира, и стройка партии (ВС-1).
-    if (NOTIFY_ON) void notifying?.notices().then((d) => notifyDrafts(withStab(withBuild(d.items, pulse.now), pulse.now), pulse.now));
+    if (NOTIFY_ON) void notifying?.notices().then((d) => withStab(withBuild(d.items, pulse.now), pulse.now).then((items) => notifyDrafts(items, pulse.now)));
     // Стол писем перечитывается тем же пульсом: срок письма разбирает мир в
     // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
     // иначе протухшее висело бы в столбике до следующего действия игрока.
