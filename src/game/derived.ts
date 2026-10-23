@@ -1561,19 +1561,32 @@ const SIEGE_FORECAST_SEASONS = 100 * SEASONS.length;
  * окно защитника пишет срок (`siegefood.breadWords`), мир по нему ставит лагерю логова срок отлучки (`SiegeState.until`).
  * Голод им не решается: сдаёт город только засуха шага (`sim/siege.siegeHunger`). Считается по сезонам вперёд — те же
  * добыча со штрафом осады (`productionPerDay`) и расход (`foodConsumptionPerDay`), что у шага, склад не выше вместимости.
- * Без осады, или склад не опустеет за два года, — бесконечность.
+ * Без осады, год без убыли склада (после первого) или сто лет вперёд — бесконечность. Сезон с годом (первая зима мягче) даёт
+ * одно и то же сальдо, и оно считается один раз на вид сезона.
  */
 export function siegeDryIn(s: GameState): number {
   if (!underSiege(s)) return Infinity;
   const cap = storageCap(s);
+  const nets = new Map<string, number>();
+  const netAt = (t: number): number => {
+    const season = seasonOf(t);
+    const year = yearOf(t);
+    const key = `${season}:${season === 'winter' && year === 1 ? 1 : 2}`;
+    let net = nets.get(key);
+    if (net === undefined) {
+      const mods = withBoons(seasonModsFor(season, year), s);
+      net = (productionPerDay(s, mods).food - foodConsumptionPerDay(s, mods)) / DAY_LENGTH;
+      nets.set(key, net);
+    }
+    return net;
+  };
   let food = Math.max(0, s.resources.food);
   let t = s.time;
   // Склад в начале года: год прошёл, а склад не убыл — дальше сезоны те же (зима после первой — одна), и он не опустеет.
   let yearFood = food;
   for (let i = 0; i < SIEGE_FORECAST_SEASONS; i++) {
     const end = (seasonIndex(t) + 1) * SEASON_SECONDS;
-    const mods = withBoons(seasonModsFor(seasonOf(t), yearOf(t)), s);
-    const net = (productionPerDay(s, mods).food - foodConsumptionPerDay(s, mods)) / DAY_LENGTH;
+    const net = netAt(t);
     const span = end - t;
     if (net < 0 && food + net * span < 0) return t + food / -net - s.time;
     food = Math.min(cap, food + net * span);
