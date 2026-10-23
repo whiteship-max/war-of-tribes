@@ -37,7 +37,7 @@ function gunTitle(g: NonNullable<NonNullable<SiegeView['answers']>['gun']>, now:
 
 /** Паёк словами: доля еды, мораль и надзор — теми же числами, что племя (`derived`). */
 /**
- * Сколько хлеба хватит — для строки пайка (ОС-1): прогноз склада (`dryAt`, `siegefood.breadSpan`), а у окна без него — шаг
+ * Сколько хлеба хватит — для строки пайка (ОС-1): прогноз склада (`dryAt`, `siegewords.breadSpan`), а у окна без него — шаг
  * голода (`hungerLeft`). Склад не опустеет — «не кончится».
  */
 const rationLeft = (dryAt: number | undefined, starvesAt: number, now: number): string =>

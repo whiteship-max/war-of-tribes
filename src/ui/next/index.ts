@@ -12,6 +12,13 @@ export { TipLayer } from './TipLayer';
 export { Hints } from './Hints';
 export { RecruitNew } from './RecruitNew';
 export { CityNaming } from './CityNaming';
+// Окно «Настройки» стартового экрана (ОС-1: первая загрузка не растёт) — тем же куском, что шаг имени; компонент — тот же, что
+// в профиле.
+export { Settings } from '../parts/Settings';
+// Подсказка обучения (ОС-1) — тем же куском: рисуется вместе с верхом и низом.
+export { TutorialOverlay } from '../TutorialOverlay';
+// Шторка окон (ОС-1) — тем же куском: всё, что в ней показывают, едет им же.
+export { Sheet } from '../Sheet';
 export { MarchesNew } from './MarchesNew';
 export { WorldNew } from './WorldNew';
 export { ReportBodyNew } from './ReportNew';

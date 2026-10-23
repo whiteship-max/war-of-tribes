@@ -200,7 +200,7 @@ const P7 = (kind: 'calm' | 'urgent'): string => `(async () => { ${P7_BODY(kind)}
 
 /**
  * ОС-1: окно осады защитника при соотношении `ratio` (лагерь к гарнизону). Штраф кладётся партии полем осады (как мост), срок
- * хлеба — прогноз племени под ним (`derived.siegeDryIn`), строки — дверью хлеба (`siegefood.cutWords`, `breadWords`).
+ * хлеба — прогноз племени под ним (`derived.siegeDryIn`), строки пишет окно дверью хлеба (`siegewords`).
  */
 function os1(ratio: number): string {
   return `(async () => {
@@ -226,8 +226,7 @@ function os1(ratio: number): string {
       loadCamp: async () => {},
       siege: {
         byId: 'l-1', byName: 'Волчья падь', since: now - 5 * H, starvesAt: dryAt ?? now + 2 * H, garrison: 50, foodAtStart: Math.floor(s.resources.food),
-        bread: Math.floor(s.resources.food), cut, ratio, cutText: F.cutWords(ratio), ...(dryAt !== undefined ? { dryAt } : {}),
-        breadText: F.breadWords(dryAt !== undefined ? (dryAt - now) / 1000 : Infinity),
+        bread: Math.floor(s.resources.food), cut, ratio, ...(dryAt !== undefined ? { dryAt } : {}),
         campMen: Math.round(50 * ratio), builders: Math.round(50 * ratio), fate: 'plunder', palisade: 2,
         fall: { goods: 640, gold: 80, hidden: 60, ledBonded: 0, ledPop: 0, scatterPop: 0, scatterBonded: 0, buildings: 3, levels: 1, burnsWorks: false, routed: 0 },
         phases: { journal: ['Ф1 · кость 5 − 1 стена = 4 · без перемен · из лагеря ушло 3 %'], next: '−1 стена', nextAt: now + 1.5 * H, nextK: 2, breaches: 0, progress: 0 },

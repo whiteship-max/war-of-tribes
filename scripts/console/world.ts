@@ -10,6 +10,7 @@ import { starvesAt, type SiegeWindow } from '@/world/siege';
 import { machinesAt, MACHINE_NAME } from '@/world/machines';
 import { blockadeAt } from '@/world/blockade';
 import { gunsAt } from '@/world/shelling';
+import { breadWords, cutWords } from '@/world/siegewords';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { GAME, PULSE_FLOOR, larder, openSky, type Inside, type OpenSky } from '../autopilot';
 import { townOf } from './town';
@@ -78,13 +79,14 @@ const buildingName = (id: string): string => (BUILDING_BY_ID as Record<string, {
 
 /**
  * Строка осады в эту минуту: хлеб склада и прогноз, штраф к добыче, машины лагеря, кольцо. Хлеб — склад (ОС-1): строки — те
- * же, что видит окно защитника (`SiegeView.breadText`, `cutText`); без окна — прогноз окна мира в игровых днях.
+ * же, что видит окно защитника (`siegewords.breadWords`, `cutWords` от чисел окна); без окна — прогноз окна мира в игровых днях.
  */
 export function siegeLine(b: Bench, w: SiegeWindow, at: number, view?: SiegeView | null): string {
   const left = Math.max(0, gameDaysOfMs(starvesAt(w) - at));
-  const bread = view?.breadText
-    ? `хлеб ${Math.round(b.g.resources.food)}; ${view.breadText.replace(/\.$/, '')}; ${(view.cutText ?? '').replace(/\.$/, '')}`
-    : `хлеба до голода ${Number.isFinite(left) ? `${left.toFixed(1)} игр. дн.` : 'не кончится'}`;
+  const bread =
+    view?.cut !== undefined
+      ? `хлеб ${Math.round(b.g.resources.food)}; ${breadWords(view.dryAt !== undefined ? Math.max(0, view.dryAt - at) / 1000 : Infinity).replace(/\.$/, '')}; ${cutWords(view.ratio ?? Infinity).replace(/\.$/, '')}`
+      : `хлеба до голода ${Number.isFinite(left) ? `${left.toFixed(1)} игр. дн.` : 'не кончится'}`;
   const machines = machinesAt(w, at)
     .map((m) => `${MACHINE_NAME[m.id]}${m.ready ? ' готов' : Number.isFinite(m.readyAt) ? ` к ${gameDaysOfMs(m.readyAt - b.start).toFixed(0)} игр. дн.` : ' — без древесины'}`)
     .join(', ');

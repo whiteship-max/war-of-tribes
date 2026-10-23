@@ -222,18 +222,16 @@ export interface SiegeView {
   bread?: number;
   /**
    * Штраф к добыче хлеба под этой осадой, 0..1 (ОС-1, `world/siegefood.siegeCut`) — по соотношению сил `ratio` (мощь лагеря к
-   * гарнизону без ополчения — мерка кольца, `blockade.blockadeRatio`), и строкой окна — `cutText` (`siegefood.cutWords`). Мост
-   * кладёт штраф племени (`SiegeState.cut`). Нет полей — окно до ОС-1: наибольший штраф.
+   * гарнизону без ополчения — мерка кольца, `blockade.blockadeRatio`); строку окна пишет `siegewords.cutWords`. Мост кладёт штраф
+   * племени (`SiegeState.cut`). Нет полей — окно до ОС-1: наибольший штраф.
    */
   cut?: number;
   ratio?: number;
-  cutText?: string;
   /**
    * Когда склад, по прогнозу племени, не оплатит прокорм (ОС-1), мс мира — для сведения: окно пишет «хлеба хватит на ~N ч»
-   * (`breadText`, `siegefood.breadWords`). Нет поля — поля кормят город. Голод им не решается.
+   * (`siegewords.breadWords`). Нет поля при `cut` — поля кормят город. Голод им не решается.
    */
   dryAt?: number;
-  breadText?: string;
   /**
    * Сколько бойцов строя стоит в лагере — видно со стены.
    */

@@ -108,11 +108,13 @@ describe('где стоит ловушка', () => {
     // С UI-7 (5.6) — и окна осады, вылазки и лагеря.
     // С UI-8 (5.7) — и «Мораль» с «Порядком». С П-7 (docs/polish.md) — значки тревог войны: приезжают при входе, как ряд тревог.
     // С СБ-2 — донесение о бое и справки «Жители», «Задания», «Сезон»: окна той же шторки.
-    // С РТ-1 — и «Здания» низа: окно той же шторки.
-    const atEntry = new Set(['Hud', 'Alerts', 'WarSigns', 'Nav', 'TipLayer', 'Hints', 'CityNaming', 'WorldNew', 'MarchesNew', 'ArmyPanel', 'PeoplePanel', 'SiegePanel', 'SortiePanel', 'CampPanel', 'MoralePanel', 'OrderPanel', 'BuildingPanel', 'ReportPanel', 'PopPanel', 'QuestsPanel', 'SeasonPanel', 'BuildingsPanel']);
+    // С РТ-1 — и «Здания» низа: окно той же шторки. С ОС-1 — подсказка обучения и сама шторка: приезжают при входе, тем же
+    // куском, что строка и низ.
+    const atEntry = new Set(['Hud', 'Alerts', 'WarSigns', 'Nav', 'TipLayer', 'Hints', 'CityNaming', 'WorldNew', 'MarchesNew', 'ArmyPanel', 'PeoplePanel', 'SiegePanel', 'SortiePanel', 'CampPanel', 'MoralePanel', 'OrderPanel', 'BuildingPanel', 'ReportPanel', 'PopPanel', 'QuestsPanel', 'SeasonPanel', 'BuildingsPanel', 'TutorialOverlay', 'Sheet']);
     const onTap = lazies.filter((n) => !atEntry.has(n));
     // С РТ-2 — и карта мира: своим куском по кнопке низа (код подтягивается в фоне, когда замок встал, — `boot/warm`, РТ-2б).
-    expect(onTap.sort()).toEqual(['BugReport', 'Minigame', 'Prologue', 'RealmMenu', 'Trades', 'Treasury', 'WorldMap']);
+    // С ОС-1 — и окно «Настройки» стартового экрана: по кнопке, тем же куском, что шаг имени.
+    expect(onTap.sort()).toEqual(['BugReport', 'Minigame', 'Prologue', 'RealmMenu', 'Settings', 'Trades', 'Treasury', 'WorldMap']);
     for (const name of [...onTap, 'SheetContent', 'WorldMap']) expect(guarded(app, name), name).toBe(true);
   });
 });

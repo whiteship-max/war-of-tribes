@@ -15,14 +15,14 @@
 // удар полководца — план мира (`CampStrike`).
 import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
-import { cutFood, ratioShort } from '@/world/siegefood';
+import { cutFood, cutWords, ratioShort } from '@/world/siegewords';
 import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf } from '@/world/muster';
 import { troopTotal } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
 import { realLeft } from '@/ui/parts/wait';
 import { REST_WHY, restLine, wearLine } from '@/ui/parts/restWords';
-import { dryLeft, hungerLeft } from '@/ui/parts/hunger';
+import { dryLeft, dryWords, hungerLeft } from '@/ui/parts/hunger';
 import { sideReady } from '@/ui/parts/campSide';
 import { profileCity } from '@/profile/identity';
 import { FATE_META } from '@/world/data/fates';
@@ -43,7 +43,7 @@ import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
 import { Btn } from '@/ui/kit/Btn';
 import './siege.css';
 
-/** Почему штраф такой (ОС-1): слова для подсказки строк добычи — без чисел, числа — в заголовке (`siegefood.cutWords`). */
+/** Почему штраф такой (ОС-1): слова для подсказки строк добычи — без чисел, числа — в заголовке (`siegewords.cutWords`). */
 const CUT_WHY =
   'Поля, загон и угодья — за стеной: чем сильнее лагерь против гарнизона, тем меньше с них берёт город. Соотношение — мощь лагеря к гарнизону без ополчения, как у кольца блокады. Голодом город сдаётся, только когда склад не оплатит прокорм в шаге осады.';
 
@@ -121,6 +121,8 @@ export function SiegePanel() {
   }
 
   const now = worldNow();
+  // Хлеб судит склад (ОС-1): у такого окна есть штраф к добыче, и срок хлеба — прогноз склада, а не минута голода окна.
+  const byStock = siege.cut !== undefined;
   const meta = FATE_META[siege.fate];
   // Третий ответ на осаду: башня бьёт по лагерю, не выходя за стены. Числа — из мира.
   const fire = siege.fire;
@@ -172,29 +174,29 @@ export function SiegePanel() {
             label="Хлеб и оборона"
             cols={HOLD_COLS}
             rows={[
-              // Хлеб — склад (ОС-1, docs/siege_v2.md, 23): срок — прогноз склада для сведения, строками мира (`world/siegefood`).
+              // Хлеб — склад (ОС-1, docs/siege_v2.md, 23): срок — прогноз склада для сведения, словами двери хлеба (`world/siegewords`).
               {
                 key: 'food',
                 tip: () => ({
-                  title: siege.breadText ?? `Своей еды хватит на ${hungerLeft(siege.starvesAt, now)}`,
+                  title: byStock ? dryWords(siege.dryAt, now) : `Своей еды хватит на ${hungerLeft(siege.starvesAt, now)}`,
                   body: `Гарнизон ${siege.garrison} тоже ест. Это прогноз: голодом город сдаётся, только когда склад не оплатит прокорм в шаге осады.`,
                 }),
                 cells: {
                   what: 'Хлеба хватит',
-                  v: <b className={siege.dryAt !== undefined ? 'bad' : ''}>{siege.breadText ? dryLeft(siege.dryAt, now) : hungerLeft(siege.starvesAt, now)}</b>,
+                  v: <b className={siege.dryAt !== undefined ? 'bad' : ''}>{byStock ? dryLeft(siege.dryAt, now) : hungerLeft(siege.starvesAt, now)}</b>,
                 },
               },
-              // Штраф к добыче и его причина — соотношение сил (ОС-1): числа и слова — дверью хлеба (`world/siegefood`).
-              ...(siege.cutText
+              // Штраф к добыче и его причина — соотношение сил (ОС-1): числа — мира, слова — дверью хлеба (`world/siegewords`).
+              ...(byStock
                 ? [
                     {
                       key: 'cut',
-                      tip: () => ({ title: siege.cutText ?? '', body: CUT_WHY }),
+                      tip: () => ({ title: cutWords(siege.ratio ?? Infinity), body: CUT_WHY }),
                       cells: { what: 'Добыча хлеба в осаде', v: <span className="bad">{cutFood(siege.cut ?? 1)}</span> },
                     },
                     {
                       key: 'ratio',
-                      tip: () => ({ title: siege.cutText ?? '', body: CUT_WHY }),
+                      tip: () => ({ title: cutWords(siege.ratio ?? Infinity), body: CUT_WHY }),
                       cells: { what: 'Лагерь против гарнизона', v: ratioShort(siege.ratio ?? Infinity) },
                     },
                   ]

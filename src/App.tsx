@@ -1,12 +1,10 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
-import { Sheet } from './ui/Sheet';
 import { WinterModal, winterUi } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
 import { PaceModal } from './ui/PaceModal';
-import { TutorialOverlay } from './ui/TutorialOverlay';
 import { StartScreen, StartVeil } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
 import { Frozen } from './ui/parts/Frozen';
@@ -69,6 +67,12 @@ const TipLayer = lazy(() => nextUi().then((m) => ({ default: m.TipLayer })));
 const Hints = lazy(() => nextUi().then((m) => ({ default: m.Hints })));
 /** Шаг «Как назовёшь город?» стартового экрана — тем же куском: сам экран ничего не грузит (`start.test.ts`). */
 const CityNaming = lazy(() => nextUi().then((m) => ({ default: m.CityNaming })));
+/** Окно «Настройки» стартового экрана — тем же куском, тот же компонент, что в профиле (`parts/Settings`; ОС-1). */
+const Settings = lazy(() => nextUi().then((m) => ({ default: m.Settings })));
+/** Подсказка обучения — тем же куском (ОС-1): она стоит поверх города рядом с верхом и низом, что едут им же. */
+const TutorialOverlay = lazy(() => nextUi().then((m) => ({ default: m.TutorialOverlay })));
+/** Шторка окон — тем же куском (ОС-1): всё, что в ней показывают, едет им же, и без него шторке показать нечего. */
+const Sheet = lazy(() => nextUi().then((m) => ({ default: m.Sheet })));
 /** Карточка клетки и «Походы» нового вида — тем же куском (docs/ui_audit.md, 13). */
 const WorldNew = lazy(() => nextUi().then((m) => ({ default: m.WorldNew })));
 const MarchesNew = lazy(() => nextUi().then((m) => ({ default: m.MarchesNew })));
@@ -352,33 +356,35 @@ export function App() {
           ничего, и столбец возвращается на своё место сам. */}
       {!mapOpen && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
       {!mapOpen && <Suspense fallback={null}><WarSigns where="city" /></Suspense>}
-      <Sheet open={sheet !== null} onClose={closeSheet} tall={tallSheet}>
-        {shown && (
-          <Crash key={JSON.stringify(shown)} where={`шторка ${shown.kind}`} onClose={closeSheet} inline>
-            <SheetContent view={shown} />
-          </Crash>
-        )}
-      </Sheet>
-      <Sheet open={tradesOpen && !mapOpen} onClose={hideTrades}>
-        {/* Содержимое переживает закрытие, пока шторка уезжает (как у шторки построек выше). */}
-        <Leave open={tradesOpen} ms={320}>
-          <Crash where="промыслы" onClose={hideTrades} inline>
-            <Suspense fallback={null}>
-              <Trades />
-            </Suspense>
-          </Crash>
-        </Leave>
-      </Sheet>
-      {/* Сокровищница (docs/gems.md) — тем же приёмом, что промыслы: своё окно, встаёт вместо шторки. */}
-      <Sheet open={treasuryOpen && !mapOpen} onClose={hideTreasury}>
-        <Leave open={treasuryOpen} ms={320}>
-          <Crash where="сокровищница" onClose={hideTreasury} inline>
-            <Suspense fallback={null}>
-              <Treasury />
-            </Suspense>
-          </Crash>
-        </Leave>
-      </Sheet>
+      <Suspense fallback={null}>
+        <Sheet open={sheet !== null} onClose={closeSheet} tall={tallSheet}>
+          {shown && (
+            <Crash key={JSON.stringify(shown)} where={`шторка ${shown.kind}`} onClose={closeSheet} inline>
+              <SheetContent view={shown} />
+            </Crash>
+          )}
+        </Sheet>
+        <Sheet open={tradesOpen && !mapOpen} onClose={hideTrades}>
+          {/* Содержимое переживает закрытие, пока шторка уезжает (как у шторки построек выше). */}
+          <Leave open={tradesOpen} ms={320}>
+            <Crash where="промыслы" onClose={hideTrades} inline>
+              <Suspense fallback={null}>
+                <Trades />
+              </Suspense>
+            </Crash>
+          </Leave>
+        </Sheet>
+        {/* Сокровищница (docs/gems.md) — тем же приёмом, что промыслы: своё окно, встаёт вместо шторки. */}
+        <Sheet open={treasuryOpen && !mapOpen} onClose={hideTreasury}>
+          <Leave open={treasuryOpen} ms={320}>
+            <Crash where="сокровищница" onClose={hideTreasury} inline>
+              <Suspense fallback={null}>
+                <Treasury />
+              </Suspense>
+            </Crash>
+          </Leave>
+        </Sheet>
+      </Suspense>
       {!mapOpen && <Suspense fallback={null}><Nav /></Suspense>}
       {/* Меню державы появляется и уходит плавно (`leave.tsx`): закрытое ещё тает, касаний не беря. */}
       <Leave open={!mapOpen && realmOpen}>
@@ -392,7 +398,7 @@ export function App() {
       <OfflineModal />
       <LegacyModal />
       <PaceModal />
-      <TutorialOverlay />
+      <Suspense fallback={null}><TutorialOverlay /></Suspense>
       {toast && <div className="toast">{toast}</div>}
       <Suspense fallback={null}>
         <TipLayer />
@@ -431,6 +437,13 @@ export function App() {
               <CityNaming onDone={done} />
             </Suspense>
           )}
+          settings={
+            <Crash where="настройки" inline>
+              <Suspense fallback={null}>
+                <Settings />
+              </Suspense>
+            </Crash>
+          }
         />
       )}
       {veil && <StartVeil onDone={() => setVeil(false)} />}

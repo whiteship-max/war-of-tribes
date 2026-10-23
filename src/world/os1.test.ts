@@ -28,7 +28,8 @@ import { applyEffects, playerProfile, syncSiege } from './bridge';
 import { HOME_ID, LocalWorld } from './local/LocalWorld';
 import { breadAt, openSiege, siegeSince, starvesAt, type SiegeWindow } from './siege';
 import { hungerStepAt, phaseAt, setPhaseDie } from './siegeroll';
-import { breadSpan, breadWords, siegeCut, starves, yieldShare } from './siegefood';
+import { siegeCut, starves, yieldShare } from './siegefood';
+import { breadSpan, breadWords, cutWords } from './siegewords';
 import { CUT_MAX, CUT_MID, CUT_MIN, CUT_RATIO_EVEN, CUT_RATIO_STRONG, CUT_RATIO_WEAK } from './data/siegefood';
 import { SIEGE_PHASE } from './data/siegeroll';
 import { shieldVillagers } from './lairs';
@@ -365,7 +366,7 @@ describe('ОС-1: три соотношения на настоящем мире
     expect(r.sat, 'лагерь сел').not.toBeNull();
     expect(r.sat!.ratio!).toBeCloseTo(CUT_RATIO_WEAK, 2);
     expect(r.sat!.cut!).toBeCloseTo(siegeCut(r.sat!.ratio!), 12);
-    expect(r.sat!.breadText).toBe(breadWords(Infinity));
+    expect(r.sat!.dryAt, 'склад не опустеет: срока нет — окно пишет «кормит»').toBeUndefined();
     expect(r.fellAt, 'голодом не взят').toBeNull();
     expect(r.leftAt, 'лагерь ушёл в первом шаге').toBe(phaseAt(r.sat!.since, 1));
   }, 120_000);
@@ -466,6 +467,7 @@ describe('ОС-1: окно защитника — «хлеба хватит на
     expect(breadSpan(100)).toBe('меньше получаса');
     expect(breadSpan(6.4 * 3600)).toBe('~6 ч 30 мин');
     expect(breadWords(6 * 3600)).toBe('Хлеба хватит на ~6 ч.');
+    expect(breadWords(Infinity)).toBe('Хлеба хватает: поля кормят город.');
   });
 
   it('окно мира и прогноз племени — одно число: минута пустого склада — от минуты пульса', async () => {
@@ -473,7 +475,7 @@ describe('ОС-1: окно защитника — «хлеба хватит на
     const v = r.views[r.views.length - 1];
     expect(v.dryAt, 'склад опустеет').toBeDefined();
     expect(Math.abs(v.dryAt! - (r.w.save.profileAt + realMs(siegeDryIn(r.g))))).toBeLessThan(realMs(gameSeconds(120)));
-    expect(r.sat!.cutText).toMatch(/^Добыча: хлеб −\d+ %, прочее −\d+ % — лагерь сильнее гарнизона \(×1,5\)\.$/);
+    expect(cutWords(r.sat!.ratio!)).toMatch(/^Добыча: хлеб −\d+ %, прочее −\d+ % — лагерь сильнее гарнизона \(×1,5\)\.$/);
   }, 120_000);
 });
 

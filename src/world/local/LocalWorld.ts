@@ -316,7 +316,7 @@ import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { keptType } from '@/game/merged';
 import { BLOCKADE_BREAKS, BLOCKADE_GIVES, BREAKOUT_GIVES, BREAKOUT_SHARE, BREAK_WORDS, blockadeAfter, blockadeAt, blockadeBlock, blockadeDeeds, blockadeHolds, blockadeRatio, blockadeSince, ratioWords, type BlockadeBreak } from '../blockade';
 import { BLOCKADE_RATIO } from '../data/blockade';
-import { breadWords, cutWords, siegeCut, siegeCutOf, starves } from '../siegefood';
+import { siegeCut, siegeCutOf, starves } from '../siegefood';
 import { SIEGE_PHASE as PHASE_MS } from '../data/siegeroll';
 import { AIMS, GUN_AIMS, GUN_SPAN, type Aim } from '../data/shelling';
 import { SCALING, openingWords, wallFront, type WallFront } from '../wall';
@@ -1446,8 +1446,7 @@ export class LocalWorld implements WorldApi {
       foodAtStart: w.breadAtSince ?? w.foodAtStart,
       // Хлеб в городе сейчас — склад племени (ОС-1): голод решает он, в шаге осады.
       bread: Math.floor(this.homeFood(w, now)),
-      ...this.cutView(camp?.power ?? 0, this.garrisonPower(HOME_ID, now)),
-      ...this.breadView(this.homeDryAhead(w), now),
+      ...this.breadView(camp?.power ?? 0, this.garrisonPower(HOME_ID, now), this.homeDryAhead(w)),
       campMen: camp?.men ?? 0,
       builders: this.buildersOf(w, now),
       ...(camp && w.fire ? { fire: { thin: camp.thin, cap: Math.max(w.fire.base, w.fire.thin), slow: w.fire.slow } } : {}),
@@ -3801,16 +3800,13 @@ export class LocalWorld implements WorldApi {
     });
   }
 
-  /** Штраф к добыче окну и племени (ОС-1): соотношение сил мерки кольца, штраф и строка с причиной — дверью `siegefood`. */
-  private cutView(campPower: number, garrisonPower: number): Pick<SiegeView, 'cut' | 'ratio' | 'cutText'> {
+  /**
+   * Штраф к добыче и прогноз склада окну (ОС-1) — числа, слова о них пишет окно (`siegewords`): соотношение сил мерки кольца,
+   * штраф дверью `siegefood` и, для сведения, минута, когда склад не оплатит прокорм (нет поля — не опустеет).
+   */
+  private breadView(campPower: number, garrisonPower: number, dryAt: number): Pick<SiegeView, 'cut' | 'ratio' | 'dryAt'> {
     const ratio = blockadeRatio(campPower, garrisonPower);
-    return { cut: siegeCut(ratio), ratio, cutText: cutWords(ratio) };
-  }
-
-  /** Прогноз склада окну (ОС-1) — для сведения: минута, когда склад не оплатит прокорм, и строка «хлеба хватит на ~N ч». */
-  private breadView(dryAt: number, now: number): Pick<SiegeView, 'dryAt' | 'breadText'> {
-    const left = Number.isFinite(dryAt) ? Math.max(0, dryAt - now) / 1000 : Infinity;
-    return { ...(Number.isFinite(dryAt) ? { dryAt } : {}), breadText: breadWords(left) };
+    return { cut: siegeCut(ratio), ratio, ...(Number.isFinite(dryAt) ? { dryAt } : {}) };
   }
 
   /**
@@ -10331,10 +10327,9 @@ export class LocalWorld implements WorldApi {
       garrison: c.garrisonAtStart,
       foodAtStart: c.breadAtSince ?? c.foodAtStart,
       // Хлеб в городе — склад (ОС-1); голод решает сервер войны тем же правилом шага по описи склада.
-      bread: Math.floor(this.homeBesieged() ? Math.max(0, this.save.profile?.food ?? 0) : foodLeft(c, now)),
+      bread: Math.floor(this.homeFood(c, now)),
       // Штраф к добыче — тот, по которому сервер ведёт склад (`WarCamp.cut`): племя добывает по нему же.
-      ...this.warCutView(w, c, now),
-      ...this.breadView(this.warDryAhead(c), now),
+      ...this.warBreadView(w, c, now),
       campMen: men,
       builders: c.builders ?? men,
       ...(c.gateAt !== undefined ? { gateAt: c.gateAt } : {}),
@@ -10372,21 +10367,14 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Штраф к добыче нашего города под лагерем игрока (ОС-1): соотношение сил той же меркой, что у сервера (лагерь — без выбитых
-   * башней, гарнизон — без ополчения), а штраф — серверный, если сервер его назвал: по нему он ведёт склад в шаге осады.
+   * Штраф к добыче и прогноз склада нашего города под лагерем игрока (ОС-1): соотношение сил той же меркой, что у сервера
+   * (лагерь — без выбитых башней, гарнизон — без ополчения), а штраф — серверный, если сервер его назвал: по нему он ведёт склад
+   * в шаге осады. Прогноз — склад племени, без слепка осады — склад окна сервера (`homeDryAhead`).
    */
-  private warCutView(w: WarView, c: SiegeWindow, now: number): Pick<SiegeView, 'cut' | 'ratio' | 'cutText'> {
+  private warBreadView(w: WarView, c: SiegeWindow, now: number): Pick<SiegeView, 'cut' | 'ratio' | 'dryAt'> {
     const thin = c.fire ? fireView(c.fire, now).thin : 0;
-    const view = this.cutView(troopPower(w.army.troops as TroopStack) * (1 - thin), troopPower(this.defenders(now).all));
+    const view = this.breadView(troopPower(w.army.troops as TroopStack) * (1 - thin), troopPower(this.defenders(now).all), this.homeDryAhead(c));
     return c.cut !== undefined ? { ...view, cut: c.cut } : view;
-  }
-
-  /** Прогноз склада нашего города под лагерем игрока (ОС-1): склад племени, без слепка осады — склад окна сервера. */
-  private warDryAhead(c: SiegeWindow): number {
-    const p = this.save.profile;
-    if (!this.homeBesieged()) return starvesAt(c);
-    if (p?.dryFor !== undefined) return this.profileMinute(p.dryFor);
-    return p?.dryIn !== undefined ? this.profileMinute(-p.dryIn) : Infinity;
   }
 
   /** Постройки нашего города, стоящие без работы под обстрелом к минуте `now` (`shelling.idleBuildings`). Нет — нет поля. */
