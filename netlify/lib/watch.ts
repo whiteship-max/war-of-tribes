@@ -43,6 +43,8 @@ import { rewrite } from './admin.js';
 import { bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
 import { builtForged, buildStep, keyOf, eatFloorOf, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
 import { goodsStep, readGoods, sheetShort, type GoodsBook } from './goods.js';
+import { marketFaults } from './market.js';
+import { BOOST_MAX } from '../../src/game/marketrules.js';
 import { troopPower } from '../../src/game/battle/price.js';
 import type { TroopStack } from '../../src/game/battle/kinds.js';
 import type { WarFile } from './war.js';
@@ -113,7 +115,8 @@ export type FlagKind =
   | 'prod'
   | 'gone'
   | 'council'
-  | 'estates';
+  | 'estates'
+  | 'market';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -142,6 +145,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   gone: 'постройки до объединения',
   estates: 'сословия',
   council: 'совет Ратуши',
+  market: 'сделки рынка',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -149,7 +153,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'estates';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'estates' | 'market';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -234,6 +238,13 @@ export const CITY_RULES: readonly CityRule[] = [
     formula: 'estaterules.influenceOf, loyaltyCeil, estateCeil, PRIV_MAX, LOYAL',
     flag: 'estates',
     act: 'в потолки стройки, выработки, прироста, расхода и стойкости — по подтверждённым; флаг',
+  },
+  {
+    id: 'market',
+    rule: 'сделки рынка: цена каждой — по правилу привоза с нажимом от прежней описи (покупка не дешевле, продажа не дороже при подтверждённых Казначее и купечестве); куплено не больше привоза, продано не больше кошеля купцов и того, что было; номер сделки не убывает, одна сделка под одним номером',
+    formula: 'marketrules.lotOf, pressAt, supplyOf, purseOf, shiftOffer; market.marketFaults',
+    flag: 'market',
+    act: 'флаг',
   },
 ];
 
@@ -536,6 +547,10 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   out.push(...crownFlags(a, b, realMs));
   out.push(...councilFlags(a, b, days, realMs));
   out.push(...estateFlags(a, b, realMs));
+  // Сделки рынка (правило «market», РН-1): цена каждой новой — по правилу привоза, счёт и кошель — по сделкам.
+  for (const text of marketFaults(a, aAt, b, bAt, { boost: Math.max(marketBoost(a), marketBoost(b)), prod: maxCounts(prodOf(a), prodOf(b)), slack: GROWTH_SLACK })) {
+    out.push({ kind: 'market', text });
+  }
   const played = b.games - a.games;
   if (played > 0) {
     // Энергия: полный запас и приток за прошедшее время партии; игра стоит `MINIGAME_COST`.
@@ -640,6 +655,20 @@ export function estateCeilOf(card: WatchCard, levels: Counts): EstateCeil {
   const open = dec !== null && loyaltyCeil(dec, priv, infl[dec]) >= LOYAL ? dec : null;
   return estateCeil(levels, priv, open);
 }
+
+/**
+ * Прибавка к выручке рынка сверху (правило «market»): подтверждённый Казначей и купечество в силе по уровням описи — те же
+ * двери, что у игры (`derived.marketBoost`), не выше `marketrules.BOOST_MAX`.
+ */
+export function marketBoost(card: WatchCard): number {
+  return Math.min(BOOST_MAX, councilMult(card, 'treasurer', levelIn(card.buildings, 'town_hall')) * estateCeilOf(card, card.buildings).trade);
+}
+
+const maxCounts = (x: Counts, y: Counts): Counts => {
+  const out: Counts = { ...x };
+  for (const [k, v] of Object.entries(y)) out[k] = Math.max(out[k] ?? 0, v);
+  return out;
+};
 
 /** Множитель стройки сверху: Староста подтверждённого совета и цехи в силе. */
 export function buildMult(card: WatchCard, levels: Counts): number {

@@ -192,7 +192,9 @@ describe('сервер ничего не начисляет, кроме одно
     // он ложится записью в журнал игрока, и применяет его клиент одной дверью (`sim/admin`). Алмазов в указе нет (тест выше).
     // Четвёртый — книга запасов (docs/security.md, ЗЩ-2): склад и казну защитника она держит для войны «не меньше» и не
     // начисляет ничего — читает опись и отдаёт слепку обороны (`goods.goodsSheet`).
-    expect(guilty).toEqual(['lib/commands.ts', 'lib/contract.ts', 'lib/goods.ts', 'lib/war.ts']);
+    // Пятый — книга рынка (РН-1, docs/city_v3.md, «Решения РН-1»): сверяет золото сделок с правилом привоза и не начисляет
+    // ничего — только флаг.
+    expect(guilty).toEqual(['lib/commands.ts', 'lib/contract.ts', 'lib/goods.ts', 'lib/market.ts', 'lib/war.ts']);
     for (const f of files()) expect(strip(readFileSync(f, 'utf8')), rel(f)).not.toMatch(/\breward/i);
   });
 });

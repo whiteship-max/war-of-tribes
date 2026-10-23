@@ -4,8 +4,9 @@ import { DAY_LENGTH, MAX_BUILDING_LEVEL } from '../constants';
 import { deserialize, serialize } from '../save';
 import { LOG_MAX, LOG_MAX_DAYS, log, trimLog } from './log';
 import { catchUp, tick } from './tick';
-import { buyGoods } from './market';
-import { buildingOfType, dayOf, marketLeft, marketOffer, storageCap } from '../derived';
+import { buyGoods, marketLeft, marketOffer } from './market';
+import { buildingOfType, dayOf, storageCap } from '../derived';
+import { realMs } from '../pace';
 
 /** Кладёт запись задним числом: `at` считается от нынешнего времени. */
 function backdate(s: ReturnType<typeof createInitialState>, daysAgo: number, text: string): void {
@@ -164,19 +165,21 @@ describe('летопись', () => {
     for (let day = 0; day < LOG_MAX_DAYS + 5; day++) {
       // Казна не кончается: проверяется летопись, а не баланс золота.
       s.gold = 2_000_000;
-      for (const g of marketOffer(s)) {
+      // Часы партии идут за игровым временем: привоз РН-1 меняется по настоящим часам.
+      const now = Date.UTC(2026, 9, 23, 10) + realMs(s.time);
+      for (const g of marketOffer(s, now)) {
         // В полный склад не покупаем: за товар, который испарится на пороге,
         // платят золотом, и второй раз так никто не делает.
         const room = g.resource ? storageCap(s) - s.resources[g.resource] : Infinity;
-        for (let i = 0; i < Math.min(marketLeft(s, g), 8, room); i++) {
-          if (buyGoods(s, g.id, 1) === null) orders++;
+        for (let i = 0; i < Math.min(marketLeft(s, g, now), 8, room); i++) {
+          if (buyGoods(s, g.id, 1, now) === null) orders++;
         }
       }
       for (let t = 0; t < DAY_LENGTH; t++) tick(s, 1);
     }
     // Дюжина товаров, три тысячи заказов за месяц с лишним — и всё это должно
     // уложиться в строку на товар в день.
-    expect(marketOffer(s).length).toBeGreaterThan(10);
+    expect(marketOffer(s, Date.UTC(2026, 9, 23, 10) + realMs(s.time)).length).toBeGreaterThan(10);
     expect(orders).toBeGreaterThan(2000);
     // Предел по количеству — запасной: сработал он, значит месяц не показан.
     expect(s.log.length).toBeLessThan(LOG_MAX);

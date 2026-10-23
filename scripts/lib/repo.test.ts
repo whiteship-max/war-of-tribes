@@ -17,11 +17,12 @@ describe('замыкания отчётов на этом репозитории
     return o;
   };
 
-  // Двадцать второй — `stability:report` (СБ-1, docs/stability.md, раздел 3): лёгкий, его гоняют и в облаке.
-  it('отчёты — это команды `*:report`, и их двадцать два', () => {
+  // Двадцать второй — `stability:report` (СБ-1, docs/stability.md, раздел 3), двадцать третий — `market:report` (РН-1,
+  // docs/city_v3.md, «Решения РН-1»): оба лёгкие, их гоняют и в облаке.
+  it('отчёты — это команды `*:report`, и их двадцать три', () => {
     const scripts = Object.keys(setup.scripts).filter((s) => s.endsWith(':report'));
     expect(found.filter((o) => o.kind === 'report').map((o) => `${o.name}:report`)).toEqual(scripts);
-    expect(scripts).toHaveLength(22);
+    expect(scripts).toHaveLength(23);
     // Стенд предыстории — не отчёт приёмки: он выведен из списка суффиксом (CLAUDE.md, правило 9).
     expect(Object.keys(setup.scripts)).toContain('prologue:stand');
   });

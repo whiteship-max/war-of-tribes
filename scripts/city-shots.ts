@@ -14,7 +14,8 @@
 //                                                ратуши, `PANELCLICK='.cn-card .kit-btn|…'` — касания по очереди, кадр после каждого
 //                                                (`PANELWAIT=3000` — пауза перед кадром, мс: портреты совета рисуются очередью);
 //                                                `LEVELS=market:8` — уровни построек и здесь (РТ-2: перевес сословия);
-//                                                шаг `scroll:селектор` в `PANELCLICK` — прокрутка к элементу вместо касания
+//                                                шаг `scroll:селектор` в `PANELCLICK` — прокрутка к элементу вместо касания;
+//                                                `CLOCK=9.5` — часы страницы на столько часов вперёд (РН-1: ночной привоз рынка)
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
 //                                                точка плана; `…:60:150` — камера повёрнута на 150°), `WXMAP=1` —
@@ -242,6 +243,14 @@ async function gameShot(q: Quality): Promise<void> {
     // указателем `touch` (как у `tap:report`).
     if (process.env.TAP === '1') await tab.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
     await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
+    // Часы страницы со сдвигом (`CLOCK=9.5` — на столько часов вперёд, РН-1): привоз рынка идёт по настоящим часам, и ночной
+    // привоз днём иначе не снять. Сдвиг — до загрузки страницы, одним числом на `Date.now` и `new Date()`.
+    const shift = Number(process.env.CLOCK ?? 0) * 3600_000;
+    if (shift) {
+      await tab.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: `(() => { const D = Date; const off = ${shift}; const now = D.now.bind(D); class S extends D { constructor(...a) { super(...(a.length ? a : [now() + off])); } static now() { return now() + off; } } window.Date = S; })();`,
+      });
+    }
     await tab.send('Page.reload');
     let ok = false;
     for (let i = 0; i < 200; i++) {

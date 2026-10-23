@@ -31,7 +31,7 @@ import { mailArrive, raiseEvent } from './mail';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
 import { surveyTick } from './survey';
-import { marketTick } from './market';
+import { marketTick } from './caravan';
 import { recruitTick } from './army';
 import { upkeepTick } from './upkeep';
 import { councilStep, vacancyEvent } from './council';

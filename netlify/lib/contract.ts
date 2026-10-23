@@ -1850,6 +1850,68 @@ export interface WatchCard {
    * даров — для книги сословий сервера (правило «estates»). Нет поля — опись до сословий.
    */
   estates?: WatchEstates;
+  /**
+   * Рынок (РН-1, docs/city_v3.md, «Решения РН-1»): привоз, счёт купленного и проданного, серебро купцов, нажим по товарам и
+   * последние сделки — для книги рынка сервера (правило «market»: цена каждой сделки по правилу привоза). Нет поля — опись до РН-1.
+   */
+  market?: WatchMarket;
+}
+
+/** Сделка в описи: номер, настоящая минута, товар, штук (покупка — плюс, продажа — минус), золото, нажим перед сделкой. */
+export interface WatchDeal {
+  seq: number;
+  at: number;
+  good: string;
+  n: number;
+  gold: number;
+  q: number;
+}
+
+/** Рынок в описи — то, что сверяет сервер (`watch.marketFaults`, правило «market»). */
+export interface WatchMarket {
+  w: number;
+  bought: Counts;
+  sold: Counts;
+  got: number;
+  seq: number;
+  press: Record<string, [number, number]>;
+  deals: WatchDeal[];
+}
+
+/** Сколько сделок и товаров опись рынка везёт самое большее: сделок хранит партия 64 (`marketrules.DEALS_KEPT`), товаров 14. */
+const DEALS_READ_MAX = 96;
+const GOODS_READ_MAX = 32;
+
+/** Рынок описи: числа — конечные, товары — строкой до 16 знаков; лишнее отрезано (подделку видит книга, а не чтение). */
+function readMarket(v: unknown): Pick<WatchCard, 'market'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const fin = (x: unknown): number => Math.max(-1e12, Math.min(1e15, num(x) ?? 0));
+  const press: Record<string, [number, number]> = {};
+  if (r.press && typeof r.press === 'object') {
+    for (const [k, p] of Object.entries(r.press as Record<string, unknown>).slice(0, GOODS_READ_MAX)) {
+      if (k.length <= 16 && Array.isArray(p)) press[k] = [fin(p[0]), fin(p[1])];
+    }
+  }
+  const deals: WatchDeal[] = [];
+  for (const x of (Array.isArray(r.deals) ? r.deals : []).slice(-DEALS_READ_MAX)) {
+    if (!x || typeof x !== 'object') continue;
+    const d = x as Record<string, unknown>;
+    const good = str(d.good, 16);
+    if (!good) continue;
+    deals.push({ seq: whole(d.seq, 1e12), at: whole(d.at, 1e15), good, n: Math.round(fin(d.n)), gold: Math.round(fin(d.gold)), q: fin(d.q) });
+  }
+  return {
+    market: {
+      w: Math.round(fin(r.w)),
+      bought: readCounts(r.bought),
+      sold: readCounts(r.sold),
+      got: whole(r.got, 1e12),
+      seq: whole(r.seq, 1e12),
+      press,
+      deals,
+    },
+  };
 }
 
 /**
@@ -2058,6 +2120,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...readStab(r.stab),
     ...readCrown(r.crown),
     ...readCouncil(r.council),
+    ...readMarket(r.market),
     ...readEstates(r.estates),
   };
 }

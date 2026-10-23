@@ -1,32 +1,47 @@
-// Торговля (UI-7, docs/ui_v2.md, 5.6; П8, П12): прилавок рынка — таблица выбора, у выбранного товара — покупка с ценой «нужно
-// из есть»; цена штуки — с разбором (основа и рост за скупленное), строки складываются в неё; порядок после покупки
-// невольников — числом и словом порога; лавка «Сокровищницы» — таблица «Запас +100 · Места · Цена».
+// Торговля (РН-1, docs/city_v3.md, «Решения РН-1»; П12): рынок — плитки всех товаров (цена покупки и продажи, у тебя и на
+// рынке) и панель сделки; цена штуки — с разбором (основа привоза и сбитие), строки складываются в неё; порядок после
+// покупки невольников — числом и словом порога; лавка «Сокровищницы» — таблица «Запас +100 · Места · Цена».
 //
-// Области (правило 11): рынок стоит (прилавок не пуст) и на нём есть товар со склада, вещь кузни и невольники; цена — после
-// скупки (рост не ноль) и до неё; порядок — до ропота и за ним.
+// Области (правило 11): рынок стоит, привоз дневной; есть привезённый товар со склада, вещь кузни, невольники и груз в пути;
+// цена — после скупки (сбитие не ноль); порядок — до ропота и за ним.
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { ORDER_UNREST } from '@/game/constants';
-import { BONDED_GOOD } from '@/game/data/market';
+import { BONDED_GOOD, GOODS } from '@/game/data/market';
 import { RESOURCE_IDS } from '@/game/constants';
-import { bondedIncoming, bondedTotal, marketLeft, marketOffer, marketPrice, marketStock, orderBreakdown } from '@/game/derived';
+import { bondedIncoming, bondedTotal, orderBreakdown } from '@/game/derived';
+import {
+  inTransit,
+  marketCheck,
+  marketDepth,
+  marketHas,
+  marketLeft,
+  marketOffer,
+  marketPrice,
+  marketPurse,
+  marketSellPrice,
+  saleCheck,
+} from '@/game/sim/market';
 import { buyGoods } from '@/game/sim/actions';
 import { SHOP_GOODS, SHOP_LOT } from '@/game/sim/gems';
 import { REST_LABEL } from '@/ui/kit/breakdown';
 
-const { stores, fake } = vi.hoisted(() => ({
+const { stores, fake, NOW } = vi.hoisted(() => ({
+  /** Минута дневного привоза (13:00 по Москве): окно рынка читает часы партии. */
+  NOW: Date.UTC(2026, 9, 23, 10, 0),
   stores: { game: {} as Record<string, unknown> },
   fake: <T extends object>(real: T, view: () => Record<string, unknown>): T => Object.assign((sel: (g: unknown) => unknown) => sel(view()), real),
 }));
+vi.mock('@/net/clock', async (orig) => ({ ...(await orig<object>()), partyNow: () => NOW }));
 vi.mock('@/game/store', async (orig) => {
   const real = await orig<{ useGame: object }>();
   return { ...real, useGame: fake(real.useGame, () => stores.game) };
 });
 
-import { MarketNew, orderAfter, ownOf, priceTip, shelfCells } from './MarketNew';
+import { MARKET_GOODS, MarketNew, orderAfter, ownOf, priceTip, shelfCells, shiftLine } from './MarketNew';
 import { SHOP_COLS, Treasury } from './Treasury';
 import { useTreasury } from '@/ui/treasury';
 
@@ -37,39 +52,42 @@ function town(): GameState {
   return s;
 }
 
-describe('прилавок — числами игры', () => {
-  it('строка: цена следующей штуки, осталось сегодня из запаса, сколько есть — функциями рынка', () => {
+describe('плитки рынка — числами игры', () => {
+  it('плитка: цена покупки и продажи, у тебя и в пути, на рынке — функциями рынка, у каждого товара', () => {
     const s = town();
-    const offer = marketOffer(s);
-    // Область: рынок стоит, на прилавке есть товар со склада, вещь и невольники.
-    expect(offer.length).toBeGreaterThan(1);
-    expect(offer.some((g) => g.id === BONDED_GOOD.id)).toBe(true);
-    expect(offer.some((g) => g.resource)).toBe(true);
-    for (const def of offer) {
-      const c = shelfCells(s, def);
-      expect(c).toEqual({ price: marketPrice(s, def), left: marketLeft(s, def), stock: marketStock(s, def), own: ownOf(s, def) });
+    buyGoods(s, marketOffer(s, NOW).find((g) => g.resource)!.id, 3, NOW);
+    // Область: рынок стоит, есть привезённый товар, вещь, невольники и груз в пути.
+    expect(MARKET_GOODS).toHaveLength(GOODS.length + 1);
+    expect(s.caravans.length).toBeGreaterThan(0);
+    for (const def of MARKET_GOODS) {
+      expect(shelfCells(s, def, NOW)).toEqual({
+        buy: marketPrice(s, def, NOW),
+        sell: marketSellPrice(s, def, NOW),
+        own: ownOf(s, def),
+        coming: inTransit(s, def.id),
+        left: marketLeft(s, def, NOW),
+        brought: marketHas(s, def, NOW),
+      });
     }
     expect(ownOf(s, BONDED_GOOD)).toBe(bondedTotal(s));
   });
 
-  it('цена штуки с разбором: основа и рост за скупленное; итог — `marketPrice`, «Прочее» нет', () => {
+  it('цена штуки с разбором: основа привоза и сбитие; итог — `marketPrice`, «Прочее» нет', () => {
     const s = town();
-    const def = marketOffer(s).find((g) => g.resource)!;
-    const before = priceTip(s, def);
-    expect(before.rows?.map((r) => r.label)).toEqual(['Основа']);
-    buyGoods(s, def.id, Math.ceil(marketStock(s, def) / 3));
-    // Область: скуплено — рост не ноль.
-    expect(marketPrice(s, def)).toBeGreaterThan(def.price);
-    const t = priceTip(s, def);
+    const def = marketOffer(s, NOW).find((g) => g.resource)!;
+    buyGoods(s, def.id, Math.ceil(marketDepth(s, def) / 3), NOW);
+    // Область: скуплено — сбитие не ноль.
+    const t = priceTip(s, def, NOW);
     expect(t.rows?.map((r) => r.label)).toHaveLength(2);
     expect(t.rows?.map((r) => r.label)).not.toContain(REST_LABEL);
-    expect(t.sum?.value).toBe(String(marketPrice(s, def)));
+    expect(t.sum?.value).toBe(String(marketPrice(s, def, NOW)));
+    expect(Number(t.rows?.[1].value)).toBeGreaterThan(0);
   });
 
   it('порядок после покупки невольников — `orderBreakdown` с теми, кого уже ведут; за порогом — слово «Ропот»', () => {
     const s = town();
     // Область: двоих уже ведут торговцы — порядок после покупки считает и их.
-    buyGoods(s, BONDED_GOOD.id, 2);
+    buyGoods(s, BONDED_GOOD.id, 2, NOW);
     expect(bondedIncoming(s)).toBe(2);
     const calm = orderAfter(s, 1);
     expect(calm.value).toBe(Math.round(orderBreakdown(s, 3).value));
@@ -81,23 +99,45 @@ describe('прилавок — числами игры', () => {
     expect(hot.tone).toBe('bad');
     expect(hot.words).toContain('Ропот');
   });
+
+  it('шапка: привоз по сетке, через сколько новый — настоящими часами, серебро купцов — `marketPurse`', () => {
+    const s = town();
+    const head = shiftLine(s, NOW);
+    expect(head.kind).toBe('day');
+    expect(head.word).toBe('Дневной привоз');
+    // 13:00 по Москве — новый привоз в 18:00: через пять часов.
+    expect(head.next).toBe('5 ч 0 мин');
+    expect(head.purse).toBe(Math.floor(marketPurse(s, NOW)));
+    expect(shiftLine(s, Date.UTC(2026, 9, 22, 22)).word).toBe('Ночной привоз');
+  });
 });
 
-describe('окно рынка: таблица выбора и покупка выбранного', () => {
-  it('строки прилавка — кнопки выбора, выбрана первая; покупка — шаг, цена «из есть» и «Купить»; карточек нет', () => {
+describe('окно рынка: плитки и панель сделки', () => {
+  it('плитки — выбор товара, выбрана первая; панель — «Купить» и «Продать», количество цифрами, 1, 10, 100, «Всё»; карточек нет', () => {
     const s = town();
-    buyGoods(s, marketOffer(s).find((g) => g.resource)!.id, 2);
     stores.game = { s, act: () => {} };
     const html = renderToStaticMarkup(h(MarketNew));
-    const picks = [...html.matchAll(/class="kit-cells pick"[^>]*aria-pressed="(true|false)"/g)].map((m) => m[1]);
-    expect(picks).toHaveLength(marketOffer(s).length);
+    const picks = [...html.matchAll(/<button[^>]*class="mk-tile[^"]*"[^>]*>/g)].map((m) => /aria-checked="(true|false)"/.exec(m[0])?.[1]);
+    expect(picks).toHaveLength(MARKET_GOODS.length);
     expect(picks.indexOf('true')).toBe(0);
-    expect(html).toContain('wide-steps');
-    expect(html).toMatch(/class="have">из \d/);
-    expect(html).toContain('Купить');
-    // Телега в пути — строкой таблицы с отменой.
-    expect(html).toMatch(/aria-label="Отменить: [^"]+, вернуть \d+ золота"/);
+    expect(html).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>Купить/);
+    expect(html).toContain('Продать');
+    expect(html).toMatch(/inputMode="numeric"|inputmode="numeric"/);
+    for (const q of ['>1<', '>10<', '>100<', '>Всё<']) expect(html).toContain(q);
+    expect(html).toContain('Дневной привоз');
     expect(html).not.toMatch(/class="card/);
+  });
+
+  it('погашенная кнопка говорит причину: мало золота, нечего продать, рынок пуст', () => {
+    const s = town();
+    s.gold = 0;
+    stores.game = { s, act: () => {} };
+    expect(renderToStaticMarkup(h(MarketNew))).toContain('Не хватает золота.');
+    const def = marketOffer(s, NOW).find((g) => g.resource)!;
+    s.resources[def.resource!] = 0;
+    expect(saleCheck(s, def.id, 1, NOW).blocked).toBe('Продавать нечего.');
+    const gone = GOODS.find((g) => !marketHas(s, g, NOW))!;
+    expect(marketCheck(s, gone.id, 1, NOW).blocked).toBe('Рынок пуст: этого не привезли.');
   });
 });
 

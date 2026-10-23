@@ -17,7 +17,8 @@ import type { Building, BuildingTypeId, FaithId, GameState } from '@/game/types'
 import { createInitialState } from '@/game/state';
 import { DAY_LENGTH, RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import { BUILDINGS, jobsOf } from '@/game/data/buildings';
-import { GOOD_BY_ID } from '@/game/data/market';
+import { GOOD_BY_ID, offerSlots } from '@/game/data/market';
+import { PURSE } from '@/game/marketrules';
 import { SEASON_SECONDS } from '@/game/data/seasons';
 import { SURVEY_MAX } from '@/game/data/survey';
 import {
@@ -30,8 +31,7 @@ import {
   infirmaryBeds,
   housingCapacity,
   jobMultiplier,
-  marketOffer,
-  marketStock,
+  marketLevel,
   maxLevelFor,
   moraleBreakdown,
   payGraceDays,
@@ -45,6 +45,7 @@ import {
   townHallBuildMult,
   workerCount,
 } from '@/game/derived';
+import { marketDepth } from '@/game/sim/market';
 import { woundsOfBattle } from '@/game/sim/infirmary';
 import { tick } from '@/game/sim/tick';
 import { popGrowth } from '@/game/sim/population';
@@ -183,8 +184,9 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   stash: { kind: 'plusAfter', read: (s) => playerProfile(s).stash },
   feast: { kind: 'more', read: (s) => feastInfo(s).bonus },
   feastWait: { kind: 'days', read: (s) => feastInfo(s).wait },
-  goods: { kind: 'count', read: (s) => marketOffer(s).length },
-  stock: { kind: 'more', read: (s) => marketStock(s, GOOD_BY_ID.food) },
+  goods: { kind: 'count', read: (s) => offerSlots(marketLevel(s)) },
+  stock: { kind: 'more', read: (s) => marketDepth(s, GOOD_BY_ID.food) },
+  purse: { kind: 'more', read: (s) => PURSE[marketLevel(s)] ?? 0 },
   caravan: { kind: 'seconds', read: caravanSeconds },
   morale: { kind: 'more', read: (s) => moraleBreakdown(s).raw },
   piety: { kind: 'more', read: (s) => pietyBreakdown(s).raw },

@@ -9,7 +9,7 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchStab } from '../../netlify/lib/contract';
+import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchMarket, type WatchStab } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { SAVE_VERSION } from '@/game/state';
 import {
@@ -160,7 +160,24 @@ export function watchOf(s: GameState): WatchCard {
     ...(s.council ? { council: councilCard(s) } : {}),
     // Книга сословий (РТ-2): привилегии, указ сословия, влияние и счёт — у каждой партии (влияние есть и без привилегий).
     estates: estatesCard(s),
+    // Книга рынка (РН-1): привоз, счёт, серебро купцов, нажим и последние сделки — как лежат в партии (`sim/market`). Сделок не
+    // было — поля нет.
+    ...(s.market?.seq ? { market: marketCard(s) } : {}),
   };
+}
+
+/** Рынок для описи: то, что записала дверь сделок (`sim/market`), без пересчёта — цену сервер выводит сам. */
+function marketCard(s: GameState): WatchMarket {
+  const m = s.market;
+  return {
+    w: m.w,
+    bought: { ...m.bought },
+    sold: { ...m.sold },
+    got: whole(m.got ?? 0),
+    seq: m.seq ?? 0,
+    press: Object.fromEntries(Object.entries(m.press ?? {})),
+    deals: (m.deals ?? []).map((d) => ({ ...d })),
+  } as WatchMarket;
 }
 
 /** Сословия для описи — чтением одной двери (`sim/estates`) и одной мерки влияния (`derived.estatesNow`). */

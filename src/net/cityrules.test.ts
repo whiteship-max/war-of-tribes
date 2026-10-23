@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { RESOURCE_IDS } from '@/game/constants';
-import { bondedSaleLeft, currentSite, maxLevelFor, storageCap, upgradeCost, upgradeInfo } from '@/game/derived';
+import { currentSite, maxLevelFor, storageCap, upgradeCost, upgradeInfo } from '@/game/derived';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { cancelUpgrade, startUpgrade } from '@/game/sim/actions';
 import { cancelRecruit, recruitCheck, startRecruit } from '@/game/sim/army';
 import { cancelForge, forgeCheck, startForge } from '@/game/sim/smithy';
 import { cancelSurvey, startSurvey } from '@/game/sim/survey';
-import { sellBonded } from '@/game/sim/market';
+import { bondedSaleLeft, sellGoods } from '@/game/sim/market';
 import { addBonded } from '@/game/sim/population';
 import { tick } from '@/game/sim/tick';
 import { creditTech } from '@/game/sim/tech';
@@ -24,6 +24,9 @@ import type { FigureView, HomeEffect, MarchView } from '@/world/types';
 import { STOCK_KEYS, type WatchCard } from '../../netlify/lib/contract';
 import { flagsBetween, startedCost } from '../../netlify/lib/watch';
 import { watchOf } from './snapshot';
+
+/** Минута дневного привоза — рынок РН-1 считает привоз по настоящим часам. */
+const NOW = Date.UTC(2026, 9, 23, 10);
 
 /**
  * Правило «цена списана» таблицы города сервера (`watch.CITY_RULES`, docs/security.md) на настоящей партии игры: опись —
@@ -160,7 +163,7 @@ describe('рост склада: добро без дела', () => {
       'продажа невольников',
       (s) => {
         addBonded(s, 20);
-        return () => sellBonded(s, Math.min(5, bondedSaleLeft(s)));
+        return () => sellGoods(s, 'bonded', Math.min(5, bondedSaleLeft(s, NOW)), NOW);
       },
     ],
   ];

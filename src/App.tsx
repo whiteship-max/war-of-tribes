@@ -200,9 +200,11 @@ function SheetContent({ view }: { view: SheetView }) {
 export function App() {
   const ready = useGame((g) => g.ready);
   const sheet = useGame((g) => g.sheet);
-  // Окна-списки во всю высоту шторки (РТ-1): «Здания» — сетка всех построек, Ратуша — совет тремя карточками.
+  // Окна-списки во всю высоту шторки (РТ-1): «Здания» — сетка всех построек, Ратуша — совет тремя карточками; рынок (РН-1) —
+  // плитки товаров и панель сделки в одном поле зрения.
   const hallId = useGame((g) => g.s.buildings.find((b) => b.type === 'town_hall')?.id ?? null);
-  const tallSheet = (sheet?.kind === 'tab' && sheet.tab === 'buildings') || (sheet?.kind === 'building' && sheet.id === hallId);
+  const marketId = useGame((g) => g.s.buildings.find((b) => b.type === 'market')?.id ?? null);
+  const tallSheet = (sheet?.kind === 'tab' && sheet.tab === 'buildings') || (sheet?.kind === 'building' && (sheet.id === hallId || sheet.id === marketId));
   const closeSheet = useGame((g) => g.closeSheet);
   const toast = useGame((g) => g.toast);
   const init = useGame((g) => g.init);

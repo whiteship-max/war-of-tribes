@@ -1,93 +1,90 @@
-// Рынок (UI-7, docs/ui_v2.md, 5.6; находка П8): прилавок — таблица выбора «Товар · Цена · Сегодня · Есть», а не лента
-// карточек с рядом шага в каждой; касание строки выбирает товар, под таблицей — покупка выбранного: шаг, цена «нужно из
-// есть» (`parts/Cost`, одна форма на игру) и «Купить» с причиной погасшей. Телеги в пути — таблицей с отменой. Невольничий
-// ряд — та же строка прилавка; у его покупки — каким станет порядок, и продажа торговцам.
+// Рынок (РН-1, docs/city_v3.md, «Решения РН-1»): товары сеткой плиток и панель сделки в одном поле зрения, без прокрутки на
+// 390×844. Плитка — значок, имя, цена покупки и продажи, сколько у тебя (и что везут) и сколько на рынке; касание выбирает
+// товар. Панель — «Купить» и «Продать» переключателем, количество (цифрами, «− / +», 1, 10, 100, «Всё»), итог в моменте со
+// сбитием и что станет у тебя, кнопка с причиной погасшей. Шапка — какой привоз, когда новый и серебро купцов.
 //
-// Своей арифметики нет (правило 18): цена — `marketPrice` (разбор — основа записи и рост за скупленное, `goodPrice`),
-// партия — `marketCheck` и `saleCheck`, порядок — `orderBreakdown` с теми, кого уже ведут, срок телеги — `caravanSeconds`.
-// Едет в куске нового вида (`parts/Market` — ленивый вход): первая загрузка за набор не платит.
+// Своей арифметики нет (правило 18): цены — `marketPrice`, `marketSellPrice`, партия — `marketCheck`, `saleCheck`, «Всё» —
+// `marketMax`, привоз — `marketrules.shiftOf`, порядок после невольников — `orderBreakdown`. Время — часы партии (`partyNow`).
+// Едет в куске нового вида (`parts/Market` — ленивый вход): первая загрузка за окно не платит.
 import { useState } from 'react';
 import type { GameState, GoodId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { MUTINY_FUSE, ORDER_UNREST, ORDER_WARN } from '@/game/constants';
-import { BONDED_GOOD, GOOD_BY_ID, goodStock, type GoodDef } from '@/game/data/market';
+import { BONDED_GOOD, GOODS, GOOD_BY_ID, type GoodDef } from '@/game/data/market';
 import { ORDER_TEXT } from '@/game/data/order';
+import { SHIFT, shiftKind, shiftOf, shiftStart, type ShiftKind } from '@/game/marketrules';
+import { bondedIncoming, caravanSeconds, orderBreakdown } from '@/game/derived';
 import {
-  bondedIncoming,
-  bondedSalePrice,
-  bondedTotal,
-  caravanSeconds,
+  inTransit,
+  marketCheck,
+  marketDepth,
+  marketHas,
   marketLeft,
-  marketLevel,
-  marketOffer,
+  marketMax,
+  marketPress,
   marketPrice,
-  marketStock,
-  orderBreakdown,
-} from '@/game/derived';
-import { marketCheck, saleCheck } from '@/game/sim/market';
-import { buyGoods, cancelCaravan, sellBonded } from '@/game/sim/actions';
+  marketPurse,
+  marketSellPrice,
+  ownOf,
+  saleCheck,
+} from '@/game/sim/market';
+import { buyGoods, sellGoods } from '@/game/sim/actions';
+import { partyNow } from '@/net/clock';
 import { asGame } from '@/game/pace';
 import { Icon } from '@/ui/icons/Icon';
-import { Table, type Col } from '@/ui/kit/Table';
-import { Row } from '@/ui/kit/Row';
 import { Num } from '@/ui/kit/Num';
 import { Btn } from '@/ui/kit/Btn';
 import { breakdown } from '@/ui/kit/breakdown';
-import { tipGo } from '@/ui/kit/nav';
-import { Cost } from '@/ui/parts/Cost';
-import { Steps } from '@/ui/parts/Steps';
-import { waitShort } from '@/ui/parts/wait';
-import { count } from '@/ui/parts/plural';
+import { realHoursMin, waitShort } from '@/ui/parts/wait';
 import type { TipContent } from './tip';
-import { fmtInt, goldTip } from './hudTips';
+import { fmtInt } from './hudTips';
 import './market.css';
 import type { IconName } from '@/ui/icons/alias';
 import { iconName } from '@/ui/icons/registry';
 
-export const SHELF_COLS: readonly Col[] = [
-  { key: 'name', title: 'Товар' },
-  { key: 'price', title: 'Цена', align: 'right', w: '48px' },
-  { key: 'left', title: 'Сегодня', align: 'right', w: '64px' },
-  { key: 'own', title: 'Есть', align: 'right', w: '52px' },
-];
+export { ownOf };
+
+/** Все товары рынка по порядку плиток: запасы, снаряжение, невольники. */
+export const MARKET_GOODS: readonly GoodDef[] = [...GOODS, BONDED_GOOD];
 
 /** Значок товара: запас — своим, предмет — снаряжением, невольники — цепью (накладная `ui/icons/registry.ts`). */
 const goodIcon = (def: GoodDef | undefined): IconName =>
   !def ? 'ui-crate' : def.kind === 'resource' && def.resource ? iconName('res', def.resource) : def.kind === 'equipment' && def.equipment ? iconName('gear', def.equipment) : 'ui-chain';
 
-const CART_COLS: readonly Col[] = [
-  { key: 'name', title: 'В пути' },
-  { key: 'n', title: 'Везут', align: 'right', w: '56px' },
-  { key: 'left', title: 'Через', align: 'right', w: '72px' },
-  { key: 'x', title: '', align: 'center', w: '44px' },
-];
+/** Привоз словами и значком: «Ночной привоз». */
+export const SHIFT_WORD: Readonly<Record<ShiftKind, string>> = { night: 'Ночной привоз', morning: 'Утренний привоз', day: 'Дневной привоз', evening: 'Вечерний привоз' };
+const SHIFT_ICON: Readonly<Record<ShiftKind, IconName>> = { night: 'day-night', morning: 'day-morning', day: 'day-day', evening: 'day-evening' };
 
-/** Сколько этого товара уже есть: запас склада, вещь кузни или невольники в городе. */
-export function ownOf(s: GameState, def: GoodDef): number {
-  if (def.id === BONDED_GOOD.id) return bondedTotal(s);
-  return def.resource ? Math.floor(s.resources[def.resource]) : (s.equipment[def.equipment!] ?? 0);
-}
+/** Число на плитке: до десяти тысяч — целиком, дальше — «12 тыс.». */
+export const short = (n: number): string => (n < 10_000 ? fmtInt(n) : `${fmtInt(Math.floor(n / 1000))} тыс.`);
 
-/** Строка прилавка: цена следующей штуки, сколько осталось сегодня из дневного запаса, сколько уже есть. */
-export function shelfCells(s: GameState, def: GoodDef): { price: number; left: number; stock: number; own: number } {
-  return { price: marketPrice(s, def), left: marketLeft(s, def), stock: marketStock(s, def), own: ownOf(s, def) };
+/** Плитка: цена покупки и продажи следующей штуки, сколько у тебя и везут, сколько на рынке; привезли ли товар. */
+export function shelfCells(s: GameState, def: GoodDef, now: number): { buy: number; sell: number; own: number; coming: number; left: number; brought: boolean } {
+  return {
+    buy: marketPrice(s, def, now),
+    sell: marketSellPrice(s, def, now),
+    own: ownOf(s, def),
+    coming: inTransit(s, def.id),
+    left: marketLeft(s, def, now),
+    brought: marketHas(s, def, now),
+  };
 }
 
 /**
- * Цена штуки с разбором: основа записи и рост за скупленное сегодня (`goodPrice`: к концу дневного запаса цена вырастает
- * на долю `PRICE_RAMP`). Итог — `marketPrice`, строки складываются в него.
+ * Цена штуки с разбором: основа привоза и сбитие (нажим на цену от купленного и проданного, отходит сам). Итог —
+ * `marketPrice`, строки складываются в него.
  */
-export function priceTip(s: GameState, def: GoodDef): TipContent {
-  const price = marketPrice(s, def);
-  const stock = goodStock(def, marketLevel(s));
-  const bought = Math.max(0, stock - marketLeft(s, def));
+export function priceTip(s: GameState, def: GoodDef, now: number): TipContent {
+  const price = marketPrice(s, def, now);
+  const base = marketPrice({ ...s, market: { ...s.market, press: {} } }, def, now);
+  const q = Math.round(marketPress(s, def.id, now));
   return breakdown({
     title: `${def.name} · ${price} за штуку`,
-    body: 'Цена растёт, чем больше берёшь за день. Завтра — снова с основы.',
+    body: `Каждая купленная штука дороже прежней, проданная — дешевле; на ${fmtInt(marketDepth(s, def))} штук цена уходит вдвое. Сбитие отходит само — вдвое за полтора часа.`,
     total: price,
     parts: [
-      { label: 'Основа', value: def.price },
-      { label: `Скуплено сегодня ${bought} из ${stock}`, value: price - def.price },
+      { label: 'Основа привоза', value: base },
+      { label: `Сбитие: нажим ${q > 0 ? '+' : ''}${q}`, value: price - base },
     ],
     fmt: (n) => fmtInt(n),
     sumLabel: 'Цена',
@@ -105,138 +102,168 @@ export function orderAfter(s: GameState, n: number): { value: number; tone: '' |
   return { value, tone: '', words: `Порядок станет ${value}.` };
 }
 
+/** Шапка: какой привоз, через сколько новый, серебро купцов на этот привоз. */
+export function shiftLine(s: GameState, now: number): { kind: ShiftKind; word: string; next: string; purse: number } {
+  const w = shiftOf(now);
+  return { kind: shiftKind(w), word: SHIFT_WORD[shiftKind(w)], next: realHoursMin(Math.max(0, (shiftStart(w) + SHIFT - now) / 1000)), purse: Math.floor(marketPurse(s, now)) };
+}
+
 export function MarketNew() {
   const s = useGame((g) => g.s);
-  const offer = marketOffer(s);
-  const [pick, setPick] = useState<GoodId | null>(null);
-  const chosen = offer.find((g) => g.id === pick) ?? offer[0] ?? null;
+  const now = partyNow();
+  const [pick, setPick] = useState<GoodId>(MARKET_GOODS[0].id);
+  const [side, setSide] = useState<'buy' | 'sell'>('buy');
+  const chosen = GOOD_BY_ID[pick] ?? MARKET_GOODS[0];
+  const head = shiftLine(s, now);
 
   return (
     <section className="mk">
-      <Row
-        icon={'res-gold'}
-        label="Золото"
-        sub={`Покупку везёт телега, ${waitShort(caravanSeconds(s))}. Отменишь — золото вернётся`}
-        value={fmtInt(s.gold)}
-        tip={() => goldTip(s, tipGo())}
-      />
-      <Carts />
-      <h3>
-        Прилавок <span className="muted">{count(offer.length, 'товар', 'товара', 'товаров')}</span>
-      </h3>
-      <Table
-        label="Прилавок"
-        cols={SHELF_COLS}
-        empty="Прилавок пуст."
-        rows={offer.map((def) => {
-          const c = shelfCells(s, def);
-          return {
-            key: def.id,
-            on: chosen?.id === def.id,
-            dim: c.left <= 0,
-            pick: () => setPick(def.id),
-            cells: {
-              name: (
-                <span className="kit-name">
-                  <span className="ic"><Icon name={goodIcon(def)} /></span>
-                  <span className="one-line">{def.name}</span>
+      <div className="mk-top">
+        <span className="mk-shift">
+          <Icon name={SHIFT_ICON[head.kind]} />
+          <span>
+            <b>{head.word}</b>
+            <small>новый через {head.next}</small>
+          </span>
+        </span>
+        <span className="mk-purse" title="Серебро купцов на этот привоз: столько они отдадут за проданное (невольники — мимо)">
+          <Icon name="ui-pouch" />
+          <span>
+            <b>{fmtInt(head.purse)}</b>
+            <small>у купцов</small>
+          </span>
+        </span>
+      </div>
+      <p className="mk-legend">
+        <span>купить · продать</span>
+        <span>у тебя · на рынке</span>
+      </p>
+      <div className="mk-grid" role="radiogroup" aria-label="Товары">
+        {MARKET_GOODS.map((def) => {
+          const c = shelfCells(s, def, now);
+          const on = def.id === chosen.id;
+          return (
+            <button
+              key={def.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              className={`mk-tile${on ? ' on' : ''}${c.left <= 0 && c.own <= 0 ? ' dim' : ''}`}
+              onClick={() => setPick(def.id)}
+              aria-label={`${def.name}: купить по ${c.buy}, продать по ${c.sell}, у тебя ${c.own}, на рынке ${c.left}`}
+            >
+              <span className="mk-tn">
+                <Icon name={goodIcon(def)} />
+                <span className="one-line">{def.name}</span>
+              </span>
+              <span className="mk-tp">
+                <b>{c.left > 0 ? short(c.buy) : '—'}</b>
+                <i>{short(c.sell)}</i>
+              </span>
+              <span className="mk-ts">
+                <span>
+                  {short(c.own)}
+                  {c.coming > 0 && <em>+{short(c.coming)}</em>}
                 </span>
-              ),
-              price: c.price,
-              left: `${c.left}/${c.stock}`,
-              own: fmtInt(c.own),
-            },
-          };
+                <span>{c.left > 0 ? short(c.left) : c.brought ? 'пусто' : 'нет'}</span>
+              </span>
+            </button>
+          );
         })}
-      />
-      <p className="note">Товар меняется каждый день и дорожает, чем больше берёшь.</p>
-      {chosen && <Buy key={chosen.id} def={chosen} />}
+      </div>
+      <Deal key={`${chosen.id}:${side}`} def={chosen} side={side} setSide={setSide} now={now} />
     </section>
   );
 }
 
-/** Телеги в пути: что везут, сколько и через сколько; отмена возвращает золото. */
-function Carts() {
+const QUICK = [1, 10, 100] as const;
+
+/** Панель сделки выбранного товара: сторона, количество, итог в моменте, что станет у тебя, кнопка с причиной. */
+function Deal({ def, side, setSide, now }: { def: GoodDef; side: 'buy' | 'sell'; setSide: (v: 'buy' | 'sell') => void; now: number }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
-  if (s.caravans.length === 0) return null;
-  return (
-    <Table
-      label="В пути"
-      cols={CART_COLS}
-      rows={s.caravans.map((c) => {
-        const def = GOOD_BY_ID[c.good];
-        return {
-          key: String(c.id),
-          cells: {
-            name: (
-              <span className="kit-name">
-                <span className="ic"><Icon name={goodIcon(def)} /></span>
-                <span className="one-line">{def?.name ?? 'Товар'}</span>
-              </span>
-            ),
-            n: c.count,
-            left: waitShort(asGame(Math.max(0, Math.ceil(c.arriveAt - s.time)))),
-            x: (
-              <button type="button" className="mk-x" onClick={() => act((st) => cancelCaravan(st, c.id))} aria-label={`Отменить: ${def?.name ?? 'товар'}, вернуть ${c.gold} золота`}>
-                <Icon name="ui-close" />
-              </button>
-            ),
-          },
-        };
-      })}
-    />
-  );
-}
-
-/** Покупка выбранного товара: шаг, цена партии «нужно из есть», «Купить»; у невольников — порядок после и продажа. */
-function Buy({ def }: { def: GoodDef }) {
-  const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
-  const [want, setWant] = useState(1);
-  const [sell, setSell] = useState(1);
-  const left = marketLeft(s, def);
-  const n = Math.max(1, Math.min(want, Math.max(1, left)));
-  const check = marketCheck(s, def.id, n);
-  const bonded = def.id === BONDED_GOOD.id;
-  const after = bonded ? orderAfter(s, n) : null;
-  const have = bondedTotal(s);
-  const m = Math.max(1, Math.min(sell, Math.max(1, have)));
-  const sale = saleCheck(s, m);
-  const saleRoom = Math.min(have, sale.left);
+  const [raw, setRaw] = useState('1');
+  const buy = side === 'buy';
+  const max = marketMax(s, def.id, side, now);
+  const n = Math.max(1, Math.min(99_999, Math.floor(Number(raw) || 1)));
+  const set = (v: number): void => setRaw(String(Math.max(1, Math.min(99_999, Math.floor(v)))));
+  const check = buy ? marketCheck(s, def.id, n, now) : saleCheck(s, def.id, n, now);
+  const gold = buy ? (check as ReturnType<typeof marketCheck>).cost : (check as ReturnType<typeof saleCheck>).gold;
+  const own = ownOf(s, def);
+  const after = buy && def.id === BONDED_GOOD.id ? orderAfter(s, n) : null;
+  const run = (): void => {
+    act((st) => (buy ? buyGoods(st, def.id, n, partyNow()) : sellGoods(st, def.id, n, partyNow())));
+    setRaw('1');
+  };
+  const per = check.lot.first === check.lot.last ? `${check.lot.first}` : `${check.lot.first}–${check.lot.last}`;
 
   return (
-    <div className="mk-buy">
-      <h3>
-        {def.name}{' '}
-        <span className="muted">
-          по <Num tip={() => priceTip(s, def)} label="Цена за штуку">{marketPrice(s, def)}</Num> {unitWord(def)}
-        </span>
-      </h3>
-      <Steps value={n} max={left} spare={Math.max(0, left - n)} step={10} names={{ less: 'Меньше', more: 'Больше' }} onChange={(d) => setWant(Math.max(1, n + d))} />
-      <div className="mk-act">
-        <Cost cost={{ gold: check.cost }} />
-        <Btn kind="main" why={check.blocked} onClick={() => act((st) => buyGoods(st, def.id, n))}>
-          Купить {n}
-        </Btn>
+    <div className="mk-deal">
+      <div className="mk-seg" role="tablist" aria-label="Сделка">
+        {(['buy', 'sell'] as const).map((k) => (
+          <button key={k} type="button" role="tab" aria-selected={side === k} className={side === k ? 'on' : ''} onClick={() => setSide(k)}>
+            {k === 'buy' ? 'Купить' : 'Продать'}
+            <small>
+              по <Num tip={() => priceTip(s, def, now)} label="Цена за штуку">{k === 'buy' ? marketPrice(s, def, now) : marketSellPrice(s, def, now)}</Num>
+            </small>
+          </button>
+        ))}
       </div>
+      <div className="mk-what">
+        <Icon name={goodIcon(def)} />
+        <b className="one-line">{def.name}</b>
+        <span className="muted">
+          {per} {unitWord(def)}
+        </span>
+      </div>
+      <div className="mk-qty">
+        <span className="mk-num">
+          <button type="button" onClick={() => set(n - 1)} disabled={n <= 1} aria-label="Меньше">
+            −
+          </button>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            aria-label="Сколько"
+            value={raw}
+            onChange={(e) => setRaw(e.target.value.replace(/\D/g, '').slice(0, 5))}
+            onBlur={() => set(n)}
+          />
+          <button type="button" onClick={() => set(n + 1)} aria-label="Больше">
+            +
+          </button>
+        </span>
+        <span className="mk-quick">
+          {QUICK.map((q) => (
+            <button key={q} type="button" className={n === q ? 'on' : ''} onClick={() => set(q)}>
+              {q}
+            </button>
+          ))}
+          <button type="button" className={n === max && max > 0 ? 'on' : ''} disabled={max <= 0} onClick={() => set(max)} aria-label={`Всё: ${max}`}>
+            Всё
+          </button>
+        </span>
+      </div>
+      <dl className="mk-sum">
+        <div>
+          <dt>{buy ? 'Отдашь' : 'Получишь'}</dt>
+          <dd className={buy && gold > s.gold ? 'no' : ''}>
+            <Icon name="res-gold" /> {fmtInt(gold)} <small>золото {fmtInt(Math.floor(s.gold))} → {fmtInt(Math.floor(s.gold) + (buy ? -gold : gold))}</small>
+          </dd>
+        </div>
+        <div>
+          <dt>У тебя</dt>
+          <dd>
+            {fmtInt(own)} → {fmtInt(buy ? own + n : Math.max(0, own - n))}
+            {buy && <small>телега {waitShort(caravanSeconds(s))}</small>}
+          </dd>
+        </div>
+      </dl>
       {after && <p className={`note order-after ${after.tone}`}>{after.words}</p>}
-      {bonded && (
-        <>
-          <h3>
-            Продать торговцам <span className="muted">по {bondedSalePrice(s)} {unitWord(def)}, сегодня ещё {sale.left}</span>
-          </h3>
-          <Steps value={m} max={saleRoom} spare={Math.max(0, saleRoom - m)} step={10} names={{ less: 'Меньше', more: 'Больше' }} onChange={(d) => setSell(Math.max(1, m + d))} />
-          <div className="mk-act">
-            <span className="mk-gain">
-              <Icon name="res-gold" /> +{sale.gold}
-            </span>
-            <Btn why={have > 0 ? sale.blocked : ORDER_TEXT.market.noBonded} onClick={() => act((st) => sellBonded(st, m))}>
-              Продать {m}
-            </Btn>
-          </div>
-        </>
-      )}
+      <Btn kind="main" wide why={check.blocked} onClick={run}>
+        {buy ? 'Купить' : 'Продать'} {fmtInt(n)}
+      </Btn>
     </div>
   );
 }

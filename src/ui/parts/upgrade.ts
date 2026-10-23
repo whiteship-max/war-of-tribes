@@ -23,7 +23,8 @@
 //   их заняли, — иначе у пустого двора уровень «ничего бы не давал».
 import type { Building, GameState, JobId } from '@/game/types';
 import { DAY_LENGTH, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
-import { GOOD_BY_ID } from '@/game/data/market';
+import { GOOD_BY_ID, offerSlots } from '@/game/data/market';
+import { PURSE, depthOf } from '@/game/marketrules';
 import type { SeasonModifiers } from '@/game/data/seasons';
 import { SURVEY_MAX } from '@/game/data/survey';
 import { TROOPS } from '@/game/data/troops';
@@ -44,8 +45,7 @@ import {
   housingCapacity,
   intelKeen,
   jobMultiplier,
-  marketOffer,
-  marketStock,
+  marketLevel,
   moraleBreakdown,
   stalls,
   payGraceDays,
@@ -231,13 +231,14 @@ const GAUGES: Gauge[] = [
   },
   {
     id: 'goods',
-    read: (s) => marketOffer(s).length,
+    read: (s) => offerSlots(marketLevel(s)),
     say: (b, a) => {
       const d = a - b;
       return d <= 0 ? null : { text: `+${d} ${plural(d, 'товар', 'товара', 'товаров')} на прилавке`, numbers: [d] };
     },
   },
-  { id: 'stock', read: (s) => marketStock(s, GOOD_BY_ID.food), say: more('еды на рынке в день') },
+  { id: 'stock', read: (s) => depthOf(GOOD_BY_ID.food, marketLevel(s)), say: more('еды в привоз') },
+  { id: 'purse', read: (s) => PURSE[marketLevel(s)] ?? 0, say: more('серебра купцов в привоз') },
   {
     id: 'caravan',
     read: caravanSeconds,
