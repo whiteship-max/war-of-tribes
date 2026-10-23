@@ -33,6 +33,8 @@
 //                                                    подтверждение, погашенный с причиной
 //   GROUP=r4 …                                     — Р-4 (docs/AGENTS.md, 16): «Походы», цель, дела, подтверждение,
 //                                                    донесение, знак павшего города словами
+//   GROUP=os1 …                                    — ОС-1 (docs/siege_v2.md, 23): окно осады защитника при трёх
+//                                                    соотношениях сил — штраф к добыче с причиной и «хлеба хватит на ~N ч»
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -195,6 +197,48 @@ function P7_BODY(kind: 'calm' | 'urgent', camp = true): string {
   `;
 }
 const P7 = (kind: 'calm' | 'urgent'): string => `(async () => { ${P7_BODY(kind)} return JSON.stringify('ok'); })()`;
+
+/**
+ * ОС-1: окно осады защитника при соотношении `ratio` (лагерь к гарнизону). Штраф кладётся партии полем осады (как мост), срок
+ * хлеба — прогноз племени под ним (`derived.siegeDryIn`), строки — дверью хлеба (`siegefood.cutWords`, `breadWords`).
+ */
+function os1(ratio: number): string {
+  return `(async () => {
+    window.__ui.reset();
+    const S = await import('/src/world/store.ts');
+    const F = await import('/src/world/siegefood.ts');
+    const D = await import('/src/game/derived.ts');
+    const P = await import('/src/game/pace.ts');
+    const now = S.worldNow();
+    const H = 3600000;
+    const ratio = ${ratio};
+    const cut = F.siegeCut(ratio);
+    window.__game.getState().act((st) => {
+      st.army.clubman = 30; st.army.archer = 12; st.army.spearman = 8;
+      st.siege = { byName: 'Волчья падь', until: Number.MAX_SAFE_INTEGER, cut };
+      return null;
+    });
+    const s = window.__game.getState().s;
+    const ahead = D.siegeDryIn(s);
+    const dryAt = Number.isFinite(ahead) ? now + P.realMs(ahead) : undefined;
+    S.useWorld.setState({
+      pulse: async () => {},
+      loadCamp: async () => {},
+      siege: {
+        byId: 'l-1', byName: 'Волчья падь', since: now - 5 * H, starvesAt: dryAt ?? now + 2 * H, garrison: 50, foodAtStart: Math.floor(s.resources.food),
+        bread: Math.floor(s.resources.food), cut, ratio, cutText: F.cutWords(ratio), ...(dryAt !== undefined ? { dryAt } : {}),
+        breadText: F.breadWords(dryAt !== undefined ? (dryAt - now) / 1000 : Infinity),
+        campMen: Math.round(50 * ratio), builders: Math.round(50 * ratio), fate: 'plunder', palisade: 2,
+        fall: { goods: 640, gold: 80, hidden: 60, ledBonded: 0, ledPop: 0, scatterPop: 0, scatterBonded: 0, buildings: 3, levels: 1, burnsWorks: false, routed: 0 },
+        phases: { journal: ['Ф1 · кость 5 − 1 стена = 4 · без перемен · из лагеря ушло 3 %'], next: '−1 стена', nextAt: now + 1.5 * H, nextK: 2, breaches: 0, progress: 0 },
+        answers: { repair: { cost: { wood: 80, stone: 40 }, reason: 'Проломов нет, заделывать нечего.', doneAt: null }, ration: { on: false, starvesAt: dryAt ?? now + 2 * H }, surrender: 'captives', burn: [], reliefs: [] },
+        parley: { side: 'def', share: 0.12, fair: 120, block: null, bot: true },
+      },
+    });
+    window.__game.getState().openSiege();
+    return JSON.stringify('штраф ' + cut.toFixed(3) + ', хлеба на ' + (Number.isFinite(ahead) ? (P.realMs(ahead) / H).toFixed(1) + ' ч' : 'не кончится'));
+  })()`;
+}
 
 /**
  * К-2: ближайшее живое логово у дома — к середине экрана (`__mapCam`), дружине — бойцы в гарнизоне, и касание клетки
@@ -1254,6 +1298,14 @@ const GROUPS: Record<string, Step[]> = {
       run: `(async () => { ${STAY} document.querySelectorAll('.cr-pick')[1]?.click(); await new Promise((r) => setTimeout(r, 200)); document.querySelector('.cr-go')?.click(); await new Promise((r) => setTimeout(r, 500)); return JSON.stringify('ok'); })()`,
       wait: 1200,
     },
+  ],
+  // ОС-1 (docs/siege_v2.md, 23): окно осады у защитника при трёх соотношениях сил — слабый лагерь (×0,67), вровень (×1),
+  // сильнее на 60 % (×1,6). Штраф, причина и «хлеба хватит» — дверями мира и племени (`world/siegefood`, `derived.siegeDryIn`)
+  // по нашей партии под этим штрафом; пульс остановлен, вид мира вложен стендом, как у захода `siege`.
+  os1: [
+    { name: 'os1-weak', run: os1(0.67), wait: 1200, full: true },
+    { name: 'os1-even', run: os1(1), wait: 1200, full: true },
+    { name: 'os1-strong', run: os1(1.6), wait: 1200, full: true },
   ],
   sb2b: [
     { name: 'sb2b-ruler', run: sb2b('lineage'), wait: 1200 },

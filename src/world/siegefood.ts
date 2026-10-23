@@ -79,6 +79,16 @@ export function ratioReason(ratio: number): string {
   return `силы равны (${ratioWords(ratio)})`;
 }
 
+/** Соотношение сил коротко — строкой окна: «слабее, ×0,7», «вровень, ×1», «сильнее, ×1,6»; гарнизона нет — «гарнизона нет». */
+export function ratioShort(ratio: number): string {
+  if (!Number.isFinite(ratio)) return 'гарнизона нет';
+  const r = Math.round(ratio * 10) / 10;
+  return `${r < 1 ? 'слабее' : r > 1 ? 'сильнее' : 'вровень'}, ${ratioWords(ratio)}`;
+}
+
+/** Штраф к хлебу коротко — строкой окна: «−86 %». */
+export const cutFood = (cut: number): string => `−${Math.round((1 - yieldShare(cut, true)) * 100)} %`;
+
 /** Штраф коротко: «хлеб −86 %, прочее −64 %». */
 export function cutShort(cut: number): string {
   const food = Math.round((1 - yieldShare(cut, true)) * 100);

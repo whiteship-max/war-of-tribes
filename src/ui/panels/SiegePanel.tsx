@@ -15,7 +15,7 @@
 // удар полководца — план мира (`CampStrike`).
 import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
-import { cutShort } from '@/world/siegefood';
+import { cutFood, ratioShort } from '@/world/siegefood';
 import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf } from '@/world/muster';
 import { troopTotal } from '@/game/battle/kinds';
@@ -42,6 +42,10 @@ import { Table, type Col } from '@/ui/kit/Table';
 import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
 import { Btn } from '@/ui/kit/Btn';
 import './siege.css';
+
+/** Почему штраф такой (ОС-1): слова для подсказки строк добычи — без чисел, числа — в заголовке (`siegefood.cutWords`). */
+const CUT_WHY =
+  'Поля, загон и угодья — за стеной: чем сильнее лагерь против гарнизона, тем меньше с них берёт город. Соотношение — мощь лагеря к гарнизону без ополчения, как у кольца блокады. Голодом город сдаётся, только когда склад не оплатит прокорм в шаге осады.';
 
 const byLevels = (n: number): string => `до ${n} ${plural(n, 'уровня', 'уровней', 'уровней')}`;
 const goodsAndGold = (f: FallForecast): string => `${f.goods} запасов${f.gold > 0 ? ` и ${f.gold} золота` : ''}`;
@@ -180,15 +184,18 @@ export function SiegePanel() {
                   v: <b className={siege.dryAt !== undefined ? 'bad' : ''}>{siege.breadText ? dryLeft(siege.dryAt, now) : hungerLeft(siege.starvesAt, now)}</b>,
                 },
               },
+              // Штраф к добыче и его причина — соотношение сил (ОС-1): числа и слова — дверью хлеба (`world/siegefood`).
               ...(siege.cutText
                 ? [
                     {
                       key: 'cut',
-                      tip: () => ({
-                        title: siege.cutText ?? '',
-                        body: 'Поля, загон и угодья — за стеной: чем сильнее лагерь против гарнизона, тем меньше с них берёт город. Соотношение — мощь лагеря к гарнизону без ополчения, как у кольца.',
-                      }),
-                      cells: { what: 'Добыча в осаде', v: cutShort(siege.cut ?? 1) },
+                      tip: () => ({ title: siege.cutText ?? '', body: CUT_WHY }),
+                      cells: { what: 'Добыча хлеба в осаде', v: <span className="bad">{cutFood(siege.cut ?? 1)}</span> },
+                    },
+                    {
+                      key: 'ratio',
+                      tip: () => ({ title: siege.cutText ?? '', body: CUT_WHY }),
+                      cells: { what: 'Лагерь против гарнизона', v: ratioShort(siege.ratio ?? Infinity) },
                     },
                   ]
                 : []),
