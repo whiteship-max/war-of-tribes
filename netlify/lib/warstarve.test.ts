@@ -82,6 +82,21 @@ describe('ОС-1: склад окна лагеря — добыча под шт�
   });
 });
 
+describe('ОС-1: шаг осады сервера — ровно ноль не голод', () => {
+  it('склад окна пуст ровно в минуту второго шага — шаг оплачен; голод — третьим шагом', () => {
+    setPhaseDie(() => 7);
+    // Расход окна — 1500 города и 600 бойцов по одному в час; хлеба — ровно на два шага (4 часа).
+    const { file, sheets, w, camp } = camped({ food: 8400, stock: { food: 8400, wood: 5000 } });
+    const since = siegeSince(camp);
+    expect(breadAt(camp, phaseAt(since, 2)), 'точка внутри области: баланс шага — ровно ноль').toBe(0);
+    advance(file, phaseAt(since, 2) + 1, sheets);
+    expect(w.fall, 'ровно ноль — город стоит').toBeUndefined();
+    advance(file, phaseAt(since, 3) + 1, sheets);
+    expect(w.fall?.by).toBe('hunger');
+    expect(w.fall?.at).toBe(phaseAt(since, 3));
+  });
+});
+
 describe('ОС-1: опись новее окна ставит склад заново — хлеб, пришедший в город, прокорм оплачивает', () => {
   it('прогноз окна: голод в третьем шаге; опись с подвозом между шагами — третий шаг город не сдаёт', () => {
     setPhaseDie(() => 7);
