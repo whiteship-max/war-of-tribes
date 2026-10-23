@@ -723,7 +723,8 @@ HEAD один на всех, см. правило 8). Значит развес�
 - **Хлеб осады** — судья голода — склад в шаге осады: правило `siegefood.starves` (ниже нуля; ровно ноль оплачен), засуху
   племени пишет `sim/siege.siegeHunger`, мир сдаёт наш город в шаге (`LocalWorld.siegePhase`), сервер войны — склад окна в
   `phaseStep`; штраф к добыче — `siegefood.siegeCut` по мерке кольца; паёк бойца в осаде — `SIEGE_SOLDIER_FOOD`; прогноз и
-  слова — для сведения (`derived.siegeDryIn`, `world/siegewords`); ложная сдача — правило «starve» (`os1.test.ts`,
+  слова — для сведения (`derived.siegeDryIn`, `world/siegewords`); окно лагеря — соотношение по штрафу сервера и таяние
+  (`siegefood.ratioOfCut`, `phasesToEven`, `CampView.melt`); ложная сдача — правило «starve» (`os1.test.ts`, `campmelt.test.ts`,
   `warstarve.test.ts`, `security.test.ts`; docs/siege_v2.md, 23).
 - **Ход осады** — фазы по 4 игр. дн.: бросок, поправки, исход, истощение лагеря и наказы на отлучку — `world/siegeroll`
   (`rollPhase`), одна функция на мир и сервер войны; сдача — падение той же дверью, что голод, на ступень мягче
