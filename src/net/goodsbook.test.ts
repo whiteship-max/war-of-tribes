@@ -38,6 +38,9 @@ import { CLOCK_SKEW_SECONDS } from '../../netlify/lib/initdata';
 import { eatFloorOf } from '../../netlify/lib/town';
 import { watchOf } from './snapshot';
 
+/** Минута дневного привоза — рынок РН-1 считает привоз по настоящим часам. */
+const NOW = Date.UTC(2026, 9, 23, 10);
+
 /**
  * Книга запасов сервера (`netlify/lib/goods.ts`, docs/security.md, ЗЩ-2) на настоящей партии игры: опись — та, что шлёт
  * игра (`watchOf`), траты — двери игры, время — `sim/tick`. Честный посёлок, который тратит всем, чем игра позволяет, ни
@@ -81,7 +84,7 @@ describe('каждая дверь трат — разовая трата опи�
     ['ковка', (s) => startForge(s, EQUIPMENT_IDS.find((id) => !forgeCheck(s, id, 40).blocked)!, 40)],
     ['разведка округи', (s) => startSurvey(s)],
     ['пир', (s) => throwFeast(s)],
-    ['покупка на рынке', (s) => buyGoods(s, GOODS.find((g) => !marketCheck(s, g.id, 1).blocked)!.id, 1)],
+    ['покупка на рынке', (s) => buyGoods(s, GOODS.find((g) => !marketCheck(s, g.id, 1, NOW).blocked)!.id, 1, NOW)],
     [
       'наём агента',
       (s) => {
@@ -138,8 +141,8 @@ describe('честная партия тратит всем, чем может: 
       },
       (x) => throwFeast(x),
       (x) => {
-        const g = GOODS.find((y) => !marketCheck(x, y.id, 1).blocked);
-        if (g) buyGoods(x, g.id, 1);
+        const g = GOODS.find((y) => !marketCheck(x, y.id, 1, NOW).blocked);
+        if (g) buyGoods(x, g.id, 1, NOW);
       },
       (x) => (riteInfo(x).blocked ? null : holdRite(x)),
     ];

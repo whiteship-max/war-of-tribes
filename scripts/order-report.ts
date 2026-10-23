@@ -25,7 +25,7 @@
 //   HOURS=2 npm run order:report
 import type { GameState, JobId, ResourceId } from '@/game/types';
 import { createInitialState } from '@/game/state';
-import { stand } from './autopilot';
+import { START, stand } from './autopilot';
 import { seeded, setRandom } from '@/game/sim/random';
 import {
   BONDED_OUTPUT,
@@ -50,12 +50,9 @@ import { BONDED_JOBS, JOB_BY_ID } from '@/game/data/jobs';
 import {
   BONDED_GOOD,
   BONDED_PAYBACK_DAYS,
-  BONDED_SALE,
   GOOD_BY_ID,
-  batchCost,
-  goodPrice,
-  goodStock,
 } from '@/game/data/market';
+import { SHIFT, buyUnit, depthOf, lotOf, priceFactor, sellUnit, shiftOf, shiftStart, supplyOf } from '@/game/marketrules';
 import { TAXES, TAX_PER_POP } from '@/game/data/policy';
 import { MUTINY_EVENT } from '@/game/data/order';
 import {
@@ -201,13 +198,16 @@ console.log('');
 
 console.log('=== ЦЕНА: невольник на рынке и когда он окупается ===');
 console.log('');
-console.log(' ур рынка   первый   запас/день   весь запас дня   средняя   торговцы берут: цена · в день');
-const sale = Math.floor(BONDED_GOOD.price * BONDED_SALE);
+// Рынок РН-1: цена и запас — привозом по настоящим часам (`marketrules`); мерка — привоз минуты `START` автопилота.
+const W = shiftOf(START);
+console.log(` привоз с ${new Date(shiftStart(W)).toISOString().slice(11, 16)} UTC, основа ×${n1(priceFactor(W, BONDED_GOOD.id))}`);
+console.log(' ур рынка   первый   запас/привоз   весь запас привоза   средняя   торговцы берут: первый · в привоз');
 for (const level of [1, 5, MAX_BUILDING_LEVEL]) {
-  const stock = goodStock(BONDED_GOOD, level);
-  const full = batchCost(BONDED_GOOD, level, 0, stock);
+  const stock = supplyOf(BONDED_GOOD, level, W, 0);
+  const depth = depthOf(BONDED_GOOD, level);
+  const full = lotOf(BONDED_GOOD, W, depth, 0, stock).gold;
   console.log(
-    `  ${pad(level, 8)}   ${pad(goodPrice(BONDED_GOOD, level, 0), 6)}   ${pad(stock, 10)}   ${pad(full, 14)}   ${pad(n1(full / stock), 7)}   ${sale} · ${stock}`,
+    `  ${pad(level, 8)}   ${pad(buyUnit(BONDED_GOOD, W, depth, 0), 6)}   ${pad(stock, 12)}   ${pad(full, 18)}   ${pad(n1(full / stock), 7)}   ${sellUnit(BONDED_GOOD, W, depth, 0, 1)} · ${stock}`,
   );
 }
 console.log('');
@@ -379,14 +379,14 @@ for (const level of [1, 5, MAX_BUILDING_LEVEL]) {
   s.tax = 'high';
   const goldHour = taxIncomePerDay(s) * gameDaysPerHour();
   const market = buildingOfType(s, 'market')!.level;
-  const stock = goodStock(BONDED_GOOD, market);
-  const perDay = batchCost(BONDED_GOOD, market, 0, stock);
-  // Сколько купит за час, если тратить весь сбор на невольников и брать дневной
-  // запас целиком по нарастающей цене.
-  const days = gameDaysPerHour();
-  const affordDays = Math.min(days, goldHour / Math.max(1, perDay));
+  // Ряд за час — доля привоза (привоз — `SHIFT` настоящих мс); сколько купит за час, если тратить весь сбор на невольников и
+  // брать запас привоза по нарастающей цене.
+  const stock = supplyOf(BONDED_GOOD, market, W, 0);
+  const perShift = lotOf(BONDED_GOOD, W, depthOf(BONDED_GOOD, market), 0, stock).gold;
+  const share = 3600_000 / SHIFT;
+  const afford = Math.min(share * stock, (goldHour * stock) / Math.max(1, perShift));
   console.log(
-    `  ${pad(level, 10)}   ${pad(Math.round(goldHour), 26)}   ${pad(Math.round(affordDays * stock), 12)}   ${pad(days * stock, 18)}`,
+    `  ${pad(level, 10)}   ${pad(Math.round(goldHour), 26)}   ${pad(Math.round(afford), 12)}   ${pad(Math.round(share * stock), 18)}`,
   );
 }
 console.log('');

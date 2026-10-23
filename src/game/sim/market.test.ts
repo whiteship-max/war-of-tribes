@@ -2,28 +2,25 @@
 // на которых держится баланс: рынок всегда дороже собственного труда, дневной
 // лимит не обходится дроблением, а зима не покупается.
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { GameState, GoodId } from '../types';
+import type { GameState } from '../types';
 import { createInitialState } from '../state';
 import { catchUp, tick } from './tick';
-import { buyGoods, cancelCaravan, setTax } from './actions';
-import { marketCheck } from './market';
+import { buyGoods, setTax } from './actions';
+import { marketCheck, marketDepth, marketHas, marketLeft, marketLot, marketOffer, marketPrice, marketSupply } from './market';
 import { assignWorker } from './workers';
 import { seeded, setRandom } from './random';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
 import { SEASONS, SEASON_DAYS, SEASON_SECONDS, YEAR_DAYS } from '../data/seasons';
-import { GOODS, GOOD_BY_ID, MIN_MARKUP, batchCost, goodPrice, goodStock, offerFor } from '../data/market';
+import { GOODS, GOOD_BY_ID, MIN_MARKUP, offerFor, type GoodDef } from '../data/market';
+import { SHIFT, buyUnit, depthOf, shiftDays, shiftOf } from '../marketrules';
 import { TAXES } from '../data/policy';
 import {
   buildingOfType,
   buildingSlots,
-  dayOf,
   deedBuilding,
   deedSlots,
   deedWorkers,
   foodConsumptionPerDay,
-  marketLeft,
-  marketOffer,
-  marketStock,
   moraleOutputMult,
   moraleTarget,
   productionPerDay,
@@ -121,8 +118,6 @@ function hungryTribe(): GameState {
   return s;
 }
 
-/** Уровень рынка в этом состоянии — тестам он нужен для цены партии. */
-const marketLevelOf = (s: GameState): number => buildingOfType(s, 'market')?.level ?? 0;
 
 /** Общая масса ресурсов за день — ею меряется потеря от просевшей морали. */
 const totalOutput = (s: GameState): number => {
@@ -221,17 +216,26 @@ describe('налог', () => {
   });
 });
 
+/** 10:00 UTC — привоз 09:00–12:00 (сетка РН-1б, каждые 3 часа): рынок считает привоз по настоящим часам. */
+const NOW = Date.UTC(2026, 9, 23, 10, 0);
+/** Товар со склада, который привезли в этот привоз. */
+const brought = (s: GameState): GoodDef => marketOffer(s, NOW).find((g) => g.resource)!;
+
 describe('рынок', () => {
-  it('купить дешевле, чем произвести, нельзя ни при каком уровне рынка', () => {
+  it('купить дешевле, чем произвести, нельзя ни при каком уровне рынка, привозе и чужих продажах', () => {
+    const w0 = shiftOf(NOW);
     for (const def of GOODS) {
       const floor = selfCost(def) * MIN_MARKUP;
       for (let level = 1; level <= MAX_BUILDING_LEVEL; level++) {
-        // Самая выгодная точка дня — первая покупка, дальше цена только растёт.
-        const best = goodPrice(def, level, 0);
-        expect(best, `${def.id} на ${level} уровне дешевле своего труда`).toBeGreaterThanOrEqual(
-          floor,
-        );
-        expect(best).toBeGreaterThanOrEqual(def.price);
+        const depth = depthOf(def, level);
+        for (let w = w0; w < w0 + 8; w++) {
+          // Самая выгодная точка привоза — первая покупка; продажи цену покупки ниже основы не сбивают.
+          for (const q of [0, -depth, -10 * depth]) {
+            const best = buyUnit(def, w, depth, q);
+            expect(best, `${def.id} на ${level} уровне дешевле своего труда`).toBeGreaterThanOrEqual(floor);
+            expect(best).toBeGreaterThanOrEqual(def.price);
+          }
+        }
       }
     }
   });
@@ -248,51 +252,48 @@ describe('рынок', () => {
 
   it('уровень рынка добавляет запас и ассортимент, но не скидку', () => {
     const food = GOOD_BY_ID.food;
-    expect(goodStock(food, 10)).toBeGreaterThan(goodStock(food, 1));
-    expect(goodPrice(food, 10, 0)).toBe(goodPrice(food, 1, 0));
-    const wide = offerFor(3, 10, GOODS);
-    const narrow = offerFor(3, 1, GOODS);
+    const w = shiftOf(NOW);
+    expect(depthOf(food, 10)).toBeGreaterThan(depthOf(food, 1));
+    expect(buyUnit(food, w, depthOf(food, 10), 0)).toBe(buyUnit(food, w, depthOf(food, 1), 0));
+    const wide = offerFor(w, 10, GOODS);
+    const narrow = offerFor(w, 1, GOODS);
     expect(wide.length).toBeGreaterThan(narrow.length);
-    // Ассортимент выводится из номера дня: перезагрузка его не тасует.
-    expect(offerFor(3, 10, GOODS).map((g) => g.id)).toEqual(wide.map((g) => g.id));
-    expect(offerFor(4, 10, GOODS).map((g) => g.id)).not.toEqual(wide.map((g) => g.id));
+    // Ассортимент выводится из номера привоза: перезагрузка его не тасует.
+    expect(offerFor(w, 5, GOODS).map((g) => g.id)).toEqual(offerFor(w, 5, GOODS).map((g) => g.id));
+    expect(offerFor(w + 1, 5, GOODS).map((g) => g.id)).not.toEqual(offerFor(w, 5, GOODS).map((g) => g.id));
   });
 
-  it('цена растёт по мере скупки одного товара за день', () => {
+  it('цена растёт по мере скупки одного товара за привоз', () => {
     const s = city();
-    const good = marketOffer(s)[0].id;
-    const def = GOOD_BY_ID[good];
-    const first = goodPrice(def, MAX_BUILDING_LEVEL, 0);
-    const last = goodPrice(def, MAX_BUILDING_LEVEL, marketStock(s, def) - 1);
-    expect(last).toBeGreaterThan(first);
+    const def = brought(s);
+    expect(marketLot(s, def, marketDepth(s, def, NOW), NOW).last).toBeGreaterThan(marketPrice(s, def, NOW));
   });
 
-  it('дневной лимит соблюдается и не обходится дроблением покупок', () => {
+  it('запас привоза соблюдается и не обходится дроблением покупок', () => {
     const s = city();
-    s.gold = 100_000;
-    const good = marketOffer(s).find((g) => g.resource === 'wood')?.id ?? marketOffer(s)[0].id;
-    const def = GOOD_BY_ID[good];
-    const limit = marketStock(s, def);
-
-    // Дробление не даёт ни лишней единицы, ни скидки: цена считается поштучно.
+    s.gold = 10_000_000;
+    s.resources = { ...s.resources, wood: 0, stone: 0, food: 0, hides: 0, charcoal: 0, copper: 0, iron: 0 };
+    const def = brought(s);
+    const limit = Math.min(marketLeft(s, def, NOW), 400);
+    // Дробление не даёт ни лишней штуки, ни скидки: цена считается поштучно.
+    const lot = marketLot(s, def, limit, NOW).gold;
     const goldBefore = s.gold;
-    for (let i = 0; i < limit; i++) expect(buyGoods(s, good, 1)).toBeNull();
-    const spentOneByOne = goldBefore - s.gold;
-    expect(spentOneByOne).toBe(batchCost(def, MAX_BUILDING_LEVEL, 0, limit));
-    expect(marketLeft(s, def)).toBe(0);
-    expect(buyGoods(s, good, 1)).not.toBeNull();
+    for (let i = 0; i < limit; i++) expect(buyGoods(s, def.id, 1, NOW)).toBeNull();
+    expect(goldBefore - s.gold).toBe(lot);
 
-    // Новый день — новый запас.
-    catchUp(s, DAY_LENGTH, 1);
-    expect(marketLeft(s, def)).toBe(limit);
-    // И взять больше дневного запаса разом тоже нельзя.
-    expect(buyGoods(s, good, limit + 1)).not.toBeNull();
-    expect(buyGoods(s, good, limit)).toBeNull();
+    // Весь запас привоза разом — не больше запаса.
+    const t = city();
+    t.gold = 10_000_000;
+    t.resources = { ...s.resources };
+    const all = marketLeft(t, def, NOW);
+    expect(marketCheck(t, def.id, all + 1, NOW).blocked).toMatch(/На рынке только/);
+    // Новый привоз — новый запас: счёт прежнего не считается.
+    expect(marketLeft(s, def, NOW + SHIFT)).toBe(marketHas(s, def, NOW + SHIFT) ? marketSupply(s, def, NOW + SHIFT) : 0);
   });
 
-  it('дневного запаса еды не хватает, чтобы прокормить посёлок с рынка', () => {
+  it('запаса привоза за игровой день не хватает, чтобы прокормить посёлок с рынка', () => {
     // Общее правило, а не частный случай: сколько бы ни был уровень рынка, его
-    // дневной запас еды меньше того, что посёлок этого размера съедает за день.
+    // запас еды на игровой день меньше того, что посёлок этого размера съедает за день.
     // Значит, рынком можно заткнуть дыру, но нельзя сесть на него вместо полей.
     for (const [pop, level] of [
       [120, 1],
@@ -302,10 +303,10 @@ describe('рынок', () => {
       const s = city(pop, level);
       s.time = (SEASONS.indexOf('winter') + SEASONS.length) * SEASON_SECONDS;
       const eat = foodConsumptionPerDay(s, seasonModsFor('winter', 2));
-      expect(
-        marketStock(s, GOOD_BY_ID.food),
-        `рынок ${level} уровня кормит посёлок на ${pop} человек`,
-      ).toBeLessThan(eat);
+      const w = shiftOf(NOW);
+      // Самый щедрый привоз суток.
+      const perDay = Math.max(...[0, 1, 2, 3].map((i) => marketSupply(s, GOOD_BY_ID.food, NOW + i * SHIFT))) / shiftDays();
+      expect(perDay, `рынок ${level} уровня (привоз ${w}) кормит посёлок на ${pop} человек`).toBeLessThan(eat);
     }
   });
 
@@ -317,33 +318,33 @@ describe('рынок', () => {
     const need = foodConsumptionPerDay(s, mods) - productionPerDay(s, mods).food;
     expect(need, 'зимой это племя должно проедать больше, чем добывает').toBeGreaterThan(0);
 
-    // Самый щедрый случай: весь дневной запас каждый день зимы, деньги не в счёт.
-    const perDay = marketStock(s, GOOD_BY_ID.food);
+    // Самый щедрый случай: весь запас каждого привоза всю зиму, деньги не в счёт.
+    const perDay = marketSupply(s, GOOD_BY_ID.food, NOW) / shiftDays();
     expect(
       perDay * SEASON_DAYS,
       'рынок закрывает зиму целиком — зима перестала быть угрозой',
     ).toBeLessThan(need * SEASON_DAYS);
 
-    // А деньги как раз в счёт: на один дневной запас уходит больше, чем приносит
+    // А деньги как раз в счёт: на запас одного игрового дня уходит больше, чем приносит
     // высокий налог за всю зиму.
     s.tax = 'high';
-    expect(batchCost(GOOD_BY_ID.food, marketLevelOf(s), 0, perDay)).toBeGreaterThan(
-      taxIncomePerDay(s) * SEASON_DAYS,
-    );
+    expect(marketLot(s, GOOD_BY_ID.food, Math.floor(perDay), NOW).gold).toBeGreaterThan(taxIncomePerDay(s) * SEASON_DAYS);
   });
 });
 
 describe('караван', () => {
   it('в пути груз не числится ни на складе, ни в доступных ресурсах', () => {
     const s = city();
-    s.gold = 500;
-    const good: GoodId = 'wood';
-    expect(marketOffer(s).some((g) => g.id === good)).toBe(true);
-    const woodBefore = s.resources.wood;
+    s.gold = 50_000;
+    const def = brought(s);
+    const good = def.id;
+    const r = def.resource!;
+    s.resources[r] = 0;
+    const before = s.resources[r];
     const goldBefore = s.gold;
-    const check = marketCheck(s, good, 5);
+    const check = marketCheck(s, good, 5, NOW);
 
-    expect(buyGoods(s, good, 5)).toBeNull();
+    expect(buyGoods(s, good, 5, NOW)).toBeNull();
     expect(s.gold).toBe(goldBefore - check.cost);
     expect(s.caravans).toHaveLength(1);
     // Пока телега в пути, склад её груза не видит. Дорога телеги — настоящие секунды, шаг — игровые:
@@ -351,42 +352,20 @@ describe('караван', () => {
     const step = caravanSeconds(s) / 4;
     expect(step, 'точка внутри области: шаг короче дороги').toBeLessThan(caravanSeconds(s));
     tick(s, step, { offline: true });
-    expect(s.resources.wood).toBeLessThanOrEqual(woodBefore + productionPerDay(s).wood);
-    const carried = s.caravans[0].count;
-    expect(carried).toBe(5);
+    expect(s.resources[r]).toBeLessThanOrEqual(before + productionPerDay(s)[r]);
+    expect(s.caravans[0].count).toBe(5);
 
     catchUp(s, s.caravans[0].arriveAt - s.time + 1, 1);
     expect(s.caravans).toHaveLength(0);
   });
 
-  it('отмена возвращает золото целиком и освобождает дневной запас', () => {
+  it('доехавший караван кладёт груз на склад, снаряжение — в счётчик снаряжения', () => {
     const s = city();
-    s.gold = 500;
-    const goldBefore = s.gold;
-    const woodBefore = s.resources.wood;
-    expect(buyGoods(s, 'wood', 4)).toBeNull();
-    const left = marketLeft(s, GOOD_BY_ID.wood);
-
-    expect(cancelCaravan(s, s.caravans[0].id)).toBeNull();
-    expect(s.gold).toBe(goldBefore);
-    expect(s.caravans).toHaveLength(0);
-    expect(s.resources.wood).toBe(woodBefore);
-    expect(marketLeft(s, GOOD_BY_ID.wood)).toBe(left + 4);
-  });
-
-  it('доехавший караван кладёт груз на склад', () => {
-    const s = city();
-    s.gold = 500;
-    s.resources.iron = 0;
-    const good: GoodId = 'eq:spear';
-    // Снаряжение попадает не в ресурсы, а в счётчики снаряжения.
-    const spears = s.equipment.spear;
-    s.market.bought = {};
-    s.market.day = dayOf(s.time);
-    if (marketOffer(s).some((g) => g.id === good)) {
-      expect(buyGoods(s, good, 1)).toBeNull();
-      catchUp(s, s.caravans[0].arriveAt - s.time + 1, 1);
-      expect(s.equipment.spear).toBe(spears + 1);
-    }
+    s.gold = 50_000;
+    const def = marketOffer(s, NOW).find((g) => g.equipment)!;
+    const before = s.equipment[def.equipment!] ?? 0;
+    expect(buyGoods(s, def.id, 1, NOW)).toBeNull();
+    catchUp(s, s.caravans[0].arriveAt - s.time + 1, 1);
+    expect(s.equipment[def.equipment!]).toBe(before + 1);
   });
 });

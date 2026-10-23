@@ -21,7 +21,7 @@ import { daysSpan } from '../span';
 
 export { assignBonded, assignWorker, changeFreeJob, unassignBonded, unassignWorker } from './workers';
 export { cancelForge, forgeCheck, startForge } from './smithy';
-export { buyGoods, cancelCaravan, marketCheck, saleCheck, sellBonded } from './market';
+export { buyGoods, marketCheck, saleCheck, sellGoods } from './market';
 export { releaseBonded } from './mutiny';
 export { cancelRecruit, startRecruit } from './army';
 export { dismissSoldiers } from './upkeep';

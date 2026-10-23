@@ -52,7 +52,7 @@ export type Why = 'arrive' | 'cat' | 'uncat' | 'poured' | 'come' | 'news' | 'rep
 export type Order = 'cat' | 'uncat' | 'wine' | 'wife' | 'dismiss' | 'pour' | 'night';
 
 /** Звук жизни покоев: стук, дверь, шаги людей и кота, мяу, налить, глоток, музыка ночи. */
-export type LifeCue = 'knock' | 'doorOpen' | 'doorShut' | 'stepFolk' | 'stepFolkSoft' | 'catStep' | 'catLeap' | 'catLand' | 'meow' | 'pour' | 'gulp' | 'night' | 'letter';
+export type LifeCue = 'knock' | 'knockFar' | 'doorOpen' | 'doorShut' | 'stepFolk' | 'stepFolkSoft' | 'catStep' | 'catLeap' | 'catLand' | 'meow' | 'pour' | 'gulp' | 'night' | 'letter';
 
 /** Что правитель делает — режиссёру: где стоит, куда смотрит, свободен ли. */
 export interface RulerNow {
@@ -370,13 +370,28 @@ export class ChambersLife {
   }
 
   /**
-   * Гонец с вестью (Г-10): стук в дверь, поднимается, входит, кланяется, протягивает письмо. Нельзя сейчас — идёт сцена,
-   * ночь, разговор, гонец уже здесь или в покоях уже двое: `false`, интерфейс позовёт снова.
+   * Гонец за дверью (ПК-1): три тихих удара — тише звуков покоев, сцену не останавливают, глаз не уводят. Войдёт он, только
+   * когда впустят (`summonHerald`).
+   */
+  heraldKnocks(): void {
+    this.run(this.farKnock());
+  }
+
+  private *farKnock(): Script {
+    for (let i = 0; i < 3; i++) {
+      this.host.cue('knockFar', [DOOR.x, 1.3, -HALF - 0.1]);
+      yield wait(0.26, this.clock);
+    }
+  }
+
+  /**
+   * Гонца впустили (ПК-1): поднимается, открывает, входит, кланяется — и рассказывает. Нельзя сейчас — идёт сцена, ночь,
+   * разговор, гонец уже здесь или в покоях уже двое: `false`, двор позовёт, когда освободится.
    */
   summonHerald(): boolean {
     if (this.busyN > 0 || this.night || this.talking || this.folk.get('herald')?.visible) return false;
-    // Бюджет живых: в покоях разом — не больше двух людей (и кот); третьим гонец подождёт за дверью.
-    if ([...this.folk.values()].filter((p) => p.visible).length > 1) return false;
+    // Бюджет живых: в покоях разом — не больше двух людей (и кот); советник у стола не в счёт — он стоит на месте.
+    if ([...this.folk.entries()].filter(([w, p]) => p.visible && w !== 'advisor').length > 1) return false;
     this.run(this.heraldArrives());
     return true;
   }
@@ -393,6 +408,25 @@ export class ChambersLife {
     }
     this.placeAdvisor();
     this.run(this.advisorReports());
+  }
+
+  /** Советник без доклада (ПК-1): стоит у стола со свитком, кивает правителю и молчит. */
+  advisorStands(): void {
+    this.run(this.advisorNods());
+  }
+
+  private *advisorNods(): Script {
+    yield () => this.counsel !== null;
+    if (this.folk.get('advisor')?.visible) return;
+    this.placeAdvisor();
+    const a = this.person('advisor');
+    yield wait(0.8, this.clock);
+    const r = this.host.ruler();
+    a.face(Math.atan2(r.eye[0] - a.x, r.eye[2] - a.z));
+    yield () => a.settled;
+    a.want.bow = 0.25;
+    yield wait(0.6, this.clock);
+    a.want.bow = 0;
   }
 
   /** Советник у стола со свитком доклада. */
@@ -706,8 +740,8 @@ export class ChambersLife {
   }
 
   /**
-   * Гонец: три частых удара в дверь снаружи, шаги по лестнице, открывает, входит и подходит с письмом. Если дверь уже
-   * открыта (слуга внизу не затворил) — входит без стука.
+   * Гонец (ПК-1): уже постучал и его впустили — шаги по лестнице, открывает, входит и подходит. Письма нет: весть он
+   * рассказывает, а место её открывает правитель («Открыть»).
    */
   private *heraldArrives(): Script {
     this.busyN++;
@@ -715,22 +749,12 @@ export class ChambersLife {
     yield () => this.herald !== null;
     const h = this.person('herald');
     this.guest = 'herald';
-    h.carry = 'letter';
+    h.carry = 'none';
     h.place(STAIR[1].x, STAIR[1].z, Math.PI / 2);
     h.visible = true;
     h.go([STAIR[0], LANDING], 0);
     yield () => !h.moving;
-    if (this.door.a < OPEN * 0.5) {
-      h.face(0);
-      yield () => h.settled;
-      // Стук спешный — гонец не ждёт: три удара чаще и твёрже, чем стучит правитель.
-      for (let i = 0; i < 3; i++) {
-        this.host.cue('knock', [DOOR.x, 1.3, -HALF - 0.1]);
-        yield wait(0.24, this.clock);
-      }
-      yield wait(0.5, this.clock);
-      yield* this.openDoor(h);
-    }
+    if (this.door.a < OPEN * 0.5) yield* this.openDoor(h);
     h.go([THRESH, INSIDE], null);
     yield () => !h.moving;
     this.busyN--;

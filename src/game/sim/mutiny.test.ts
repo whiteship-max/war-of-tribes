@@ -35,7 +35,8 @@ import {
 import { BUILDING_BY_ID } from '../data/buildings';
 import { powerOf } from '../battle/price';
 import { BONDED_JOBS, JOBS, JOB_BY_ID } from '../data/jobs';
-import { BONDED_GOOD, BONDED_PAYBACK_DAYS, BONDED_SALE, GOODS, GOOD_BY_ID, offerFor } from '../data/market';
+import { BONDED_GOOD, BONDED_PAYBACK_DAYS, GOODS, GOOD_BY_ID, offerFor } from '../data/market';
+import { SHIFT, shiftOf } from '../marketrules';
 import { MUTINY_EVENT, ORDER_TEXT } from '../data/order';
 import { EVENT_BY_ID, eventCost } from '../data/events';
 import {
@@ -45,12 +46,10 @@ import {
   buildRate,
   buildingOfType,
   buildingProduction,
-  dayOf,
   defense,
   foodConsumptionPerDay,
   hiddenStash,
   housingCapacity,
-  marketOffer,
   moraleBreakdown,
   mutinyForecast,
   orderBreakdown,
@@ -85,7 +84,17 @@ import {
   unassignBonded,
 } from './workers';
 import { addBonded, loseBonded } from './population';
-import { buyGoods, cancelCaravan, marketCheck, saleCheck, sellBonded } from './market';
+import {
+  bondedSaleLeft,
+  buyGoods,
+  marketBoost,
+  marketCheck,
+  marketLeft,
+  marketOffer,
+  marketSold,
+  saleCheck,
+  sellGoods,
+} from './market';
 import { unitWord } from '@/ui/next/MarketNew';
 import { mutinyFalls, mutinyRelease, mutinySuppress, releaseBonded, unrestTick } from './mutiny';
 import { applyExpedition } from './expedition';
@@ -596,64 +605,78 @@ describe('исход мятежа объявлен заранее и совпа�
 
 // ------------------------------------------------------------------ рынок ---
 
+/** 10:00 UTC — привоз 09:00–12:00 (сетка РН-1б, каждые 3 часа): рынок считает привоз по настоящим часам. */
+const NOW = Date.UTC(2026, 9, 23, 10, 0);
+
 describe('невольничий ряд — та же лавка, а не вторая', () => {
   it('ряд стоит всегда и места в круговороте товаров не занимает', () => {
     const s = town();
     expect(GOODS.some((g) => g.id === 'bonded'), 'в тасуемом списке ряда нет').toBe(false);
-    for (let day = 1; day <= 40; day++) {
+    for (let k = 0; k < 40; k++) {
+      const now = NOW + k * SHIFT;
       for (const level of [1, 4, 10]) {
-        s.time = (day - 1) * DAY_LENGTH;
         buildingOfType(s, 'market')!.level = level;
-        // Прилавок дня тот же, что был бы без невольников, и ряд — последней строкой.
-        expect(marketOffer(s).map((g) => g.id)).toEqual([...offerFor(dayOf(s.time), level, GOODS).map((g) => g.id), 'bonded']);
-        expect(marketCheck(s, 'bonded', 1).blocked).toBeNull();
+        // Прилавок привоза тот же, что был бы без невольников, и ряд — последней строкой.
+        expect(marketOffer(s, now).map((g) => g.id)).toEqual([...offerFor(shiftOf(now), level, GOODS).map((g) => g.id), 'bonded']);
+        expect(marketCheck(s, 'bonded', 1, now).blocked).toBeNull();
       }
     }
   });
 
-  it('покупка — тем же караваном: золото сразу, люди по приходу, отмена возвращает золото', () => {
+  it('покупка — тем же караваном: золото сразу, люди по приходу; отмены нет', () => {
     const s = town();
     const gold = s.gold;
-    const check = marketCheck(s, 'bonded', 3);
-    expect(buyGoods(s, 'bonded', 3)).toBeNull();
+    const check = marketCheck(s, 'bonded', 3, NOW);
+    expect(buyGoods(s, 'bonded', 3, NOW)).toBeNull();
     expect(gold - s.gold).toBe(check.cost);
     expect(s.bonded).toBe(0);
     catchUp(s, s.caravans[0].arriveAt - s.time + 1, 1);
     expect(s.bonded).toBe(3);
-
-    expect(buyGoods(s, 'bonded', 2)).toBeNull();
-    const back = s.gold;
-    expect(cancelCaravan(s, s.caravans[0].id)).toBeNull();
-    expect(s.gold).toBeGreaterThan(back);
-    expect(s.bonded).toBe(3);
   });
 
-  it('цена растёт за день, и дневной запас не обходится дроблением', () => {
+  it('цена растёт с каждым, и запас привоза не обходится дроблением', () => {
     const s = town();
-    const first = marketCheck(s, 'bonded', 1).cost;
+    s.gold = 10_000_000;
+    const first = marketCheck(s, 'bonded', 1, NOW).cost;
     expect(first).toBeGreaterThanOrEqual(BONDED_GOOD.price);
-    const stock = BONDED_GOOD.stock + BONDED_GOOD.stockPerLevel * 4;
-    for (let i = 0; i < stock; i++) expect(buyGoods(s, 'bonded', 1)).toBeNull();
-    expect(buyGoods(s, 'bonded', 1)).not.toBeNull();
-    expect(marketCheck(s, 'bonded', 1).blocked).not.toBeNull();
+    const stock = marketLeft(s, BONDED_GOOD, NOW);
+    for (let i = 0; i < stock; i++) expect(buyGoods(s, 'bonded', 1, NOW)).toBeNull();
+    expect(marketCheck(s, 'bonded', 1, NOW).cost).toBeGreaterThan(first);
+    expect(buyGoods(s, 'bonded', 1, NOW)).not.toBeNull();
+    expect(marketCheck(s, 'bonded', 1, NOW).blocked).not.toBeNull();
   });
 
-  it('продать можно дешевле, чем купить, и не больше дневного запаса ряда', () => {
+  it('продать можно дешевле, чем купить, и не больше запаса ряда за привоз', () => {
     const s = town();
-    s.bonded = 100;
-    const price = Math.floor(BONDED_GOOD.price * BONDED_SALE);
-    expect(price).toBeLessThan(BONDED_GOOD.price);
+    s.bonded = 1000;
+    const sale = saleCheck(s, 'bonded', 4, NOW);
+    expect(sale.lot.first).toBeLessThan(marketCheck(s, 'bonded', 1, NOW).cost);
     const gold = s.gold;
-    expect(sellBonded(s, 4)).toBeNull();
-    expect(s.gold - gold).toBe(4 * price);
-    expect(s.bonded).toBe(96);
-    const left = saleCheck(s, 1).left;
-    expect(sellBonded(s, left + 1)).not.toBeNull();
-    expect(sellBonded(s, left)).toBeNull();
-    expect(sellBonded(s, 1)).not.toBeNull();
-    // Новый день — торговцы берут снова.
-    catchUp(s, DAY_LENGTH, 1);
-    expect(sellBonded(s, 1)).toBeNull();
+    expect(sellGoods(s, 'bonded', 4, NOW)).toBeNull();
+    expect(s.gold - gold).toBe(sale.gold);
+    expect(s.bonded).toBe(996);
+    const left = saleCheck(s, 'bonded', 1, NOW).left;
+    expect(left).toBe(bondedSaleLeft(s, NOW));
+    expect(sellGoods(s, 'bonded', left + 1, NOW)).not.toBeNull();
+    expect(sellGoods(s, 'bonded', left, NOW)).toBeNull();
+    expect(sellGoods(s, 'bonded', 1, NOW)).not.toBeNull();
+    // Новый привоз — торговцы берут снова.
+    expect(sellGoods(s, 'bonded', 1, NOW + SHIFT)).toBeNull();
+  });
+
+  it('Казначей выторговывает за невольника больше — как и за любой товар', () => {
+    const s = town();
+    s.bonded = 10;
+    const plain = saleCheck(s, 'bonded', 1, NOW).gold;
+    s.council = {
+      seats: { treasurer: { n: 1, name: 'Тест', level: 3, trait: 'zealous', age0: 40, at: 0, until: 1e12, dies: false } },
+      took: { w: 0, n: [] },
+      hired: 1,
+      fees: 0,
+      paid: 0,
+    } as unknown as GameState['council'];
+    expect(marketBoost(s)).toBeGreaterThan(1);
+    expect(saleCheck(s, 'bonded', 1, NOW).gold).toBeGreaterThan(plain);
   });
 
   it('невольник не окупается быстрее объявленного срока ни в каком положении', () => {
@@ -683,9 +706,9 @@ describe('невольничий ряд — та же лавка, а не вто
     // Пока караван идёт, в казну капает налог; мерка здесь — торговля, а не сбор.
     s.tax = 'none';
     const gold = s.gold;
-    expect(buyGoods(s, 'bonded', 5)).toBeNull();
+    expect(buyGoods(s, 'bonded', 5, NOW)).toBeNull();
     catchUp(s, s.caravans[0].arriveAt - s.time + 1, 1);
-    expect(sellBonded(s, 5)).toBeNull();
+    expect(sellGoods(s, 'bonded', 5, NOW)).toBeNull();
     expect(s.gold).toBeLessThan(gold);
   });
 
@@ -708,6 +731,8 @@ describe('сохранение: новые поля версию не подни
     delete raw.bondedWork;
     delete raw.unrest;
     delete raw.market.sold;
+    delete raw.market.w;
+    raw.market.day = 3;
     const s = deserialize(JSON.stringify(raw));
     expect(s).not.toBeNull();
     // Невольники версию не подняли: 14 — жалованье, 15 — стол событий почты, 16 — поворот
@@ -727,13 +752,13 @@ describe('сохранение: новые поля версию не подни
     s.bonded = 40;
     expect(assignBonded(s, at(s, 'mine'), 9)).toBeNull();
     s.unrest = 33;
-    s.market.day = dayOf(s.time);
-    s.market.sold = { bonded: 2 };
+    expect(sellGoods(s, 'bonded', 2, NOW)).toBeNull();
     const back = deserialize(serialize(s))!;
-    expect(back.bonded).toBe(40);
+    expect(back.bonded).toBe(38);
     expect(back.bondedWork).toEqual(s.bondedWork);
     expect(back.unrest).toBe(33);
-    expect(back.market.sold).toEqual({ bonded: 2 });
+    expect(back.market).toEqual(s.market);
+    expect(marketSold(back, 'bonded', NOW)).toBe(2);
   });
 });
 
@@ -806,11 +831,12 @@ describe('тон: буднично, без одобрения и без глум
 
   it('на рынке невольника продают «за человека», а не «за штуку»', () => {
     expect(ORDER_TEXT.market.unit).toBe('за человека');
-    // Единица цены — одна функция на покупку и продажу (`next/MarketNew.unitWord`, UI-7); товар — «за штуку».
+    // Единица цены — одна функция на покупку и продажу (`next/MarketNew.unitWord`, UI-7); товар — «за штуку». С РН-1 панель
+    // сделки одна на обе стороны — и слово в ней одно.
     expect(unitWord(BONDED_GOOD)).toBe('за человека');
     expect(unitWord(GOODS[0])).toBe('за штуку');
     const src = code('src/ui/next/MarketNew.tsx');
-    expect(src.match(/\bunitWord\(def\)/g)?.length, 'покупка и продажа говорят одним словом').toBe(2);
+    expect(src.match(/\bunitWord\(def\)/g)?.length, 'покупка и продажа говорят одним словом').toBe(1);
   });
 
   it('все профессии невольников названы теми же словами, что у вольных', () => {

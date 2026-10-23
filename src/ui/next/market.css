@@ -1,42 +1,118 @@
 /*
- * Рынок (UI-7, docs/ui_v2.md, 5.6): прилавок таблицей выбора, телеги таблицей, покупка выбранного под ними. Шкалы —
- * docs/ui_audit.md, раздел 3; отмена телеги — действие, цель 44 (`--tap`).
+ * Рынок (РН-1, docs/city_v3.md, «Решения РН-1»): шапка привоза, сетка плиток 4×4 и панель сделки — в одном поле зрения без
+ * прокрутки на 390×844 (окно рынка встаёт шторкой во всю высоту). Цели касания — 44 (`--tap`); мелкий текст — 12 px.
  */
 .mk {
   display: grid;
+  gap: 4px;
+}
+.mk-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
-.mk h3 {
-  margin: 4px 0 0;
+.mk-shift,
+.mk-purse {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
-.mk h3 .muted {
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
+.mk-shift > svg,
+.mk-purse > svg {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
 }
-.mk > .kit-row {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-.mk-x {
+.mk-shift > span,
+.mk-purse > span {
   display: grid;
-  place-items: center;
-  width: 44px;
-  min-height: 44px;
-  margin: 0 auto;
-  border: 0;
-  background: none;
+  line-height: 1.15;
+}
+.mk-purse > span {
+  text-align: right;
+}
+.mk-top small,
+.mk-legend {
+  font-size: 12px;
   color: var(--muted);
+}
+.mk-legend {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0 4px;
+}
+
+.mk-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+.mk-tile {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 3px 5px;
+  border: 1px solid var(--m-plate-rim);
+  border-radius: 9px;
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
-.mk-x svg {
+.mk-tile.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), var(--m-plate-bevel);
+}
+.mk-tile.dim {
+  opacity: 0.55;
+}
+.mk-tn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.mk-tn svg {
+  flex: 0 0 auto;
   width: 16px;
   height: 16px;
 }
-.mk-buy {
+.mk-tp,
+.mk-ts {
+  display: flex;
+  justify-content: space-between;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+.mk-tp b {
+  color: var(--accent);
+}
+.mk-tp i {
+  font-style: normal;
+  color: var(--good);
+}
+.mk-ts {
+  color: var(--muted);
+}
+.mk-ts em {
+  font-style: normal;
+  color: var(--good);
+}
+
+.mk-deal {
   display: grid;
-  gap: 8px;
-  padding: 8px 12px 12px;
+  gap: 4px;
+  padding: 6px 8px;
   border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
   background: var(--m-plate);
@@ -45,25 +121,123 @@
   outline: var(--m-stitch);
   outline-offset: -4px;
 }
-.mk-act {
+.mk-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.mk-seg button,
+.mk-num button,
+.mk-quick button {
+  min-height: var(--tap);
+  border: 1px solid var(--line-2, var(--line));
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.mk-seg button {
+  font-weight: 600;
+}
+.mk-seg button small {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
+}
+.mk-seg button.on,
+.mk-quick button.on {
+  border-color: var(--accent);
+  background: rgba(232, 164, 60, 0.16);
+}
+.mk-what {
   display: flex;
   align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.mk-what svg {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+}
+.mk-what .muted {
+  margin-left: auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.mk-qty {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.mk-num,
+.mk-quick {
+  display: flex;
+  gap: 3px;
+}
+.mk-num button {
+  width: 40px;
+  font-size: 18px;
+}
+.mk-num input {
+  width: 54px;
+  min-height: var(--tap);
+  border: 1px solid var(--line-2, var(--line));
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+}
+.mk-quick button {
+  min-width: 40px;
+  padding: 0 4px;
+}
+.mk-quick button:disabled,
+.mk-num button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.mk-sum {
+  display: flex;
   justify-content: space-between;
   gap: 8px;
-}
-.mk-act .cost {
   margin: 0;
 }
-.mk-gain {
+.mk-sum > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.mk-sum dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.mk-sum dd {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  margin: 0;
   font-weight: 600;
-  color: var(--good);
+  white-space: nowrap;
 }
-.mk-gain svg {
-  width: 16px;
-  height: 16px;
+.mk-sum dd.no {
+  color: var(--bad);
+}
+.mk-sum dd svg {
+  width: 14px;
+  height: 14px;
+}
+.mk-sum small {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
+}
+.mk .note.order-after {
+  margin: 0;
+  font-size: 12px;
 }
 .mk .note.order-after.warn {
   color: var(--warn, #d9a441);

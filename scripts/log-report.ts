@@ -11,18 +11,18 @@ import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { startForge } from '@/game/sim/smithy';
 import { startRecruit } from '@/game/sim/army';
-import { buyGoods } from '@/game/sim/market';
+import { buyGoods, marketLeft, marketOffer } from '@/game/sim/market';
 import { seeded, setRandom } from '@/game/sim/random';
 import { serialize } from '@/game/save';
 import { LOG_MAX, LOG_MAX_DAYS } from '@/game/sim/log';
-import { dayOf, marketLeft, marketOffer, storageCap } from '@/game/derived';
+import { dayOf, storageCap } from '@/game/derived';
 import { DAY_LENGTH, MAX_OFFLINE_DAYS } from '@/game/constants';
 import { awayGameSeconds } from '@/game/sim/tick';
-import { away, pilot, player, stand } from './autopilot';
+import { START, away, pilot, player, stand } from './autopilot';
 import { AWAY_JITTER, AWAY_STEP, EVENT_TTL, eventId, mailArrive, mailStep, resolveEvent } from '@/game/sim/mail';
 import { EVENT_BY_ID } from '@/game/data/events';
 import { LETTER_DECISIONS } from '@/world/letters';
-import { dayRealSeconds, realSeconds } from '@/game/pace';
+import { dayRealSeconds, realMs, realSeconds } from '@/game/pace';
 
 const HOURS = Number(process.env.HOURS ?? 3);
 const STEP = Number(process.env.STEP ?? 15);
@@ -103,13 +103,15 @@ async function play(hours: number, trade = false): Promise<GameState> {
       // Казна пополняется извне: считаем строки летописи, а не золото. У живого
       // игрока её пополняют налог и взятые замки.
       s.gold = Math.max(s.gold, 200_000);
-      for (const g of marketOffer(s)) {
+      // Часы партии идут за игровым временем: привоз (РН-1) меняется по настоящим часам, и рынок отчёта — тоже.
+      const now = START + realMs(s.time);
+      for (const g of marketOffer(s, now)) {
         // В полный склад не покупаем. Это не поблажка отчёту, а поведение
         // игрока: за товар, который испарится на пороге, платят золотом, и
         // второй раз так никто не делает. Бот, месяц заказывающий камень в
         // полный амбар, мерил бы не летопись, а собственную глупость.
         const room = g.resource ? storageCap(s) - s.resources[g.resource] : Infinity;
-        for (let i = 0; i < Math.min(marketLeft(s, g), 8, room); i++) buyGoods(s, g.id, 1);
+        for (let i = 0; i < Math.min(marketLeft(s, g, now), 8, room); i++) buyGoods(s, g.id, 1, now);
       }
     }
     // Кузница под непрерывным заказом: очередь пустеет — игрок ставит новый.

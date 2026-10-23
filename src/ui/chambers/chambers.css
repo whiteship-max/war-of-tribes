@@ -558,6 +558,58 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Стук гонца (ПК-1): справа внизу, над клубком; покои не закрывает — ходить и смотреть можно. */
+.ch-knock {
+  position: absolute;
+  right: calc(var(--safe-right) + 12px);
+  bottom: calc(var(--safe-bottom) + 42px + var(--tap) + 10px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 220, 170, 0.22);
+  border-radius: 12px;
+  background: rgba(24, 17, 12, 0.82);
+  pointer-events: auto;
+  animation: ch-knock-in 0.35s ease-out;
+}
+
+.ch-knock small {
+  flex: 1 0 100%;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.ch-knock button {
+  min-height: var(--tap);
+  padding: 0 14px;
+  border: 1px solid rgba(255, 220, 170, 0.22);
+  border-radius: 10px;
+  background: rgba(40, 29, 20, 0.9);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ch-knock .ch-knock-in {
+  border-color: rgba(232, 164, 60, 0.6);
+  background: rgba(86, 56, 26, 0.95);
+}
+
+@keyframes ch-knock-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
 .ch-ball:disabled {
   color: var(--muted);
   font-variant-numeric: tabular-nums;

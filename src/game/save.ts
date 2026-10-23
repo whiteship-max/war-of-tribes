@@ -15,6 +15,7 @@ import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
 import { mergeCouncil } from './sim/council';
+import { mergeMarket } from './sim/caravan';
 import { mergeEstates } from './sim/estates';
 import { dynastyStep, mergeRealm, newHouse, skillLine } from './sim/dynasty';
 import { adminNotice, creditTech, fateNotice, gateOf, levelName, techLevel } from './sim/tech';
@@ -455,9 +456,9 @@ export function deserialize(json: string): GameState | null {
       // берутся как есть. Сохранение, записанное до невольников, приезжает без
       // поля — тогда пустой словарь, и порядок наведёт тот же normalizeAssignments.
       bondedWork: { ...(data.bondedWork ?? {}) },
-      // Счёт проданного за день появился позже счёта купленного: у старого
-      // сохранения его нет, и он начинается пустым, а не undefined.
-      market: { day: 0, bought: {}, sold: {}, ...(data.market ?? {}) },
+      // Рынок — одной дверью чтения (`sim/market.mergeMarket`): запись до РН-1 (счёт дня `day`) приезжает пустым привозом,
+      // нажим и сделки — только целыми записями.
+      market: mergeMarket(data.market),
       // Изучение округи мержится по полям по той же причине, что рынок и
       // ежедневка: спред `...data` на уровень ниже не спускается.
       survey: { ...base.survey, ...(data.survey ?? {}) },

@@ -31,11 +31,10 @@ import { daypartOf, household, type TalkCtx } from './talk';
 import { loadMemory, saveMemory, type ChambersMemory } from './memory';
 import { adultScenes } from './adult';
 import { Court } from './court';
-import { AdvisorPlate, HeraldPlate } from './CourtWindow';
-import type { NewsDoor, WorldNews } from './tidings';
-import type { ChronEvent } from '@/ui/realm/annals';
-import type { GameState } from '@/game/types';
-import type { Report } from '@/world/types';
+import { AdvisorPlate, HeraldPlate, KnockBar } from './CourtWindow';
+import type { CourtSource, Moment, NewsDoor } from './tidings';
+import { serverNow } from '@/net/clock';
+import { buildingOfType } from '@/game/derived';
 
 /** Сцена города глазами покоев: у общей оболочки сцены этих рычагов нет (`render/city/scene.ts`). */
 type CityLike = TribeScene & {
@@ -59,9 +58,9 @@ interface Live {
   /** Память устройства (кот, разговоры) и дом правителя — имена супруги, служанки и слуги. */
   memory: ChambersMemory;
   house: ReturnType<typeof household>;
-  /** Гонец и советник (Г-10): очередь важных вестей и доклад после отлучки. */
+  /** Гонец и советник (ПК-1): стук с важной вестью после входа и доклад после отлучки. */
   court: Court;
-  /** Отписка двора от стора мира. */
+  /** Отписка двора от сторов мира и партии и от скрытия страницы. */
   unwatch: () => void;
   subs: Set<() => void>;
 }
@@ -99,28 +98,44 @@ function rise(scene: CityLike | null = asCity(activeScene())): Live | null {
   const room = new ChambersRoom(keep, armsOr(s.profile.arms), scene.quality, () => asCity(activeScene())?.cityShare()?.uniforms.cityTex.value ?? null, memory.life, chief);
   const sound = new ChambersSound();
   const court = new Court(room.life, {
-    world: worldNews,
-    advisor: () => {
-      const g = useGame.getState().s;
-      const w = worldNews();
-      return { events: chron ? chron(g.log, w.reports) : [], time: g.time, gold: g.gold, inbox: g.inbox.length, world: w };
-    },
-    memory: () => memory.advisor,
+    source: courtSource,
+    now: courtNow,
+    memory: () => memory.court,
     remember: (m) => {
-      memory.advisor = m;
+      memory.court = m;
       saveMemory(memory);
     },
     open: goNews,
-    later: (f, ms) => void setTimeout(f, ms),
   });
   court.onChange = notify;
-  // Мир переменился — нет ли важной вести для гонца (письмо, пролом, предложение у стен, итог боя).
-  const unwatch = useWorld.subscribe((w, was) => {
-    if (w.letters !== was.letters || w.siege !== was.siege || w.camp !== was.camp || w.reports !== was.reports) court.look();
+  // Журнал переменился — нет ли важной вести для гонца (поход на нас, осада, мятеж, бедствие, кончился хлеб). Приходов по
+  // часам нет: только перемена журнала (ПК-1).
+  const offWorld = useWorld.subscribe((w, was) => {
+    if (w.letters !== was.letters || w.siege !== was.siege || w.reports !== was.reports || w.rivals !== was.rivals || w.ready !== was.ready) court.look();
   });
+  const offGame = useGame.subscribe((g, was) => {
+    if (g.s !== was.s) court.look();
+  });
+  // Свернули аппку — правитель вышел из покоев: от этой минуты мерится отлучка. Развернули — вошёл снова: случившееся
+  // в отлучку — советнику, а не гонцу.
+  const onHide = (): void => {
+    if (typeof document === 'undefined' || !court.entry) return;
+    if (document.visibilityState === 'hidden') court.presence();
+    else court.enter();
+  };
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onHide);
+  const unwatch = (): void => {
+    offWorld();
+    offGame();
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onHide);
+  };
   live = { room, scene: null, sound, view: room.view(), life: room.life.view(), memory, house, court, unwatch, subs: new Set() };
   room.onChange = notify;
-  room.life.onChange = notify;
+  // Покои освободились (сцена, разговор) — впущенный гонец входит.
+  room.life.onChange = () => {
+    notify();
+    live?.court.call();
+  };
   room.life.onRemember = (m) => {
     if (!live) return;
     live.memory.life = m;
@@ -151,19 +166,15 @@ function rise(scene: CityLike | null = asCity(activeScene())): Live | null {
   live.scene = scene;
   cityAudio.hush('chambers', true);
   void sound.start();
-  // Донесения — свежие: советнику вести по ним строки, гонцу — заметить новый бой (пульс перечитывает непустой список).
-  // Летопись событиями — из куска державы (`RealmMenu`), где она и живёт. Советник встаёт к докладу, когда пришло и то, и
-  // другое; нет мира (тесты, стенд без мира) — докладывает по тому, что есть.
-  const reports = (async () => {
+  // Вход — когда донесения мира свежие: до того двор не судит, что «уже было», а что «после входа» (ПК-1, причина 1).
+  void (async () => {
     try {
       await useWorld.getState().loadReports();
     } catch {
       /* мира нет — донесения какие есть */
     }
+    if (live?.court === court) court.enter();
   })();
-  void Promise.all([reports, chronicle()]).then(() => {
-    if (live?.court === court) court.greet();
-  });
   if (probe()) Object.assign(window as unknown as { __chambers?: ChambersRoom; __court?: Court }, { __chambers: room, __court: court });
   notify();
   return live;
@@ -175,6 +186,7 @@ function fall(): void {
   if (!l) return;
   live = null;
   l.unwatch();
+  l.court.presence();
   l.court.dispose();
   l.scene?.leaveInside(l.room);
   l.sound.stop();
@@ -235,23 +247,15 @@ function talkBase(): Omit<TalkCtx, 'who' | 'why' | 'mem' | 'roll'> {
   };
 }
 
-/** Летопись событиями (`realm/annals.chronEvents`) — когда кусок державы пришёл. */
-let chron: ((log: GameState['log'], reports: readonly Report[]) => ChronEvent[]) | null = null;
-
-/** Взять летопись из куска державы (один раз на игру). */
-async function chronicle(): Promise<void> {
-  if (chron) return;
-  try {
-    chron = (await import('@/ui/realm/RealmMenu')).chronEvents;
-  } catch {
-    /* кусок не пришёл (нет сети) — доклад без событий летописи: угрозы и казна */
-  }
+/** Что видно двору — партия и мир, как их отдают сторы, на эту минуту. */
+function courtSource(): CourtSource {
+  const w = useWorld.getState();
+  return { s: useGame.getState().s, letters: w.letters, siege: w.siege, reports: w.reports, marching: w.rivals.marching, world: worldNow(), ready: w.ready };
 }
 
-/** Вести мира — как их отдаёт стор мира, на эту минуту. */
-function worldNews(): WorldNews {
-  const w = useWorld.getState();
-  return { letters: w.letters, siege: w.siege, camp: w.camp, reports: w.reports, now: worldNow() };
+/** Минута на трёх часах: партии, мира и игрока (отлучка — без ускорения). */
+function courtNow(): Moment {
+  return { game: useGame.getState().s.time, world: worldNow(), real: serverNow() };
 }
 
 /** Открыть весть гонца или строку доклада — дверью игры, поверх покоев: закрыл окно — снова в покоях. */
@@ -261,9 +265,6 @@ export function goNews(d: NewsDoor): void {
   switch (d.to) {
     case 'mail':
       realm.openMail(d.key);
-      break;
-    case 'inbox':
-      realm.openMail(null);
       break;
     case 'report':
       realm.openChronicle(d.id);
@@ -275,8 +276,16 @@ export function goNews(d: NewsDoor): void {
     case 'siege':
       g.openSiege();
       break;
-    case 'camp':
-      g.openCamp();
+    case 'map':
+      g.openMap();
+      break;
+    case 'store': {
+      const b = buildingOfType(g.s, 'storage');
+      if (b) g.openBuilding(b.id);
+      break;
+    }
+    case 'stab':
+      realm.show('stability');
       break;
   }
 }
@@ -404,8 +413,6 @@ export function Chambers() {
     let t = 0;
     let up: Live | null = null;
     const tryRise = (): void => {
-      // Гонец ждал, пока кончится сцена или разговор, — позвать снова.
-      live?.court.call();
       const l = rise();
       // Перерисовка — только когда комната встала, а не каждые 400 мс (Г-9: она перезаводила срок последней реплики).
       if (l && l !== up) {
@@ -598,6 +605,9 @@ export function Chambers() {
         </button>
       )}
 
+      {/* Стук гонца (ПК-1): «Впустить» и «Позже» — поверх покоев, сцену не закрывают. */}
+      {live?.court.knocking && !night && <KnockBar court={live.court} />}
+
       {talk && live && !night && talk.who === 'herald' && <HeraldPlate key={talk.n} life={live.room.life} court={live.court} faith={faith} onDone={() => setTalk(null)} />}
       {talk && live && !night && talk.who === 'advisor' && <AdvisorPlate key={talk.n} life={live.room.life} court={live.court} faith={faith} onDone={() => setTalk(null)} />}
 
@@ -645,6 +655,7 @@ export function hitsWords(n: number): string {
 /** Для тестов: живая комната и уборка. */
 export const __chambers = {
   live: (): ChambersRoom | null => live?.room ?? null,
+  court: (): Court | null => live?.court ?? null,
   fall,
   rise,
 };

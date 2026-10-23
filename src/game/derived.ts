@@ -10,7 +10,6 @@ import type {
   EquipmentId,
   FaithId,
   GameState,
-  GoodId,
   JobId,
   ObservanceId,
   ResourceId,
@@ -88,19 +87,7 @@ import { levelOutputMult } from './selfcost';
 import { upgradeCost, upgradeWork } from './labour';
 import { statAt, trainRateAt } from './train';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
-import {
-  BONDED_GOOD,
-  BONDED_SALE,
-  CARAVAN_BASE,
-  CARAVAN_FLOOR,
-  CARAVAN_PER_LEVEL,
-  GOODS,
-  batchCost,
-  goodPrice,
-  goodStock,
-  offerFor,
-  type GoodDef,
-} from './data/market';
+import { CARAVAN_BASE, CARAVAN_FLOOR, CARAVAN_PER_LEVEL } from './data/market';
 import { MUTINY_EVENT, ORDER_TEXT } from './data/order';
 import {
   DAY_PART_UNTIL,
@@ -453,67 +440,6 @@ export function taxQuote(s: GameState, id: TaxDef['id']): { gold: number; morale
 
 /** Уровень рынка. */
 export const marketLevel = (s: GameState): number => buildingOfType(s, 'market')?.level ?? 0;
-
-/**
- * Что стоит на прилавке сегодня. Пусто, пока нет рынка.
- *
- * Невольничий ряд стоит всегда и места в круговороте товаров не занимает: он
- * добавляется к прилавку дня последней строкой, а не тянется из перемешанного
- * списка. Продать невольников — рычаг против мятежа, и рычаг, который есть
- * через день, рычагом не является. Ассортимент прочего от этого не меняется ни
- * на товар.
- */
-export const marketOffer = (s: GameState): GoodDef[] => {
-  const level = marketLevel(s);
-  if (level <= 0) return [];
-  return [...offerFor(dayOf(s.time), level, GOODS), BONDED_GOOD];
-};
-
-/**
- * Сколько единиц товара уже взяли с прилавка сегодня. Счётчик от прошлого дня
- * не считается: прилавок обновляется по номеру дня, а не по тому, успел ли
- * пройти шаг симуляции.
- */
-export const marketBought = (s: GameState, id: GoodId): number => {
-  if (!s.market || s.market.day !== dayOf(s.time)) return 0;
-  return Math.max(0, s.market.bought[id] ?? 0);
-};
-
-/** Дневной запас товара при нынешнем уровне рынка. */
-export const marketStock = (s: GameState, def: GoodDef): number => goodStock(def, marketLevel(s));
-
-/** Сколько ещё можно взять сегодня. */
-export const marketLeft = (s: GameState, def: GoodDef): number =>
-  Math.max(0, marketStock(s, def) - marketBought(s, def.id));
-
-/** Цена следующей единицы с учётом того, сколько уже скупили за день. */
-export const marketPrice = (s: GameState, def: GoodDef): number =>
-  goodPrice(def, marketLevel(s), marketBought(s, def.id));
-
-/** Сколько невольников уже продано торговцам сегодня. Счёт от прошлого дня не считается. */
-export const marketSold = (s: GameState, id: GoodId): number => {
-  if (!s.market || s.market.day !== dayOf(s.time)) return 0;
-  return Math.max(0, s.market.sold?.[id] ?? 0);
-};
-
-/**
- * Сколько невольников торговцы возьмут сегодня. Столько же, сколько приводят за
- * день: уводят не больше, чем могут прокормить в дороге.
- */
-export const bondedSaleLeft = (s: GameState): number =>
-  marketLevel(s) <= 0 ? 0 : Math.max(0, marketStock(s, BONDED_GOOD) - marketSold(s, 'bonded'));
-
-/**
- * Почём торговцы берут одного невольника. Всегда заметно ниже цены, по которой
- * они его приводят, и без роста за день: купить и тут же продать — это отдать
- * торговцам разницу, а не заработать на ней. Казначей (РТ-1) выторговывает свою долю
- * (`treasurerMult`) — выручка рынка, как и налог; до цены ввоза ей далеко и с ним.
- */
-export const bondedSalePrice = (s?: GameState): number => Math.floor(BONDED_GOOD.price * BONDED_SALE * (s ? treasurerMult(s) * merchantsMult(s) : 1));
-
-/** Во что обойдётся партия из `count` единиц. Считается поштучно. */
-export const marketCost = (s: GameState, def: GoodDef, count: number): number =>
-  batchCost(def, marketLevel(s), marketBought(s, def.id), count);
 
 /** Сколько идёт караван при нынешнем уровне рынка, секунд игрового времени. */
 export const caravanSeconds = (s: GameState): GameSec =>

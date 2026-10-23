@@ -1,22 +1,32 @@
-// Гонец и советник в покоях (docs/city_v3.md, Г-10) — сценами, числами, без WebGL: важная весть, пока правитель в покоях, —
-// стук, гонец поднимается, входит, кланяется, протягивает письмо; касание письма открывает эту весть, гонец уходит. После
-// отлучки советник ждёт у стола и докладывает по летописи; строки ведут в донесения; «Ступай» — уходит; второй раз о том же
-// не докладывает. Слой покоев целиком (`Chambers.rise`) — той же дверью «Вестей».
+// Гонец и советник в покоях (docs/city_v3.md, ПК-1) — сценами, без WebGL, на настоящей партии (`createInitialState`, вести на
+// стол — `sim/mail.raiseEvent`) и настоящем мире (`LocalWorld`, набег с письмом). Советник: при входе, только после отлучки
+// дольше 15 мин и с важным; до трёх вестей по важности, ни одной дважды; по часам не приходит. Гонец: только с вестью
+// позже входа — тихий стук, «Впустить» / «Позже»; «Позже» — при следующем входе первым; устаревшее — исходом или молча.
+// Мир — на шкале правил мира (день в минуту), как все тесты писем: при ней набег сида 43 приходит за четыре часа.
+import '@/game/pace.minute';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { ChambersRoom } from '@/render/chambers/room';
 import { DEFAULT_ARMS } from '@/heraldry/arms';
 import { HALF } from '@/render/chambers/plan';
 import { ADVISOR_POST, type Who, type Why } from '@/render/chambers/life';
-import { useWorld } from '@/world/store';
+import { LIFE_MIX } from '@/render/chambers/voices';
+import { useWorld, worldNow } from '@/world/store';
 import { useGame } from '@/game/store';
 import { useRealm } from '@/ui/realm/open';
-import { letterKey } from '@/ui/realm/unread';
-import { chronEvents } from '@/ui/realm/annals';
-import type { LetterView, Report } from '@/world/types';
-import type { LogEntry } from '@/game/types';
-import { Court, type CourtHost } from './court';
-import { ADVISOR_AWAY, freshAdvisor, type AdvisorMemory, type NewsDoor, type WorldNews } from './tidings';
+import { createInitialState } from '@/game/state';
+import { raiseEvent, resolveEvent } from '@/game/sim/mail';
+import { log } from '@/game/sim/log';
+import { REVOLT_EVENT } from '@/game/data/stability';
+import { eventDispatch, letterDispatch } from '@/ui/realm/dispatch';
+import { LocalWorld } from '@/world/local/LocalWorld';
+import { shieldVillagers } from '@/world/lairs';
+import { realDue } from '@/ui/parts/wait';
+import type { GameState } from '@/game/types';
+import type { LetterView, PlayerProfile, Report, RivalMarch, SiegeView } from '@/world/types';
+import { AWAY_MS, Court, freshCourt, REPORT_MAX, type CourtHost, type CourtMemory } from './court';
+import type { CourtSource, Moment, NewsDoor } from './tidings';
 import { useChambers } from './open';
 import { __chambers } from './Chambers';
 
@@ -66,154 +76,342 @@ const talking = (room: ChambersRoom, who: Who, why?: Why) => (): boolean => {
   return !!t && t.who === who && (!why || t.why === why);
 };
 
-const NOW = 5_000_000;
-const raid = (id: string): LetterView => ({ id, kind: 'raid', at: 0, until: NOW + 9e6, fromId: 's1', fromName: 'Волчье логово', cost: {}, title: 'Набег', icon: '', body: '', from: null, choices: [], seconds: 100, silence: '' }) as LetterView;
-const fight = (id: string): Report => ({ id, at: 0, kind: 'defense', title: 'Набег отбит у ворот', target: { id: 's1', name: 'Х', x: 0, y: 0 }, won: true, sent: {}, lost: {}, enemyPower: 40, enemyLost: 30, loot: null, intel: null, battle: null, text: '', read: false }) as Report;
+const MIN = 60_000;
+const T0 = { game: 10_000, world: 50_000_000, real: 1_000_000_000 };
 
-/** Двор с подделкой мира: мир правится руками, двери пишутся в список, «потом» — сразу. */
-function court(room: ChambersRoom, w: WorldNews, mem: AdvisorMemory = freshAdvisor(), log: LogEntry[] = [], time = 10_000) {
+/** Двор на настоящей партии: часы и мир правятся руками, двери пишутся в список. */
+function court(room: ChambersRoom, s: GameState, mem: CourtMemory = freshCourt()) {
   const opened: NewsDoor[] = [];
-  const state = { w, mem };
+  const st = { s, mem, now: { ...T0 } as Moment, letters: [] as LetterView[], siege: null as SiegeView | null, reports: [] as Report[], marching: [] as RivalMarch[] };
   const host: CourtHost = {
-    world: () => state.w,
-    advisor: () => ({ events: chronEvents(log, state.w.reports), time, gold: 900, inbox: 0, world: state.w }),
-    memory: () => state.mem,
-    remember: (m) => (state.mem = m),
+    source: (): CourtSource => ({ s: st.s, letters: st.letters, siege: st.siege, reports: st.reports, marching: st.marching, world: st.now.world, ready: true }),
+    now: () => ({ ...st.now }),
+    memory: () => st.mem,
+    remember: (m) => (st.mem = m),
     open: (d) => opened.push(d),
-    later: (f) => f(),
   };
-  return { c: new Court(room.life, host), opened, state };
+  return { c: new Court(room.life, host), opened, st };
 }
 
-const empty = (): WorldNews => ({ letters: [], siege: null, camp: null, reports: [], now: NOW });
+/** Часы вперёд на `ms` настоящих: игровые — тридцать раз быстрее (шкала), мир — как настоящие. */
+function tick(st: { now: Moment; s: GameState }, ms: number): void {
+  st.now = { real: st.now.real + ms, world: st.now.world + ms, game: st.now.game + ms / 1000 / 30 };
+  st.s.time = st.now.game;
+}
 
-describe('покои: гонец с вестью (Г-10)', () => {
-  it('важная весть в покоях — стук, гонец поднимается, входит, кланяется и протягивает письмо; касание письма открывает эту весть, гонец уходит', async () => {
-    const room = phoneRoom();
-    await room.life.heraldReady;
-    const cues: string[] = [];
-    room.onLifeCue = (c) => cues.push(c);
-    const { c, opened, state } = court(room, empty());
-    // Весть, что лежала при входе, гонец не несёт.
-    expect(c.waiting).toBe(0);
-    run(room, 1);
-    expect(room.life.personOf('herald'), 'до вести гонца нет').toBeNull();
-    state.w = { ...empty(), letters: [raid('r1')] };
-    c.look();
-    expect(run(room, 30, talking(room, 'herald', 'news')), 'гонец вошёл и ждёт').toBe(true);
-    expect(cues.filter((x) => x === 'knock').length, 'три удара в дверь').toBe(3);
-    expect(cues).toContain('doorOpen');
-    const h = room.life.personOf('herald')!;
-    expect(h.z, 'гонец в покоях').toBeGreaterThan(-HALF);
-    expect(h.carry).toBe('letter');
-    expect(room.life.view().letter, 'письмо протянуто').toBe(true);
-    expect(c.carrying?.key).toBe(letterKey('r1'));
-    // Письмо — в протянутой правой руке, перед грудью, и касание по нему на экране попадает в письмо.
-    run(room, 0.5);
-    const at = room.life.letterAt()!;
-    expect(at, 'письмо видно').not.toBeNull();
-    const sp = at.clone().project(room.camera);
-    const x = ((sp.x + 1) / 2) * PHONE.width;
-    const y = ((1 - sp.y) / 2) * PHONE.height;
-    expect(sp.z < 1 && x > 0 && x < PHONE.width && y > 0 && y < PHONE.height, `письмо на экране (${x.toFixed(0)}, ${y.toFixed(0)})`).toBe(true);
-    const aim = room.pickAt(x, y);
-    expect(aim).toEqual({ kind: 'letter' });
-    room.touch(aim);
-    expect(opened, 'открылась эта весть — письмо о набеге в «Вестях»').toEqual([{ to: 'mail', key: letterKey('r1') }]);
-    expect(cues).toContain('letter');
-    expect(room.life.view().talk, 'гонец не ждёт слова').toBeNull();
-    expect(run(room, 30, () => room.life.personOf('herald') === null), 'гонец ушёл').toBe(true);
-    expect(cues, 'затворил дверь').toContain('doorShut');
-    expect(room.life.holdsLegs).toBe(false);
-    room.dispose();
+/** Память после выхода из покоев `ago` назад (настоящие мс). */
+const leftAgo = (ago: number): CourtMemory => ({ ...freshCourt(), seenAt: T0.real - ago, out: { game: T0.game - ago / 30_000, world: T0.world - ago, real: T0.real - ago } });
+
+/** Партия, на чей стол за отлучку легли вести: что лежит, решает `defs`; минута — посреди отлучки. */
+function partyWith(defs: string[], at = T0.game - 1): GameState {
+  const s = createInitialState(7);
+  s.time = at;
+  for (const d of defs) expect(raiseEvent(s, d), d).toBe(true);
+  s.time = T0.game;
+  return s;
+}
+
+describe('советник (ПК-1)', () => {
+  it('отлучка 14 мин — стоит у стола, кивает, молчит; 16 мин — встречает с докладом (точки — по обе стороны границы 15 мин)', async () => {
+    for (const [away, speaks] of [
+      [14 * MIN, false],
+      [16 * MIN, true],
+    ] as const) {
+      expect(away < AWAY_MS, 'точка с той стороны границы, где ей положено').toBe(!speaks);
+      const room = phoneRoom();
+      await room.life.advisorReady;
+      const { c } = court(room, partyWith(['cr_comet']), leftAgo(away));
+      c.enter();
+      expect(c.report !== null, `отлучка ${away / MIN} мин`).toBe(speaks);
+      run(room, 3);
+      const a = room.life.personOf('advisor')!;
+      expect(Math.hypot(a.x - ADVISOR_POST.x, a.z - ADVISOR_POST.z), 'у стола').toBeLessThan(0.05);
+      expect(talking(room, 'advisor', 'report')(), 'докладывает ли').toBe(speaks);
+      room.dispose();
+    }
   });
 
-  it('вести одна за другой: второй гонец ждёт, пока уйдёт первый; «Позже» — уходит без письма, весть остаётся в «Вестях»', async () => {
+  it('долгая отлучка без важного (одна стройка) — молчит; первый вход вовсе (не с чем сравнить) — тоже', async () => {
     const room = phoneRoom();
-    await room.life.heraldReady;
-    const { c, opened, state } = court(room, empty());
-    state.w = { ...empty(), letters: [raid('r1')], reports: [fight('b1')] };
-    c.look();
-    expect(run(room, 30, talking(room, 'herald', 'news'))).toBe(true);
-    // Набег — срочнее итога боя: первым несут его.
-    expect(c.carrying?.key).toBe(letterKey('r1'));
-    expect(c.waiting).toBe(1);
-    c.decline();
-    expect(opened).toEqual([]);
-    expect(run(room, 30, () => room.life.personOf('herald') === null), 'ушёл без письма').toBe(true);
-    // Гонца зовут снова (слой покоев зовёт раз в 400 мс): пришёл со вторым.
-    expect(run(room, 40, () => (c.call(), talking(room, 'herald', 'news')())), 'второй гонец').toBe(true);
-    expect(c.carrying?.key).toBe('report:b1');
-    room.life.takeLetter();
-    expect(opened).toEqual([{ to: 'report', id: 'b1' }]);
-    room.dispose();
-  });
-
-  it('пока идёт разговор — гонец ждёт за дверью, разговор кончился — входит', async () => {
-    const room = phoneRoom();
-    await room.life.heraldReady;
-    const { c, state } = court(room, empty());
-    room.life.stage({ who: 'servant', talk: true });
-    state.w = { ...empty(), letters: [raid('r1')] };
-    c.look();
-    run(room, 3);
-    expect(room.life.personOf('herald'), 'не вошёл посреди разговора').toBeNull();
-    room.life.order('dismiss');
-    expect(run(room, 40, () => (c.call(), talking(room, 'herald', 'news')())), 'вошёл, когда слуга ушёл').toBe(true);
-    room.dispose();
-  });
-});
-
-describe('покои: советник с докладом (Г-10)', () => {
-  const T = 10_000;
-  const log: LogEntry[] = [
-    { at: T - 10, text: 'Набег «Волчьего логова» отбит', kind: 'good', ref: 'b1' },
-    { at: T - 30, text: 'Кузница поднялась до 3-го уровня', kind: 'good', topic: 'build' },
-  ];
-
-  it('после отлучки советник ждёт у стола, кланяется и докладывает по летописи; строка ведёт в своё донесение; «Ступай» — уходит; второй раз о том же не докладывает', async () => {
-    const room = phoneRoom();
-    // Его фигура (ЛЦ-5) — своим куском: вход в покои тянет его, сцена у стола ждёт куска.
     await room.life.advisorReady;
-    const { c, opened, state } = court(room, { ...empty(), reports: [fight('b1')] }, { at: T - ADVISOR_AWAY, gold: 700, told: [] }, log, T);
-    expect(c.greet(), 'есть что доложить').toBe(true);
-    const a = room.life.personOf('advisor')!;
-    expect(Math.hypot(a.x - ADVISOR_POST.x, a.z - ADVISOR_POST.z), 'у стола').toBeLessThan(0.05);
-    expect(a.carry).toBe('scroll');
-    expect(run(room, 10, talking(room, 'advisor', 'report')), 'кланяется и докладывает').toBe(true);
-    expect(room.life.holdsLegs, 'пока докладывает — слушают стоя').toBe(true);
+    const s = createInitialState(7);
+    s.time = T0.game - 1;
+    log(s, 'Достроили: кузница, ур. 3.', 'good', undefined, 'build');
+    s.time = T0.game;
+    const a = court(room, s, leftAgo(3 * 60 * MIN));
+    a.c.enter();
+    expect(a.c.report, 'стройка — не повод встречать').toBeNull();
+    const b = court(room, partyWith(['cr_comet']));
+    b.c.enter();
+    expect(b.c.report, 'первый вход: отлучки не мерили').toBeNull();
+    room.dispose();
+  });
+
+  it('доклад — до трёх вестей по важности, касание — следующая; сказанное не повторяется, даже если выйти, не попрощавшись', async () => {
+    const room = phoneRoom();
+    await room.life.advisorReady;
+    const s = partyWith(['cr_comet', REVOLT_EVENT.folk, 'cr_wedding']);
+    s.resources.food = 0;
+    const { c, st, opened } = court(room, s, leftAgo(60 * MIN));
+    st.siege = { byId: 's1', byName: 'Волчье логово', since: T0.world - 5 * MIN, starvesAt: T0.world + 60 * MIN, garrison: 5, foodAtStart: 0 } as SiegeView;
+    c.enter();
     const lines = c.report!.lines;
-    const battle = lines.find((l) => l.text === 'Набег «Волчьего логова» отбит')!;
-    expect(battle.door).toEqual({ to: 'report', id: 'b1' });
-    expect(lines.find((l) => l.key === 'gold')?.text).toBe('Казна: прибыло 200 золота, теперь 900.');
-    c.openLine(battle.key);
-    expect(opened).toEqual([{ to: 'report', id: 'b1' }]);
-    expect(c.report!.opened.has(battle.key), 'строка прочитана').toBe(true);
-    // Советник ждёт дальше, пока не скажут «Ступай».
-    expect(room.life.personOf('advisor')).not.toBeNull();
-    c.dismiss();
-    expect(run(room, 40, () => room.life.personOf('advisor') === null), 'ушёл').toBe(true);
-    expect(room.life.holdsLegs).toBe(false);
-    // Память — с этой минуты: тот же вход ещё раз — советника нет.
-    expect(state.mem.at).toBe(T);
+    expect(lines.length).toBe(REPORT_MAX);
+    // Осада (9), мятеж (7), а из равных бедствия (комета) и «кончился хлеб» — новее; свадьба (ждёт ответа) — за бортом.
+    expect(lines.map((l) => l.t.kind)).toEqual(['siege', 'revolt', 'out']);
+    expect(run(room, 10, talking(room, 'advisor', 'report'))).toBe(true);
+    c.openLine();
+    expect(opened, '«Открыть» — место первой вести').toEqual([{ to: 'siege' }]);
+    expect(c.report!.at, 'и дальше — следующая').toBe(1);
+    c.next();
+    c.next();
+    expect(c.report, 'три сказаны — доклад кончился').toBeNull();
+    expect(room.life.view().talk, 'замолчал').toBeNull();
+    expect(room.life.personOf('advisor'), 'и стоит у стола').not.toBeNull();
+    // Ушёл, не попрощавшись (аппку убили: выхода не было), и вернулся через час: что сказано — не повторяется.
+    tick(st, 60 * MIN);
+    st.mem.out = { ...T0, game: T0.game - 10, world: T0.world - 10 * MIN, real: T0.real - 10 * MIN };
     const room2 = phoneRoom();
-    const again = new Court(room2.life, { world: () => state.w, advisor: () => ({ events: chronEvents(log, state.w.reports), time: T + 10, gold: 900, inbox: 0, world: state.w }), memory: () => state.mem, remember: () => undefined, open: () => undefined, later: (f) => f() });
-    expect(again.greet()).toBe(false);
-    expect(room2.life.personOf('advisor')).toBeNull();
+    await room2.life.advisorReady;
+    const again = new Court(room2.life, { source: () => ({ s, letters: [], siege: st.siege, reports: [], marching: [], world: st.now.world, ready: true }), now: () => st.now, memory: () => st.mem, remember: (m) => (st.mem = m), open: () => undefined });
+    again.enter();
+    const told = new Set(lines.map((l) => l.t.id));
+    expect((again.report?.lines ?? []).filter((l) => told.has(l.t.id)), 'ни одной дважды').toEqual([]);
+    expect(again.report?.lines.map((l) => l.t.kind), 'досказал отложенное за бортом').toEqual(['disaster', 'ask']);
     room.dispose();
     room2.dispose();
   });
 
-  it('без отлучки советника нет; отлучка без событий — тоже', () => {
+  it('по часам не приходит: десять минут в покоях без вестей — ни советника с докладом, ни гонца; в двери двора нет таймеров', async () => {
     const room = phoneRoom();
-    expect(court(room, empty(), { at: T - ADVISOR_AWAY + 1, gold: 900, told: [] }, log, T).c.greet()).toBe(false);
-    expect(court(room, empty(), { at: T - ADVISOR_AWAY, gold: 900, told: [] }, [], T).c.greet()).toBe(false);
-    expect(room.life.personOf('advisor')).toBeNull();
+    await room.life.advisorReady;
+    await room.life.heraldReady;
+    const { c } = court(room, createInitialState(7), leftAgo(60 * MIN));
+    c.enter();
+    for (let i = 0; i < 20; i++) {
+      run(room, 30);
+      c.look();
+    }
+    expect(c.report).toBeNull();
+    expect(c.knocking).toBeNull();
+    expect(room.life.view().talk).toBeNull();
+    expect(room.life.personOf('herald')).toBeNull();
+    for (const f of ['court.ts', 'tidings.ts']) expect(readFileSync(new URL(`./${f}`, import.meta.url), 'utf8'), f).not.toMatch(/setTimeout|setInterval|requestAnimationFrame/);
+    // Слой покоев зовёт двор только переменой журнала, входом и выходом: в его редкой проверке (400 мс) двора нет.
+    const layer = readFileSync(new URL('./Chambers.tsx', import.meta.url), 'utf8');
+    const tryRise = layer.slice(layer.indexOf('const tryRise'), layer.indexOf('t = window.setInterval(tryRise'));
+    expect(tryRise).not.toMatch(/court/);
     room.dispose();
   });
 });
 
-describe('покои: гонец в слое покоев (Г-10)', () => {
+describe('гонец (ПК-1)', () => {
+  it('весть до входа — не его (и приехавшая в стор после входа — тоже); весть после входа — тихий стук, «Впустить», входит, кланяется, рассказывает', async () => {
+    const room = phoneRoom();
+    await room.life.heraldReady;
+    const cues: string[] = [];
+    room.onLifeCue = (c) => cues.push(c);
+    const s = partyWith(['cr_plague_near']);
+    const { c, st, opened } = court(room, s, leftAgo(5 * MIN));
+    c.enter();
+    c.look();
+    expect(c.knocking, 'мор у ворот лёг до входа — гонец с ним не идёт').toBeNull();
+    // Донесения и письма приехали в стор после входа (причина 1): минута их — до входа, и гонец молчит.
+    st.letters = [{ id: 'old', kind: 'raid', at: T0.world - MIN, until: T0.world + 9 * MIN, fromId: 's1', fromName: 'Волчье логово', cost: {}, title: 'Набег', body: '', from: null, choices: [], seconds: 1, silence: '' } as LetterView];
+    c.look();
+    expect(c.knocking).toBeNull();
+    // После входа — комета.
+    tick(st, MIN);
+    expect(raiseEvent(s, 'cr_comet')).toBe(true);
+    c.look();
+    expect(c.knocking?.map((t) => t.kind)).toEqual(['disaster']);
+    run(room, 1.5);
+    expect(cues.filter((x) => x === 'knockFar').length, 'три тихих удара').toBe(3);
+    expect(LIFE_MIX.knockFar, 'тише шагов и двери').toBeLessThan(Math.min(LIFE_MIX.doorOpen, LIFE_MIX.stepFolk, LIFE_MIX.knock));
+    expect(room.life.personOf('herald'), 'стук — только стук: сам не входит').toBeNull();
+    expect(room.life.attention(), 'и глаз не уводит').toBeNull();
+    c.admit();
+    expect(run(room, 30, talking(room, 'herald', 'news')), 'вошёл и говорит').toBe(true);
+    expect(room.life.personOf('herald')!.z, 'в покоях').toBeGreaterThan(-HALF);
+    const lines = c.heraldLines();
+    const d = eventDispatch(s, s.inbox.find((e) => e.defId === 'cr_comet')!, 0)!;
+    expect(lines.map((l) => l.text), 'слова — заголовок «Вестей»').toEqual([`${d.title} — ждёт твоего слова.`]);
+    c.heraldDone(lines[0].door);
+    expect(opened, '«Открыть» — эта весть в «Вестях»').toEqual([{ to: 'mail', key: d.key }]);
+    expect(run(room, 30, () => room.life.personOf('herald') === null), 'ушёл').toBe(true);
+    room.dispose();
+  });
+
+  it('«Позже» — весть ждёт; при следующем входе гонец первым, советник — после него и её не повторяет', async () => {
+    const room = phoneRoom();
+    await room.life.heraldReady;
+    await room.life.advisorReady;
+    const s = createInitialState(7);
+    const { c, st } = court(room, s, leftAgo(5 * MIN));
+    c.enter();
+    tick(st, MIN);
+    expect(raiseEvent(s, REVOLT_EVENT.folk)).toBe(true);
+    c.look();
+    expect(c.knocking?.length).toBe(1);
+    const id = c.knocking![0].id;
+    c.postpone();
+    expect(c.knocking).toBeNull();
+    expect(st.mem.later.map((t) => t.id)).toEqual([id]);
+    c.presence();
+    // Через полчаса за столом ещё и комета — вход: стучит гонец (с мятежом), советник ждёт у стола.
+    tick(st, 30 * MIN);
+    expect(raiseEvent(s, 'cr_comet')).toBe(true);
+    const room2 = phoneRoom();
+    await room2.life.heraldReady;
+    await room2.life.advisorReady;
+    const again = new Court(room2.life, { source: () => ({ s, letters: [], siege: null, reports: [], marching: [], world: st.now.world, ready: true }), now: () => st.now, memory: () => st.mem, remember: (m) => (st.mem = m), open: () => undefined });
+    again.enter();
+    expect(again.knocking?.map((t) => t.id), 'гонец первым — с отложенным').toEqual([id]);
+    expect(again.report, 'советник ждёт гонца').toBeNull();
+    again.admit();
+    expect(run(room2, 30, talking(room2, 'herald', 'news'))).toBe(true);
+    again.heraldDone();
+    const rep = again.report!.lines;
+    expect(rep.map((l) => l.t.kind), 'советник — после, о комете').toEqual(['disaster']);
+    expect(rep.some((l) => l.t.id === id), 'мятеж не повторяет').toBe(false);
+    expect(st.mem.later).toEqual([]);
+    room.dispose();
+    room2.dispose();
+  });
+
+  it('устарела до рассказа: осаду сняли — исход; на весть стола ответили — не приходит вовсе', async () => {
+    const room = phoneRoom();
+    await room.life.heraldReady;
+    const s = createInitialState(7);
+    const { c, st } = court(room, s, leftAgo(5 * MIN));
+    c.enter();
+    tick(st, MIN);
+    st.siege = { byId: 's1', byName: 'Волчье логово', since: st.now.world, starvesAt: st.now.world + 60 * MIN, garrison: 5, foodAtStart: 0 } as SiegeView;
+    c.look();
+    expect(c.knocking?.map((t) => t.kind)).toEqual(['siege']);
+    st.siege = null;
+    c.look();
+    c.admit();
+    expect(run(room, 30, talking(room, 'herald', 'news'))).toBe(true);
+    expect(c.heraldLines().map((l) => [l.text, l.outcome])).toEqual([['Осаду сняли: под стенами больше никого.', true]]);
+    c.heraldDone();
+    expect(run(room, 30, () => room.life.personOf('herald') === null)).toBe(true);
+    // Комета легла и на неё ответили в «Вестях», пока гонец стоял за дверью: сказать нечего — стука больше нет.
+    tick(st, MIN);
+    expect(raiseEvent(s, 'cr_comet')).toBe(true);
+    c.look();
+    expect(c.knocking?.length).toBe(1);
+    expect(resolveEvent(s, 0).error).toBeNull();
+    c.look();
+    expect(c.knocking).toBeNull();
+    room.dispose();
+  });
+
+  it('настоящий мир: письмо о набеге после входа — гонец, слова — те же, что у «Вестей»; набег прошёл — исход донесением или молчание', async () => {
+    let now = 1_700_000_000_000;
+    const world = new LocalWorld({ seed: 43, now: () => now, storage: null });
+    // Профиль — как в тестах писем мира (`world/letters.test.ts`): выше защиты новичка, набеги по нему идут.
+    const profile: PlayerProfile = { name: 'Тест', pop: shieldVillagers(0.1), defense: 30, units: { warrior: 10, scout: 4 }, stock: { food: 4000, wood: 4000, stone: 4000, hides: 4000, charcoal: 4000, copper: 4000, iron: 4000 }, stash: 0 };
+    const room = phoneRoom();
+    await room.life.heraldReady;
+    const s = createInitialState(7);
+    const { c, st } = court(room, s, leftAgo(5 * MIN));
+    const sync = async (): Promise<void> => {
+      await world.sync(profile);
+      st.letters = await world.letters();
+      st.reports = await world.reports();
+      st.now = { ...st.now, world: now };
+    };
+    st.now = { ...st.now, world: now };
+    c.enter();
+    let raid: LetterView | undefined;
+    for (let m = 1; m <= 240 && !raid; m++) {
+      now += MIN;
+      await sync();
+      c.look();
+      raid = st.letters.find((l) => l.kind === 'raid');
+    }
+    expect(raid, 'за четыре часа набег случается').toBeTruthy();
+    expect(raid!.at, 'письмо после входа').toBeGreaterThan(c.entry!.world);
+    expect(c.knocking?.map((t) => t.id)).toEqual([letterDispatch(raid!, now).key]);
+    const [x] = c.tellings(c.knocking!);
+    // Срок — тот же, что «До набега» у письма в «Вестях» (`letterDispatch.left`), и той же дверью слов.
+    expect(x.text).toBe(`«${raid!.fromName}» идёт на нас набегом — у ворот через ${realDue(letterDispatch(raid!, now).left!)}.`);
+    expect(x.door).toEqual({ to: 'map' });
+    // Набег дошёл: письма нет; есть донесение обороны после письма — исход им, нет — гонцу сказать нечего.
+    const t = c.knocking![0];
+    for (let m = 1; m <= 240 && st.letters.some((l) => l.id === raid!.id); m++) {
+      now += MIN;
+      await sync();
+    }
+    expect(st.letters.some((l) => l.id === raid!.id), 'набег прошёл').toBe(false);
+    const after = c.tellings([t]);
+    const fight = st.reports.filter((r) => r.kind === 'defense' && r.at >= raid!.at).sort((a, b) => a.at - b.at)[0];
+    if (fight) expect(after).toEqual([{ t, text: `Набег, что шёл на нас, кончился. ${fight.title}. ${fight.won ? 'Наши взяли верх.' : 'Худо вышло.'}`, door: { to: 'report', id: fight.id }, outcome: true }]);
+    else expect(after).toEqual([]);
+    room.dispose();
+  });
+});
+
+describe('поход соседа-игрока: минута выхода от сервера (ПК-1б)', () => {
+  const war = (sentAt?: number): RivalMarch => ({ id: 'w7', castle: 'c2', city: 'Каменный Брод', mode: 'storm', arriveAt: T0.world + 30 * MIN, ...(sentAt === undefined ? {} : { sentAt }) });
+  const fight = (id: string, at: number, won: boolean): Report => ({ id, at, kind: 'defense', title: won ? 'Штурм отбит: Каменный Брод' : 'Город взят штурмом: Каменный Брод', won, enemyPower: 50, battle: null }) as Report;
+
+  it('с минутой выхода: вышел после входа — стук; дошёл и бился — исход донесением этой войны, а не чужой', async () => {
+    const room = phoneRoom();
+    await room.life.heraldReady;
+    const { c, st } = court(room, createInitialState(7), leftAgo(5 * MIN));
+    st.marching = [war(T0.world - MIN)];
+    c.enter();
+    c.look();
+    expect(c.knocking, 'вышел до входа — гонец с ним не идёт').toBeNull();
+    tick(st, MIN);
+    st.marching = [war(T0.world - MIN), { ...war(st.now.world), id: 'w8' }];
+    c.look();
+    expect(c.knocking?.map((t) => [t.id, t.clock, t.at]), 'вышел после входа — минутой сервера').toEqual([['war:w8', 'world', st.now.world]]);
+    const t = c.knocking![0];
+    expect(c.tellings([t])[0].text).toMatch(/^Из «Каменный Брод» вышел отряд на наш город — на штурм; будут через /);
+    // Дошёл: поход со стола ушёл, донесения — чужой войны (раньше) и этой (бой `w8.1` и его следствие).
+    tick(st, 30 * MIN);
+    st.marching = [];
+    st.reports = [fight('war-w7.1', st.now.world - 2000, false), fight('war-w8.1-eff', st.now.world - 1000, true), fight('war-w8.1', st.now.world, true)];
+    c.look();
+    expect(c.tellings(c.knocking!)).toEqual([{ t, text: 'Поход на наш город кончился. Штурм отбит: Каменный Брод. Наши взяли верх.', door: { to: 'report', id: 'war-w8.1' }, outcome: true }]);
+    room.dispose();
+  });
+
+  it('без минуты выхода (вид старше поля): минута — первым взглядом двора, исхода нет — гонец молчит', async () => {
+    const room = phoneRoom();
+    await room.life.heraldReady;
+    const { c, st } = court(room, createInitialState(7), leftAgo(5 * MIN));
+    c.enter();
+    tick(st, MIN);
+    st.marching = [war()];
+    c.look();
+    expect(c.knocking?.map((t) => t.clock), 'минута — отметкой двора').toEqual(['real']);
+    st.marching = [];
+    st.reports = [fight('war-w7.1', st.now.world, true)];
+    c.look();
+    expect(c.knocking, 'исхода не знает — не идёт').toBeNull();
+    room.dispose();
+  });
+
+  it('одна дверь клиента и сервера: номер боя войны у сервера — «<война>.<n>», донесение клиента — «war-<бой>», падение — «war-<война>-fall/-fell»', () => {
+    const server = readFileSync(new URL('../../../netlify/lib/war.ts', import.meta.url), 'utf8');
+    const client = readFileSync(new URL('../../world/local/LocalWorld.ts', import.meta.url), 'utf8');
+    const contract = readFileSync(new URL('../../../netlify/lib/contract.ts', import.meta.url), 'utf8');
+    expect(server).toMatch(/id: `\$\{w\.id\}\.\$\{n\}`/);
+    expect(client).toMatch(/id: `war-\$\{b\.id\}`/);
+    expect(client).toMatch(/id: `war-\$\{w\.id\}-fall`/);
+    expect(client).toMatch(/id: `war-\$\{w\.id\}-fell`/);
+    // Минута выхода — поле договора, его ставит сервер при выходе, и вид похода берёт его оттуда.
+    expect(contract).toMatch(/\n  sentAt: number;/);
+    expect(server).toMatch(/sentAt: now,/);
+    expect(client).toMatch(/arriveAt: w\.arriveAt, \.\.\.\(typeof w\.sentAt === 'number' \? \{ sentAt: w\.sentAt \} : \{\}\)/);
+  });
+});
+
+describe('гонец в слое покоев (ПК-1)', () => {
   afterEach(() => {
     __chambers.fall();
     useChambers.setState({ open: false });
@@ -221,23 +419,22 @@ describe('покои: гонец в слое покоев (Г-10)', () => {
     useWorld.setState({ letters: [] });
   });
 
-  it('письмо о набеге пришло, пока правитель в покоях, — гонец; письмо открывает это письмо в «Вестях» поверх покоев', async () => {
+  it('письмо о набеге после входа — стук; «Впустить» — гонец входит; «Открыть» — карта поверх покоев, покои на месте', async () => {
     useWorld.setState({ letters: [], reports: [], siege: null, camp: null });
     useGame.setState({ sheet: null, mapOpen: false });
     __chambers.rise(fakeScene() as never);
     const room = __chambers.live()!;
     await room.life.heraldReady;
-    useWorld.setState({ letters: [raid('r9')] });
+    // Вход — когда донесения свежие (`loadReports`): дождаться его.
+    await vi.waitFor(() => expect(__chambers.court()?.entry).not.toBeNull());
+    const c = __chambers.court()!;
+    useWorld.setState({ letters: [{ id: 'r9', kind: 'raid', at: worldNow() + 1000, until: worldNow() + 9 * MIN, fromId: 's1', fromName: 'Волчье логово', cost: {}, title: 'Набег', body: '', from: null, choices: [], seconds: 1, silence: '' } as LetterView] });
+    expect(c.knocking?.length, 'стук').toBe(1);
+    c.admit();
     expect(run(room, 30, talking(room, 'herald', 'news'))).toBe(true);
-    vi.useFakeTimers();
-    room.touch({ kind: 'letter' });
-    vi.advanceTimersByTime(600);
-    vi.useRealTimers();
-    const r = useRealm.getState();
-    expect(r.open, '«Вести» открыты').toBe(true);
-    expect(r.view).toBe('decisions');
-    expect(r.mail).toBe(letterKey('r9'));
-    expect(__chambers.live(), 'покои на месте — закрыл «Вести», и снова в покоях').toBe(room);
+    c.heraldDone(c.heraldLines()[0].door);
+    expect(useGame.getState().mapOpen, 'карта открыта').toBe(true);
+    expect(__chambers.live(), 'покои на месте — закрыл карту, и снова в покоях').toBe(room);
   });
 });
 

@@ -31,7 +31,7 @@ import { mailArrive, raiseEvent } from './mail';
 import { normalizeAssignments } from './workers';
 import { forgeTick } from './smithy';
 import { surveyTick } from './survey';
-import { marketTick } from './market';
+import { marketTick, rollShift } from './caravan';
 import { recruitTick } from './army';
 import { upkeepTick } from './upkeep';
 import { councilStep, vacancyEvent } from './council';
@@ -304,9 +304,12 @@ export function liveStep(s: GameState, real: number, now: number, lived: number 
     else tick(s, dt);
     // Вести приходят по настоящим часам — тем же правилом, что в отлучке: окно этого шага.
     mailArrive(s, now - lived * 1000, now);
+    // Привоз рынка — по настоящим часам: уровень закрепляется в минуту начала привоза (РН-1б).
+    rollShift(s, now);
     return;
   }
   absence(s, now - lived * 1000, now);
+  rollShift(s, now);
 }
 
 /**

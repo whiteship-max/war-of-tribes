@@ -214,6 +214,8 @@ export interface EstateCeil {
   wage: number;
   /** Очки стойкости сверх обряда и Воеводы — рыцари. */
   resolve: number;
+  /** Множитель выручки торга — купечество (РН-1, правило «market»). */
+  trade: number;
 }
 
 /**
@@ -224,7 +226,7 @@ export function estateCeil(levels: EstateLevels, priv: Privileges | undefined, d
   const infl = influenceOf(levels, priv);
   const p = (e: EstateId): number => plusCeil(e, infl[e], decree === e);
   const m = (e: EstateId): number => minusCeil(e, infl[e], decree === e);
-  return { build: 1 + p('guilds'), yard: 1 + p('peasants'), growth: 1 + p('peasants'), food: 1 + m('guilds'), wage: 1 + m('knights'), resolve: FERVOUR_SCALE * p('knights') };
+  return { build: 1 + p('guilds'), yard: 1 + p('peasants'), growth: 1 + p('peasants'), food: 1 + m('guilds'), wage: 1 + m('knights'), resolve: FERVOUR_SCALE * p('knights'), trade: 1 + p('merchants') };
 }
 
 /** Привилегии описи сервера по порядку сословий — словарём; чужое и лишнее не садится, число — в пределах лестницы. */

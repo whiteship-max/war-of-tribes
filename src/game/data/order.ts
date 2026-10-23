@@ -170,9 +170,8 @@ export const ORDER_TEXT = {
     ordered: (n: number): string => `Торговцы приведут ${n} ${bondedWord(n)}.`,
     sold: (n: number, gold: number): string => `Продано ${n} ${bondedWord(n)}, выручка ${gold} золота.`,
     noBonded: 'Столько невольников в городе нет.',
-    soldOut: 'Сегодня торговцы больше не возьмут.',
-    onlyLeft: (left: number): string => `Сегодня торговцы возьмут только ${left}.`,
-    cancelled: (gold: number): string => `Заказ на невольников отменён, ${gold} золота вернулось.`,
+    soldOut: 'В этот привоз торговцы больше не возьмут.',
+    onlyLeft: (left: number): string => `В этот привоз торговцы возьмут только ${left}.`,
     noMarket: 'Рынка нет.',
   },
 

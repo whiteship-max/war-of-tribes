@@ -10412,7 +10412,7 @@ export class LocalWorld implements WorldApi {
   async rivals(): Promise<RivalMail> {
     const marching = this.warList()
       .filter((w) => w.role === 'def' && w.phase === 'march')
-      .map((w) => ({ id: w.id, castle: w.atkCastle, city: this.warCity(w, 'atk'), mode: w.mode, arriveAt: w.arriveAt }));
+      .map((w) => ({ id: w.id, castle: w.atkCastle, city: this.warCity(w, 'atk'), mode: w.mode, arriveAt: w.arriveAt, ...(typeof w.sentAt === 'number' ? { sentAt: w.sentAt } : {}) }));
     return { proposals: this.proposalList(), marching };
   }
 
