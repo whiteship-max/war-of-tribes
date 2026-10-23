@@ -1,9 +1,9 @@
-// Гонец и советник в покоях (docs/city_v3.md, Г-10) — плашки поверх комнаты, тем же видом, что разговор Г-7 (`TalkWindow`):
+// Гонец и советник в покоях (docs/city_v3.md, ПК-1) — плашки поверх комнаты, тем же видом, что разговор Г-7 (`TalkWindow`):
 // кто говорит, его слова проступают по буквам (касание — сразу целиком), голос — речь без слов на столько же секунд.
 //
-// Гонец протягивает письмо с печатью: «Взять письмо» (или касание письма в его руке) — весть открывается, гонец уходит;
-// «Позже» — уходит без письма, весть ждёт в «Вестях». Советник докладывает строками — каждая ведёт в своё донесение;
-// «Ступай» — уходит. Крестик у обоих — помолчать: человек стоит, касание по нему — снова к делу.
+// Гонец стучит — справа внизу «Впустить» и «Позже» (`KnockBar`): сцену это не закрывает, ходить можно. Впустили — входит,
+// кланяется и рассказывает все вести разом; «Открыть» у каждой ведёт к её месту, «Ступай» — уходит. Советник докладывает
+// по одной вести: касание — следующая, «Открыть» — место этой. Слова — в минуту рассказа (`Court.tellings`), не раньше.
 import { useEffect, useRef, useState } from 'react';
 import type { ChambersLife } from '@/render/chambers/life';
 import type { FaithId } from '@/game/types';
@@ -11,14 +11,11 @@ import { useGame } from '@/game/store';
 import { councilSeat } from '@/game/derived';
 import { titleOf } from '@/game/sim/council';
 import type { Court } from './court';
-import { advisorOpening, says, type News } from './tidings';
+import { advisorOpening, says, type TidingKind } from './tidings';
 import { speechSeconds } from './plate';
 
 /** Буквы в секунду — как у разговора (`TalkWindow`). */
 const CPS = 46;
-/** Через сколько после первой фразы проступает следующая строка доклада, мс. */
-const LINE_MS = 650;
-
 /** Слова, проступающие по буквам; `skip` — показать целиком. */
 function useTyped(text: string): { shown: number; full: boolean; skip: () => void } {
   const [shown, setShown] = useState(0);
@@ -32,18 +29,36 @@ function useTyped(text: string): { shown: number; full: boolean; skip: () => voi
 }
 
 /** Чем весть подписана под именем гонца. */
-const NEWS_WORD: Record<News['kind'], string> = {
-  raid: 'весть о набеге',
-  siege: 'весть об осаде',
-  breach: 'весть со стены',
-  offer: 'условия',
-  pact: 'посольство',
+const NEWS_WORD: Record<TidingKind, string> = {
+  march: 'на нас идут',
+  siege: 'осада',
+  revolt: 'мятеж',
+  disaster: 'беда',
+  out: 'со склада',
   battle: 'донесение о бое',
+  ask: 'ждут ответа',
+  build: 'стройка',
 };
 
+/** Стук гонца: справа внизу «Впустить» и «Позже»; покои живут дальше. */
+export function KnockBar({ court }: { court: Court }) {
+  if (!court.knocking) return null;
+  return (
+    <div className="ch-knock" role="group" aria-label="Гонец за дверью">
+      <small>Стучат: гонец с вестью</small>
+      <button className="ch-knock-in" onClick={() => court.admit()}>
+        Впустить
+      </button>
+      <button onClick={() => court.postpone()}>Позже</button>
+    </div>
+  );
+}
+
 export function HeraldPlate({ life, court, faith, onDone }: { life: ChambersLife; court: Court; faith: FaithId; onDone: () => void }) {
-  const news = court.carrying;
-  const line = news ? says(news.line, faith) : '';
+  // Слова — в минуту, когда он встал перед правителем: что переменилось, пока поднимался, он уже знает.
+  const [lines] = useState(() => court.heraldLines());
+  const first = lines[0];
+  const line = first ? says(`{T}, ${lowerFirst(first.text)}${lines.length > 1 ? ` И ещё ${lines.length - 1}.` : ''}`, faith) : says('{T}, вести, с которыми я шёл, уже в «Вестях».', faith);
   const typed = useTyped(line);
   const said = useRef(false);
   useEffect(() => {
@@ -51,12 +66,12 @@ export function HeraldPlate({ life, court, faith, onDone }: { life: ChambersLife
     said.current = true;
     life.say('herald', speechSeconds(line));
   }, [line, life]);
-  if (!news) return null;
+  if (!court.carrying) return null;
   return (
-    <div className="ch-talk ch-court" role="dialog" aria-label="Гонец с письмом">
+    <div className="ch-talk ch-court" role="dialog" aria-label="Гонец с вестью">
       <div className="ch-talk-head">
         <b>Гонец</b>
-        <small>{NEWS_WORD[news.kind]}</small>
+        <small>{first ? NEWS_WORD[first.t.kind] : 'весть'}</small>
         <button
           className="ch-talk-x"
           onClick={() => {
@@ -74,83 +89,81 @@ export function HeraldPlate({ life, court, faith, onDone }: { life: ChambersLife
           {line.slice(typed.shown)}
         </span>
       </p>
-      <div className={`ch-talk-opts on`}>
-        <button className="ch-court-take" onClick={() => life.takeLetter()}>
-          <span className="ch-seal" aria-hidden="true" />
-          Взять письмо
-        </button>
-        <button onClick={() => court.decline()}>Позже — оставь в «Вестях»</button>
+      {lines.length > 1 && (
+        <div className="ch-report" role="list">
+          {lines.slice(1).map((l) => (
+            <button key={l.t.id} role="listitem" className={`ch-report-row ${l.outcome ? 'info' : 'bad'}`} onClick={() => court.heraldDone(l.door)}>
+              <i aria-hidden="true" />
+              <span>{l.text}</span>
+              <b aria-hidden="true">›</b>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="ch-talk-opts on">
+        {first && <button className="ch-court-take" onClick={() => court.heraldDone(first.door)}>Открыть</button>}
+        <button onClick={() => court.heraldDone()}>Ступай</button>
       </div>
     </div>
   );
 }
 
+const lowerFirst = (t: string): string => (t.startsWith('«') ? t : t[0].toLowerCase() + t.slice(1));
+
 /** Имя советника по вере державы: один на двор, при новом правителе — тот же. */
 export const ADVISOR_NAME: Record<FaithId, string> = { catholic: 'Мэтр Годфруа', orthodox: 'Боярин Ставр', islam: 'Визирь Абу Сахль', pagan: 'Старейшина Вилкас' };
+
+/** Касание молчащего советника: доклада нет — так и говорит. */
+const QUIET = '{T}, за тобой нового нет. Всё прочее — в «Вестях».';
 
 export function AdvisorPlate({ life, court, faith, onDone }: { life: ChambersLife; court: Court; faith: FaithId; onDone: () => void }) {
   // С докладом приходит старший советник совета Ратуши — Староста (Бургомистр), если место занято (РТ-1); нет — советник покоев.
   const chief = useGame((g) => councilSeat(g.s, 'steward'));
   const title = useGame((g) => titleOf(g.s, 'steward'));
   const rep = court.report;
-  const lines = rep?.lines ?? [];
-  const open = says(advisorOpening(lines), faith);
-  const typed = useTyped(open);
-  // Строки доклада — одна за другой, как он читает их со свитка; второй подход — сразу все.
-  const [count, setCount] = useState(() => (rep && rep.opened.size > 0 ? lines.length : 0));
-  const said = useRef(-1);
+  // Доклад кончился — плашка гаснет вслед за разговором, а не отвечает «нового нет».
+  const [had] = useState(() => rep !== null);
+  const cur = rep?.lines[rep.at] ?? null;
+  // Первая весть — с приветствием; дальше — сами вести, по одной.
+  const text = says(!rep ? QUIET : rep.at === 0 ? `${advisorOpening(rep.lines)} ${cur?.text ?? ''}` : (cur?.text ?? ''), faith);
+  const typed = useTyped(text);
+  const said = useRef('');
   useEffect(() => {
-    if (!typed.full || count >= lines.length) return;
-    const t = window.setTimeout(() => setCount((n) => n + 1), count === 0 ? 250 : LINE_MS);
-    return () => window.clearTimeout(t);
-  }, [typed.full, count, lines.length]);
-  useEffect(() => {
-    // Голос — на первую фразу и на каждую новую строку.
-    const text = count === 0 ? open : lines[count - 1]?.text;
-    if (!text || said.current === count) return;
-    said.current = count;
-    life.say('advisor', speechSeconds(text) * (count === 0 ? 1 : 0.8));
-  }, [count, open, lines, life]);
-  if (!rep) return null;
+    if (said.current === text) return;
+    said.current = text;
+    life.say('advisor', speechSeconds(text));
+  }, [text, life]);
+  const done = (): void => {
+    life.endTalk();
+    onDone();
+  };
+  if (had && !rep) return null;
   return (
     <div className="ch-talk ch-court" role="dialog" aria-label="Доклад советника">
       <div className="ch-talk-head">
         <b>{chief ? chief.name : ADVISOR_NAME[faith]}</b>
-        <small>{chief ? `${title.toLowerCase()}, с докладом` : 'советник, с докладом'}</small>
-        <button
-          className="ch-talk-x"
-          onClick={() => {
-            life.endTalk();
-            onDone();
-          }}
-          aria-label="Помолчать"
-        >
+        <small>{rep ? `${chief ? title.toLowerCase() : 'советник'}, весть ${rep.at + 1} из ${rep.lines.length}` : chief ? title.toLowerCase() : 'советник'}</small>
+        <button className="ch-talk-x" onClick={done} aria-label="Помолчать">
           ×
         </button>
       </div>
       <p
         className="ch-talk-line"
         onClick={() => {
-          typed.skip();
-          setCount(lines.length);
+          // Касание: слова не дописаны — дописать; дописаны — следующая весть.
+          if (!typed.full) typed.skip();
+          else if (rep) court.next();
+          else done();
         }}
       >
-        {open.slice(0, typed.shown)}
+        {text.slice(0, typed.shown)}
         <span className="ch-talk-rest" aria-hidden="true">
-          {open.slice(typed.shown)}
+          {text.slice(typed.shown)}
         </span>
       </p>
-      <div className="ch-report" role="list">
-        {lines.slice(0, count).map((l) => (
-          <button key={l.key} role="listitem" className={`ch-report-row ${l.tone}${rep.opened.has(l.key) ? ' read' : ''}`} onClick={() => court.openLine(l.key)}>
-            <i aria-hidden="true" />
-            <span>{l.text}</span>
-            <b aria-hidden="true">›</b>
-          </button>
-        ))}
-      </div>
       <div className="ch-talk-opts on">
-        <button onClick={() => court.dismiss()}>Ступай</button>
+        {cur && <button className="ch-court-take" onClick={() => court.openLine()}>Открыть</button>}
+        {rep ? <button onClick={() => court.next()}>{rep.at + 1 < rep.lines.length ? 'Дальше' : 'Довольно'}</button> : <button onClick={done}>Хорошо</button>}
       </div>
     </div>
   );

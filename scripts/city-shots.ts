@@ -615,9 +615,10 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
         await benchChambers(tab, 'после LIFE');
       }
     }
-    // Гонец и советник (Г-10): `COURT='{"herald":{"key":"k","kind":"raid","line":"{T}! …","door":{"to":"inbox"}}}'` — гонец с
-    // письмом этой вести перед правителем; `COURT='{"report":[{"key":"a","text":"…","tone":"bad","door":{"to":"inbox"}}]}'`
-    // — советник у стола с этим докладом (`Court.stage`), без сцен.
+    // Гонец и советник (ПК-1): `COURT='{"knock":[<весть>]}'` — стук и «Впустить»/«Позже»; `COURT='{"herald":[<рассказ>]}'` —
+    // гонец перед правителем с этими словами; `COURT='{"report":[<рассказ>]}'` — советник у стола с докладом (`Court.stage`),
+    // без сцен. Весть — `{"id":"a","kind":"siege","clock":"world","at":0,"ref":"0"}`, рассказ — `{"t":<весть>,"text":"…",
+    // "door":{"to":"siege"},"outcome":false}`.
     if (process.env.COURT) {
       await tab.eval<string>(`(async () => { await window.__chambers.life.heraldReady; await window.__chambers.life.advisorReady; return '""'; })()`);
       const r = await tab.eval<string>(`JSON.stringify((() => { window.__court.stage(${process.env.COURT}); return 'двор: ' + JSON.stringify(window.__chambers.life.view()); })())`);

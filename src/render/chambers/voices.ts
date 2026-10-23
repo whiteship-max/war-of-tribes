@@ -7,6 +7,8 @@ import type { LifeCue, Who } from './life';
 /** Уровни на полосе «Эффекты» (образец `life`): стук — заметно, но ниже звона меча; кот и вино — тихо. */
 export const LIFE_MIX: Record<LifeCue, number> = {
   knock: 0.31,
+  // Гонец за дверью (ПК-1): тише шагов и скрипа двери — слышно, но сцену не перебивает.
+  knockFar: 0.09,
   doorOpen: 0.14,
   doorShut: 0.125,
   stepFolk: 0.2,
@@ -200,6 +202,7 @@ export function playLifeCue(ctx: BaseAudioContext, out: AudioNode, cue: LifeCue,
   let len = 1.2;
   switch (cue) {
     case 'knock':
+    case 'knockFar':
       // Костяшки о дубовую доску: глухой удар и звонкий призвук доски.
       burst(ctx, g, at, 'lowpass', 260 + r() * 60, 1.2, 1.0, 0.003, 0.09, r());
       burst(ctx, g, at + 0.002, 'bandpass', 950 + r() * 200, 3, 0.55, 0.003, 0.06, r());
