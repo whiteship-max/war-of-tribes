@@ -117,7 +117,9 @@ export function tidingsOf(src: CourtSource, sinceGame = -Infinity): RawTiding[] 
     if (l.kind === 'siege') continue;
     out.push({ id: letterKey(l.id), kind: l.kind === 'raid' ? 'march' : 'ask', clock: 'world', at: l.at, ref: l.id });
   }
-  if (src.ready) for (const m of src.marching) out.push({ id: `war:${m.id}`, kind: 'march', clock: 'real', at: null, ref: m.id });
+  // Поход соседа — минутой выхода от сервера (`RivalMarch.sentAt`); вид без неё — отметкой двора.
+  if (src.ready)
+    for (const m of src.marching) out.push({ id: `war:${m.id}`, kind: 'march', ...(typeof m.sentAt === 'number' ? { clock: 'world' as const, at: m.sentAt } : { clock: 'real' as const, at: null }), ref: m.id });
   if (src.siege) out.push({ id: `siege:${src.siege.since}`, kind: 'siege', clock: 'world', at: src.siege.since, ref: String(src.siege.since) });
   for (const ev of s.inbox) out.push({ id: eventKey(ev), kind: eventKind(ev), clock: 'game', at: ev.at, ref: eventId(ev) });
   for (const r of OUT) if (isOut(s, r)) out.push({ id: `out:${r}`, kind: 'out', clock: 'real', at: null, ref: r });
@@ -156,6 +158,15 @@ const findEvent = (s: GameState, ref: string): ActiveEvent | undefined => s.inbo
 const outcomeOf = (src: CourtSource, at: number, fit: (r: Report) => boolean): Report | null =>
   src.reports.filter((r) => r.at >= at && fit(r)).sort((a, b) => a.at - b.at)[0] ?? null;
 
+/**
+ * Первое донесение войны `warId`: бой (`war-<бой>`, где номер боя — `<война>.<n>` у сервера войны, `war.ts`) или падение
+ * города (`war-<война>-fall`, `-fell`); следствия (`-eff`) — не донесения боя. Пару держит тест чтением обоих исходников.
+ */
+export function warReportOf(warId: string, reports: readonly Report[]): Report | null {
+  const own = (id: string): boolean => id.startsWith(`war-${warId}.`) || id === `war-${warId}-fall` || id === `war-${warId}-fell`;
+  return reports.filter((r) => own(r.id) && !r.id.endsWith('-eff')).sort((a, b) => a.at - b.at)[0] ?? null;
+}
+
 const won = (r: Report): string => (r.won ? 'Наши взяли верх.' : 'Худо вышло.');
 
 /**
@@ -176,8 +187,9 @@ export function tell(t: Tiding, src: CourtSource): Telling | null {
       if (t.id.startsWith('war:')) {
         const m = src.marching.find((x) => x.id === t.ref);
         if (m) return say(`Из «${cityOr(m.city)}» вышел отряд на наш город — ${m.mode === 'storm' ? 'на штурм' : 'осадой'}; будут через ${realDue((m.arriveAt - src.world) / 1000)}.`, { to: 'map' });
-        // Поход ушёл со стола: исход — донесением войны, а его минута — часами мира, отметка же — настоящими: не сравнить.
-        return null;
+        // Поход ушёл со стола: исход — донесение этой войны. Без минуты выхода (вид старше ПК-1б) — не судим: молчание.
+        const r = t.clock === 'world' ? warReportOf(t.ref, src.reports) : null;
+        return r ? say(`Поход на наш город кончился. ${r.title}. ${won(r)}`, { to: 'report', id: r.id }, true) : null;
       }
       return eventLine(t, src);
     }

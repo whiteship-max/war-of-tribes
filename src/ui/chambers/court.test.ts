@@ -24,7 +24,7 @@ import { LocalWorld } from '@/world/local/LocalWorld';
 import { shieldVillagers } from '@/world/lairs';
 import { realDue } from '@/ui/parts/wait';
 import type { GameState } from '@/game/types';
-import type { LetterView, PlayerProfile, Report, SiegeView } from '@/world/types';
+import type { LetterView, PlayerProfile, Report, RivalMarch, SiegeView } from '@/world/types';
 import { AWAY_MS, Court, freshCourt, REPORT_MAX, type CourtHost, type CourtMemory } from './court';
 import type { CourtSource, Moment, NewsDoor } from './tidings';
 import { useChambers } from './open';
@@ -82,9 +82,9 @@ const T0 = { game: 10_000, world: 50_000_000, real: 1_000_000_000 };
 /** Двор на настоящей партии: часы и мир правятся руками, двери пишутся в список. */
 function court(room: ChambersRoom, s: GameState, mem: CourtMemory = freshCourt()) {
   const opened: NewsDoor[] = [];
-  const st = { s, mem, now: { ...T0 } as Moment, letters: [] as LetterView[], siege: null as SiegeView | null, reports: [] as Report[] };
+  const st = { s, mem, now: { ...T0 } as Moment, letters: [] as LetterView[], siege: null as SiegeView | null, reports: [] as Report[], marching: [] as RivalMarch[] };
   const host: CourtHost = {
-    source: (): CourtSource => ({ s: st.s, letters: st.letters, siege: st.siege, reports: st.reports, marching: [], world: st.now.world, ready: true }),
+    source: (): CourtSource => ({ s: st.s, letters: st.letters, siege: st.siege, reports: st.reports, marching: st.marching, world: st.now.world, ready: true }),
     now: () => ({ ...st.now }),
     memory: () => st.mem,
     remember: (m) => (st.mem = m),
@@ -350,6 +350,64 @@ describe('гонец (ПК-1)', () => {
     if (fight) expect(after).toEqual([{ t, text: `Набег, что шёл на нас, кончился. ${fight.title}. ${fight.won ? 'Наши взяли верх.' : 'Худо вышло.'}`, door: { to: 'report', id: fight.id }, outcome: true }]);
     else expect(after).toEqual([]);
     room.dispose();
+  });
+});
+
+describe('поход соседа-игрока: минута выхода от сервера (ПК-1б)', () => {
+  const war = (sentAt?: number): RivalMarch => ({ id: 'w7', castle: 'c2', city: 'Каменный Брод', mode: 'storm', arriveAt: T0.world + 30 * MIN, ...(sentAt === undefined ? {} : { sentAt }) });
+  const fight = (id: string, at: number, won: boolean): Report => ({ id, at, kind: 'defense', title: won ? 'Штурм отбит: Каменный Брод' : 'Город взят штурмом: Каменный Брод', won, enemyPower: 50, battle: null }) as Report;
+
+  it('с минутой выхода: вышел после входа — стук; дошёл и бился — исход донесением этой войны, а не чужой', async () => {
+    const room = phoneRoom();
+    await room.life.heraldReady;
+    const { c, st } = court(room, createInitialState(7), leftAgo(5 * MIN));
+    st.marching = [war(T0.world - MIN)];
+    c.enter();
+    c.look();
+    expect(c.knocking, 'вышел до входа — гонец с ним не идёт').toBeNull();
+    tick(st, MIN);
+    st.marching = [war(T0.world - MIN), { ...war(st.now.world), id: 'w8' }];
+    c.look();
+    expect(c.knocking?.map((t) => [t.id, t.clock, t.at]), 'вышел после входа — минутой сервера').toEqual([['war:w8', 'world', st.now.world]]);
+    const t = c.knocking![0];
+    expect(c.tellings([t])[0].text).toMatch(/^Из «Каменный Брод» вышел отряд на наш город — на штурм; будут через /);
+    // Дошёл: поход со стола ушёл, донесения — чужой войны (раньше) и этой (бой `w8.1` и его следствие).
+    tick(st, 30 * MIN);
+    st.marching = [];
+    st.reports = [fight('war-w7.1', st.now.world - 2000, false), fight('war-w8.1-eff', st.now.world - 1000, true), fight('war-w8.1', st.now.world, true)];
+    c.look();
+    expect(c.tellings(c.knocking!)).toEqual([{ t, text: 'Поход на наш город кончился. Штурм отбит: Каменный Брод. Наши взяли верх.', door: { to: 'report', id: 'war-w8.1' }, outcome: true }]);
+    room.dispose();
+  });
+
+  it('без минуты выхода (вид старше поля): минута — первым взглядом двора, исхода нет — гонец молчит', async () => {
+    const room = phoneRoom();
+    await room.life.heraldReady;
+    const { c, st } = court(room, createInitialState(7), leftAgo(5 * MIN));
+    c.enter();
+    tick(st, MIN);
+    st.marching = [war()];
+    c.look();
+    expect(c.knocking?.map((t) => t.clock), 'минута — отметкой двора').toEqual(['real']);
+    st.marching = [];
+    st.reports = [fight('war-w7.1', st.now.world, true)];
+    c.look();
+    expect(c.knocking, 'исхода не знает — не идёт').toBeNull();
+    room.dispose();
+  });
+
+  it('одна дверь клиента и сервера: номер боя войны у сервера — «<война>.<n>», донесение клиента — «war-<бой>», падение — «war-<война>-fall/-fell»', () => {
+    const server = readFileSync(new URL('../../../netlify/lib/war.ts', import.meta.url), 'utf8');
+    const client = readFileSync(new URL('../../world/local/LocalWorld.ts', import.meta.url), 'utf8');
+    const contract = readFileSync(new URL('../../../netlify/lib/contract.ts', import.meta.url), 'utf8');
+    expect(server).toMatch(/id: `\$\{w\.id\}\.\$\{n\}`/);
+    expect(client).toMatch(/id: `war-\$\{b\.id\}`/);
+    expect(client).toMatch(/id: `war-\$\{w\.id\}-fall`/);
+    expect(client).toMatch(/id: `war-\$\{w\.id\}-fell`/);
+    // Минута выхода — поле договора, его ставит сервер при выходе, и вид похода берёт его оттуда.
+    expect(contract).toMatch(/\n  sentAt: number;/);
+    expect(server).toMatch(/sentAt: now,/);
+    expect(client).toMatch(/arriveAt: w\.arriveAt, \.\.\.\(typeof w\.sentAt === 'number' \? \{ sentAt: w\.sentAt \} : \{\}\)/);
   });
 });
 
