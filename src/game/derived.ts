@@ -1273,7 +1273,10 @@ export function foodConsumptionPerDay(s: GameState, mods: SeasonModifiers = seas
  * на голод (`foodShortfall`); слепок осады везёт миру уже осадный (`bridge.playerProfile`).
  */
 export const siegeSoldierFood = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number =>
-  soldierFoodPerDay(s, mods) * (underSiege(s) ? SIEGE_SOLDIER_FOOD : 1);
+  underSiege(s) ? besiegedSoldierFood(s, mods) : soldierFoodPerDay(s, mods);
+
+/** Осадный паёк бойца за день — паёк жителя (`SIEGE_SOLDIER_FOOD`): его везёт слепок осады, есть осада сейчас или нет. */
+export const besiegedSoldierFood = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number => soldierFoodPerDay(s, mods) * SIEGE_SOLDIER_FOOD;
 
 /**
  * Осадный паёк (docs/siege_v2.md, раздел 5; ответ владельца 6): урезан — весь расход ×¾ (`SIEGE_RATION`), иначе единица.

@@ -7,7 +7,6 @@ import type { GameState } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
 import { gameDaysPerHour, gameSecondsOfMs } from '@/game/pace';
 import { dryFor } from '@/game/sim/siege';
-import { SIEGE_SOLDIER_FOOD } from '@/game/constants';
 import { keptType } from '@/game/merged';
 import {
   bondedTotal,
@@ -18,10 +17,10 @@ import {
   faithOf,
   armyResolve,
   intelKeen,
+  besiegedSoldierFood,
   grossFoodPerDay,
   mastersFoodPerDay,
   siegeDryIn,
-  soldierFoodPerDay,
   surveyRadius,
   towerSeats,
   townFoodPerDay,
@@ -196,7 +195,7 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // (`SIEGE_SOLDIER_FOOD`, ОС-1): слепок нужен только осаде, и окно не умножает его второй раз.
     food: Math.max(0, s.resources.food),
     foodPerHour: (townFoodPerDay(s) + mastersFoodPerDay(s)) * daysPerHour(),
-    soldierFoodPerHour: soldierFoodPerDay(s) * SIEGE_SOLDIER_FOOD * daysPerHour(),
+    soldierFoodPerHour: besiegedSoldierFood(s) * daysPerHour(),
     // Хлеб осаждённого города — склад (ОС-1, docs/siege_v2.md, 23): валовая добыча (штраф по соотношению сил режет мир и
     // сервер своей меркой), засуха склада и прогноз — для сведения и срока отлучки. Нет осады — нет полей засухи и прогноза.
     yieldPerHour: grossFoodPerDay(s) * daysPerHour(),

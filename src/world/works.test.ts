@@ -35,7 +35,7 @@ import { worldSaveJson, type WorldSave } from './local/state';
 import type { PlayerProfile, WorldPulse } from './types';
 import { shieldVillagers } from './lairs';
 
-import { setPhaseDie } from './siegeroll';
+import { hungerStepAt, setPhaseDie } from './siegeroll';
 
 // Этот файл — о рогатках, проходе и башне: кость фаз здесь тихая — каждая фаза «без перемен», чтобы сдача и пролом не
 // падали поперёк правила, которое тест держит. Правило фаз — `siegeroll.test.ts` и `siegephase.test.ts`.
@@ -355,7 +355,8 @@ describe('укрепления лагеря: бой, голод и то, что 
     // слепок встречает лагерь без гарнизона (`bare`): минута постановки прежняя, а часы голода — от пустого гарнизона, и
     // их числа сняты заново на нём. Свойство то же: рогатки растут — часы стоят. Час голода — еда 6000 при 6000 в час на
     // город и ни одного бойца за стеной: ровно час от постановки (при 90 бойцах было 6000 / 11400 часа).
-    const STARVES_BARE = 1_700_001_020_000 + 60 * MIN;
+    // ОС-1: город, чей слепок осады не знает, сдаёт голодом шаг осады после пустого склада окна — первая фаза после часа.
+    const STARVES_BARE = hungerStepAt(1_700_001_020_000, 1_700_001_020_000 + 60 * MIN);
     for (const seed of [7, 11]) {
       const fz = await freeze(seed);
       expect(fz.siege.since, `сид ${seed}`).toBe(1_700_001_020_000);

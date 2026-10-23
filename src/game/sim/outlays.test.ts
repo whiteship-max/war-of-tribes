@@ -17,6 +17,8 @@ type Why = 'outlay' | 'drain' | 'deed';
  * (хлеб, дрова, жалованье, закят), его потолок считает сервер (`goods.drainCeil`); `deed` — разовое дело описи (событие,
  * бой у ворот, указ, коды проверки).
  */
+// Хлеб осады (Р-5) — больше не дверь убыли: с ОС-1 склад под осадой убывает только прокормом шага (`sim/tick`), мост его не
+// урезает (docs/siege_v2.md, 23.1).
 const DOORS: Record<string, { why: Why[]; what: string }> = {
   'sim/pay.ts': { why: ['outlay'], what: 'плата за заказ: стройка, ковка, найм, разведка округи, обряд' },
   'sim/actions.ts': { why: ['outlay'], what: 'пир' },
@@ -28,7 +30,6 @@ const DOORS: Record<string, { why: Why[]; what: string }> = {
   'sim/expedition.ts': { why: ['outlay', 'deed'], what: 'последствие мира: с боем — дело, без боя — трата' },
   'sim/tick.ts': { why: ['drain'], what: 'паёк и очаги' },
   'sim/upkeep.ts': { why: ['drain'], what: 'жалованье войска и мастеров' },
-  'sim/siege.ts': { why: ['outlay'], what: 'хлеб осады: склад не выше остатка окна осады' },
   'sim/gate.ts': { why: ['deed'], what: 'бой у ворот по вести' },
   'sim/admin.ts': { why: ['deed'], what: 'указ админа (номер указа — в описи)' },
   'data/events.ts': { why: ['deed'], what: 'цена ответа на весть' },

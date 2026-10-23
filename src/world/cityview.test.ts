@@ -9,7 +9,8 @@
 import { describe, expect, it } from 'vitest';
 import { LocalWorld, HOME_ID } from './local/LocalWorld';
 import { distance } from './geo';
-import { openSiege, starvesAt } from './siege';
+import { openSiege, siegeSince, starvesAt } from './siege';
+import { hungerStepAt } from './siegeroll';
 import { FALL_MARK, SIEGE_IMMUNE, SIEGE_COOLDOWN } from './data/tuning';
 import { FATE_META } from './data/fates';
 import { hungerLeft } from '@/ui/parts/hunger';
@@ -268,9 +269,11 @@ describe('знак павшего города — та участь, что с�
       ...openSiege({ byId: w.byId, campId: 'second', now: again, food: 0, garrison: 0, townPerHour: 10, perManPerHour: 1 }),
       fate: 'burn' as Fate,
     };
-    // Точка внутри области правила: вторая осада уже доела город к минуте подъёма мира.
+    // Точка внутри области правила: вторая осада доела город к минуте подъёма мира — склад окна пуст, и шаг осады после этого
+    // (ОС-1: голод — в шаге осады, первая фаза после пустого склада) уже прошёл.
+    const step = hungerStepAt(siegeSince(window2), starvesAt(window2));
     expect(starvesAt(window2)).toBeLessThanOrEqual(again + 2_000);
-    const second = thaw(JSON.stringify(save), again + 2_000, 7, (s) => {
+    const second = thaw(JSON.stringify(save), step + 2_000, 7, (s) => {
       s.sieges[HOME_ID] = window2;
     });
     await second.world.sync(holdout());

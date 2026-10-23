@@ -15,14 +15,14 @@
 // удар полководца — план мира (`CampStrike`).
 import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
-import { breadSpan, cutShort } from '@/world/siegefood';
+import { cutShort } from '@/world/siegefood';
 import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf } from '@/world/muster';
 import { troopTotal } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
 import { realLeft } from '@/ui/parts/wait';
 import { REST_WHY, restLine, wearLine } from '@/ui/parts/restWords';
-import { hungerLeft } from '@/ui/parts/hunger';
+import { dryLeft, hungerLeft } from '@/ui/parts/hunger';
 import { sideReady } from '@/ui/parts/campSide';
 import { profileCity } from '@/profile/identity';
 import { FATE_META } from '@/world/data/fates';
@@ -177,7 +177,7 @@ export function SiegePanel() {
                 }),
                 cells: {
                   what: 'Хлеба хватит',
-                  v: <b className={siege.dryAt !== undefined ? 'bad' : ''}>{siege.breadText ? breadSpan(siege.dryAt !== undefined ? (siege.dryAt - now) / 1000 : Infinity) : hungerLeft(siege.starvesAt, now)}</b>,
+                  v: <b className={siege.dryAt !== undefined ? 'bad' : ''}>{siege.breadText ? dryLeft(siege.dryAt, now) : hungerLeft(siege.starvesAt, now)}</b>,
                 },
               },
               ...(siege.cutText

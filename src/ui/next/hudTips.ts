@@ -39,7 +39,7 @@ import {
   seasonOf,
   seasonProgress,
   siegeRation,
-  soldierFoodPerDay,
+  siegeSoldierFood,
   storageCap,
   taxIncomePerDay,
   townFoodPerDay,
@@ -407,7 +407,8 @@ function spentParts(s: GameState, r: ResourceId): Part[] {
   if (r !== 'food') return [];
   const eat: Part[] = [
     { label: 'Едят жители', value: -townFoodPerDay(s) },
-    { label: 'Едят бойцы', value: -mouthCount(s) * soldierFoodPerDay(s) },
+    // В осаде боец ест паёк жителя (ОС-1, `derived.siegeSoldierFood`) — та же дверь, что у расхода.
+    { label: 'Едят бойцы', value: -mouthCount(s) * siegeSoldierFood(s) },
     { label: 'Едят мастера', value: -mastersFoodPerDay(s) },
   ];
   const all = eat.reduce((n, p) => n + p.value, 0);

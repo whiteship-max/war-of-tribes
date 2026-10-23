@@ -12,13 +12,12 @@ import { rationMorale } from '@/game/derived';
 import { FATE_META } from '@/world/data/fates';
 import { secondsLeft } from '@/world/geo';
 import { cleanDefend, type DefendOrders } from '@/world/siegeroll';
-import { breadSpan } from '@/world/siegefood';
 import type { SiegeView } from '@/world/types';
 import { Cost } from '@/ui/parts/Cost';
 import { BREACH_MAX } from '@/world/data/siegeroll';
 import { Btn } from '@/ui/kit/Btn';
 import { Toggle } from '@/ui/kit/Toggle';
-import { hungerLeft } from '@/ui/parts/hunger';
+import { dryLeft, hungerLeft } from '@/ui/parts/hunger';
 import { realLeft } from '@/ui/parts/wait';
 import { plural } from '@/ui/parts/plural';
 import { Icon } from '@/ui/icons/Icon';
@@ -42,7 +41,7 @@ function gunTitle(g: NonNullable<NonNullable<SiegeView['answers']>['gun']>, now:
  * голода (`hungerLeft`). Склад не опустеет — «не кончится».
  */
 const rationLeft = (dryAt: number | undefined, starvesAt: number, now: number): string =>
-  dryAt !== undefined ? breadSpan((dryAt - now) / 1000) : Number.isFinite(starvesAt) ? hungerLeft(starvesAt, now) : breadSpan(Infinity);
+  dryAt !== undefined || !Number.isFinite(starvesAt) ? dryLeft(dryAt, now) : hungerLeft(starvesAt, now);
 
 export function rationWords(): string {
   return `Еда ×${SIEGE_RATION}, мораль −${Math.round(rationMorale())}, надзор за невольниками −${Math.round(SIEGE_RATION_CUT * 100)}%.`;
