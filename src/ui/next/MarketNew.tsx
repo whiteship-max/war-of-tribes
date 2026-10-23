@@ -202,10 +202,7 @@ function Deal({ def, side, setSide, now }: { def: GoodDef; side: 'buy' | 'sell';
       <div className="mk-seg" role="tablist" aria-label="Сделка">
         {(['buy', 'sell'] as const).map((k) => (
           <button key={k} type="button" role="tab" aria-selected={side === k} className={side === k ? 'on' : ''} onClick={() => setSide(k)}>
-            {k === 'buy' ? 'Купить' : 'Продать'}
-            <small>
-              по <Num tip={() => priceTip(s, def, now)} label="Цена за штуку">{k === 'buy' ? marketPrice(s, def, now) : marketSellPrice(s, def, now)}</Num>
-            </small>
+            {k === 'buy' ? 'Купить' : 'Продать'} <small>по {k === 'buy' ? marketPrice(s, def, now) : marketSellPrice(s, def, now)}</small>
           </button>
         ))}
       </div>
@@ -213,7 +210,11 @@ function Deal({ def, side, setSide, now }: { def: GoodDef; side: 'buy' | 'sell';
         <Icon name={goodIcon(def)} />
         <b className="one-line">{def.name}</b>
         <span className="muted">
-          {per} {unitWord(def)}
+          <Num tip={() => priceTip(s, def, now)} label="Цена за штуку: разбор">
+            {per}
+          </Num>{' '}
+          {unitWord(def)}
+          {buy && ` · телега ${waitShort(caravanSeconds(s))}`}
         </span>
       </div>
       <div className="mk-qty">
@@ -249,14 +250,13 @@ function Deal({ def, side, setSide, now }: { def: GoodDef; side: 'buy' | 'sell';
         <div>
           <dt>{buy ? 'Отдашь' : 'Получишь'}</dt>
           <dd className={buy && gold > s.gold ? 'no' : ''}>
-            <Icon name="res-gold" /> {fmtInt(gold)} <small>золото {fmtInt(Math.floor(s.gold))} → {fmtInt(Math.floor(s.gold) + (buy ? -gold : gold))}</small>
+            <Icon name="res-gold" /> {fmtInt(gold)}
           </dd>
         </div>
         <div>
           <dt>У тебя</dt>
           <dd>
             {fmtInt(own)} → {fmtInt(buy ? own + n : Math.max(0, own - n))}
-            {buy && <small>телега {waitShort(caravanSeconds(s))}</small>}
           </dd>
         </div>
       </dl>
