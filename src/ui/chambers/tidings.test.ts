@@ -69,7 +69,7 @@ describe('вести покоев: одна дверь (ПК-1)', () => {
     expect(tell(t, src(s, { siege: siege(W - 1000) }))?.text).toBe(`«Волчье логово» стоит лагерем под стенами. Хлеба в городе на ${hungerLeft(W + 3_600_000, W)}.`);
     expect(tell(t, src(s))).toMatchObject({ text: 'Осаду сняли: под стенами больше никого.', outcome: true });
     const r = report('fell', W, { siege: {} as Report['siege'], title: 'Осада снята вылазкой' });
-    expect(tell(t, src(s, { reports: [report('old', W - 5000), r] }))).toMatchObject({ text: 'Осада кончилась: Осада снята вылазкой. Наши взяли верх.', door: { to: 'report', id: 'fell' }, outcome: true });
+    expect(tell(t, src(s, { reports: [report('old', W - 5000), r] }))).toMatchObject({ text: 'Осада кончилась. Осада снята вылазкой. Наши взяли верх.', door: { to: 'report', id: 'fell' }, outcome: true });
   });
 
   it('стройка из летописи — та же строка; важность: осада, набег, мятеж выше боя и стройки', () => {

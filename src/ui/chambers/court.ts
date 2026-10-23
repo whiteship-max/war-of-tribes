@@ -284,11 +284,11 @@ export class Court {
     if (what.herald) {
       this.carrying = what.herald.map((l) => l.t);
       this.heard = what.herald;
-      this.life.stage({ who: 'herald', at: what.at, talk: true, why: 'news', gesture: {} });
+      this.life.stage({ who: 'herald', at: what.at, talk: true, why: 'news', gesture: {}, guest: true });
     }
     if (what.report) {
       this.report = { lines: what.report, at: 0 };
-      this.life.stage({ who: 'advisor', at: what.at ?? ADVISOR_POST, talk: true, why: 'report', gesture: { read: 1 } });
+      this.life.stage({ who: 'advisor', at: what.at ?? ADVISOR_POST, talk: true, why: 'report', gesture: { read: 1 }, guest: true });
     }
     this.onChange?.();
   }

@@ -347,7 +347,7 @@ describe('гонец (ПК-1)', () => {
     expect(st.letters.some((l) => l.id === raid!.id), 'набег прошёл').toBe(false);
     const after = c.tellings([t]);
     const fight = st.reports.filter((r) => r.kind === 'defense' && r.at >= raid!.at).sort((a, b) => a.at - b.at)[0];
-    if (fight) expect(after).toEqual([{ t, text: `Набег, что шёл на нас, кончился: ${fight.title}. ${fight.won ? 'Наши взяли верх.' : 'Худо вышло.'}`, door: { to: 'report', id: fight.id }, outcome: true }]);
+    if (fight) expect(after).toEqual([{ t, text: `Набег, что шёл на нас, кончился. ${fight.title}. ${fight.won ? 'Наши взяли верх.' : 'Худо вышло.'}`, door: { to: 'report', id: fight.id }, outcome: true }]);
     else expect(after).toEqual([]);
     room.dispose();
   });

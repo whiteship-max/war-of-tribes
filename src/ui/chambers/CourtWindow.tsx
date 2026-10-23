@@ -11,7 +11,7 @@ import { useGame } from '@/game/store';
 import { councilSeat } from '@/game/derived';
 import { titleOf } from '@/game/sim/council';
 import type { Court } from './court';
-import { advisorOpening, says, type TidingKind } from './tidings';
+import { advisorOpening, lowerFirst, says, type TidingKind } from './tidings';
 import { speechSeconds } from './plate';
 
 /** Буквы в секунду — как у разговора (`TalkWindow`). */
@@ -58,7 +58,7 @@ export function HeraldPlate({ life, court, faith, onDone }: { life: ChambersLife
   // Слова — в минуту, когда он встал перед правителем: что переменилось, пока поднимался, он уже знает.
   const [lines] = useState(() => court.heraldLines());
   const first = lines[0];
-  const line = first ? says(`{T}, ${lowerFirst(first.text)}${lines.length > 1 ? ` И ещё ${lines.length - 1}.` : ''}`, faith) : says('{T}, вести, с которыми я шёл, уже в «Вестях».', faith);
+  const line = first ? says(`{T}, ${lowerFirst(first.text)}${lines.length > 1 ? ` И ещё ${lines.length === 2 ? 'одна весть' : `${lines.length - 1} вести`}:` : ''}`, faith) : says('{T}, вести, с которыми я шёл, уже в «Вестях».', faith);
   const typed = useTyped(line);
   const said = useRef(false);
   useEffect(() => {
@@ -108,8 +108,6 @@ export function HeraldPlate({ life, court, faith, onDone }: { life: ChambersLife
   );
 }
 
-const lowerFirst = (t: string): string => (t.startsWith('«') ? t : t[0].toLowerCase() + t.slice(1));
-
 /** Имя советника по вере державы: один на двор, при новом правителе — тот же. */
 export const ADVISOR_NAME: Record<FaithId, string> = { catholic: 'Мэтр Годфруа', orthodox: 'Боярин Ставр', islam: 'Визирь Абу Сахль', pagan: 'Старейшина Вилкас' };
 
@@ -125,7 +123,7 @@ export function AdvisorPlate({ life, court, faith, onDone }: { life: ChambersLif
   const [had] = useState(() => rep !== null);
   const cur = rep?.lines[rep.at] ?? null;
   // Первая весть — с приветствием; дальше — сами вести, по одной.
-  const text = says(!rep ? QUIET : rep.at === 0 ? `${advisorOpening(rep.lines)} ${cur?.text ?? ''}` : (cur?.text ?? ''), faith);
+  const text = says(!rep ? QUIET : rep.at === 0 ? `${advisorOpening(rep.lines)} ${lowerFirst(cur?.text ?? '')}` : (cur?.text ?? ''), faith);
   const typed = useTyped(text);
   const said = useRef('');
   useEffect(() => {

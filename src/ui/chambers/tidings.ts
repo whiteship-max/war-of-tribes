@@ -171,7 +171,7 @@ export function tell(t: Tiding, src: CourtSource): Telling | null {
         const l = src.letters.find((x) => x.id === t.ref);
         if (l) return say(`«${l.fromName}» идёт на нас набегом — у ворот через ${realDue((l.until - src.world) / 1000)}.`, { to: 'map' });
         const r = t.clock === 'world' ? outcomeOf(src, t.at, (x) => x.kind === 'defense') : null;
-        return r ? say(`Набег, что шёл на нас, кончился: ${r.title}. ${won(r)}`, { to: 'report', id: r.id }, true) : null;
+        return r ? say(`Набег, что шёл на нас, кончился. ${r.title}. ${won(r)}`, { to: 'report', id: r.id }, true) : null;
       }
       if (t.id.startsWith('war:')) {
         const m = src.marching.find((x) => x.id === t.ref);
@@ -185,7 +185,7 @@ export function tell(t: Tiding, src: CourtSource): Telling | null {
       const v = src.siege;
       if (v && String(v.since) === t.ref) return say(`«${v.byName}» стоит лагерем под стенами. Хлеба в городе на ${hungerLeft(v.starvesAt, src.world)}.`, { to: 'siege' });
       const r = outcomeOf(src, Number(t.ref), (x) => !!x.siege);
-      return r ? say(`Осада кончилась: ${r.title}. ${won(r)}`, { to: 'report', id: r.id }, true) : say('Осаду сняли: под стенами больше никого.', { to: 'chronicle', topic: 'siege' }, true);
+      return r ? say(`Осада кончилась. ${r.title}. ${won(r)}`, { to: 'report', id: r.id }, true) : say('Осаду сняли: под стенами больше никого.', { to: 'chronicle', topic: 'siege' }, true);
     }
     case 'out': {
       const r = t.ref as OutId;
@@ -228,6 +228,9 @@ function eventLine(t: Tiding, src: CourtSource): Telling | null {
   if (!ev || !def) return null;
   return { t, text: `${def.title} — ждёт твоего слова.`, door: { to: 'mail', key: eventKey(ev) }, outcome: false };
 }
+
+/** Весть внутри фразы («Сир, …», «Пока тебя не было: …») — со строчной, если начинается не с имени в кавычках. */
+export const lowerFirst = (t: string): string => (t.startsWith('«') ? t : t.charAt(0).toLowerCase() + t.slice(1));
 
 /** Строка с обращением — тем же, что у слуг (`talk.TITLE`): `{T}` — с большой буквы (в начале фразы), `{t}` — как есть. */
 export function says(line: string, faith: FaithId): string {
