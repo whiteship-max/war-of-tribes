@@ -2,7 +2,7 @@
 // сбитие цены партией и его отход; смена привоза по настоящим часам; кошель купцов; старое сохранение; книга рынка сервера,
 // подделка и двойная сделка с двух устройств.
 //
-// Области (правило 11): рынок 10-го уровня — привозят почти всё, кошель большой; минута — дневной привоз (13:00 по Москве);
+// Области (правило 11): рынок 10-го уровня — привозят почти всё, кошель большой; минута — 10:00 UTC (привоз 09–12, сетка 3 ч);
 // нажим — внутри глубины и за ней; привозы — сутки вперёд и месяц для перебора; часы — внутри привоза и через его границу.
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { GameState } from '../types';
@@ -19,8 +19,8 @@ import {
   depthOf,
   lotOf,
   pressAt,
+  purseOf,
   sellUnit,
-  shiftKind,
   shiftOf,
   shiftOffer,
   shiftStart,
@@ -29,6 +29,7 @@ import { buildingOfType } from '../derived';
 import {
   buyGoods,
   marketCheck,
+  marketDepth,
   marketHas,
   marketLeft,
   marketMax,
@@ -36,12 +37,13 @@ import {
   marketPurse,
   marketSellPrice,
   marketSold,
+  marketSupply,
   ownOf,
   saleCheck,
   sellGoods,
 } from './market';
-import { catchUp } from './tick';
-import { mergeMarket } from './caravan';
+import { catchUp, liveStep } from './tick';
+import { mergeMarket, rollShift } from './caravan';
 import { seeded, setRandom } from './random';
 import { deserialize, serialize } from '../save';
 import { watchOf } from '@/net/snapshot';
@@ -52,7 +54,7 @@ import type { WatchCard } from '../../../netlify/lib/contract';
 
 beforeEach(() => setRandom(seeded(7)));
 
-/** 13:00 по Москве — дневной привоз. */
+/** 10:00 UTC — привоз 09:00–12:00 (сетка РН-1б). */
 const NOW = Date.UTC(2026, 9, 23, 10, 0);
 const ALL: GoodDef[] = [...GOODS, BONDED_GOOD];
 
@@ -160,7 +162,7 @@ describe('сбитие и отход', () => {
       const a = town();
       const b = town();
       // Область: партия внутри кошеля купцов (у меча — дорогая штука).
-      const n = 15;
+      const n = 8;
       expect(saleCheck(a, def.id, n, NOW).blocked).toBeNull();
       const whole = sell(a, def, n, NOW);
       let pieces = 0;
@@ -177,21 +179,26 @@ describe('сбитие и отход', () => {
     expect(pressAt(-80, 1000, 1000 + PRESS_HALF / 2)).toBeCloseTo(-60, 9);
     expect(pressAt(100, 5000, 1000)).toBe(100);
     const s = town();
-    sell(s, GOOD_BY_ID.iron, 300, NOW);
-    expect(marketPress(s, 'iron', NOW)).toBe(-300);
-    expect(marketPress(s, 'iron', NOW + PRESS_HALF)).toBeCloseTo(-150, 9);
+    sell(s, GOOD_BY_ID.iron, 150, NOW);
+    expect(marketPress(s, 'iron', NOW)).toBe(-150);
+    expect(marketPress(s, 'iron', NOW + PRESS_HALF)).toBeCloseTo(-75, 9);
     expect(marketSellPrice(s, GOOD_BY_ID.iron, NOW + 4 * PRESS_HALF)).toBeGreaterThan(marketSellPrice(s, GOOD_BY_ID.iron, NOW));
   });
 });
 
 describe('привоз по настоящим часам', () => {
-  it('четыре привоза в сутки — в 00, 06, 12 и 18 по Москве: ночь, утро, день, вечер', () => {
-    const msk = (h: number): number => Date.UTC(2026, 9, 23, h - 3, 0);
-    expect([0, 6, 12, 18].map((h) => shiftKind(shiftOf(msk(h))))).toEqual(['night', 'morning', 'day', 'evening']);
-    for (const h of [0, 6, 12, 18]) {
-      const w = shiftOf(msk(h));
-      expect(shiftStart(w)).toBe(msk(h));
-      expect(shiftOf(msk(h) - 1)).toBe(w - 1);
+  it('восемь привозов в сутки — ровно каждые 3 часа по UTC (00, 03 … 21), у всех одна минута', () => {
+    const utc = (h: number): number => Date.UTC(2026, 9, 23, h, 0);
+    const hours = [0, 3, 6, 9, 12, 15, 18, 21];
+    const w0 = shiftOf(utc(0));
+    expect(hours.map((h) => shiftOf(utc(h)) - w0)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(shiftOf(Date.UTC(2026, 9, 24, 0, 0)) - w0, 'сутки — восемь привозов').toBe(8);
+    for (const h of hours) {
+      const w = shiftOf(utc(h));
+      expect(shiftStart(w)).toBe(utc(h));
+      // Точки внутри области: минута до начала — прежний привоз, последняя минута — этот же.
+      expect(shiftOf(utc(h) - 1)).toBe(w - 1);
+      expect(shiftOf(utc(h) + SHIFT - 1)).toBe(w);
     }
   });
 
@@ -210,11 +217,45 @@ describe('привоз по настоящим часам', () => {
     expect(next).not.toEqual(prices);
   });
 
-  it('ночной привоз — малый: запас и кошель вдвое меньше дневного', () => {
+  it('ночного урезания нет: у всех восьми привозов суток один кошель; запас — свой у привоза', () => {
     const s = town();
-    const night = Date.UTC(2026, 9, 22, 22, 0);
-    expect(shiftKind(shiftOf(night))).toBe('night');
-    expect(marketPurse(s, night)).toBeLessThan(marketPurse(s, NOW));
+    const day = Array.from({ length: 8 }, (_, i) => shiftStart(shiftOf(NOW)) + i * SHIFT + 1000);
+    expect(new Set(day.map((t) => marketPurse(s, t))).size).toBe(1);
+    const food = GOOD_BY_ID.food;
+    const sup = day.map((t) => marketSupply(s, food, t));
+    expect(new Set(sup).size, 'запас — свой у привоза').toBeGreaterThan(1);
+    for (const n of sup) expect(n / depthOf(food, MAX_BUILDING_LEVEL)).toBeGreaterThanOrEqual(1 - PRICE_SWING / 2 - 0.01);
+  });
+});
+
+describe('глубина закреплена на привоз', () => {
+  it('событие отняло уровень посреди привоза — глубина, запас и кошель прежние до следующего привоза', () => {
+    const s = town();
+    const def = GOOD_BY_ID.iron;
+    sell(s, def, 1, NOW);
+    expect(s.market.lv, 'уровень закреплён на привоз').toBe(MAX_BUILDING_LEVEL);
+    const depth = marketDepth(s, def, NOW);
+    const purse = marketPurse(s, NOW);
+    buildingOfType(s, 'market')!.level = 3;
+    const later = NOW + SHIFT / 2;
+    expect(shiftOf(later), 'область: тот же привоз').toBe(shiftOf(NOW));
+    expect(marketDepth(s, def, later)).toBe(depth);
+    expect(marketPurse(s, later)).toBe(purse);
+    expect(marketSellPrice(s, def, later)).toBe(sellUnit(def, shiftOf(later), depth, marketPress(s, def.id, later), 1));
+    // Следующий привоз — по новому уровню: живой шаг закрепляет его в первую же минуту.
+    const next = shiftStart(shiftOf(NOW) + 1) + 1000;
+    rollShift(s, next);
+    expect(s.market.lv).toBe(3);
+    expect(marketDepth(s, def, next)).toBe(depthOf(def, 3));
+    expect(marketPurse(s, next)).toBe(purseOf(3));
+  });
+
+  it('живой шаг закрепляет уровень в минуту начала привоза', () => {
+    const s = town();
+    const t = shiftStart(shiftOf(NOW) + 1) + 500;
+    liveStep(s, 1, t);
+    expect(s.market.w).toBe(shiftOf(t));
+    expect(s.market.lv).toBe(MAX_BUILDING_LEVEL);
   });
 });
 
@@ -310,9 +351,9 @@ describe('книга рынка сервера', () => {
   it('продано больше, чем было на складе, — флаг', () => {
     const s = town();
     const c0 = card(s);
-    // Невольники спрятаны от описи: в ней их 50, продано 200.
+    // Невольники спрятаны от описи: в ней их 50, продано 100.
     s.bonded = 100_000;
-    sell(s, BONDED_GOOD, 200, NOW);
+    sell(s, BONDED_GOOD, 100, NOW);
     const out = faults({ ...c0, market: { w: -1, bought: {}, sold: {}, got: 0, seq: 0, press: {}, deals: [] } }, NOW - 1000, card(s), NOW + 1000);
     expect(out.join(' ')).toMatch(/было не больше/);
   });
@@ -332,6 +373,24 @@ describe('книга рынка сервера', () => {
     const cb = card(b);
     expect(faults(c0, NOW - 500, ca, NOW + 1000)).toEqual([]);
     expect(faults(ca, NOW + 1000, cb, NOW + 2000).join(' ')).toMatch(/записана дважды по-разному/);
+  });
+
+  it('уровень упал посреди привоза: сделки по закреплённой глубине — без флага; закрепление выше рынка описей — флаг', () => {
+    const s = town();
+    sell(s, GOOD_BY_ID.iron, 1, NOW);
+    buildingOfType(s, 'market')!.level = 3;
+    // Обе описи видят упавший уровень: цену держит только закрепление привоза. Покупка — её прибавка не трогает, и мелкая
+    // глубина поднимала бы цену втрое быстрее.
+    const c0 = card(s);
+    const def = GOODS.find((g) => g.resource && marketHas(s, g, NOW))!;
+    expect(buyGoods(s, def.id, 100, NOW + 60_000)).toBeNull();
+    const c1 = card(s);
+    expect(c1.buildings.market, 'область: опись уже видит упавший уровень').toBe(3);
+    expect(c1.market?.lv).toBe(MAX_BUILDING_LEVEL);
+    expect(faults(c0, NOW - 500, c1, NOW + 120_000)).toEqual([]);
+    // Подделка: закрепление выше рынка обеих описей.
+    const forged = { ...c1, market: { ...c1.market!, lv: MAX_BUILDING_LEVEL + 5 } };
+    expect(faults(c0, NOW - 500, forged, NOW + 120_000).join(' ')).toMatch(/Уровень привоза .* выше рынка описей/);
   });
 
   it('счёт сделок убыл — флаг', () => {

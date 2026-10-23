@@ -216,7 +216,7 @@ describe('налог', () => {
   });
 });
 
-/** Минута дневного привоза (13:00 по Москве): рынок РН-1 считает привоз по настоящим часам. */
+/** 10:00 UTC — привоз 09:00–12:00 (сетка РН-1б, каждые 3 часа): рынок считает привоз по настоящим часам. */
 const NOW = Date.UTC(2026, 9, 23, 10, 0);
 /** Товар со склада, который привезли в этот привоз. */
 const brought = (s: GameState): GoodDef => marketOffer(s, NOW).find((g) => g.resource)!;
@@ -266,7 +266,7 @@ describe('рынок', () => {
   it('цена растёт по мере скупки одного товара за привоз', () => {
     const s = city();
     const def = brought(s);
-    expect(marketLot(s, def, marketDepth(s, def), NOW).last).toBeGreaterThan(marketPrice(s, def, NOW));
+    expect(marketLot(s, def, marketDepth(s, def, NOW), NOW).last).toBeGreaterThan(marketPrice(s, def, NOW));
   });
 
   it('запас привоза соблюдается и не обходится дроблением покупок', () => {

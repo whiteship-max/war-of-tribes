@@ -30,7 +30,7 @@ import { SHOP_GOODS, SHOP_LOT } from '@/game/sim/gems';
 import { REST_LABEL } from '@/ui/kit/breakdown';
 
 const { stores, fake, NOW } = vi.hoisted(() => ({
-  /** Минута дневного привоза (13:00 по Москве): окно рынка читает часы партии. */
+  /** 10:00 UTC — привоз 09:00–12:00 (сетка РН-1б): окно рынка читает часы партии. */
   NOW: Date.UTC(2026, 9, 23, 10, 0),
   stores: { game: {} as Record<string, unknown> },
   fake: <T extends object>(real: T, view: () => Record<string, unknown>): T => Object.assign((sel: (g: unknown) => unknown) => sel(view()), real),
@@ -75,7 +75,7 @@ describe('плитки рынка — числами игры', () => {
   it('цена штуки с разбором: основа привоза и сбитие; итог — `marketPrice`, «Прочее» нет', () => {
     const s = town();
     const def = marketOffer(s, NOW).find((g) => g.resource)!;
-    buyGoods(s, def.id, Math.ceil(marketDepth(s, def) / 3), NOW);
+    buyGoods(s, def.id, Math.ceil(marketDepth(s, def, NOW) / 3), NOW);
     // Область: скуплено — сбитие не ноль.
     const t = priceTip(s, def, NOW);
     expect(t.rows?.map((r) => r.label)).toHaveLength(2);
@@ -100,15 +100,13 @@ describe('плитки рынка — числами игры', () => {
     expect(hot.words).toContain('Ропот');
   });
 
-  it('шапка: привоз по сетке, через сколько новый — настоящими часами, серебро купцов — `marketPurse`', () => {
+  it('шапка: через сколько новый привоз (сетка UTC, 3 часа) — настоящими часами, серебро купцов — `marketPurse`', () => {
     const s = town();
     const head = shiftLine(s, NOW);
-    expect(head.kind).toBe('day');
-    expect(head.word).toBe('Дневной привоз');
-    // 13:00 по Москве — новый привоз в 18:00: через пять часов.
-    expect(head.next).toBe('5 ч 0 мин');
+        // 10:00 UTC — новый привоз в 12:00: через два часа.
+    expect(head.next).toBe('2 ч 0 мин');
     expect(head.purse).toBe(Math.floor(marketPurse(s, NOW)));
-    expect(shiftLine(s, Date.UTC(2026, 9, 22, 22)).word).toBe('Ночной привоз');
+    expect(shiftLine(s, Date.UTC(2026, 9, 22, 23, 59)).next).toBe('1 мин');
   });
 });
 
@@ -124,7 +122,7 @@ describe('окно рынка: плитки и панель сделки', () =>
     expect(html).toContain('Продать');
     expect(html).toMatch(/inputMode="numeric"|inputmode="numeric"/);
     for (const q of ['>1<', '>10<', '>100<', '>Всё<']) expect(html).toContain(q);
-    expect(html).toContain('Дневной привоз');
+    expect(html).toContain('новый привоз через 2 ч 0 мин');
     expect(html).not.toMatch(/class="card/);
   });
 

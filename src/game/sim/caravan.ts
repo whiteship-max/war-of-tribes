@@ -5,7 +5,8 @@ import type { Caravan, GameState, GoodId, MarketDeal, MarketState } from '../typ
 import { DAY_LENGTH } from '../constants';
 import { GOOD_BY_ID } from '../data/market';
 import { DEALS_KEPT } from '../marketrules';
-import { storageCap } from '../derived';
+import { shiftOf } from '../shift';
+import { marketLevel, storageCap } from '../derived';
 import { addBonded } from './population';
 import { log } from './log';
 
@@ -44,10 +45,27 @@ export function mergeMarket(v: unknown): MarketState {
     bought: counts(r.bought),
     sold: counts(r.sold),
     press,
+    ...(num(r.lv) !== null && (r.lv as number) > 0 ? { lv: Math.floor(r.lv as number) } : {}),
     got: Math.max(0, num(r.got) ?? 0),
     seq: Math.max(0, Math.floor(num(r.seq) ?? 0)),
     deals: deals.slice(-DEALS_KEPT),
   };
+}
+
+/**
+ * Новый привоз (РН-1б): счёт купленного, проданного и серебра начинается заново, а уровень рынка закрепляется на привоз —
+ * глубина, запас, набор и кошель не меняются посреди привоза. Зовут живой шаг (`sim/tick.liveStep`, минута начала привоза при
+ * игроке) и каждая сделка (`sim/market`); в отлучку — первая минута, когда город снова видит рынок.
+ */
+export function rollShift(s: GameState, now: number): void {
+  const w = shiftOf(now);
+  const m = s.market;
+  if (m.w === w) return;
+  m.w = w;
+  m.bought = {};
+  m.sold = {};
+  m.got = 0;
+  m.lv = marketLevel(s);
 }
 
 /**

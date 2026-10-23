@@ -9,6 +9,7 @@
 //      (выработка за вычетом расхода, `netPerDay`, за игровые дни привоза) — в разы больше налога (первый прогон РН-1:
 //      780…909 %): добро в игре дорого против налога, и продажа разом сломала бы спор за золото. Предел — кошель купцов на
 //      привоз: `PURSE[L] = PURSE_SHARE · налог привоза мерочного посёлка уровня L` (`autopilot.townAt`), выводится `--derive`.
+//      Привозов восемь в сутки (3 ч, РН-1б): за сутки — восемь кошелей, та же треть суточного налога, что при четырёх.
 //      «Заметное» — излишек хотя бы одного игрового дня мерочного посёлка 3, 5 и 8 добирает кошель не меньше чем на
 //      `GAIN_LOW`; «не ломающее» — выручка привоза не выше кошеля, то есть трети налога.
 //  Сбитие и отход — из устройства, а не подбором: партия во весь запас привоза поднимает цену последней штуки вдвое (прежнее
@@ -33,7 +34,6 @@ import {
   PURSE_SHARE,
   SALE_SHARE,
   SHIFT,
-  SHIFT_KINDS,
   buyUnit,
   depthOf,
   lotOf,
@@ -42,7 +42,6 @@ import {
   purseOf,
   sellUnit,
   shiftDays,
-  shiftKind,
   shiftOf,
   shiftStart,
   supplyOf,
@@ -97,7 +96,7 @@ console.log(`вывод Ц2 на записанных числах: кошель
 // ---------- Ц1: перепродажа ----------
 console.log('\n── Ц1. Перепродажа: худший круг «купить — продать» по привозам месяца (прибавка — потолок) ──');
 const W0 = shiftOf(Date.UTC(2026, 9, 1));
-const SHIFTS = Array.from({ length: 4 * 30 }, (_, i) => W0 + i);
+const SHIFTS = Array.from({ length: 8 * 30 }, (_, i) => W0 + i);
 console.log(`  ${'товар'.padEnd(18)} ${pad('штука', 8)} ${pad('партия', 8)}   худший круг`);
 let worst = 0;
 for (const def of [...GOODS, BONDED_GOOD]) {
@@ -119,9 +118,9 @@ for (const def of [...GOODS, BONDED_GOOD]) {
 console.log(`  итог: худший круг ${worst.toFixed(3)} — ${worst <= 1 ? 'не в плюс' : 'В ПЛЮС — ЦЕЛЬ НЕ ДЕРЖИТСЯ'}`);
 
 // ---------- Сбитие ----------
-console.log('\n── Сбитие: цена штуки по нажиму (еда, рынок 5, дневной привоз, без прибавки) ──');
+console.log('\n── Сбитие: цена штуки по нажиму (еда, рынок 5, привоз 12:00 UTC, без прибавки) ──');
 const food = GOOD_BY_ID.food;
-const wDay = SHIFTS.find((w) => shiftKind(w) === 'day')!;
+const wDay = W0 + 4;
 const dFood = depthOf(food, 5);
 console.log(`  глубина ${dFood} шт., основа привоза ×${priceFactor(wDay, food.id).toFixed(3)}`);
 for (const k of [-1, -0.5, 0, 0.5, 1]) {
@@ -131,25 +130,25 @@ for (const k of [-1, -0.5, 0, 0.5, 1]) {
 
 // ---------- Отход ----------
 console.log('\n── Отход нажима: доля, что осталась через ── ');
-for (const h of [0.5, 1, 1.5, 3, 4.5, 6]) console.log(`  ${pad(h, 4)} ч: ${pct(pressAt(1, 0, h * 3600_000))}`);
+for (const h of [0.25, 0.5, 0.75, 1.5, 2.25, 3]) console.log(`  ${pad(h, 4)} ч: ${pct(pressAt(1, 0, h * 3600_000))}`);
 console.log(`  полураспад ${PRESS_HALF / 3600_000} ч`);
 
 // ---------- Привозы суток ----------
-console.log('\n── Привозы суток (сетка Москвы): запас еды рынка 5 и основа ──');
-for (let i = 0; i < 4; i++) {
+console.log('\n── Привозы суток (сетка UTC, каждые 3 часа): запас еды рынка 5, основа, кошель ──');
+for (let i = 0; i < 8; i++) {
   const w = W0 + i;
-  const at = new Date(shiftStart(w) + 3 * 3600_000).toISOString().slice(11, 16);
-  console.log(`  ${SHIFT_KINDS[i].padEnd(8)} с ${at} МСК: запас ${pad(supplyOf(food, 5, w, 0), 5)}, основа ×${priceFactor(w, food.id).toFixed(3)}, кошель ${purseOf(5, w)}`);
+  const at = new Date(shiftStart(w)).toISOString().slice(11, 16);
+  console.log(`  с ${at} UTC: запас ${pad(supplyOf(food, 5, w, 0), 5)}, основа ×${priceFactor(w, food.id).toFixed(3)}, кошель ${purseOf(5)}`);
 }
 
 // ---------- Ц2: излишек ----------
-console.log(`\n── Ц2. Излишек игрового дня в дневной привоз против кошеля купцов (кошель — ${pct(PURSE_SHARE)} налога привоза) ──`);
+console.log(`\n── Ц2. Излишек игрового дня в привоз против кошеля купцов (кошель — ${pct(PURSE_SHARE)} налога привоза; за сутки — ${8} кошелей) ──`);
 let ok = true;
 for (const level of [3, 5, 8]) {
   const s = townAt(level);
   const net = netPerDay(s);
   const market = buildingOfType(s, 'market')?.level ?? 0;
-  const purse = purseOf(market, wDay);
+  const purse = purseOf(market);
   let gold = 0;
   let free = 0;
   for (const r of RESOURCE_IDS) {
@@ -163,5 +162,8 @@ for (const level of [3, 5, 8]) {
   const share = purse > 0 ? gold / purse : 0;
   ok &&= share >= GAIN_LOW;
   console.log(`  посёлок ${level}: налог привоза ${Math.round(tax)}, кошель ${purse}; излишек дня — ${gold} (${pct(share)} кошеля); излишек привоза без предела — ${free} (${pct(free / tax)} налога)`);
+  // Сутки — восемь привозов: суточное золото продажи — восемь кошелей против налога суток (цель — треть, РН-1б).
+  const day = (24 * 3600_000) / SHIFT;
+  console.log(`    сутки: ${day} кошелей — ${purse * day} против налога суток ${Math.round(tax * day)} (${pct((purse * day) / (tax * day))})`);
 }
 console.log(`  итог: ${ok ? 'заметно и не ломает' : 'ИЗЛИШЕК ДНЯ НЕ ДОБИРАЕТ КОШЕЛЬ'}`);

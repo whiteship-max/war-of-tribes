@@ -356,11 +356,14 @@ HEAD один на всех, см. правило 8). Значит развес�
   (`grantPrivilege`, `revokePrivilege`, `giftEstate`, `estatesStep`, чтение `mergeEstates`); влияние, лояльность, сила, плюс,
   минус, ропот и потолки — `estaterules`, одни на игру и на книгу сословий сервера (правило «estates», `WatchCard.estates`).
   Разойдись они у двоих — сервер счёл бы подделкой честную опору или пропустил бы указ сословия, которое его не открывало;
-- `src/game/sim/market.ts` и `src/game/marketrules.ts` — рынок (РН-1, docs/city_v3.md, «Решения РН-1»): `GameState.market` — счёт
-  привоза, нажим на цену и последние сделки (необязательные поля, версия не растёт), пишет его одна дверь `sim/market`
-  (`buyGoods`, `sellGoods`, чтение `mergeMarket`); привоз по настоящим часам, цена, нажим и его отход, доля продажи и кошель
-  купцов — `marketrules`, одни на игру и на книгу рынка сервера (`netlify/lib/market.ts`, правило «market»). Разойдись они у
-  двоих — сервер счёл бы подделкой честную сделку или пропустил бы продажу дороже правила;
+- `src/game/sim/market.ts`, `src/game/sim/caravan.ts`, `src/game/marketrules.ts` и `src/game/shift.ts` — рынок (РН-1, docs/city_v3.md, «Решения
+  РН-1» и «РН-1б»): `GameState.market` — счёт привоза, уровень, закреплённый на привоз, нажим на цену и последние сделки
+  (необязательные поля, версия не растёт); сделки пишет одна дверь `sim/market` (`buyGoods`, `sellGoods`), новый привоз и
+  закрепление уровня — `sim/caravan.rollShift`, чтение сохранения — `sim/caravan.mergeMarket`; привоз каждые 3 часа по UTC
+  (сетка — `game/shift.ts`, одна на игру и сервер, отдаётся и через `marketrules`),
+  цена, нажим и его отход, доля продажи и кошель купцов — `marketrules`, одни на игру и на книгу рынка сервера
+  (`netlify/lib/market.ts`, правило «market»). Разойдись они у двоих — сервер счёл бы подделкой честную сделку или пропустил
+  бы продажу дороже правила;
 - `src/profile/types.ts` — профиль игрока лежит в сохранении племени целиком: имя, лицо и
   имя города (`ProfileState.city`) — его поля;
 - `src/world/local/state.ts` — `WORLD_SAVE_VERSION` и миграции мира;
@@ -659,10 +662,11 @@ HEAD один на всех, см. правило 8). Значит развес�
   `security.test.ts`; economy).
 - **Палец** — `src/gestures.ts`, один судья на деревню и карту (gestures).
 - **Плата со склада** — `sim/pay` (`pay`, `refund`); цена в интерфейсе — `ui/parts/Cost.tsx` (ui, economy).
-- **Рынок** — сделка одна дверь `sim/market` (`buyGoods`, `sellGoods`; отмены нет), правила — `marketrules` (привоз по настоящим
-  часам — сетка Москвы, нажим и его отход, `SALE_SHARE` и кошель `PURSE` — выводом `npm run market:report -- --derive`); чтения —
-  `derived` с настоящей минутой (`marketPrice`, `marketSellPrice`, `marketLeft`, `marketPurse`); выручку поднимают Казначей и
-  купечество их дверями (`marketBoost`); сервер — правило «market» (`rn1.test.ts`; docs/city_v3.md, «Решения РН-1»).
+- **Рынок** — сделка одна дверь `sim/market` (`buyGoods`, `sellGoods`; отмены нет), правила — `marketrules` (привоз каждые 3
+  часа по UTC, уровень закреплён на привоз — `sim/caravan.rollShift`, нажим и его отход, `SALE_SHARE` и кошель `PURSE` — выводом
+  `npm run market:report -- --derive`); чтения — `sim/market` с настоящей минутой (`marketPrice`, `marketSellPrice`,
+  `marketLeft`, `marketPurse`; докачкой с окном); выручку поднимают Казначей и купечество их дверями (`marketBoost`); сервер —
+  правило «market» (`rn1.test.ts`; docs/city_v3.md, «Решения РН-1», «РН-1б»).
 - **Двор с двумя делами** — дело — профессия (`BuildingDef.jobs`); места, рабочие и невольники — по делу (`derived.deedSlots`,
   `deedWorkers`, `deedBonded`, ключ `JobId`), цена — сумма частей (`labour.partsOf`); переход старой записи — одна дверь
   `game/yardmerge` на клиент и сервер (`yardmerge.test.ts`, `foldlazy.test.ts`, `security.test.ts`; village, docs/city_v3.md, «ЗД-1»).

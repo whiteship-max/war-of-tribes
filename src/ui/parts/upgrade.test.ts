@@ -18,7 +18,7 @@ import { createInitialState } from '@/game/state';
 import { DAY_LENGTH, RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import { BUILDINGS, jobsOf } from '@/game/data/buildings';
 import { GOOD_BY_ID, offerSlots } from '@/game/data/market';
-import { PURSE } from '@/game/marketrules';
+import { PURSE, depthOf } from '@/game/marketrules';
 import { SEASON_SECONDS } from '@/game/data/seasons';
 import { SURVEY_MAX } from '@/game/data/survey';
 import {
@@ -45,7 +45,6 @@ import {
   townHallBuildMult,
   workerCount,
 } from '@/game/derived';
-import { marketDepth } from '@/game/sim/market';
 import { woundsOfBattle } from '@/game/sim/infirmary';
 import { tick } from '@/game/sim/tick';
 import { popGrowth } from '@/game/sim/population';
@@ -185,7 +184,7 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   feast: { kind: 'more', read: (s) => feastInfo(s).bonus },
   feastWait: { kind: 'days', read: (s) => feastInfo(s).wait },
   goods: { kind: 'count', read: (s) => offerSlots(marketLevel(s)) },
-  stock: { kind: 'more', read: (s) => marketDepth(s, GOOD_BY_ID.food) },
+  stock: { kind: 'more', read: (s) => depthOf(GOOD_BY_ID.food, marketLevel(s)) },
   purse: { kind: 'more', read: (s) => PURSE[marketLevel(s)] ?? 0 },
   caravan: { kind: 'seconds', read: caravanSeconds },
   morale: { kind: 'more', read: (s) => moraleBreakdown(s).raw },

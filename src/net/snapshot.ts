@@ -171,6 +171,7 @@ function marketCard(s: GameState): WatchMarket {
   const m = s.market;
   return {
     w: m.w,
+    ...(m.lv ? { lv: m.lv } : {}),
     bought: { ...m.bought },
     sold: { ...m.sold },
     got: whole(m.got ?? 0),

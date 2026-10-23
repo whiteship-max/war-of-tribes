@@ -9,8 +9,9 @@
  *  · Номер сделки не убывает, одна сделка под одним номером: два устройства с одной партией дали бы две разные сделки под
  *    одним номером — это флаг (двойная сделка), а встреча копий (`net/sync.decide`) вторую запись не примет.
  *
- * Уровень рынка и стабильность — описи (их сверяют правила «level» и «stab»): берётся щедрейшее из двух описей, чтобы стройка
- * между записями не делала честного подделкой. Чистая: без хранилища и без часов.
+ * Уровень рынка — закреплённый на привоз (`WatchMarket.lv`, РН-1б), не выше рынка описей; без закрепления — щедрейший из двух
+ * описей, чтобы стройка между записями не делала честного подделкой. Стабильность — описи (её сверяет правило «stab»).
+ * Чистая: без хранилища и без часов.
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { STOCK_KEYS, type Counts, type WatchCard, type WatchDeal } from './contract.js';
@@ -53,6 +54,13 @@ export function marketFaults(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   });
 
   const levels = [...new Set([levelOf(a), levelOf(b)])].filter((l) => l > 0);
+  // Уровень, закреплённый на привоз (РН-1б): не выше рынка описей и прежнего закрепления того же привоза.
+  const pinCeil = Math.max(levelOf(a), levelOf(b), A.w === B.w ? A.lv ?? 0 : 0);
+  if ((B.lv ?? 0) > pinCeil) out.push(`Уровень привоза ${B.lv} выше рынка описей (${pinCeil}).`);
+  const pinned = (w: number): number[] => {
+    const lv = B.w === w ? B.lv : A.w === w ? A.lv : undefined;
+    return lv && lv > 0 && lv <= pinCeil ? [lv] : levels;
+  };
   const stabs = [...new Set([a.stab?.level ?? 0, b.stab?.level ?? 0])];
   const latest = bAt + Math.max(0, b.lead) + CLOCK_SKEW_SECONDS * 1000;
   const press: Record<string, [number, number]> = { ...A.press };
@@ -88,8 +96,9 @@ export function marketFaults(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
     const p = press[d.good];
     const q0 = p ? pressAt(p[0], p[1], d.at) : 0;
     if (!near(q0, d.q)) out.push(`${tag}: нажим ${d.q.toFixed(2)}, а по правилу — ${q0.toFixed(2)}.`);
-    const lots = levels.map((l) => lotOf(def, dw, depthOf(def, l), q0, d.n, ctx.boost).gold);
-    const supply = Math.max(...levels.flatMap((l) => stabs.map((st) => (shiftOffer(dw, l).includes(def.id) ? supplyOf(def, l, dw, st) : 0))));
+    const at = pinned(dw);
+    const lots = at.map((l) => lotOf(def, dw, depthOf(def, l), q0, d.n, ctx.boost).gold);
+    const supply = Math.max(...at.flatMap((l) => stabs.map((st) => (shiftOffer(dw, l).includes(def.id) ? supplyOf(def, l, dw, st) : 0))));
     const n = Math.abs(d.n);
     if (d.n > 0) {
       const rule = Math.min(...lots);
@@ -106,7 +115,7 @@ export function marketFaults(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
       soldSum[d.good] = (soldSum[d.good] ?? 0) + n;
       if (fromPurse(d.good)) {
         got += d.gold;
-        const purse = Math.max(...levels.map((l) => purseOf(l, dw)));
+        const purse = Math.max(...at.map((l) => purseOf(l)));
         if (got > purse) out.push(`${tag}: купцы отдали за привоз ${big(got)} — кошель привоза ${big(purse)}.`);
       } else if (sold[d.good] > supply) out.push(`${tag}: продано невольников ${big(sold[d.good])} за привоз — торговцы уводят не больше ${big(supply)}.`);
     }

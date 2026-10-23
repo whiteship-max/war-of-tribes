@@ -30,6 +30,7 @@ import {
 } from '../marketrules';
 import { bondedTotal, caravanSeconds, marketLevel, merchantsMult, storageCap, treasurerMult, underSiege } from '../derived';
 import { loseBonded } from './population';
+import { rollShift } from './caravan';
 import { log } from './log';
 import { outlay } from './pay';
 
@@ -38,6 +39,15 @@ import { outlay } from './pay';
 // Всё, что зависит от привоза, берёт настоящую минуту `now` (часы партии, `net/clock.partyNow`) и считается правилами
 // `marketrules`, одними с сервером. Хранится только сделанное игроком (`MarketState`), и счёт другого привоза не считается.
 // Чтения живут здесь, а не в `derived`: их читает только окно рынка, и первая загрузка за них не платит.
+
+/**
+ * Уровень рынка привоза в минуту `now` (РН-1б): закреплённый на начало привоза (`MarketState.lv`, `sim/caravan.rollShift`), а
+ * пока привоз не начат в партии — нынешний. Событие, отнявшее уровень посреди привоза, меняет глубину со следующего.
+ */
+export function shiftLevel(s: GameState, now: number): number {
+  const m = s.market;
+  return m && m.w === shiftOf(now) && (m.lv ?? 0) > 0 ? (m.lv as number) : marketLevel(s);
+}
 
 export function marketOf(s: GameState, now: number): { w: number; bought: Partial<Record<GoodId, number>>; sold: Partial<Record<GoodId, number>>; got: number } {
   const w = shiftOf(now);
@@ -51,23 +61,22 @@ export function marketOf(s: GameState, now: number): { w: number; bought: Partia
  * рычаг против мятежа, а рычаг, который есть через привоз, рычагом не является. Пусто, пока нет рынка.
  */
 export const marketOffer = (s: GameState, now: number): GoodDef[] => {
-  const level = marketLevel(s);
-  if (level <= 0) return [];
-  return [...offerFor(shiftOf(now), level, GOODS), BONDED_GOOD];
+  if (marketLevel(s) <= 0) return [];
+  return [...offerFor(shiftOf(now), shiftLevel(s, now), GOODS), BONDED_GOOD];
 };
 
 /** Привезли ли товар в нынешний привоз. */
 export const marketHas = (s: GameState, def: GoodDef, now: number): boolean => marketOffer(s, now).some((g) => g.id === def.id);
 
 /** Глубина рынка товара (`marketrules.depthOf`): на столько штук нажима цена уходит вдвое. Одна во все привозы. */
-export const marketDepth = (s: GameState, def: GoodDef): number => depthOf(def, marketLevel(s));
+export const marketDepth = (s: GameState, def: GoodDef, now: number): number => depthOf(def, shiftLevel(s, now));
 
 /** Запас нынешнего привоза (`marketrules.supplyOf`): уровень рынка, ночь, стабильность, привоз. */
 export const marketSupply = (s: GameState, def: GoodDef, now: number): number =>
-  supplyOf(def, marketLevel(s), shiftOf(now), stabClamp(s.stab?.level ?? 0));
+  supplyOf(def, shiftLevel(s, now), shiftOf(now), stabClamp(s.stab?.level ?? 0));
 
 /** Сколько серебра купцов осталось в этот привоз (`marketrules.purseOf`) — им платят за всё, кроме невольников. */
-export const marketPurse = (s: GameState, now: number): number => Math.max(0, purseOf(marketLevel(s), shiftOf(now)) - marketOf(s, now).got);
+export const marketPurse = (s: GameState, now: number): number => Math.max(0, purseOf(shiftLevel(s, now)) - marketOf(s, now).got);
 
 /** Сколько куплено и продано этого товара в нынешний привоз. */
 export const marketBought = (s: GameState, id: GoodId, now: number): number => Math.max(0, marketOf(s, now).bought[id] ?? 0);
@@ -91,15 +100,15 @@ export const marketBoost = (s: GameState): number => Math.min(BOOST_MAX, treasur
 
 /** Цена следующей купленной штуки. */
 export const marketPrice = (s: GameState, def: GoodDef, now: number): number =>
-  buyUnit(def, shiftOf(now), marketDepth(s, def), marketPress(s, def.id, now));
+  buyUnit(def, shiftOf(now), marketDepth(s, def, now), marketPress(s, def.id, now));
 
 /** Выручка за следующую проданную штуку. */
 export const marketSellPrice = (s: GameState, def: GoodDef, now: number): number =>
-  sellUnit(def, shiftOf(now), marketDepth(s, def), marketPress(s, def.id, now), marketBoost(s));
+  sellUnit(def, shiftOf(now), marketDepth(s, def, now), marketPress(s, def.id, now), marketBoost(s));
 
 /** Партия из `n` штук: `n > 0` — покупка, `n < 0` — продажа; поштучно (`marketrules.lotOf`). */
 export const marketLot = (s: GameState, def: GoodDef, n: number, now: number): Lot =>
-  lotOf(def, shiftOf(now), marketDepth(s, def), marketPress(s, def.id, now), n, marketBoost(s));
+  lotOf(def, shiftOf(now), marketDepth(s, def, now), marketPress(s, def.id, now), n, marketBoost(s));
 
 /** Во что обойдётся партия из `count` штук. */
 export const marketCost = (s: GameState, def: GoodDef, count: number, now: number): number => marketLot(s, def, Math.max(0, count), now).gold;
@@ -244,15 +253,9 @@ export function marketMax(s: GameState, good: GoodId, side: 'buy' | 'sell', now:
 
 /** Кладёт сделку в счёт привоза, нажим и опись — одна запись на обе стороны торга. */
 function note(s: GameState, def: GoodDef, n: number, gold: number, now: number): void {
-  const w = shiftOf(now);
   const q = marketPress(s, def.id, now);
+  rollShift(s, now);
   const m = s.market;
-  if (m.w !== w) {
-    m.w = w;
-    m.bought = {};
-    m.sold = {};
-    m.got = 0;
-  }
   if (n > 0) m.bought = { ...m.bought, [def.id]: marketBought(s, def.id, now) + n };
   else m.sold = { ...m.sold, [def.id]: marketSold(s, def.id, now) - n };
   if (n < 0 && fromPurse(def.id)) m.got = (m.got ?? 0) + gold;

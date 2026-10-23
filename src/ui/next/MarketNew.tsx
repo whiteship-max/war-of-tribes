@@ -12,7 +12,7 @@ import { useGame } from '@/game/store';
 import { MUTINY_FUSE, ORDER_UNREST, ORDER_WARN } from '@/game/constants';
 import { BONDED_GOOD, GOODS, GOOD_BY_ID, type GoodDef } from '@/game/data/market';
 import { ORDER_TEXT } from '@/game/data/order';
-import { SHIFT, shiftKind, shiftOf, shiftStart, type ShiftKind } from '@/game/marketrules';
+import { SHIFT, shiftOf, shiftStart } from '@/game/marketrules';
 import { bondedIncoming, caravanSeconds, orderBreakdown } from '@/game/derived';
 import {
   inTransit,
@@ -51,9 +51,6 @@ export const MARKET_GOODS: readonly GoodDef[] = [...GOODS, BONDED_GOOD];
 const goodIcon = (def: GoodDef | undefined): IconName =>
   !def ? 'ui-crate' : def.kind === 'resource' && def.resource ? iconName('res', def.resource) : def.kind === 'equipment' && def.equipment ? iconName('gear', def.equipment) : 'ui-chain';
 
-/** Привоз словами и значком: «Ночной привоз». */
-export const SHIFT_WORD: Readonly<Record<ShiftKind, string>> = { night: 'Ночной привоз', morning: 'Утренний привоз', day: 'Дневной привоз', evening: 'Вечерний привоз' };
-const SHIFT_ICON: Readonly<Record<ShiftKind, IconName>> = { night: 'day-night', morning: 'day-morning', day: 'day-day', evening: 'day-evening' };
 
 /** Число на плитке: до десяти тысяч — целиком, дальше — «12 тыс.». */
 export const short = (n: number): string => (n < 10_000 ? fmtInt(n) : `${fmtInt(Math.floor(n / 1000))} тыс.`);
@@ -80,7 +77,7 @@ export function priceTip(s: GameState, def: GoodDef, now: number): TipContent {
   const q = Math.round(marketPress(s, def.id, now));
   return breakdown({
     title: `${def.name} · ${price} за штуку`,
-    body: `Каждая купленная штука дороже прежней, проданная — дешевле; на ${fmtInt(marketDepth(s, def))} штук цена уходит вдвое. Сбитие отходит само — вдвое за полтора часа.`,
+    body: `Каждая купленная штука дороже прежней, проданная — дешевле; на ${fmtInt(marketDepth(s, def, now))} штук цена уходит вдвое. Сбитие отходит само — вдвое за 45 минут.`,
     total: price,
     parts: [
       { label: 'Основа привоза', value: base },
@@ -102,10 +99,9 @@ export function orderAfter(s: GameState, n: number): { value: number; tone: '' |
   return { value, tone: '', words: `Порядок станет ${value}.` };
 }
 
-/** Шапка: какой привоз, через сколько новый, серебро купцов на этот привоз. */
-export function shiftLine(s: GameState, now: number): { kind: ShiftKind; word: string; next: string; purse: number } {
-  const w = shiftOf(now);
-  return { kind: shiftKind(w), word: SHIFT_WORD[shiftKind(w)], next: realHoursMin(Math.max(0, (shiftStart(w) + SHIFT - now) / 1000)), purse: Math.floor(marketPurse(s, now)) };
+/** Шапка: через сколько новый привоз (сетка UTC, каждые 3 часа) и серебро купцов на этот привоз. */
+export function shiftLine(s: GameState, now: number): { next: string; purse: number } {
+  return { next: realHoursMin(Math.max(0, (shiftStart(shiftOf(now)) + SHIFT - now) / 1000)), purse: Math.floor(marketPurse(s, now)) };
 }
 
 export function MarketNew() {
@@ -120,10 +116,10 @@ export function MarketNew() {
     <section className="mk">
       <div className="mk-top">
         <span className="mk-shift">
-          <Icon name={SHIFT_ICON[head.kind]} />
+          <Icon name="ui-wagon" />
           <span>
-            <b>{head.word}</b>
-            <small>новый через {head.next}</small>
+            <b>Привоз</b>
+            <small>новый привоз через {head.next}</small>
           </span>
         </span>
         <span className="mk-purse" title="Серебро купцов на этот привоз: столько они отдадут за проданное (невольники — мимо)">

@@ -1870,6 +1870,8 @@ export interface WatchDeal {
 /** Рынок в описи — то, что сверяет сервер (`watch.marketFaults`, правило «market»). */
 export interface WatchMarket {
   w: number;
+  /** Уровень рынка, закреплённый на привоз `w` (РН-1б); нет — нынешний. */
+  lv?: number;
   bought: Counts;
   sold: Counts;
   got: number;
@@ -1904,6 +1906,7 @@ function readMarket(v: unknown): Pick<WatchCard, 'market'> {
   return {
     market: {
       w: Math.round(fin(r.w)),
+      ...(num(r.lv) !== null ? { lv: Math.max(0, Math.min(99, Math.round(num(r.lv) as number))) } : {}),
       bought: readCounts(r.bought),
       sold: readCounts(r.sold),
       got: whole(r.got, 1e12),

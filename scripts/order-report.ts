@@ -52,7 +52,7 @@ import {
   BONDED_PAYBACK_DAYS,
   GOOD_BY_ID,
 } from '@/game/data/market';
-import { SHIFT, buyUnit, depthOf, lotOf, priceFactor, sellUnit, shiftKind, shiftOf, supplyOf } from '@/game/marketrules';
+import { SHIFT, buyUnit, depthOf, lotOf, priceFactor, sellUnit, shiftOf, shiftStart, supplyOf } from '@/game/marketrules';
 import { TAXES, TAX_PER_POP } from '@/game/data/policy';
 import { MUTINY_EVENT } from '@/game/data/order';
 import {
@@ -200,7 +200,7 @@ console.log('=== ЦЕНА: невольник на рынке и когда он
 console.log('');
 // Рынок РН-1: цена и запас — привозом по настоящим часам (`marketrules`); мерка — привоз минуты `START` автопилота.
 const W = shiftOf(START);
-console.log(` привоз ${shiftKind(W)}, основа ×${n1(priceFactor(W, BONDED_GOOD.id))}`);
+console.log(` привоз с ${new Date(shiftStart(W)).toISOString().slice(11, 16)} UTC, основа ×${n1(priceFactor(W, BONDED_GOOD.id))}`);
 console.log(' ур рынка   первый   запас/привоз   весь запас привоза   средняя   торговцы берут: первый · в привоз');
 for (const level of [1, 5, MAX_BUILDING_LEVEL]) {
   const stock = supplyOf(BONDED_GOOD, level, W, 0);
