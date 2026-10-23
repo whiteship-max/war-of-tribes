@@ -108,7 +108,10 @@ describe('настройки на стартовом экране — тот ж�
     expect(read('ui/next/index.ts')).toContain("export { Settings } from '../parts/Settings';");
     const app = read('App.tsx');
     expect(app).toContain('const Settings = lazy(() => nextUi().then((m) => ({ default: m.Settings })));');
-    expect(app, 'App не отдал настройки экрану').toMatch(/settings=\{\s*<Crash where="настройки" inline>\s*<Suspense fallback=\{null\}>\s*<Settings \/>/);
+    // То, что отдаётся, — `StartSettings`: ловушка, граница ожидания и тот же компонент (что касание до приезда куска его
+    // догружает, держит `ui/lazydoors.test.ts`).
+    expect(app, 'App не отдал настройки экрану').toContain('settings={<StartSettings />}');
+    expect(app).toMatch(/export function StartSettings\(\) \{\s*return \(\s*<Crash where="настройки" inline>\s*<Suspense fallback=\{null\}>\s*<Settings \/>/);
     expect(read('ui/StartScreen.tsx'), 'стартовый экран не показал отданное').toContain('{settingsBody}');
   });
 
