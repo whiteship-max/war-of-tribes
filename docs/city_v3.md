@@ -4229,7 +4229,8 @@ PANELSTATE='{"gold":2000}' PANELCLICK='…' PANELWAIT=3500 npm run city:shots`; 
 сохранение), `ui/next/market.test.ts` (плитки — числами рынка у всех 14 товаров, разбор цены, шапка привоза, окно: плитки,
 «Купить / Продать», цифры и 1/10/100/«Всё», причины погасшей), `sim/log.test.ts`, `net/cityrules.test.ts`,
 `net/goodsbook.test.ts`, `ui/parts/upgrade.test.ts` (строки «что даст уровень»: товаров, еды и серебра в привоз),
-`scripts/lib/timeclasses.test.ts` (+3 настоящих срока: `SHIFT`, `SHIFT_ZONE`, `PRESS_HALF`), `scripts/lib/repo.test.ts` (23 отчёта).
+`scripts/lib/timeclasses.test.ts` (+3 настоящих срока: `SHIFT`, `SHIFT_ZONE`, `PRESS_HALF`), `scripts/lib/repo.test.ts` (23 отчёта), `sim/outlays.test.ts` (двери убыли: продажа — разовое дело, закят — шагом `sim/caravan`), `netlify/lib/security.test.ts` и
+`server.test.ts` (правило «market», книга рынка — пятый, кто знает золото, не начисляя).
 
 Мутации (по одной, читалось упавшее утверждение):
 
