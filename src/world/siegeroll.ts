@@ -11,7 +11,7 @@
 // дверью, что голод). Здесь — кость, поправки, исход, доля истощения, наказы и слова о них (правило 18).
 import type { SiegeWindow } from './siege';
 import type { Fate } from './types';
-import { siegeSince, starvesAt } from './siege';
+import { foodLeft, siegeSince, starvesAt } from './siege';
 import { machineFaces, phaseShots, shotsText, type Aim, type GunAim } from './shelling';
 import { blockadeAt, type BlockadeBreak } from './blockade';
 import { MOD_BLOCKADE } from './data/blockade';
@@ -150,10 +150,23 @@ export type RollWindow = Pick<
   | 'offers'
   | 'guns'
   | 'targets'
+  | 'yieldPerHour'
+  | 'cut'
+  | 'breadAtSince'
 >;
 
 /** Минута броска фазы `k` (с единицы). */
 export const phaseAt = (since: number, k: number): number => since + k * SIEGE_PHASE;
+
+/** Сколько фаз вперёд смотрит прогноз (`projectPhases`): восемь игровых месяцев — дольше осада не стоит ни в одном прогоне. */
+export const PROJECT_PHASES = 64;
+
+/**
+ * Шаг осады, в котором склад, опустевший в минуту `t`, не оплатит прокорм (ОС-1): первая фаза **после** этой минуты. Склад,
+ * опустевший ровно в минуту броска, этот шаг оплатил — ноль не ниже нуля. Бесконечность — бесконечность.
+ */
+export const hungerStepAt = (since: number, t: number): number =>
+  Number.isFinite(t) ? phaseAt(since, Math.floor(Math.max(0, t - since) / SIEGE_PHASE) + 1) : Infinity;
 
 /** Номер фазы, в которой лежит минута `at`: с единицы, фаза `k` — промежуток [t_{k−1}, t_k). */
 export const phaseOf = (since: number, at: number): number => Math.floor(Math.max(0, at - since) / SIEGE_PHASE) + 1;
@@ -257,11 +270,17 @@ export function repairBlock(w: BreachWindow, now: number): string | null {
 /** Окно после починки, начатой в минуту `at`. */
 export const repairAfter = (w: Pick<RollWindow, 'log'>, at: number): { log: SiegeDeed[] } => ({ log: [...(w.log ?? []), { at, act: 'repair' }] });
 
-/** Доля хлеба города в минуту `at`, 0..1: от часов голода окна — единица, когда встал лагерь, ноль в минуту голода. */
+/**
+ * Доля хлеба города в минуту `at`, 0..1 (ОС-1): хлеб окна к хлебу в минуту, когда встал лагерь (`breadAtSince`), — доля
+ * **хлеба**, а не времени до прогноза голода: зимнее окно не прибавляет «голода» сытому городу. Окно до ОС-1 (без меры) — по
+ * часам голода, как было: единица, когда встал лагерь, ноль в минуту голода.
+ */
 export function breadLeft(w: RollWindow, at: number): number {
+  if (w.breadAtSince !== undefined) return w.breadAtSince > 0 ? Math.min(1, Math.max(0, foodLeft(w as SiegeWindow, at) / w.breadAtSince)) : 0;
   const since = siegeSince(w as SiegeWindow);
   const end = starvesAt(w as SiegeWindow);
   if (!(end > since)) return 0;
+  if (!Number.isFinite(end)) return 1;
   return Math.min(1, Math.max(0, (end - at) / (end - since)));
 }
 
@@ -284,9 +303,10 @@ export const wallFaces = (level: number | undefined): number =>
  * Поправки фазы `k` (docs/siege_v2.md, 2.3) — по окну и строкам до неё. Нулевых в ответе нет: строка журнала называет
  * только то, что сыграло.
  */
-export function modsOf(w: RollWindow, k: number, prior: readonly PhaseRow[] = rowsOf(w).slice(0, k - 1)): PhaseMods {
+export function modsOf(w: RollWindow, k: number, prior: readonly PhaseRow[] = rowsOf(w).slice(0, k - 1), share?: number): PhaseMods {
   const at = phaseAt(siegeSince(w as SiegeWindow), k);
-  const bread = breadLeft(w, at);
+  // Доля хлеба: у города, чей склад — не окно (наш город под логовом, ОС-1), её приносит мир со склада; иначе — окно.
+  const bread = share ?? breadLeft(w, at);
   const hunger = MOD_HUNGER.find((h) => bread < h.below)?.faces ?? 0;
   const mods: PhaseMods = {
     // Проломы к минуте броска: починка, закрытая в эту минуту, уже легла (раздел 5).
@@ -368,9 +388,9 @@ export function wasteOf(out: PhaseOut, homeDays: number | undefined, hungry = fa
  * Бросок фазы `k` по окну — строка журнала. `homeDays` и `hungry` — для истощения: путь лагеря от дома и пуст ли амбар
  * дома (только у лагеря игрока).
  */
-export function rollPhase(w: RollWindow & Pick<SiegeWindow, 'homeDays'>, k: number, hungry = false): PhaseRow {
+export function rollPhase(w: RollWindow & Pick<SiegeWindow, 'homeDays'>, k: number, hungry = false, share?: number): PhaseRow {
   const prior = rowsOf(w).slice(0, k - 1);
-  const mods = modsOf(w, k, prior);
+  const mods = modsOf(w, k, prior, share);
   const seed = rollSeed(w);
   const die = (dieOverride ?? dieOf)(seed, k);
   const out = outOf(die + modsSum(mods), prior, legacyBreaches(w));
@@ -390,9 +410,12 @@ export function rollPhase(w: RollWindow & Pick<SiegeWindow, 'homeDays'>, k: numb
  */
 export function projectPhases(w: RollWindow & Pick<SiegeWindow, 'homeDays'>, until: number): PhaseRow[] {
   const out: PhaseRow[] = [];
-  const end = Math.min(until, starvesAt(w as SiegeWindow));
+  // Конец осады называет тот, кто зовёт: у города, чей склад — окно, это час голода окна; у нашего (ОС-1) — шаг голода склада.
+  const end = until;
   let win: RollWindow & Pick<SiegeWindow, 'homeDays'> = { ...w, phases: [...rowsOf(w)] };
-  for (let k = rowsOf(w).length + 1; phaseAt(siegeSince(w as SiegeWindow), k) < end; k++) {
+  // Город, который кормится сам (ОС-1), голода не ждёт вовсе: прогноз смотрит не дальше `PROJECT_PHASES` фаз.
+  const last = rowsOf(w).length + PROJECT_PHASES;
+  for (let k = rowsOf(w).length + 1; k <= last && phaseAt(siegeSince(w as SiegeWindow), k) < end; k++) {
     const row = rollPhase(win, k);
     out.push(row);
     if (row.out === 'gates') break;

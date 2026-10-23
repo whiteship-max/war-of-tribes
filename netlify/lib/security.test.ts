@@ -126,7 +126,7 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'stab', 'crown', 'prod', 'merge', 'council', 'estates', 'market']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'estates', 'market']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
@@ -564,6 +564,22 @@ describe('ЗЩ-2: склад, казна и хлеб защитника — из
     const fair = await q.watch();
     expect(kinds(fair)).toEqual([]);
     expect((await warSide(q)).gold).toBe(0);
+  });
+
+  // Сдача голодом (правило «starve», ОС-1, docs/siege_v2.md, 23): опись везёт счёт сдач голодом при складе, оплачивавшем
+  // прокорм (`stats.fedFalls`). Область правила: две описи подряд, счёт между ними вырос (точка внутри) — и не вырос (вне).
+  it('сдача голодом при хлебе: счёт ложных сдач вырос — флаг «сдача голодом при хлебе» и «внимание:»; не вырос — тихо', async () => {
+    const p = player(5206);
+    expect(await p.push(card({ outlays: 0 }), NOW)).toBe(200);
+    expect(await p.push(card({ outlays: 0, starve: 1 }), NOW + MIN)).toBe(200);
+    const rec = await p.watch();
+    expect(kinds(rec)).toEqual(['starve']);
+    expect(warnings(rec).join('\n')).toMatch(/сдан голодом 1 раз .*прокорм оплачивал/);
+
+    const q = player(5207);
+    expect(await q.push(card({ outlays: 0, starve: 1 }), NOW)).toBe(200);
+    expect(await q.push(card({ outlays: 0, starve: 1 }), NOW + MIN)).toBe(200);
+    expect(kinds(await q.watch()), 'тот же счёт — новой ложной сдачи нет').toEqual([]);
   });
 
   it('расход хлеба ниже самого скудного пайка: флаг «расход хлеба ниже правил», в осаду — пол', async () => {

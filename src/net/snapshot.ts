@@ -141,6 +141,8 @@ export function watchOf(s: GameState): WatchCard {
     // Разовые траты (`sim/pay.outlay`): между описями без дел и трат книга запасов сервера держит склад «не меньше»
     // (docs/security.md, ЗЩ-2).
     outlays: st.outlays ?? 0,
+    // Ложные сдачи голодом (ОС-1): сдан голодом при складе, оплачивавшем прокорм, — сервер пишет «внимание:» (правило «starve»).
+    ...(st.fedFalls ? { starve: st.fedFalls } : {}),
     won: st.battlesWon,
     lost: st.battlesLost,
     lairs: st.lairs,

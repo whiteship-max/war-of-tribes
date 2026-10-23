@@ -878,6 +878,24 @@ export function openSky(g: GameState, sky: Sky, watch: Watch = {}): OpenSky {
   };
 }
 
+/**
+ * Хлеб стоящего посёлка под осадой (ОС-1, docs/siege_v2.md, 23): посёлок мерки стоит — уровни, склад, войско, люди такие, как
+ * поставил отчёт, — а хлеб под осадой идёт шагом игры. Голод решает склад (`sim/siege.siegeHunger`), и посёлок, который не
+ * ест, не голодал бы никогда. Шаг — настоящий `tick` на копии посёлка: в мерку возвращаются только хлеб и засуха склада,
+ * второй арифметики добычи и прокорма нет. `seconds` — **игровые** секунды. Без осады — ничего.
+ */
+export function larder(g: GameState, seconds: number, step = 1): void {
+  if (!g.siege || !(seconds > 0)) return;
+  const c = structuredClone(g);
+  for (let left = seconds; left > 0; left -= step) tick(c, Math.min(step, left));
+  g.resources.food = c.resources.food;
+  // Награда задания ложится один раз: иначе копия, рождённая заново каждый шаг, получала бы её снова и снова.
+  g.completedQuests = c.completedQuests;
+  if (!c.siege) return;
+  if (c.siege.dry !== undefined) g.siege.dry = c.siege.dry;
+  else delete g.siege.dry;
+}
+
 /** Прогон игрока в мире. */
 export interface Flight {
   g: GameState;
@@ -888,7 +906,7 @@ export interface Flight {
   /**
    * `live` — посёлок живёт шагом игры при игроке (`tick`), и игрок решает. `frozen` — посёлок мерки
    * стоит: уровни, склад и войско такие, какими их поставил отчёт; мир и пульс идут, игрок только
-   * отвечает на осаду.
+   * отвечает на осаду, а хлеб под осадой идёт шагом игры (`larder`, ОС-1).
    */
   economy: 'live' | 'frozen';
   /** Шаг симуляции, с. */
@@ -996,7 +1014,7 @@ export async function pilot(o: Flight): Promise<Flown> {
       mailArrive(g, sky.now() - pulseMs, sky.now());
       // И сроки донесений идут теми же часами: мятеж без ответа разрешается почтой, а не шагом.
       mailStep(g, sky.now());
-    }
+    } else larder(g, gameSeconds(pulseSec), o.tick);
     const pl = await beat();
     const now = sky.now();
     await watch.after?.({ g, world: sky.world, now: now - START, marches: sky.marches(), figures: sky.figures(), pulse: pl });

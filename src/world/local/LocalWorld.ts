@@ -202,6 +202,7 @@ import {
   SIEGE_BLOCK,
   STRIKE_FROM_TOWN,
   WOOD_FIXED,
+  breadAt,
   breadStock,
   immuneUntil,
   openSiege,
@@ -236,6 +237,7 @@ import {
   repairsOf,
   rollPhase,
   rowsOf,
+  hungerStepAt,
   softerFate,
   type PhaseRow,
   type SiegeOrders,
@@ -314,6 +316,7 @@ import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { keptType } from '@/game/merged';
 import { BLOCKADE_BREAKS, BLOCKADE_GIVES, BREAKOUT_GIVES, BREAKOUT_SHARE, BREAK_WORDS, blockadeAfter, blockadeAt, blockadeBlock, blockadeDeeds, blockadeHolds, blockadeRatio, blockadeSince, ratioWords, type BlockadeBreak } from '../blockade';
 import { BLOCKADE_RATIO } from '../data/blockade';
+import { breadWords, cutWords, siegeCut, siegeCutOf, starves } from '../siegefood';
 import { SIEGE_PHASE as PHASE_MS } from '../data/siegeroll';
 import { AIMS, GUN_AIMS, GUN_SPAN, type Aim } from '../data/shelling';
 import { SCALING, openingWords, wallFront, type WallFront } from '../wall';
@@ -1116,7 +1119,8 @@ export class LocalWorld implements WorldApi {
   /** Осада этого поселения, если она идёт прямо сейчас. Считается при чтении. */
   private siegeOf(id: SettlementId, now: number): SiegeWindow | null {
     const w = this.save.sieges[id];
-    return w && siegeActive(w, now) ? w : null;
+    // Наш город — склад племени, не окно (ОС-1): прогноз хлеба окна осаду не кончает, её кончает событие (голод шага, уход).
+    return w && (id === HOME_ID || siegeActive(w, now)) ? w : null;
   }
 
   /**
@@ -1134,7 +1138,8 @@ export class LocalWorld implements WorldApi {
   private homeBread(at: number): number {
     let bread = Infinity;
     const w = this.save.sieges[HOME_ID];
-    if (w && at >= w.startedAt) bread = Math.min(bread, foodLeft(w, at));
+    // Под логовом хлеб — склад (ОС-1): слепок и есть он; окно судит только до того, как племя узнало об осаде.
+    if (w && at >= w.startedAt && !this.homeBesieged()) bread = Math.min(bread, foodLeft(w, at));
     const war = this.warOnUs();
     const c = war ? this.warWindow(war) : null;
     if (c && at >= c.startedAt) bread = Math.min(bread, foodLeft(c, at));
@@ -1238,7 +1243,7 @@ export class LocalWorld implements WorldApi {
     id: SettlementId,
     now: number,
     extraMen: number,
-  ): { food: number; garrison: number; townPerHour: number; perManPerHour: number } {
+  ): { food: number; garrison: number; townPerHour: number; perManPerHour: number; yieldPerHour?: number } {
     if (id === HOME_ID) {
       const p = this.save.profile;
       return {
@@ -1249,6 +1254,8 @@ export class LocalWorld implements WorldApi {
         garrison: troopTotal(this.defenders(now).all) + extraMen,
         townPerHour: p?.foodPerHour ?? 0,
         perManPerHour: p?.soldierFoodPerHour ?? 0,
+        // Поля за стеной (ОС-1): валовая добыча хлеба, штраф по соотношению сил кладёт окно (`siegeWindowAt`).
+        yieldPerHour: p?.yieldPerHour ?? 0,
       };
     }
     const s = this.byId.get(id);
@@ -1292,8 +1299,17 @@ export class LocalWorld implements WorldApi {
     // Срок стоянки лагеря и есть час голода: падение разбирает та же очередь
     // событий по времени, что и приход любого другого отряда.
     const camp = this.save.marches.find((m) => m.id === campId);
-    if (camp) camp.stayUntil = starvesAt(w);
+    if (camp) camp.stayUntil = this.stayOf(id, w);
     return w;
+  }
+
+  /**
+   * Срок стоянки лагеря: у чужого города — час голода окна (его склад — само окно), у нашего — никакой (ОС-1): голод нашего
+   * города решает склад в шаге осады, и стоянка кончается событием фазы, а не сроком. Число конечное: бесконечность в
+   * сохранении стала бы `null`, а `null` — стоянкой, кончившейся сразу.
+   */
+  private stayOf(id: SettlementId, w: SiegeWindow): number {
+    return id === HOME_ID ? Number.MAX_SAFE_INTEGER : starvesAt(w);
   }
 
   /**
@@ -1349,7 +1365,14 @@ export class LocalWorld implements WorldApi {
       // Требушет на стене той же осады переносится; постройки под обстрелом — наш город при постановке (Р-5).
       guns: same?.guns,
       targets: same ? same.targets : id === HOME_ID ? this.homeTargets() : undefined,
+      // Хлеб, когда встал лагерь, — мера доли хлеба кости фаз (ОС-1): у той же осады переносится.
+      breadAtSince: same ? (same.breadAtSince ?? same.foodAtStart) : undefined,
     });
+    // Штраф к добыче нашего города в минуту окна — по соотношению сил (ОС-1, мерка кольца).
+    if (id === HOME_ID) {
+      const camp = this.campArmy(w, at);
+      if (camp) w.cut = siegeCutOf(camp.power, this.garrisonPower(id, at));
+    }
     // Рогатки держат те, кто их строил: у новой осады это лагерь в минуту постановки.
     // Спрашивается у того же `campArmy`, которым лагерь бьётся, — второго счёта людей нет.
     if (!same) w.builders = this.campArmy(w, at)?.men;
@@ -1420,9 +1443,11 @@ export class LocalWorld implements WorldApi {
       since: siegeSince(w),
       starvesAt: this.hunger(w),
       garrison: w.garrisonAtStart,
-      foodAtStart: w.foodAtStart,
-      // Хлеб в городе сейчас — остаток окна, та же функция, что решит голод (docs/siege_v2.md, 21.1).
-      bread: Math.floor(foodLeft(w, now)),
+      foodAtStart: w.breadAtSince ?? w.foodAtStart,
+      // Хлеб в городе сейчас — склад племени (ОС-1): голод решает он, в шаге осады.
+      bread: Math.floor(this.homeFood(w, now)),
+      ...this.cutView(camp?.power ?? 0, this.garrisonPower(HOME_ID, now)),
+      ...this.breadView(this.homeDryAhead(w), now),
       campMen: camp?.men ?? 0,
       builders: this.buildersOf(w, now),
       ...(camp && w.fire ? { fire: { thin: camp.thin, cap: Math.max(w.fire.base, w.fire.thin), slow: w.fire.slow } } : {}),
@@ -1461,7 +1486,7 @@ export class LocalWorld implements WorldApi {
     const cost = wallRepairCost(w.wall ?? 0);
     return {
       repair: { cost, reason: repairBlock(w, now) ?? this.stockShort(cost), doneAt: repairPending(w, now) },
-      ration: { on: Boolean(w.ration), starvesAt: starvesIfRation(w, now, !w.ration) },
+      ration: this.rationAnswer(w, now),
       surrender: softerFate(fate),
       burn: burnTargets(w, now).map((id) => ({
         machine: id,
@@ -1576,7 +1601,7 @@ export class LocalWorld implements WorldApi {
    * пересчёт, как смена гарнизона. Племя ест по пайку с ближайшего пульса (`bridge.syncSiege`).
    */
   private rationAt(w: SiegeWindow, at: number, on: boolean): void {
-    const left = foodLeft(w, at);
+    const left = this.homeFood(w, at);
     if (on) w.ration = true;
     else delete w.ration;
     this.openSiegeAt(HOME_ID, w.byId, w.campId, at, 0, {}, left);
@@ -1595,7 +1620,7 @@ export class LocalWorld implements WorldApi {
       this.repairAt(w, at);
       done.push('repair');
     }
-    const ration = orderRations(d, Boolean(w.ration), breadLeft(w, at));
+    const ration = orderRations(d, Boolean(w.ration), this.homeShare(w, at));
     if (ration) done.push('ration');
     if (!done.length) return;
     row.orders = [...(row.orders ?? []), ...done];
@@ -2418,7 +2443,7 @@ export class LocalWorld implements WorldApi {
     // уйдёт домой, и подменить его точкой стоянки значило бы отправить чужаков
     // восвояси в нашу же деревню.
     m.phase = 'stay';
-    m.stayUntil = starvesAt(w);
+    m.stayUntil = this.stayOf(HOME_ID, w);
     this.addReport({
       id: `${m.id}-siege`,
       at,
@@ -2669,8 +2694,9 @@ export class LocalWorld implements WorldApi {
     this.liftedFate(HOME_ID, at, declared);
     this.markFall(HOME_ID, declared, at);
     const haul = this.haul(camp?.units ?? {}, false);
-    // Окно к этой минуте уже снято (`siegeFalls` → `liftSiege`): хлеб — его остаток в минуту падения, у голода — ноль.
-    const spoils = this.fateHome(p ?? null, haul.carry, haul.escort, at, declared, foodLeft(w, at));
+    // Окно к этой минуте уже снято (`siegeFalls` → `liftSiege`): хлеб — склад в минуту падения (ОС-1), у голода — ноль:
+    // голодом сдаёт только склад, не оплативший прокорм.
+    const spoils = this.fateHome(p ?? null, haul.carry, haul.escort, at, declared, gates ? this.homeFood(w, at) : 0);
     const loss = homeLoss(spoils);
     if (FATES[declared].chain) this.save.burnImmune[HOME_ID] = burnImmuneUntil(at);
     const from = this.byId.get(w.byId)?.name ?? camp?.fromName ?? 'Враги';
@@ -2731,10 +2757,12 @@ export class LocalWorld implements WorldApi {
     let best: { id: SettlementId; at: number } | null = null;
     for (const [id, w] of Object.entries(this.save.sieges)) {
       const since = siegeSince(w);
-      const times = [starvesAt(w)];
+      // Наш город голодом сдаёт шаг осады, а не час голода окна (ОС-1): у него события — только фазы.
+      const home = id === HOME_ID;
+      const times = home ? [] : [starvesAt(w)];
       // Фаза осады (`world/siegeroll`): бросок в свою минуту, пока город не доели.
       const roll = nextRollAt(w);
-      if (roll < starvesAt(w)) times.push(roll);
+      if (home || roll < starvesAt(w)) times.push(roll);
       if (!w.sortied) times.push(since + SIEGE_SORTIE_AT);
       if (!w.relieved) times.push(since + SIEGE_RELIEF_AT);
       for (const t of times) {
@@ -2749,7 +2777,7 @@ export class LocalWorld implements WorldApi {
   private stepSiege(id: SettlementId, at: number): void {
     const w = this.save.sieges[id];
     if (!w) return;
-    if (at >= starvesAt(w)) return this.siegeFalls(id, at);
+    if (id !== HOME_ID && at >= starvesAt(w)) return this.siegeFalls(id, at);
     if (at >= nextRollAt(w)) return this.siegePhase(id, at);
     const since = siegeSince(w);
     if (!w.sortied && at >= since + SIEGE_SORTIE_AT) {
@@ -2774,8 +2802,14 @@ export class LocalWorld implements WorldApi {
     if (!w) return;
     const k = rowsOf(w).length + 1;
     const ours = ourCamp(w);
+    // Шаг осады нашего города (ОС-1): добыча → прокорм → проверка — склад племени; не оплатил прокорм — город сдан голодом,
+    // и кость этой фазы не бросается. Лагерь логова у города, который кормится сам, уходит: голодом он его не возьмёт.
+    if (id === HOME_ID) {
+      if (this.homeStarved(w, at)) return this.siegeFalls(id, at);
+      if (!Number.isFinite(this.homeDryAhead(w))) return this.campLeaves(w, k, at);
+    }
     // Пустой амбар дома удваивает истощение нашего лагеря (раздел 3.3): второго склада у лагеря нет.
-    const row = rollPhase(w, k, ours && (this.save.profile?.food ?? 1) <= 0);
+    const row = rollPhase(w, k, ours && (this.save.profile?.food ?? 1) <= 0, id === HOME_ID ? this.homeShare(w, at) : undefined);
     w.phases = [...rowsOf(w), row];
     // Выстрелы фазы (Р-5): разбитые машины и требушет на стене — той же дверью, что у сервера войны.
     const shot = shotsApplied(w, row, at);
@@ -3678,9 +3712,123 @@ export class LocalWorld implements WorldApi {
     return w && this.siegeInsider(id, w) ? this.hunger(w) : null;
   }
 
-  /** Сама минута голода из окна. Звать напрямую можно только там, где участие уже известно. */
-  private hunger(w: SiegeWindow): number {
-    return starvesAt(w);
+  /**
+   * Сама минута голода из окна. Звать напрямую можно только там, где участие уже известно. У нашего города (ОС-1) — конец
+   * осады без нашего вмешательства: шаг голода по прогнозу склада, а у сытого — фаза, в которую лагерь логова уйдёт.
+   */
+  protected hunger(w: SiegeWindow): number {
+    if (this.save.sieges[HOME_ID]?.campId !== w.campId) return starvesAt(w);
+    const step = this.homeHungerStep(w);
+    return Number.isFinite(step) ? step : nextRollAt(w);
+  }
+
+  // ---------- Хлеб нашего города в осаде (ОС-1, docs/siege_v2.md, раздел 23) ----------
+  //
+  // Правда — склад племени: шаг племени судит, оплачен ли прокорм (`sim/siege.siegeHunger`), и слепок везёт засуху (`dryFor`)
+  // и прогноз (`dryIn`) в игровых секундах от минуты пульса. Пока племя об осаде не знает (слепок лёг до постановки: догон
+  // без мира), мир судит склад окном — тем же правилом шага (`siegefood.starves`), от хлеба и добычи слепка минуты постановки.
+
+  /** Знает ли слепок об осаде: склад судит племя. */
+  private homeBesieged(): boolean {
+    return Boolean(this.save.profile?.besieged);
+  }
+
+  /** Мировая минута по игровым секундам слепка: `ago` секунд назад (меньше нуля — вперёд) от минуты пульса. */
+  private profileMinute(ago: number): number {
+    return (this.save.profileAt ?? this.clock()) - realMs(ago);
+  }
+
+  /** С какой минуты склад нашего города не оплачивает прокорм; кормит — бесконечность. По окну — минута, когда его хлеб ниже нуля. */
+  private homeDryAhead(w: SiegeWindow): number {
+    const p = this.save.profile;
+    if (!this.homeBesieged()) return starvesAt(w);
+    if (p?.dryFor !== undefined) return this.profileMinute(p.dryFor);
+    return p?.dryIn !== undefined ? this.profileMinute(-p.dryIn) : Infinity;
+  }
+
+  /** Шаг осады, в котором склад нашего города, по засухе или прогнозу, не оплатит прокорм; не опустеет — бесконечность. */
+  protected homeHungerStep(w: SiegeWindow): number {
+    return hungerStepAt(siegeSince(w), this.homeDryAhead(w));
+  }
+
+  /**
+   * Не оплатил ли склад нашего города прокорм к шагу `at` (ОС-1): засуха склада началась не позже этой минуты; без слепка
+   * осады — хлеб окна ниже нуля (`siegefood.starves`). Ровно ноль — оплачен.
+   */
+  private homeStarved(w: SiegeWindow, at: number): boolean {
+    const p = this.save.profile;
+    if (!this.homeBesieged()) return starves(breadAt(w, at));
+    return p?.dryFor !== undefined && this.profileMinute(p.dryFor) <= at;
+  }
+
+  /** Хлеб нашего города в минуту `at`: склад слепка, а без слепка осады — остаток окна. */
+  private homeFood(w: SiegeWindow, at: number): number {
+    return this.homeBesieged() ? Math.max(0, this.save.profile?.food ?? 0) : foodLeft(w, at);
+  }
+
+  /** Доля хлеба нашего города для поправки «голод» кости (ОС-1): склад к хлебу в минуту, когда встал лагерь. */
+  private homeShare(w: SiegeWindow, at: number): number {
+    if (!this.homeBesieged()) return breadLeft(w, at);
+    const ref = w.breadAtSince ?? w.foodAtStart;
+    return ref > 0 ? Math.min(1, Math.max(0, this.homeFood(w, at) / ref)) : 0;
+  }
+
+  /**
+   * Лагерь логова у города, который кормится сам, уходит в шаге осады (ОС-1): голодом он его не возьмёт, а дел у бота нет.
+   * Нашему городу — донесение с записью осады.
+   */
+  private campLeaves(w: SiegeWindow, k: number, at: number): void {
+    const camp = this.campArmy(w, at);
+    const by = this.byId.get(w.byId)?.name ?? 'Враги';
+    this.liftSiege(HOME_ID, at, 'left');
+    // Донесение — с записью осады (ролик): снятие лагеря — исход осады, как падение или разбитый лагерь.
+    this.addReport({
+      id: `${w.campId}-left`,
+      at,
+      kind: 'defense',
+      title: 'Осада снята',
+      target: { id: HOME_ID, name: this.homeName(), x: this.save.home.x, y: this.save.home.y },
+      won: true,
+      sent: {},
+      lost: {},
+      enemyPower: Math.round(camp?.power ?? 0),
+      enemyLost: null,
+      loot: null,
+      intel: null,
+      battle: null,
+      text: `${by} сняли осаду на ${k}-й фазе: город кормится сам, голодом его не взять. Лагерь ушёл.`,
+      read: false,
+    });
+  }
+
+  /** Штраф к добыче окну и племени (ОС-1): соотношение сил мерки кольца, штраф и строка с причиной — дверью `siegefood`. */
+  private cutView(campPower: number, garrisonPower: number): Pick<SiegeView, 'cut' | 'ratio' | 'cutText'> {
+    const ratio = blockadeRatio(campPower, garrisonPower);
+    return { cut: siegeCut(ratio), ratio, cutText: cutWords(ratio) };
+  }
+
+  /** Прогноз склада окну (ОС-1) — для сведения: минута, когда склад не оплатит прокорм, и строка «хлеба хватит на ~N ч». */
+  private breadView(dryAt: number, now: number): Pick<SiegeView, 'dryAt' | 'breadText'> {
+    const left = Number.isFinite(dryAt) ? Math.max(0, dryAt - now) / 1000 : Infinity;
+    return { ...(Number.isFinite(dryAt) ? { dryAt } : {}), breadText: breadWords(left) };
+  }
+
+  /**
+   * Паёк наоборот в окне осаждённого (ОС-1): шаг голода и минута пустого склада — той же мерой, что окно (`hunger`): у нашего
+   * города под логовом — прогноз склада племени, под лагерем игрока — окно сервера.
+   */
+  private rationAnswer(w: SiegeWindow, now: number): SiegeAnswers['ration'] {
+    const home = this.save.sieges[HOME_ID]?.campId === w.campId;
+    const dry = home ? this.homeDryIfRation(w, now) : starvesIfRation(w, now, !w.ration);
+    return { on: Boolean(w.ration), starvesAt: hungerStepAt(siegeSince(w), dry), ...(Number.isFinite(dry) ? { dryAt: dry } : {}) };
+  }
+
+  /** Прогноз склада нашего города с пайком наоборот (ОС-1): «урежешь — хватит до…». Без слепка осады — окном. */
+  private homeDryIfRation(w: SiegeWindow, now: number): number {
+    const p = this.save.profile;
+    if (!this.homeBesieged()) return starvesIfRation(w, now, !w.ration);
+    if (p?.dryFor !== undefined) return this.profileMinute(p.dryFor);
+    return p?.dryInRation !== undefined ? this.profileMinute(-p.dryInRation) : Infinity;
   }
 
   /**
@@ -4714,6 +4862,11 @@ export class LocalWorld implements WorldApi {
       // голодом. Разбирает её очередь осад (`stepSiege`), и обычно она успевает
       // раньше: сюда лагерь доходит только если окно уже снято.
       const camp = Object.entries(this.save.sieges).find(([, w]) => w.campId === m.id);
+      // Лагерь у нашего города из сохранения до ОС-1 стоял до часа голода окна: этот срок город больше не сдаёт.
+      if (camp && camp[0] === HOME_ID) {
+        m.stayUntil = this.stayOf(HOME_ID, camp[1]);
+        return;
+      }
       if (camp) return this.siegeFalls(camp[0], at);
       return this.turnHome(m, at, null);
     }
@@ -5840,7 +5993,7 @@ export class LocalWorld implements WorldApi {
       if (w && l.marchId === w.campId) {
         // Часы голода могли пересчитаться от подкрепления: срок письма обязан
         // идти за ними, иначе оно разрешится раньше или позже самой осады.
-        const until = starvesAt(w);
+        const until = this.hunger(w);
         if (l.until !== until) {
           l.until = until;
           changed = true;
@@ -5855,7 +6008,7 @@ export class LocalWorld implements WorldApi {
         id: `L-siege-${w.campId}`,
         kind: 'siege',
         at: w.startedAt,
-        until: starvesAt(w),
+        until: this.hunger(w),
         fromId: w.byId,
         fromName: this.byId.get(w.byId)?.name ?? 'Враги',
         cost: {},
@@ -6086,8 +6239,10 @@ export class LocalWorld implements WorldApi {
     const from = this.figureAt(f, now);
     const to = { x: town.x, y: town.y };
     const seconds = fieldWalkSeconds(from, to, terrainFactor(this.save.seed, from, to));
-    if (now + realMs(seconds) >= starvesAt(w)) {
-      return { error: 'Не успеть: хлеб в городе кончится раньше.' };
+    if (now + realMs(seconds) >= this.hunger(w)) {
+      // У нашего сытого города лагерь логова снимется сам в следующую фазу (ОС-1): ударить по нему не успеть по другой причине.
+      const fed = id === HOME_ID && !Number.isFinite(this.homeHungerStep(w));
+      return { error: fed ? 'Не успеть: лагерь снимется раньше — город кормится сам.' : 'Не успеть: хлеб в городе кончится раньше.' };
     }
     // Удар — бой: цена его в энергии — к минуте прихода, с дорогой до лагеря (docs/agent_energy.md).
     const tired = this.energyCost('general', 'strike', now, realMs(seconds)).block;
@@ -6460,6 +6615,16 @@ export class LocalWorld implements WorldApi {
     return restView(m.rest, now, stackTotal(raidingParty(this.save.seed, m.id, m.power).kinds));
   }
 
+  /**
+   * Когда стоянка у ворот кончится — для карты: у чужого города час голода окна, у нашего (ОС-1) — конец осады без нашего
+   * вмешательства (`hunger`), а не срок стоянки: тот у нашего города не кончается.
+   */
+  private stayView(m: StoredMarch): number {
+    const w = this.save.sieges[HOME_ID];
+    if (w && w.campId === m.id) return this.hunger(w);
+    return m.stayUntil ?? m.arriveAt;
+  }
+
   /** Вид похода для интерфейса. `camp` — поселение под нашим лагерем (`ourSiege`): вид говорит, идёт ли отряд на него. */
   private viewMarch(m: StoredMarch, camp: SettlementId | null, rest?: RestView): MarchView {
     return {
@@ -6476,7 +6641,7 @@ export class LocalWorld implements WorldApi {
       toName: m.toName,
       targetId: m.targetId,
       departAt: m.departAt,
-      arriveAt: m.phase === 'stay' ? m.stayUntil ?? m.arriveAt : m.arriveAt,
+      arriveAt: m.phase === 'stay' ? this.stayView(m) : m.arriveAt,
       loot: m.loot ? { ...m.loot } : null,
       recallable: m.own && m.phase !== 'back',
       // Лагерь под стенами — это стоянка, а не поход, и панели должны звать её
@@ -10164,8 +10329,12 @@ export class LocalWorld implements WorldApi {
       since: siegeSince(c),
       starvesAt: w.starvesAt ?? starvesAt(c),
       garrison: c.garrisonAtStart,
-      foodAtStart: c.foodAtStart,
-      bread: Math.floor(foodLeft(c, now)),
+      foodAtStart: c.breadAtSince ?? c.foodAtStart,
+      // Хлеб в городе — склад (ОС-1); голод решает сервер войны тем же правилом шага по описи склада.
+      bread: Math.floor(this.homeBesieged() ? Math.max(0, this.save.profile?.food ?? 0) : foodLeft(c, now)),
+      // Штраф к добыче — тот, по которому сервер ведёт склад (`WarCamp.cut`): племя добывает по нему же.
+      ...this.warCutView(w, c, now),
+      ...this.breadView(this.warDryAhead(c), now),
       campMen: men,
       builders: c.builders ?? men,
       ...(c.gateAt !== undefined ? { gateAt: c.gateAt } : {}),
@@ -10200,6 +10369,24 @@ export class LocalWorld implements WorldApi {
       // Постройки, стоящие без работы под обстрелом (Р-5): до броска следующей фазы — племя не берёт с них выработку.
       ...this.idleOf(c, now),
     };
+  }
+
+  /**
+   * Штраф к добыче нашего города под лагерем игрока (ОС-1): соотношение сил той же меркой, что у сервера (лагерь — без выбитых
+   * башней, гарнизон — без ополчения), а штраф — серверный, если сервер его назвал: по нему он ведёт склад в шаге осады.
+   */
+  private warCutView(w: WarView, c: SiegeWindow, now: number): Pick<SiegeView, 'cut' | 'ratio' | 'cutText'> {
+    const thin = c.fire ? fireView(c.fire, now).thin : 0;
+    const view = this.cutView(troopPower(w.army.troops as TroopStack) * (1 - thin), troopPower(this.defenders(now).all));
+    return c.cut !== undefined ? { ...view, cut: c.cut } : view;
+  }
+
+  /** Прогноз склада нашего города под лагерем игрока (ОС-1): склад племени, без слепка осады — склад окна сервера. */
+  private warDryAhead(c: SiegeWindow): number {
+    const p = this.save.profile;
+    if (!this.homeBesieged()) return starvesAt(c);
+    if (p?.dryFor !== undefined) return this.profileMinute(p.dryFor);
+    return p?.dryIn !== undefined ? this.profileMinute(-p.dryIn) : Infinity;
   }
 
   /** Постройки нашего города, стоящие без работы под обстрелом к минуте `now` (`shelling.idleBuildings`). Нет — нет поля. */

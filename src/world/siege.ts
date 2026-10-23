@@ -19,6 +19,8 @@ import type { SiegeOffer } from './parley';
 import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER, SIEGE_WEAR_FLOOR } from './data/tuning';
 import { HOUR_MS as HOUR } from '../game/time';
 import { SIEGE_RATION } from '../game/constants';
+import { yieldShare } from './siegefood';
+import { CUT_MAX } from './data/siegefood';
 
 /**
  * Окно осады. Всё, что здесь лежит, заморожено в момент, когда окно открылось:
@@ -52,8 +54,21 @@ export interface SiegeWindow {
    * сколько ест деревня, быть не должно.
    */
   townPerHour: number;
-  /** Что добавляет к часовому расходу один боец гарнизона (`SOLDIER_FOOD`). */
+  /** Что добавляет к часовому расходу один боец гарнизона (`SOLDIER_FOOD`; у города игрока — осадным пайком, ОС-1). */
   perManPerHour: number;
+  /**
+   * Валовая добыча хлеба города за час без штрафа осады (ОС-1, docs/siege_v2.md, 23) и штраф к ней по соотношению сил в
+   * минуту, когда окно открылось (`siegefood.siegeCut`). Заморожены, как расход: соотношение меняется событием (фаза, бой,
+   * смена гарнизона), и окно открывается заново. Нет полей — города без добычи (логово, двор мира) и окна до ОС-1: хлеб только
+   * убывает.
+   */
+  yieldPerHour?: number;
+  cut?: number;
+  /**
+   * Хлеб в минуту, когда встал лагерь, — мера доли хлеба для поправки «голод» кости фаз (`siegeroll.breadLeft`). Пересчёт
+   * часов голода его не двигает. Нет поля — окно до ОС-1: мерой служит хлеб этого окна.
+   */
+  breadAtSince?: number;
   /**
    * Когда лагерь встал под стенами. Не то же, что `startedAt`: часы голода
    * пересчитываются от остатка еды и новой отметки времени, а осада при этом
@@ -188,6 +203,13 @@ export const siegeSince = (w: SiegeWindow): number => w.sinceAt ?? w.startedAt;
 export const consumptionPerHour = (w: SiegeWindow): number =>
   Math.max(SIEGE_EAT_FLOOR, (w.townPerHour + Math.max(0, w.garrisonAtStart) * w.perManPerHour) * rationShare(w));
 
+/** Добыча хлеба за час под штрафом этого окна (ОС-1): у города без добычи — ноль. */
+export const yieldPerHourOf = (w: Pick<SiegeWindow, 'yieldPerHour' | 'cut'>): number =>
+  Math.max(0, w.yieldPerHour ?? 0) * yieldShare(w.cut ?? CUT_MAX, true);
+
+/** На сколько хлеба за час убывает склад окна: расход минус добыча под штрафом. Меньше нуля — склад растёт. */
+export const netPerHour = (w: SiegeWindow): number => consumptionPerHour(w) - yieldPerHourOf(w);
+
 /** Доля обычного расхода, которую ест город: осадный паёк — ×¾ (`SIEGE_RATION`), без него — единица. Без единиц времени. */
 export const rationShare = (w: Pick<SiegeWindow, 'ration'>): number => (w.ration ? SIEGE_RATION : 1);
 
@@ -196,8 +218,17 @@ export const rationShare = (w: Pick<SiegeWindow, 'ration'>): number => (w.ration
  * состояния мира. Одинаковый вход — одинаковый выход, и сервер потом получит
  * то же число из тех же полей.
  */
-export const starvesAt = (w: SiegeWindow): number =>
-  w.startedAt + (Math.max(0, w.foodAtStart) / consumptionPerHour(w)) * HOUR;
+export function starvesAt(w: SiegeWindow): number {
+  const net = netPerHour(w);
+  return net > 0 ? w.startedAt + (Math.max(0, w.foodAtStart) / net) * HOUR : Infinity;
+}
+
+/**
+ * Хлеб окна в минуту `at` со знаком: склад + добыча − прокорм от минуты открытия (ОС-1). Ниже нуля — склад окна не оплатил
+ * прокорм (`siegefood.starves`): так шаг осады судит город, чей склад — само окно (сервер войны). Округления нет.
+ */
+export const breadAt = (w: SiegeWindow, at: number): number =>
+  w.foodAtStart - (netPerHour(w) * Math.max(0, at - w.startedAt)) / HOUR;
 
 /**
  * Во сколько раз мораль гарнизона в бою ниже от того, что осада идёт с минуты `since`: единица в минуту, когда лагерь
@@ -213,8 +244,7 @@ export const siegeWear = (since: number, at: number, span: number): number =>
  * города — хлеб окна** (docs/siege_v2.md, 21.1): падение, дань и цена дани в минуту осады берут хлеба не больше этого, а
  * племя под осадой не держит на складе больше (`bridge.syncSiege`). Голод — ноль: съеденного в обоз не положить.
  */
-export const foodLeft = (w: SiegeWindow, at: number): number =>
-  Math.max(0, w.foodAtStart - (consumptionPerHour(w) * Math.max(0, at - w.startedAt)) / HOUR);
+export const foodLeft = (w: SiegeWindow, at: number): number => Math.max(0, breadAt(w, at));
 
 /** Склад осаждённого с хлебом не больше остатка окна `bread` (`foodLeft`): прочее добро — как есть. */
 export function breadStock<T extends Partial<Record<string, number>>>(stock: T, bread: number): T {
@@ -233,7 +263,8 @@ export function breadStock<T extends Partial<Record<string, number>>>(stock: T, 
  * окна с пайком или без. Та же арифметика, что пересчёт часов голода при приказе, — окно говорит игроку пользу до нажатия.
  */
 export function starvesIfRation(w: SiegeWindow, at: number, on: boolean): number {
-  return at + (foodLeft(w, at) / consumptionPerHour({ ...w, ration: on })) * HOUR;
+  const net = netPerHour({ ...w, ration: on });
+  return net > 0 ? at + (foodLeft(w, at) / net) * HOUR : Infinity;
 }
 
 /** Путь износа гарнизона до дна — от начала осады до голода этого окна, мс (docs/siege_v2.md, 2.6). */
@@ -291,6 +322,10 @@ export function openSiege(at: {
   /** Требушет на стене и постройки под обстрелом той же осады (Р-5): переносятся при пересчёте. */
   guns?: MachineOrder[];
   targets?: string[];
+  /** Добыча хлеба без штрафа и штраф этой минуты (ОС-1); хлеб при постановке — у новой осады свой, у той же переносится. */
+  yieldPerHour?: number;
+  cut?: number;
+  breadAtSince?: number;
 }): SiegeWindow {
   return {
     byId: at.byId,
@@ -318,6 +353,9 @@ export function openSiege(at: {
     ...(at.offers?.length ? { offers: at.offers.map((o) => ({ ...o })) } : {}),
     ...(at.guns?.length ? { guns: at.guns.map((g) => ({ ...g })) } : {}),
     ...(at.targets?.length ? { targets: [...at.targets] } : {}),
+    ...(at.yieldPerHour ? { yieldPerHour: Math.max(0, at.yieldPerHour) } : {}),
+    ...(at.cut !== undefined ? { cut: Math.min(1, Math.max(0, at.cut)) } : {}),
+    breadAtSince: Math.max(0, at.breadAtSince ?? at.food),
     foodAtStart: Math.max(0, at.food),
     garrisonAtStart: Math.max(0, Math.round(at.garrison)),
     townPerHour: Math.max(0, at.townPerHour),

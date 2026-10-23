@@ -68,8 +68,12 @@ describe('голод между игроками — по хлебу окна о
     const end = starvesAt(camp);
     expect(end, 'точка внутри области: голод после второй фазы').toBeGreaterThan(phaseAt(since, 2));
     expect(end, 'и до третьей').toBeLessThan(phaseAt(since, 3));
+    // Склад опустел между фазами — город сдаёт голодом шаг осады после этой минуты (ОС-1), а не сама минута прогноза.
     advance(file, end + 1, sheets);
+    expect(w.fall, 'между шагами город не падает').toBeUndefined();
+    advance(file, phaseAt(since, 3) + 1, sheets);
     expect(w.fall?.by).toBe('hunger');
+    expect(w.fall?.at, 'в минуту шага').toBe(phaseAt(since, 3));
     expect(w.fall?.taken.food ?? 0, 'хлеб съеден за осаду — в обоз его не положить').toBe(0);
     expect(w.fall?.lost.food ?? 0, 'и у города его не отнять второй раз').toBe(0);
     expect(w.fall?.taken.wood ?? 0, 'дерево лежит, где лежало').toBeGreaterThan(0);

@@ -722,6 +722,12 @@ export interface WarSheet {
   food: number;
   townPerHour: number;
   perManPerHour: number;
+  /**
+   * Валовая добыча хлеба за час без штрафа осады (ОС-1, `derived.grossFoodPerDay`): сервер режет её штрафом по соотношению
+   * сил (`world/siegefood`) и не пускает выше потолка добычи подтверждённых построек (правило «prod»). Нет поля (слепок
+   * старого клиента) — поля не кормят: как осада до ОС-1.
+   */
+  yieldPerHour?: number;
   /** Что потеряет взятый город — дверь участи `spoils.fate`. */
   stock: Counts;
   stash: number;
@@ -1062,6 +1068,13 @@ export interface WarCamp {
   lead?: number;
   /** Переговоры у стен (`SiegeWindow.offers`, `world/parley`, раздел 7). Нет поля — никто ничего не предлагал. */
   offers?: WarOffer[];
+  /**
+   * Хлеб города — склад (ОС-1, docs/siege_v2.md, 23): валовая добыча хлеба за час и штраф к ней по соотношению сил в минуту
+   * окна (`SiegeWindow.yieldPerHour`, `.cut`), хлеб, когда встал лагерь (`.breadAtSince`). Нет полей — лагерь до ОС-1.
+   */
+  yieldPerHour?: number;
+  cut?: number;
+  breadAtSince?: number;
 }
 
 /** Предложение у стен (`world/parley.SiegeOffer`): сдача на условиях от осаждающего, дань за снятие от осаждённого. */
@@ -1426,6 +1439,7 @@ export function readSheet(v: unknown): WarSheet | null {
     food: real(r.food, 1e12),
     townPerHour: real(r.townPerHour, 1e9),
     perManPerHour: real(r.perManPerHour, 1e9),
+    ...(num(r.yieldPerHour) !== null ? { yieldPerHour: real(r.yieldPerHour, 1e9) } : {}),
     stock: readCounts(r.stock),
     stash: Math.floor(real(r.stash, 1e12)),
     gold: Math.floor(real(r.gold, 1e12)),
@@ -1808,6 +1822,11 @@ export interface WatchCard {
    * каждый промежуток считается с тратой.
    */
   outlays?: number;
+  /**
+   * Ложные сдачи голодом (ОС-1, `stats.fedFalls`): город сдан голодом, а склад прокорм оплачивал. Растёт — флаг «внимание:»
+   * (правило «starve»). Нет поля — ни одной.
+   */
+  starve?: number;
   /** Боёв выиграно и проиграно, логов сожжено, набегов отправлено. */
   won: number;
   lost: number;
@@ -2109,6 +2128,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     train: whole(r.train, 1e9),
     deeds: whole(r.deeds, 1e12),
     ...(r.outlays !== undefined ? { outlays: whole(r.outlays, 1e12) } : {}),
+    ...(r.starve !== undefined ? { starve: whole(r.starve, 1e9) } : {}),
     won: whole(r.won, 1e9),
     lost: whole(r.lost, 1e9),
     lairs: whole(r.lairs, 1e9),

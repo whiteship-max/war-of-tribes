@@ -12,6 +12,7 @@ import { rationMorale } from '@/game/derived';
 import { FATE_META } from '@/world/data/fates';
 import { secondsLeft } from '@/world/geo';
 import { cleanDefend, type DefendOrders } from '@/world/siegeroll';
+import { breadSpan } from '@/world/siegefood';
 import type { SiegeView } from '@/world/types';
 import { Cost } from '@/ui/parts/Cost';
 import { BREACH_MAX } from '@/world/data/siegeroll';
@@ -36,6 +37,13 @@ function gunTitle(g: NonNullable<NonNullable<SiegeView['answers']>['gun']>, now:
 }
 
 /** Паёк словами: доля еды, мораль и надзор — теми же числами, что племя (`derived`). */
+/**
+ * Сколько хлеба хватит — для строки пайка (ОС-1): прогноз склада (`dryAt`, `siegefood.breadSpan`), а у окна без него — шаг
+ * голода (`hungerLeft`). Склад не опустеет — «не кончится».
+ */
+const rationLeft = (dryAt: number | undefined, starvesAt: number, now: number): string =>
+  dryAt !== undefined ? breadSpan((dryAt - now) / 1000) : Number.isFinite(starvesAt) ? hungerLeft(starvesAt, now) : breadSpan(Infinity);
+
 export function rationWords(): string {
   return `Еда ×${SIEGE_RATION}, мораль −${Math.round(rationMorale())}, надзор за невольниками −${Math.round(SIEGE_RATION_CUT * 100)}%.`;
 }
@@ -88,8 +96,8 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
           <div className="title">{a.ration.on ? 'Паёк урезан' : 'Урезать паёк'}</div>
           <div className="desc">
             {a.ration.on
-              ? `${rationWords()} Вернуть паёк — хлеба хватит на ${hungerLeft(a.ration.starvesAt, now)}.`
-              : `${rationWords()} Хлеба хватит на ${hungerLeft(a.ration.starvesAt, now)} вместо ${hungerLeft(siege.starvesAt, now)}.`}
+              ? `${rationWords()} Вернуть паёк — хлеба хватит на ${rationLeft(a.ration.dryAt, a.ration.starvesAt, now)}.`
+              : `${rationWords()} Хлеба хватит на ${rationLeft(a.ration.dryAt, a.ration.starvesAt, now)} вместо ${rationLeft(siege.dryAt, siege.starvesAt, now)}.`}
           </div>
         </div>
       </div>

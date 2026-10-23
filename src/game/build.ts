@@ -21,6 +21,7 @@ import {
   UPGRADE_GROWTH,
   MAX_BUILDING_LEVEL,
   RESOURCE_IDS,
+  SIEGE_SOLDIER_FOOD,
   SOLDIER_FOOD,
   VILLAGER_DEFENSE,
   WALL_REPAIR_SHARE,
@@ -225,6 +226,10 @@ export const headsFoodPerDay = (heads: number, seasonFood: number, rationFood: n
 /** Паёк бойца за игровой день — новобранца и раненого тоже (`derived.soldierFoodPerDay`). */
 export const soldierFoodPerDay = (seasonFood: number, rationFood: number): number => SOLDIER_FOOD * seasonFood * rationFood;
 
+/** Паёк бойца в осаде за игровой день — паёк жителя (`SIEGE_SOLDIER_FOOD`, ОС-1): слепок осады и пол расхода сервера. */
+export const siegeSoldierFoodPerDay = (seasonFood: number, rationFood: number): number =>
+  soldierFoodPerDay(seasonFood, rationFood) * SIEGE_SOLDIER_FOOD;
+
 /**
  * Наименьший множитель пайка: самый сытый сезон, усилители вестей, что урезают паёк, все разом, и самый скудный рацион.
  * Меньше этого посёлок не ест никак — пол расхода хлеба в слепке обороны (`town.townSheet`, docs/security.md, ЗЩ-2).
@@ -233,12 +238,13 @@ export const FOOD_MOD_MIN = least(SEASONS.map((m) => m.food)) * cut(BOONS.map((b
 
 /**
  * Пол расхода хлеба в осаде, за игровой день: голов посёлка `heads` (жители и невольники) и одного бойца при наименьшем
- * пайке (`FOOD_MOD_MIN`). Честный расход (`world/bridge.playerProfile`: `foodPerHour`, `soldierFoodPerHour`) не меньше:
- * та же формула, мастера сверх голов, паёк не скуднее.
+ * пайке (`FOOD_MOD_MIN`); боец — осадным пайком (`siegeSoldierFoodPerDay`, ОС-1). Честный расход
+ * (`world/bridge.playerProfile`: `foodPerHour`, `soldierFoodPerHour`) не меньше: та же формула, мастера сверх голов, паёк не
+ * скуднее.
  */
 export const eatFloorPerDay = (heads: number): { town: number; man: number } => ({
   town: headsFoodPerDay(Math.max(0, heads), FOOD_MOD_MIN, 1),
-  man: soldierFoodPerDay(FOOD_MOD_MIN, 1),
+  man: siegeSoldierFoodPerDay(FOOD_MOD_MIN, 1),
 });
 
 /**

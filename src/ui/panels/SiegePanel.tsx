@@ -15,7 +15,7 @@
 // удар полководца — план мира (`CampStrike`).
 import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
-import { SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
+import { breadSpan, cutShort } from '@/world/siegefood';
 import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf } from '@/world/muster';
 import { troopTotal } from '@/game/battle/kinds';
@@ -168,22 +168,37 @@ export function SiegePanel() {
             label="Хлеб и оборона"
             cols={HOLD_COLS}
             rows={[
+              // Хлеб — склад (ОС-1, docs/siege_v2.md, 23): срок — прогноз склада для сведения, строками мира (`world/siegefood`).
               {
                 key: 'food',
                 tip: () => ({
-                  title: `Своей еды хватит на ${hungerLeft(siege.starvesAt, now)}`,
-                  body: `Гарнизон ${siege.garrison} тоже ест. В осаде хлеб ${SIEGE_FOOD_YIELD === 0 ? 'не идёт' : `×${SIEGE_FOOD_YIELD}`}, прочее −${Math.round((1 - SIEGE_YIELD) * 100)}%.`,
+                  title: siege.breadText ?? `Своей еды хватит на ${hungerLeft(siege.starvesAt, now)}`,
+                  body: `Гарнизон ${siege.garrison} тоже ест. Это прогноз: голодом город сдаётся, только когда склад не оплатит прокорм в шаге осады.`,
                 }),
-                cells: { what: 'Своей еды хватит на', v: <b className="bad">{hungerLeft(siege.starvesAt, now)}</b> },
+                cells: {
+                  what: 'Хлеба хватит',
+                  v: <b className={siege.dryAt !== undefined ? 'bad' : ''}>{siege.breadText ? breadSpan(siege.dryAt !== undefined ? (siege.dryAt - now) / 1000 : Infinity) : hungerLeft(siege.starvesAt, now)}</b>,
+                },
               },
-              // Хлеб в городе — остаток окна осады, тот же, что решит голод (docs/siege_v2.md, 21.1): склад выше не держит.
+              ...(siege.cutText
+                ? [
+                    {
+                      key: 'cut',
+                      tip: () => ({
+                        title: siege.cutText ?? '',
+                        body: 'Поля, загон и угодья — за стеной: чем сильнее лагерь против гарнизона, тем меньше с них берёт город. Соотношение — мощь лагеря к гарнизону без ополчения, как у кольца.',
+                      }),
+                      cells: { what: 'Добыча в осаде', v: cutShort(siege.cut ?? 1) },
+                    },
+                  ]
+                : []),
               ...(siege.bread !== undefined
                 ? [
                     {
                       key: 'bread',
                       tip: () => ({
                         title: `Хлеба в городе ${num(siege.bread ?? 0)}`,
-                        body: `Было ${num(siege.foodAtStart)}, когда встал лагерь. Голод — когда хлеба не останется: тогда город падёт, и в обоз хлеба не положат.`,
+                        body: `Было ${num(siege.foodAtStart)}, когда встал лагерь. Голод — когда склад не оплатит прокорм: тогда город падёт, и в обоз хлеба не положат.`,
                       }),
                       cells: { what: 'Хлеба в городе', v: num(siege.bread) },
                     },

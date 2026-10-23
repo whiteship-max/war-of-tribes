@@ -6,7 +6,7 @@ import { readWarOrder, warRepairId, type CastleClaim, type RosterFile, type WarA
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { advance, applyOrder, emptyWars, newsDiff, newsMap, newsOf, pacted, pactsOf, warsOf, type SheetAt, type WarFile, type WarRow } from './war.js';
 import { CAMP_GATE_CLEAR } from '../../src/world/data/tuning.js';
-import { breachesOf, breadLeft, phaseAt, setPhaseDie, softerFate } from '../../src/world/siegeroll.js';
+import { breachesOf, breadLeft, hungerStepAt, phaseAt, setPhaseDie, softerFate } from '../../src/world/siegeroll.js';
 import { siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
 import { GUARD_SHARE, machinesAt } from '../../src/world/machines.js';
 import { guardKinds } from '../../src/world/fights.js';
@@ -122,15 +122,17 @@ describe('осадный паёк', () => {
     setPhaseDie(() => 7);
     const { file, ctx, w, since } = camped();
     const at = since + 3_600_000;
-    const before = w.starvesAt as number;
+    // Минута пустого склада окна (прогноз), а не шаг голода: паёк растягивает хлеб, шаг — сетка фаз (ОС-1).
+    const before = starvesAt(w.camp as SiegeWindow);
     expect(before, 'точка внутри области: голод позже приказа').toBeGreaterThan(at);
     expect(applyOrder(file, B, { op: 'ration', id: w.id, on: true }, at, ctx)).toBeNull();
     expect(w.camp?.ration).toBe(true);
-    expect((w.starvesAt as number) - at).toBeCloseTo((before - at) / SIEGE_RATION, -2);
+    expect(starvesAt(w.camp as SiegeWindow) - at).toBeCloseTo((before - at) / SIEGE_RATION, -2);
     expect(applyOrder(file, B, { op: 'ration', id: w.id, on: true }, at + 1, ctx)).toBe('Паёк и так урезан.');
     expect(applyOrder(file, B, { op: 'ration', id: w.id, on: false }, at, ctx)).toBeNull();
-    expect(Math.abs((w.starvesAt as number) - before)).toBeLessThan(1000);
-    expect(starvesAt(w.camp as SiegeWindow)).toBe(w.starvesAt);
+    expect(Math.abs(starvesAt(w.camp as SiegeWindow) - before)).toBeLessThan(1000);
+    // Отметка войны — шаг голода этого окна: первая фаза после минуты пустого склада.
+    expect(w.starvesAt).toBe(Math.round(hungerStepAt(siegeSince(w.camp as SiegeWindow), starvesAt(w.camp as SiegeWindow))));
   });
 });
 

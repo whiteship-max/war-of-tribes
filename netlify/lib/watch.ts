@@ -12,7 +12,7 @@
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchAdvisor, type WatchCard, type WatchCrownEntry } from './contract.js';
-import { DAY_LENGTH, gameDaysOfMs, realMs } from '../../src/game/pace.js';
+import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
@@ -116,7 +116,8 @@ export type FlagKind =
   | 'gone'
   | 'council'
   | 'estates'
-  | 'market';
+  | 'market'
+  | 'starve';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -146,6 +147,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   estates: 'сословия',
   council: 'совет Ратуши',
   market: 'сделки рынка',
+  starve: 'сдача голодом при хлебе',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -153,7 +155,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'estates' | 'market';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'estates' | 'market' | 'starve';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -197,6 +199,13 @@ export const CITY_RULES: readonly CityRule[] = [
     act: 'в войну — книга запасов, не меньше; флаг',
   },
   { id: 'eat', rule: 'расход хлеба в осаде не ниже пайка жителей, невольников и бойца при самом скудном рационе', formula: 'build.eatFloorPerDay', flag: 'eat', act: 'в войну — не ниже пола; флаг' },
+  {
+    id: 'starve',
+    rule: 'сдача голодом — только когда склад не оплатил прокорм в шаге осады: баланс шага ниже нуля; ровно ноль, дробный остаток и хлеб, пришедший в тот же шаг, — не голод',
+    formula: 'siegefood.starves, sim/siege.siegeHunger',
+    flag: 'starve',
+    act: 'флаг',
+  },
   {
     id: 'stab',
     rule: 'стабильность: ступень в −3…+3; очков на ступени не больше, чем дал бы лучший правитель, и не меньше цены купленных; подъём — не выше купленного и того, что ровная жизнь даёт сама до «Лада»; подавлено мятежей не больше выигранных боёв',
@@ -493,6 +502,12 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   if (b.deeds < a.deeds) {
     out.push({ kind: 'rollback', text: `Партия откатилась назад: разовых дел было ${big(a.deeds)}, стало ${big(b.deeds)} (другое устройство, восстановленная копия или правка сохранения).` });
   }
+  // Сдача голодом (правило «starve», ОС-1): голодом сдаёт только склад, не оплативший прокорм в шаге осады. Город сдан, а склад
+  // кормил — ложная сдача (судья осады — мир или сервер войны — разошёлся со складом), и это не может быть честной игрой.
+  const fed = (b.starve ?? 0) - (a.starve ?? 0);
+  if (fed > 0) {
+    out.push({ kind: 'starve', text: `Город сдан голодом ${big(fed)} раз за ${span(realMs)}, а склад в эти минуты прокорм оплачивал: хлеб был не ниже нуля. Голодом сдаёт только неоплаченный прокорм шага осады.` });
+  }
   // Рост сверяют за верхний край истинного промежутка: часы описи — целые игровые секунды (`CARD_TICK_DAYS`).
   const days = Math.max(0, Math.min(wentDays + CARD_TICK_DAYS, canDays));
   const quiet = a.deeds === b.deeds && a.seen === b.seen && a.games === b.games && a.away === b.away && a.caravans === b.caravans;
@@ -637,6 +652,18 @@ export function marshalOf(rec: WatchRecord, at: number): { marshal?: number; kni
   const marshal = councilResolve(rec.card, levelIn(levels, 'town_hall'));
   const knights = rec.card ? estateCeilOf(rec.card, levels).resolve : 0;
   return { ...(marshal > 0 ? { marshal } : {}), ...(knights > 0 ? { knights } : {}) };
+}
+
+/**
+ * Потолок валовой добычи хлеба в час мира для слепка войны (ОС-1, `war.SheetAt.yieldCap`): правило «prod» — места дел
+ * подтверждённых построек при подтверждённых жителях, работником в лучших множителях, с подтверждённым Старостой и
+ * крестьянством (`build.prodCeil`, `yardMult`), тем же переводом в час, что у моста. Описи нет — пусто.
+ */
+export function yieldCapOf(rec: WatchRecord, at: number): { yieldCap?: number } {
+  if (!rec.card) return {};
+  const book = townOf(rec, at);
+  const ceil = prodCeil(book.levels, book.pop, yardMult(rec.card, book.levels));
+  return { yieldCap: ceil.food * gameDaysPerHour() };
 }
 
 // ------------------------------------------------ сословия ---

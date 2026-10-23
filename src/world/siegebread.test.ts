@@ -1,7 +1,6 @@
-// Хлеб осаждённого города — хлеб окна осады (Р-5, docs/siege_v2.md, 21.1): у нашей деревни под лагерем логова. Голод
-// приходит по часам окна, и тогда хлеба нет нигде — ни в добыче, ни на складе племени; прогноз «кончится хлеб — унесут»
-// хлеба не обещает; мост держит склад не выше остатка окна. Случай из донесения — полный склад и голод: в обоз ушёл хлеб,
-// который осада съела.
+// Хлеб осаждённого города (Р-5, docs/siege_v2.md, 21.1; ОС-1, раздел 23): у нашей деревни под лагерем логова. Падение и
+// дань берут хлеба не больше склада; прогноз «кончится хлеб — унесут» хлеба не обещает. С ОС-1 правда — склад: мост его не
+// урезает, а пока племя об осаде не знает (слепок без осады — догон без мира), склад судит окно мира тем же правилом шага.
 import '@/game/pace.minute';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createInitialState } from '@/game/state';
@@ -10,7 +9,6 @@ import { foodLeft, openSiege } from './siege';
 import { applyEffects, syncSiege } from './bridge';
 import { shieldVillagers } from './lairs';
 import { setPhaseDie } from './siegeroll';
-import { breadCap } from '@/game/sim/siege';
 import type { PlayerProfile, SiegeView, WorldPulse } from './types';
 
 // Кость фаз тихая — «без перемен»: здесь голод, а не сдача (правило фаз — `siegeroll.test.ts`).
@@ -51,8 +49,8 @@ async function besiege(w: ReturnType<typeof makeWorld>, p: PlayerProfile): Promi
   throw new Error('осады так и не случилось');
 }
 
-describe('голод у нашей деревни — по хлебу окна', () => {
-  it('случай из донесения: полный склад, голод — в добыче хлеба нет, склад племени списан, прочее унесли', async () => {
+describe('голод у нашей деревни, пока племя об осаде не знает, — по хлебу окна', () => {
+  it('случай из донесения: полный склад, голод в шаге осады — в добыче хлеба нет, склад племени списан, прочее унесли', async () => {
     const w = makeWorld(7);
     const p = holdout();
     await w.world.sync(p);
@@ -71,11 +69,13 @@ describe('голод у нашей деревни — по хлебу окна',
     expect(effect?.resources.wood ?? 0, 'дерево унесли').toBeLessThan(0);
     expect(effect?.starved, 'хлеба нет и на складе').toBe(true);
 
-    // Племя: склад был полон (офлайн-догон без осады), после падения голодом хлеба нет.
+    // Племя: склад был полон (офлайн-догон без осады), после падения голодом хлеба нет. Племя осады не знало — ложной сдачи
+    // в счёт нет: судило окно (`stats.fedFalls`, правило «starve»).
     const s = createInitialState();
     s.resources.food = 6000;
     applyEffects(s, [effect!]);
     expect(s.resources.food).toBe(0);
+    expect(s.stats.fedFalls ?? 0).toBe(0);
   }, 60_000);
 
   it('сдача на фазе — хлеба в добыче не больше остатка окна в эту минуту', () => {
@@ -88,31 +88,33 @@ describe('голод у нашей деревни — по хлебу окна',
   });
 });
 
-describe('мост: склад под осадой не выше хлеба окна', () => {
-  const view = (bread: number): SiegeView =>
-    ({ byId: 'l-1', byName: 'Волчья падь', since: START, starvesAt: START + 3600_000, garrison: 10, foodAtStart: 6000, bread } as unknown as SiegeView);
+describe('мост: хлеб — склад, мост его не трогает (ОС-1)', () => {
+  const view = (bread: number, cut?: number): SiegeView =>
+    ({ byId: 'l-1', byName: 'Волчья падь', since: START, starvesAt: START + 3600_000, garrison: 10, foodAtStart: 6000, bread, ...(cut !== undefined ? { cut } : {}) } as unknown as SiegeView);
 
-  it('склад выше окна — урезан до окна, и это разовая трата (книга запасов сервера её объяснит)', () => {
+  it('склад выше хлеба окна — не урезан: хлеб, пришедший в город, остаётся на складе', () => {
     const s = createInitialState();
     s.resources.food = 6000;
     const before = s.stats.outlays ?? 0;
-    expect(syncSiege(s, view(1200), START)).toBe(true);
-    expect(s.resources.food).toBe(1200);
-    expect(s.stats.outlays ?? 0).toBe(before + 1);
-  });
-
-  it('склад ниже окна — не трогается: съел больше — голодно ему, хлеба мост не дарит', () => {
-    const s = createInitialState();
-    s.resources.food = 500;
     syncSiege(s, view(1200), START);
-    expect(s.resources.food).toBe(500);
+    expect(s.resources.food).toBe(6000);
+    expect(s.stats.outlays ?? 0, 'разовой траты нет').toBe(before);
   });
 
-  it('пульс за пульсом — без урезания по крошке: допуск больше расхода между пульсами', () => {
+  it('штраф к добыче — из мира: мост кладёт его племени, засуху склада переносит', () => {
     const s = createInitialState();
-    s.resources.food = 1203;
-    const before = s.stats.outlays ?? 0;
-    expect(breadCap(s, 1200)).toBe(false);
-    expect(s.stats.outlays ?? 0).toBe(before);
+    syncSiege(s, view(1200, 0.75), START);
+    expect(s.siege?.cut).toBe(0.75);
+    s.siege!.dry = 5;
+    syncSiege(s, view(1200, 0.8), START);
+    expect(s.siege?.cut).toBe(0.8);
+    expect(s.siege?.dry, 'засуха — запись племени: мост её не стирает').toBe(5);
+  });
+
+  it('срока у осады нет (город кормится сам, лагерь не уйдёт) — наибольшее число, а не бесконечность: сохранение её не держит', () => {
+    const s = createInitialState();
+    syncSiege(s, { ...view(1200), starvesAt: Infinity } as SiegeView, START);
+    expect(s.siege?.until).toBe(Number.MAX_SAFE_INTEGER);
+    expect(JSON.parse(JSON.stringify(s.siege)).until).toBe(Number.MAX_SAFE_INTEGER);
   });
 });

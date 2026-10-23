@@ -1,17 +1,17 @@
 // Мир консоли: посёлок мерки в настоящем мире автопилота (`autopilot.openSky`) — набег, осада, удар по лагерю, перехват
 // приказами мира, как в игре. Посёлок стоит (уровни, склад и войско — как поставили), мир и пульс идут: так же, как у
-// стенда боя у стены и у осады в отчётах. Своих правил боя и осады здесь нет — только приказы и печать того, что мир сделал.
+// стенда боя у стены и у осады в отчётах; хлеб под осадой идёт шагом игры (ОС-1, `autopilot.larder`). Своих правил боя и осады здесь нет — только приказы и печать того, что мир сделал.
 import type { GameState, TroopId } from '@/game/types';
-import type { GateFoe, Report, WorldPulse } from '@/world/types';
+import type { GateFoe, Report, SiegeView, WorldPulse } from '@/world/types';
 import { HOME_ID } from '@/world/local/LocalWorld';
-import { gameDaysOfMs, worldDays } from '@/game/pace';
+import { gameDaysOfMs, gameSeconds, worldDays } from '@/game/pace';
 import { journalOf, phaseText, rowsOf } from '@/world/siegeroll';
 import { starvesAt, type SiegeWindow } from '@/world/siege';
 import { machinesAt, MACHINE_NAME } from '@/world/machines';
 import { blockadeAt } from '@/world/blockade';
 import { gunsAt } from '@/world/shelling';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
-import { GAME, PULSE_FLOOR, openSky, type Inside, type OpenSky } from '../autopilot';
+import { GAME, PULSE_FLOOR, larder, openSky, type Inside, type OpenSky } from '../autopilot';
 import { townOf } from './town';
 
 /** Шаг мира консоли — тот же, что у осады в отчётах: пол пульса автопилота, настоящие миллисекунды. */
@@ -76,15 +76,21 @@ export function reportWords(r: Report): string {
 
 const buildingName = (id: string): string => (BUILDING_BY_ID as Record<string, { name: string } | undefined>)[id]?.name ?? id;
 
-/** Строка осады в эту минуту: фаза, хлеб до голода, машины лагеря, кольцо. */
-export function siegeLine(b: Bench, w: SiegeWindow, at: number): string {
+/**
+ * Строка осады в эту минуту: хлеб склада и прогноз, штраф к добыче, машины лагеря, кольцо. Хлеб — склад (ОС-1): строки — те
+ * же, что видит окно защитника (`SiegeView.breadText`, `cutText`); без окна — прогноз окна мира в игровых днях.
+ */
+export function siegeLine(b: Bench, w: SiegeWindow, at: number, view?: SiegeView | null): string {
   const left = Math.max(0, gameDaysOfMs(starvesAt(w) - at));
+  const bread = view?.breadText
+    ? `хлеб ${Math.round(b.g.resources.food)}; ${view.breadText.replace(/\.$/, '')}; ${(view.cutText ?? '').replace(/\.$/, '')}`
+    : `хлеба до голода ${Number.isFinite(left) ? `${left.toFixed(1)} игр. дн.` : 'не кончится'}`;
   const machines = machinesAt(w, at)
     .map((m) => `${MACHINE_NAME[m.id]}${m.ready ? ' готов' : Number.isFinite(m.readyAt) ? ` к ${gameDaysOfMs(m.readyAt - b.start).toFixed(0)} игр. дн.` : ' — без древесины'}`)
     .join(', ');
   const guns = gunsAt(w, at).filter((x) => x.live);
   const gun = guns.length ? `; требушет на стене ${guns.some((x) => x.ready) ? 'стоит' : `к ${gameDaysOfMs(guns[0].readyAt - b.start).toFixed(0)} игр. дн.`}` : '';
-  return `хлеба до голода ${left.toFixed(1)} игр. дн.; машины лагеря: ${machines || 'нет'}${gun}; кольцо ${blockadeAt(w, at) ? 'замкнуто' : 'открыто'}`;
+  return `${bread}; машины лагеря: ${machines || 'нет'}${gun}; кольцо ${blockadeAt(w, at) ? 'замкнуто' : 'открыто'}`;
 }
 
 export interface Played {
@@ -111,6 +117,8 @@ export async function play(
   const end = b.sky.now() + worldDays(days);
   while (b.sky.now() < end) {
     b.sky.at(b.sky.now() + STEP_MS);
+    // Посёлок стоит, а хлеб под осадой идёт шагом игры (ОС-1): голод решает склад (`autopilot.larder`).
+    larder(b.g, gameSeconds(STEP_MS / 1000));
     const pulse = await b.sky.pulse();
     const w: SiegeWindow | undefined = b.w.save.sieges[HOME_ID];
     if (w) {
@@ -118,12 +126,12 @@ export async function play(
       if (w.campId !== siegeSeen) {
         siegeSeen = w.campId;
         phases = 0;
-        if (!o.quiet) console.log(`  [${daysOf(b)}] лагерь сел под стенами: ${siegeLine(b, w, b.sky.now())}`);
+        if (!o.quiet) console.log(`  [${daysOf(b)}] лагерь сел под стенами: ${siegeLine(b, w, b.sky.now(), pulse.siege)}`);
       }
       out.siege = w;
       const rows = rowsOf(w);
       for (; phases < rows.length; phases++) {
-        if (!o.quiet) console.log(`  [${daysOf(b, rows[phases].at)}] ${phaseText(rows[phases], phases + 1, buildingName, (id) => MACHINE_NAME[id])}; ${siegeLine(b, w, rows[phases].at)}`);
+        if (!o.quiet) console.log(`  [${daysOf(b, rows[phases].at)}] ${phaseText(rows[phases], phases + 1, buildingName, (id) => MACHINE_NAME[id])}; ${siegeLine(b, w, rows[phases].at, pulse.siege)}`);
       }
     }
     for (const r of pulse.reports) {

@@ -6,7 +6,8 @@
 import type { GameState } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
 import { gameDaysPerHour, gameSecondsOfMs } from '@/game/pace';
-import { breadCap } from '@/game/sim/siege';
+import { dryFor } from '@/game/sim/siege';
+import { SIEGE_SOLDIER_FOOD } from '@/game/constants';
 import { keptType } from '@/game/merged';
 import {
   bondedTotal,
@@ -17,7 +18,9 @@ import {
   faithOf,
   armyResolve,
   intelKeen,
+  grossFoodPerDay,
   mastersFoodPerDay,
+  siegeDryIn,
   soldierFoodPerDay,
   surveyRadius,
   towerSeats,
@@ -189,10 +192,15 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // склад, а не то, что видно набегу: спрятанное в тайнике племя ест наравне
     // с остальным. Два расхода — города и одного бойца — приезжают из того же
     // `foodConsumptionPerDay`, которым племя живёт всегда. Наёмные мастера заперты в городе вместе
-    // со всеми и едят из того же амбара — их паёк входит в расход города.
+    // со всеми и едят из того же амбара — их паёк входит в расход города. Боец — осадным пайком
+    // (`SIEGE_SOLDIER_FOOD`, ОС-1): слепок нужен только осаде, и окно не умножает его второй раз.
     food: Math.max(0, s.resources.food),
     foodPerHour: (townFoodPerDay(s) + mastersFoodPerDay(s)) * daysPerHour(),
-    soldierFoodPerHour: soldierFoodPerDay(s) * daysPerHour(),
+    soldierFoodPerHour: soldierFoodPerDay(s) * SIEGE_SOLDIER_FOOD * daysPerHour(),
+    // Хлеб осаждённого города — склад (ОС-1, docs/siege_v2.md, 23): валовая добыча (штраф по соотношению сил режет мир и
+    // сервер своей меркой), засуха склада и прогноз — для сведения и срока отлучки. Нет осады — нет полей засухи и прогноза.
+    yieldPerHour: grossFoodPerDay(s) * daysPerHour(),
+    ...siegeBread(s),
     // Дозор и конюшня: мир получает четыре числа и не спрашивает, откуда они.
     warning: warningSeconds(s),
     // Изученная округа: радиус земли, которую Дозор открыл навсегда. Живого
@@ -246,6 +254,25 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
 }
 
 /**
+ * Засуха и прогноз склада под осадой — в слепок (ОС-1): сколько игровых секунд склад уже не оплачивает прокорм
+ * (`sim/siege.dryFor`) и через сколько не оплатит (`derived.siegeDryIn`). Мир переводит их в свои минуты от минуты пульса.
+ */
+function siegeBread(s: GameState): Pick<PlayerProfile, 'besieged' | 'dryFor' | 'dryIn' | 'dryInRation'> {
+  const w = s.siege;
+  if (!w) return {};
+  const dry = dryFor(s);
+  const ahead = siegeDryIn(s);
+  // Прогноз с пайком наоборот — окну защитника: «урежешь — хватит на…» той же функцией, что прогноз без него.
+  const flip = siegeDryIn({ ...s, siege: { ...w, ...(w.ration ? { ration: undefined } : { ration: true as const }) } });
+  return {
+    besieged: true,
+    ...(dry !== null ? { dryFor: dry } : {}),
+    ...(Number.isFinite(ahead) ? { dryIn: Math.max(0, ahead) } : {}),
+    ...(Number.isFinite(flip) ? { dryInRation: Math.max(0, flip) } : {}),
+  };
+}
+
+/**
  * Кто сейчас не в обороне. Состав не хранится дважды: он выводится из списков
  * мира, поэтому потерянное сохранение мира не оставит деревню без армии навсегда.
  *
@@ -295,25 +322,37 @@ export function syncSiege(s: GameState, view: SiegeView | null, now: number): bo
     s.siege = null;
     return true;
   }
-  // Срок голода мир называет настоящими миллисекундами, догон племени идёт игровыми секундами.
-  const until = s.time + gameSecondsOfMs(Math.max(0, view.starvesAt - now));
+  // Срок мир называет настоящими миллисекундами, догон племени идёт игровыми секундами. Срока нет (город кормится сам, а
+  // лагерь не уйдёт) — наибольшее число: бесконечность в сохранении стала бы `null`, а `null` — снятой осадой.
+  const until = Number.isFinite(view.starvesAt) ? s.time + gameSecondsOfMs(Math.max(0, view.starvesAt - now)) : Number.MAX_SAFE_INTEGER;
   const ration = Boolean(view.ration);
   // Кольцо блокады и постройки под обстрелом (Р-5): решает мир, племя только живёт по ним.
   const ring = Boolean(view.blockade?.on);
   // Постройка под обстрелом, названная до объединения дворов (ЗД-1), — её двор.
   const idle = [...new Set((view.idle ?? []).map((t) => keptType(t) ?? t))].sort();
-  // Хлеб осаждённого города — хлеб окна (docs/siege_v2.md, 21.1): склад не держит больше его остатка.
-  const capped = view.bread !== undefined && breadCap(s, view.bread);
+  // Штраф к добыче по соотношению сил (ОС-1): решает мир, племя добывает по нему. Хлеб — склад: мост его не трогает.
+  const cut = view.cut;
+  const dry = s.siege?.dry;
   const same =
     s.siege !== null &&
     s.siege.byName === view.byName &&
     Math.abs(s.siege.until - until) < 1 &&
     Boolean(s.siege.ration) === ration &&
     Boolean(s.siege.blockade) === ring &&
+    s.siege.cut === cut &&
     (s.siege.idle ?? []).join() === idle.join();
-  if (same) return capped;
-  // Осадный паёк — решение, лежащее в окне осады мира; племя ест по нему (`derived.siegeRation`).
-  s.siege = { byName: view.byName, until, ...(ration ? { ration: true as const } : {}), ...(ring ? { blockade: true as const } : {}), ...(idle.length ? { idle } : {}) };
+  if (same) return false;
+  // Осадный паёк — решение, лежащее в окне осады мира; племя ест по нему (`derived.siegeRation`). Засуха склада — запись
+  // самого племени (`sim/siege`): мост её переносит, а не ставит.
+  s.siege = {
+    byName: view.byName,
+    until,
+    ...(ration ? { ration: true as const } : {}),
+    ...(ring ? { blockade: true as const } : {}),
+    ...(idle.length ? { idle } : {}),
+    ...(cut !== undefined ? { cut } : {}),
+    ...(dry !== undefined ? { dry } : {}),
+  };
   return true;
 }
 

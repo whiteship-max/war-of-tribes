@@ -12,6 +12,8 @@ import type { TroopStack } from '@/game/battle/kinds';
 import type { GunAim } from '@/world/data/shelling';
 import { fail, has, heavy, helpIf, num, parseArgs, parseSide, rejectUnknown, replayHint, saveRecord, text, troopsWords } from './lib';
 import { WAIT_DAYS, bench, daysOf, play, raidNow, reportWords, spanDays, type Bench } from './world';
+import { deriveCut } from './siegefood';
+import { setPhaseDie } from '@/world/siegeroll';
 
 const CAMP = process.argv.includes('--camp');
 const C = CAMP ? 'camp' : 'siege';
@@ -28,6 +30,11 @@ npm run ${C} -- --level L [--power P] [ключи]
   --gun [--gun-aim camp|machines]  требушет на стене и его цель (Р-5)
   --days D           сколько игровых дней ждать конца (${WAIT_DAYS})
   --watch            открыть ролик осады (ГФ-2) после конца
+Хлеб осады (ОС-1, docs/siege_v2.md, 23):
+  --ratio R          мощь набега — R мощностей гарнизона (мерка кольца и штрафа к добыче) вместо --power
+  --sit              лагерь садится, даже если мир решил бы штурмовать или уйти (замер правила хлеба, не частоты осад)
+  --calm             кость фаз — «без перемен»: осаду кончают только голод и уход лагеря
+  --derive           вывод штрафа к добыче по посёлкам мерки 1–10 (CUT_MIN, CUT_MID) — без мира, одной таблицей
 Удар по лагерю (npm run camp):
   --sortie "вид:N,…" вылазка из города этим отрядом
   --strike           удар полководца из поля его дружиной; --joint — вместе с гарнизоном из ворот
@@ -39,7 +46,9 @@ npm run ${C} -- --level L [--power P] [ключи]
   npm run siege -- --level 8 --power 3000
   npm run siege -- --level 6 --power 2500 --repair --ration --gun --watch
   npm run camp -- --level 8 --power 3000 --sortie legionary:30,spearman:40 --at-phase 3
-  npm run camp -- --level 8 --power 3000 --strike --joint`;
+  npm run camp -- --level 8 --power 3000 --strike --joint
+  npm run siege -- --derive
+  npm run siege -- --level 5 --ratio 1 --sit --calm`;
 
 const args = parseArgs();
 helpIf(args, HELP);
@@ -62,7 +71,18 @@ const strike = has(args, 'strike');
 const joint = has(args, 'joint');
 const garrisonText = text(args, 'garrison');
 const atPhase = num(C, args, 'at-phase', 2, { int: true, min: 1 });
+const ratioArg = has(args, 'ratio') ? num(C, args, 'ratio', 1, { min: 0.01 }) : null;
+const sit = has(args, 'sit');
+const calm = has(args, 'calm');
+const derive = has(args, 'derive');
 rejectUnknown(C, args);
+if (ratioArg !== null && powerArg !== null) fail(C, 'одно из двух: --power (мощь) или --ratio (доля гарнизона)');
+if (derive) {
+  await heavy('вывод штрафа к добыче осады');
+  deriveCut();
+  process.exit(0);
+}
+if (calm) setPhaseDie(() => 7);
 if (CAMP && !sortieText && !strike) fail(C, 'удар по лагерю: --sortie "вид:N,…" или --strike');
 if (sortieText && strike) fail(C, 'одно из двух: --sortie (из города) или --strike (полководец из поля)');
 await heavy(`осада посёлка ${level}-го уровня`);
@@ -70,7 +90,7 @@ await heavy(`осада посёлка ${level}-го уровня`);
 const b: Bench = await bench(level, worldSeed, army, { shield });
 const g = b.g;
 const lair = lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, g.pop);
-const power = powerArg ?? 2 * (shield ? lairRaid(lair, g.pop, troopPower(g.army)) : lair);
+const power = ratioArg !== null ? ratioArg * troopPower(g.army) : (powerArg ?? 2 * (shield ? lairRaid(lair, g.pop, troopPower(g.army)) : lair));
 if (power < 2) fail(C, `посёлок ${level}-го уровня — слабый город: логово его не замечает (lairs.weakCity). Задай --power P или --no-shield`);
 console.log(`=== ${CAMP ? 'Удар по лагерю' : 'Осада'}: посёлок ${level}-го уровня, мир ${worldSeed} ===`);
 console.log(`посёлок: жителей ${g.pop}, оборона ${Math.round(defense(g))}; войско ${troopsWords(g.army)} — мощь ${Math.round(troopPower(g.army))}`);
@@ -94,6 +114,11 @@ if (strike) {
   await b.sky.pulse();
 }
 
+// Замер правила хлеба: лагерь садится при любом исходе сухого прогона, кроме прорыва (мир решил бы штурм или уход).
+if (sit) {
+  const w = b.w;
+  w.sitsDown = (id: string, _m: unknown, _at: number, field: { won: boolean }): boolean => !field.won && !w.save.sieges[id];
+}
 const m = raidNow(b, power);
 if ('error' in m) fail(C, m.error);
 console.log(`[${daysOf(b)}] вышел набег из «${m.from}», мощь ${Math.round(m.power)}; у стены — через ${spanDays(m.arriveAt - b.sky.now())}`);
