@@ -28,6 +28,7 @@ import type {
   BattleSite,
   AimView,
   BlockadeView,
+  CampMelt,
   CampView,
   GunView,
   MachinesView,
@@ -238,7 +239,9 @@ import {
   rollPhase,
   rowsOf,
   hungerStepAt,
+  phaseAt,
   softerFate,
+  wasteOf,
   type PhaseRow,
   type SiegeOrders,
 } from '../siegeroll';
@@ -316,7 +319,8 @@ import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { keptType } from '@/game/merged';
 import { BLOCKADE_BREAKS, BLOCKADE_GIVES, BREAKOUT_GIVES, BREAKOUT_SHARE, BREAK_WORDS, blockadeAfter, blockadeAt, blockadeBlock, blockadeDeeds, blockadeHolds, blockadeRatio, blockadeSince, ratioWords, type BlockadeBreak } from '../blockade';
 import { BLOCKADE_RATIO } from '../data/blockade';
-import { siegeCut, siegeCutOf, starves } from '../siegefood';
+import { phasesToEven, ratioOfCut, siegeCut, siegeCutOf, starves } from '../siegefood';
+import { CUT_MAX } from '../data/siegefood';
 import { SIEGE_PHASE as PHASE_MS } from '../data/siegeroll';
 import { AIMS, GUN_AIMS, GUN_SPAN, type Aim } from '../data/shelling';
 import { SCALING, openingWords, wallFront, type WallFront } from '../wall';
@@ -10433,6 +10437,29 @@ export class LocalWorld implements WorldApi {
       // Р-5: цель артиллерии и кольцо. Мощь гарнизона соседа — вилкой реестра: соотношение «около», решает сервер.
       aim: this.aimView(c, now),
       blockade: this.blockadeView(c, now, troopPower(troops) * (1 - (c.fire ? fireView(c.fire, now).thin : 0)), power.value ?? 0, true, power.precision !== 'exact'),
+      // Лагерь тает (ОС-1б): соотношение — по штрафу, которым сервер режет поля города, и куда оно идёт за фазы.
+      melt: this.campMelt(c),
+    };
+  }
+
+  /**
+   * Лагерь под городом игрока тает (ОС-1б, docs/siege_v2.md, 23.9): соотношение сил — то, по которому сервер режет поля города
+   * (`WarCamp.cut` → `siegefood.ratioOfCut`; за краями кривой — граница), доля лагеря за фазу «без перемен» — та же
+   * `siegeroll.wasteOf`, что у шага сервера (путь от дома, пустой амбар дома — вдвое), и через сколько фаз штраф упадёт к
+   * среднему, если ничего больше не случится (`phasesToEven`). Окно до ОС-1 без штрафа — наибольший, как было.
+   */
+  private campMelt(c: SiegeWindow): CampMelt {
+    const cut = c.cut ?? CUT_MAX;
+    const { ratio, bound } = ratioOfCut(cut);
+    const waste = wasteOf('calm', c.homeDays, (this.save.profile?.food ?? 1) <= 0);
+    const toEven = phasesToEven(ratio, waste);
+    return {
+      cut,
+      ratio,
+      ...(bound ? { bound } : {}),
+      waste,
+      toEven,
+      ...(toEven ? { evenAt: phaseAt(siegeSince(c), rowsOf(c).length + toEven) } : {}),
     };
   }
 

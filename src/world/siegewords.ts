@@ -22,6 +22,19 @@ export function ratioShort(ratio: number): string {
   return `${r < 1 ? 'слабее' : r > 1 ? 'сильнее' : 'вровень'}, ${ratioWords(ratio)}`;
 }
 
+/**
+ * Соотношение по штрафу коротко (ОС-1б, окно лагеря): внутри кривой — как `ratioShort`, за краями — граница: «сильнее, ×1,5 и
+ * больше», «слабее, ×0,7 и меньше» (`siegefood.ratioOfCut`).
+ */
+export function ratioBound(ratio: number, bound?: 'min' | 'max'): string {
+  if (bound === 'min') return `сильнее, ${ratioWords(ratio)} и больше`;
+  if (bound === 'max') return `слабее, ${ratioWords(ratio)} и меньше`;
+  return ratioShort(ratio);
+}
+
+/** Доля лагеря за фазу коротко: «~4 % за фазу» (`siegeroll.wasteOf`). */
+export const meltShort = (waste: number): string => `~${Math.round(waste * 100)} % за фазу`;
+
 /** Штраф к хлебу коротко — строкой окна: «−86 %». */
 export const cutFood = (cut: number): string => `−${Math.round((1 - yieldShare(cut, true)) * 100)} %`;
 

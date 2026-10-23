@@ -50,6 +50,45 @@ export function siegeCut(ratio: number): number {
   return hermite((lx - x[1]) / (x[2] - x[1]), x[2] - x[1], y[1], y[2], m, 0);
 }
 
+/**
+ * Соотношение сил по штрафу (ОС-1б) — обратная `siegeCut`: внутри кривой — точное число (кривая строго растёт между крайними
+ * точками), за краями — граница: штраф наибольший — лагерь «не слабее» ×1,5 (`bound: 'min'`), наименьший — «не сильнее» ×⅔
+ * (`bound: 'max'`). Окно лагеря знает штраф, по которому сервер режет поля города (`WarCamp.cut`), а мощь гарнизона — только
+ * вилкой реестра: соотношение оно выводит из штрафа.
+ */
+export function ratioOfCut(cut: number): { ratio: number; bound?: 'min' | 'max' } {
+  if (!(cut < CUT_MAX)) return { ratio: CUT_RATIO_STRONG, bound: 'min' };
+  if (cut <= CUT_MIN) return { ratio: CUT_RATIO_WEAK, bound: 'max' };
+  // Делением пополам по логарифму: кривая там монотонна, шестьдесят шагов — точность double.
+  let lo = Math.log(CUT_RATIO_WEAK);
+  let hi = Math.log(CUT_RATIO_STRONG);
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (siegeCut(Math.exp(mid)) < cut) lo = mid;
+    else hi = mid;
+  }
+  return { ratio: Math.exp((lo + hi) / 2) };
+}
+
+/**
+ * Через сколько фаз штраф к добыче упадёт к среднему (ОС-1б): лагерь тает долей `waste` за фазу, гарнизон стоит, и соотношение
+ * после `k` фаз — `ratio × (1 − waste)^k`; среднее — «вровень» (`CUT_RATIO_EVEN`). Ноль — уже не выше среднего; `null` — не
+ * упадёт (гарнизона нет или лагерь не тает). Прогноз «если ничего больше не случится»: вылазки, мор и подкрепление гарнизона
+ * его двигают.
+ */
+export function phasesToEven(ratio: number, waste: number): number | null {
+  if (Number.isNaN(ratio)) return null;
+  if (ratio <= CUT_RATIO_EVEN) return 0;
+  if (!Number.isFinite(ratio) || !(waste > 0)) return null;
+  if (waste >= 1) return 1;
+  const after = (k: number): number => ratio * Math.pow(1 - waste, k);
+  let k = Math.max(1, Math.ceil(Math.log(CUT_RATIO_EVEN / ratio) / Math.log(1 - waste)));
+  // Логарифм в double может промахнуться на шаг у самой границы — правят сами шаги, тем же умножением, что прогноз.
+  while (k > 1 && after(k - 1) <= CUT_RATIO_EVEN) k--;
+  while (after(k) > CUT_RATIO_EVEN) k++;
+  return k;
+}
+
 /** Штраф по мощи лагеря и гарнизона — та же мерка, что у кольца. */
 export const siegeCutOf = (campPower: number, garrisonPower: number): number => siegeCut(blockadeRatio(campPower, garrisonPower));
 

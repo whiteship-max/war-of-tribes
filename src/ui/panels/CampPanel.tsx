@@ -20,7 +20,8 @@ import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { FATE_META } from '@/world/data/fates';
 import { STAGE_BY_ID } from '@/world/data/meta';
 import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, machineShare, playerWood, woodShare, worksRipeAt } from '@/world/works';
-import type { CampView, Fate } from '@/world/types';
+import type { CampMelt, CampView, Fate } from '@/world/types';
+import { cutFood, meltShort, ratioBound } from '@/world/siegewords';
 import { FatePick } from '@/ui/parts/FatePick';
 import { plural } from '@/ui/parts/plural';
 import { SiegePhases } from '@/ui/parts/SiegePhases';
@@ -72,12 +73,31 @@ export function reliefLine(r: NonNullable<CampView['relief']>, now: number): str
   }.`;
 }
 
+/**
+ * Когда штраф к полям города упадёт к среднему (ОС-1б) — словами окна: число фаз — дверью хлеба (`CampMelt.toEven`), срок — до
+ * минуты шага, названной миром (`evenAt`).
+ */
+export function evenLine(m: CampMelt, now: number): string {
+  if (m.toEven === null) return 'не упадёт';
+  if (m.toEven === 0) return 'уже средний';
+  const left = realLeft(Math.max(0, ((m.evenAt ?? now) - now) / 1000));
+  return `${m.bound === 'min' ? 'не раньше ' : ''}через ${m.toEven} ${plural(m.toEven, 'фазу', 'фазы', 'фаз')}, ~${left}`;
+}
+
+/** Почему лагерь тает и что с этим делать (ОС-1б) — без чисел: числа в строках. */
+const MELT_WHY =
+  'Каждую фазу из лагеря уходит доля бойцов: дальше от дома — больше, пустой амбар дома — вдвое, мор и попадание требушета со стены — ещё доля. Пополнить лагерь нельзя: дружина стоит тем составом, с которым вышла. Чем слабее лагерь против гарнизона, тем больше хлеба город берёт с полей, и при среднем штрафе голод приходит втрое позже.';
+
 type View = 'camp' | 'machines' | 'ring' | 'phases' | 'storm';
 
 /** Столбцы окна лагеря (UI-7, docs/ui_v2.md, 5.6): строки `.mod` и ряды кнопок `.mini` — таблицами набора. */
 const TARGET_COLS: readonly Col[] = [
   { key: 'what', title: 'Цель' },
   { key: 'v', title: 'Сейчас', align: 'right', w: '104px' },
+];
+const MELT_COLS: readonly Col[] = [
+  { key: 'what', title: 'Поля города' },
+  { key: 'v', title: 'Сейчас', align: 'right', w: '128px' },
 ];
 const SIDE_COLS: readonly Col[] = [{ key: 'side', title: 'Стороны лагеря' }];
 const WOOD_COLS: readonly Col[] = [
@@ -220,6 +240,19 @@ export function CampPanel() {
               { key: 'since', cells: { what: 'Лагерь стоит', v: realLeft(Math.max(0, (now - camp.since) / 1000)) } },
             ]}
           />
+          {/* Лагерь тает (ОС-1б): соотношение, по которому сервер режет поля города, доля за фазу и когда штраф станет средним. */}
+          {camp.melt && (
+            <Table
+              label="Поля города"
+              cols={MELT_COLS}
+              rows={[
+                { key: 'ratio', tip: () => ({ title: 'Лагерь против гарнизона', body: MELT_WHY }), cells: { what: 'Лагерь против гарнизона', v: ratioBound(camp.melt.ratio, camp.melt.bound) } },
+                { key: 'cut', cells: { what: 'Добыча хлеба у города', v: <b className="good">{cutFood(camp.melt.cut)}</b> } },
+                { key: 'waste', tip: () => ({ title: 'Лагерь тает', body: MELT_WHY }), cells: { what: 'Лагерь тает', v: <span className="bad">{meltShort(camp.melt.waste)}</span> } },
+                { key: 'even', tip: () => ({ title: 'Штраф к среднему', body: MELT_WHY }), cells: { what: 'Штраф станет средним', v: evenLine(camp.melt, now) } },
+              ]}
+            />
+          )}
           {/* Выручка, идущая на лагерь (siege_audit, 6): у логова — отряд соседей по донесению, у города игрока — его полководец. */}
           {camp.relief && <p className="note bad">{reliefLine(camp.relief, now)}</p>}
           <Table
