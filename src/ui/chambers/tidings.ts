@@ -21,6 +21,7 @@ import { eventKey, letterKey } from '@/ui/realm/unread';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { realDue } from '@/ui/parts/wait';
 import { TITLE } from './talk';
+import { cityOr } from '../../../netlify/lib/contract';
 
 /**
  * Куда ведёт весть — двери игры, а не свои окна: карта, окно осады, склад, стабильность, письмо или событие в «Вестях»,
@@ -174,7 +175,7 @@ export function tell(t: Tiding, src: CourtSource): Telling | null {
       }
       if (t.id.startsWith('war:')) {
         const m = src.marching.find((x) => x.id === t.ref);
-        if (m) return say(`Из «${m.city}» вышел отряд на наш город — ${m.mode === 'storm' ? 'на штурм' : 'осадой'}; будут через ${realDue((m.arriveAt - src.world) / 1000)}.`, { to: 'map' });
+        if (m) return say(`Из «${cityOr(m.city)}» вышел отряд на наш город — ${m.mode === 'storm' ? 'на штурм' : 'осадой'}; будут через ${realDue((m.arriveAt - src.world) / 1000)}.`, { to: 'map' });
         // Поход ушёл со стола: исход — донесением войны, а его минута — часами мира, отметка же — настоящими: не сравнить.
         return null;
       }
