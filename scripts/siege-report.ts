@@ -22,7 +22,7 @@
 //     ли лагерь малыми заходами (от ответа зависит, нужен ли откат).
 //
 //   npx vite-node scripts/siege-report.ts
-import { LocalWorld } from '@/world/local/LocalWorld';
+import { HOME_ID, LocalWorld } from '@/world/local/LocalWorld';
 import type { WorldSave } from '@/world/local/state';
 import { resolveField } from '@/world/battle';
 import { guardKinds, machineFight, wallFight } from '@/world/fights';
@@ -35,7 +35,7 @@ import { menOfPower, raidingParty } from '@/world/garrison';
 import { campPass, passKinds, sideWorks } from '@/world/works';
 import { awayOf, homeOf } from '@/world/muster';
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
-import { kindsOf, powerOf } from '@/game/battle/price';
+import { kindsOf, powerOf, troopPower } from '@/game/battle/price';
 import { stackTotal } from '@/battle';
 import {
   AI_ATTACK_MAX,
@@ -54,6 +54,7 @@ import type { PlayerProfile, Report, WorldPulse } from '@/world/types';
 import { siegeWear, starvesAt, starvesIfRation, type SiegeWindow } from '@/world/siege';
 import { phaseAt, repairAfter, repairBlock, rollPhase, rowsOf, type PhaseRow } from '@/world/siegeroll';
 import { CAMP_WASTE, CAMP_WASTE_DAYS, SIEGE_PHASE } from '@/world/data/siegeroll';
+import { CUT_RATIO_STRONG } from '@/world/data/siegefood';
 import { militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
 import { FATE_META } from '@/world/data/fates';
 import { FATE_DEFAULT, fate } from '@/world/spoils';
@@ -69,6 +70,7 @@ import { ENGINE_BY_ID } from '@/game/data/engines';
 import { archerPerSiege, archerRecruit, crewFor, enginePrice } from './lib/engines';
 import { dayRealSeconds, gameDaysOfMs, gameDaysPerHour, realMs, worldDays } from '@/game/pace';
 import { PULSE_FLOOR } from './autopilot';
+import { setRaidPower } from './console/world';
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303];
@@ -336,6 +338,25 @@ function memory(data: string | null = null) {
   };
 }
 
+/**
+ * Лагерь стенда — сильный (решение владельца 24.10.2026, docs/siege_v2.md, 23.14). После ОС-1 лагерь логова слабее гарнизона
+ * у посёлка стенда голодом не морит: поля за стеной кормят город (штраф к хлебу ниже безубыточного), и лагерь снимается в
+ * первую фазу — у L10 лагеря ×0.81…0.99 гарнизона, окно в одну фазу. Разделы ниже меряют осаду, которая морит голодом, —
+ * вылазки, стороны лагеря, орудия, ход осады, «безразличие», силу стены, способы штурма, ответы, переговоры, цену падения.
+ * Поэтому набег логова на наш город в пути получает мощь ×`CUT_RATIO_STRONG` гарнизона мерки кольца (бойцы строя дома, без
+ * ополчения, — `LocalWorld.garrisonPower`): штраф к хлебу наибольший, поля не кормят, как у любого лагеря до ОС-1. Мощь —
+ * той же дверью, что консоль (`console/world.setRaidPower`); садиться ли лагерем — решает мир в минуту прихода.
+ */
+function strongRaids(world: LocalWorld, pulse: WorldPulse, g: GameState, done: Set<string>): void {
+  const save = (world as unknown as { save: WorldSave }).save;
+  const garrison = troopPower(homeOf(g.army, awayOf(pulse.marches, pulse.figures)));
+  for (const m of save.marches) {
+    if (m.own || m.targetId !== HOME_ID || done.has(m.id)) continue;
+    setRaidPower(m, CUT_RATIO_STRONG * garrison);
+    done.add(m.id);
+  }
+}
+
 interface Frozen {
   seed: number;
   save: string;
@@ -352,9 +373,11 @@ async function freezeSiege(seed: number, level: number, engine: EngineId | null 
   let now = 1_700_000_000_000;
   const store = memory();
   const world = new LocalWorld({ seed, now: () => now, storage: store });
+  const strong = new Set<string>();
   for (let i = 0; i < stepsFor(WAIT_DAYS); i++) {
     now += STEP_MS;
     const r = await world.sync(playerProfile(g));
+    strongRaids(world, r, g, strong);
     if (!r.siege) continue;
     const save = store.read() as string;
     const parsed = JSON.parse(save);
@@ -426,6 +449,7 @@ function fillPass(g: TroopStack, pass: number): TroopStack {
 console.log('');
 console.log(`--- укрепления во времени: вылазка от постановки лагеря (рогатки дозревают за ${gd(CAMP_WORKS_RIPE)} игр. дн.) ---`);
 console.log('настоящий мир, LocalWorld.sortie; «весь» — весь гарнизон, «×2» — отряд вдвое больше лагеря');
+console.log(`лагерь стенда здесь и ниже — сильный: набег логова в пути получает ×${CUT_RATIO_STRONG} гарнизона мерки кольца (ОС-1: слабее гарнизона он голодом не морит)`);
 const frozenByLevel = new Map<number, Frozen[]>();
 /** Строка «весь» по уровням — с ней сравниваются орудия башни в настоящем мире. */
 const wholeRow = new Map<number, string[]>();
@@ -527,11 +551,13 @@ async function freezeField(seed: number, level: number): Promise<Frozen | null> 
   if (moveErr) throw new Error(moveErr);
   now = (await world.figures()).find((f) => f.id === 'general')!.arriveAt;
   await world.sync(playerProfile(g));
+  const strong = new Set<string>();
   for (let i = 0; i < stepsFor(WAIT_DAYS); i++) {
     now += STEP_MS;
     // Ждёт осаду в поле свежим — см. `freshGeneral`.
     freshGeneral((world as unknown as { save: WorldSave }).save);
     const r = await world.sync(playerProfile(g));
+    strongRaids(world, r, g, strong);
     if (!r.siege) continue;
     const save = store.read() as string;
     const parsed = JSON.parse(save);
@@ -900,9 +926,12 @@ for (const level of [1, 3, 5, 7, 10]) {
   const w = clocked(7 + level);
   const snap = (): PlayerProfile => playerProfile(g);
   let siege: WorldPulse['siege'] = null;
+  const strong = new Set<string>();
   for (let i = 0; i < stepsFor(WAIT_DAYS * 2) && !siege; i++) {
     w.advance(STEP_MS);
-    siege = (await w.world.sync(snap())).siege;
+    const r = await w.world.sync(snap());
+    strongRaids(w.world, r, g, strong);
+    siege = r.siege;
   }
   if (!siege) {
     console.log(`  ${String(level).padStart(2)}   осады не случилось за отпущенное время`);
@@ -946,7 +975,8 @@ for (const level of [1, 3, 5, 7, 10]) {
 console.log('');
 console.log(`Гарнизон рассеивается на ${Math.round(SIEGE_ROUT * 100)}% (SIEGE_ROUT) — это и есть настоящая цена падения.`);
 console.log('Сколько добра уносится, решает обоз лагеря: лагерь садится только когда штурм не удался бы');
-console.log('(`LocalWorld.sitsDown`), а его сила — набег логова при жителях этого посёлка.');
+console.log(`(\`LocalWorld.sitsDown\`), а его сила на стенде — ×${CUT_RATIO_STRONG} гарнизона: сильный лагерь, тот, что морит голодом (ОС-1;`);
+console.log('лагерь слабее гарнизона поля за стеной не отрезают, и он снимается в первую фазу — падения нет).');
 console.log('');
 console.log(`Унесено при падении против дебафа за окно: ${fallVsDebuff.join(', ') || 'осад не было'}.`);
 console.log('Ради этого отношения раздел и заведён: ниже единицы падение мягче ожидания, и пол по времени,');

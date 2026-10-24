@@ -62,11 +62,17 @@ export function raidNow(b: Bench, power: number | null): { id: string; power: nu
     const busy = w.save.marches.some((x: Inside) => !x.own && x.targetId === HOME_ID);
     return { error: busy ? 'на город уже идёт отряд' : 'логово не выходит: защита слабого (мало жителей и войска — lairs.weakCity) или рядом нет живых логов; --no-shield снимает защиту, --world — другой мир' };
   }
-  if (power !== null) {
-    m.power = Math.max(2, power);
-    m.units = { warrior: Math.max(1, Math.round(m.power / 3)) };
-  }
+  if (power !== null) setRaidPower(m, power);
   return { id: m.id, power: m.power, from: m.fromName ?? m.fromId, arriveAt: m.arriveAt };
+}
+
+/**
+ * Мощь набега в пути вместо той, что дал бы мир (люди — как у мира: воин на три мощи). Одна дверь у консоли (`raidNow`) и у
+ * стенда осады `siege:report` (сильный лагерь, docs/siege_v2.md, 23.14): садиться ли — решает мир в минуту прихода.
+ */
+export function setRaidPower(m: { power: number; units?: unknown }, power: number): void {
+  m.power = Math.max(2, power);
+  m.units = { warrior: Math.max(1, Math.round(m.power / 3)) };
 }
 
 /** Донесение словами: заголовок и текст мира, одной-двумя строками. */
