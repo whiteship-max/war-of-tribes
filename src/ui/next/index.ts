@@ -19,6 +19,10 @@ export { Settings } from '../parts/Settings';
 export { TutorialOverlay } from '../TutorialOverlay';
 // Шторка окон (ОС-1) — тем же куском: всё, что в ней показывают, едет им же.
 export { Sheet } from '../Sheet';
+// Окна-сообщения после входа (ОС-1в) — тем же куском: до входа их закрывает стартовый экран.
+export { OfflineModal } from '../OfflineModal';
+export { LegacyModal } from '../LegacyModal';
+export { PaceModal } from '../PaceModal';
 export { MarchesNew } from './MarchesNew';
 export { WorldNew } from './WorldNew';
 export { ReportBodyNew } from './ReportNew';

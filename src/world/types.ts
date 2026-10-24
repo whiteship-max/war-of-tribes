@@ -9,6 +9,8 @@ import type { ArtilleryId, MachineId } from './data/machines';
 import type { Aim, GunAim } from './data/shelling';
 import type { Opening } from './wall';
 import type { OfferKind } from './parley';
+import type { RatioRange } from './siegefood';
+import type { RingOdds } from './blockade';
 import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -322,8 +324,14 @@ export interface BlockadeView {
   on: boolean;
   /** С какой минуты кольцо замкнуто. */
   since?: number;
-  /** Соотношение мощи лагеря и гарнизона словами: «×3,2», «гарнизона нет», вилкой — у осаждающего. */
-  ratio: string;
+  /** Соотношение мощи лагеря и гарнизона словами: «×3,2», «гарнизона нет». Нет поля — гарнизон известен вилкой (`range`). */
+  ratio?: string;
+  /**
+   * Под городом игрока (ОС-1в): мощь гарнизона нападающему не видна, и соотношение — вилкой из штрафа сервера и разведки
+   * (`LocalWorld.warRatio`, та же, что у «Полей города»), а исход кнопки — по ней (`blockade.ringOdds`). Решает сервер.
+   */
+  range?: RatioRange;
+  odds?: RingOdds;
   /** Порог: во сколько раз лагерь сильнее гарнизона. */
   need: number;
   /** Можно ли замкнуть сейчас (у осаждающего) и почему нет. */
@@ -548,20 +556,24 @@ export interface CampView extends Omit<SiegeView, 'fall' | 'palisade' | 'garriso
 
 /**
  * Лагерь под городом игрока тает (ОС-1б, docs/siege_v2.md, 23.9): соотношение сил, по которому сервер режет поля города, и куда
- * оно идёт. Числа — дверью хлеба (`siegefood.ratioOfCut`, `phasesToEven`) и хода осады (`siegeroll.wasteOf`).
+ * оно идёт. Числа — дверью хлеба (`siegefood.ratioRangeOfCut`, `phasesToEven`) и хода осады (`siegeroll.wasteOf`).
  */
 export interface CampMelt {
   /** Штраф к добыче хлеба города, по которому сервер ведёт его склад (`WarCamp.cut`), 0..1. */
   cut: number;
-  /** Соотношение сил по штрафу; `bound` — за краем кривой это граница: 'min' — не меньше, 'max' — не больше. */
-  ratio: number;
-  bound?: 'min' | 'max';
+  /** Соотношение сил вилкой — та же, что у кольца (`LocalWorld.warRatio`): штраф сервера и разведка лазутчика. */
+  range: RatioRange;
   /** Доля лагеря, уходящая за фазу «без перемен» (путь от дома, пустой амбар дома — вдвое); мор и требушет — сверху. */
   waste: number;
-  /** Через сколько фаз штраф упадёт к среднему: 0 — уже не выше, null — не упадёт; при `bound: 'min'` — не раньше. */
-  toEven: number | null;
-  /** Минута шага, после которого штраф станет средним. */
-  evenAt?: number;
+  /**
+   * Через сколько фаз штраф упадёт к среднему — по краям вилки (`siegefood.phasesToEven`): `soon` — при нижнем, `late` — при
+   * верхнем; 0 — уже не выше, null — не упадёт или сверху вилка открыта. Точка — `soon === late`.
+   */
+  soon: number | null;
+  late: number | null;
+  /** Минуты шагов, после которых штраф станет средним, — по `soon` и `late`. */
+  soonAt?: number;
+  lateAt?: number;
 }
 
 /** Машина в окне лагеря: что даёт, в каком она состоянии и можно ли её заказать. Числа — дверью `world/machines`. */

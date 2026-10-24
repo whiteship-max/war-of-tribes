@@ -71,6 +71,34 @@ export function ratioOfCut(cut: number): { ratio: number; bound?: 'min' | 'max' 
 }
 
 /**
+ * Что окно лагеря под городом игрока знает о соотношении сил (ОС-1в): вилка `lo`..`hi` — точка, если `lo === hi`; `hi` —
+ * бесконечность, если сверху не ограничено. Мощь гарнизона нападающему не видна; знание — штраф сервера и разведка.
+ */
+export interface RatioRange {
+  lo: number;
+  hi: number;
+}
+
+/** Вилка по штрафу сервера (ОС-1в): внутри кривой — точка, на краях — полупрямая (`ratioOfCut`). */
+export function ratioRangeOfCut(cut: number): RatioRange {
+  const { ratio, bound } = ratioOfCut(cut);
+  if (bound === 'min') return { lo: ratio, hi: Infinity };
+  if (bound === 'max') return { lo: 0, hi: ratio };
+  return { lo: ratio, hi: ratio };
+}
+
+/**
+ * Две вилки об одном соотношении — их пересечение (ОС-1в). Не пересеклись — правда первой: штраф сервера свежее разведки,
+ * которая стареет.
+ */
+export function ratioWithin(a: RatioRange, b: RatioRange | null): RatioRange {
+  if (!b) return a;
+  const lo = Math.max(a.lo, b.lo);
+  const hi = Math.min(a.hi, b.hi);
+  return lo <= hi ? { lo, hi } : a;
+}
+
+/**
  * Через сколько фаз штраф к добыче упадёт к среднему (ОС-1б): лагерь тает долей `waste` за фазу, гарнизон стоит, и соотношение
  * после `k` фаз — `ratio × (1 − waste)^k`; среднее — «вровень» (`CUT_RATIO_EVEN`). Ноль — уже не выше среднего; `null` — не
  * упадёт (гарнизона нет или лагерь не тает). Прогноз «если ничего больше не случится»: вылазки, мор и подкрепление гарнизона

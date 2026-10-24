@@ -2,9 +2,6 @@ import { Suspense, lazy, useEffect, useRef, useState, type ComponentProps } from
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
 import { WinterModal, winterUi } from './ui/WinterModal';
-import { OfflineModal } from './ui/OfflineModal';
-import { LegacyModal } from './ui/LegacyModal';
-import { PaceModal } from './ui/PaceModal';
 import { StartScreen, StartVeil } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
 import { Frozen } from './ui/parts/Frozen';
@@ -72,6 +69,13 @@ const CityNaming = lazy(() => nextUi().then((m) => ({ default: m.CityNaming })))
 const Settings = lazy(() => nextUi().then((m) => ({ default: m.Settings })));
 /** Подсказка обучения — тем же куском (ОС-1): она стоит поверх города рядом с верхом и низом, что едут им же. */
 const TutorialOverlay = lazy(() => nextUi().then((m) => ({ default: m.TutorialOverlay })));
+/**
+ * Окна «С возвращением», «Новая партия» и «Время пошло медленнее» — тем же куском (ОС-1в): до входа их, как и подсказку
+ * обучения, закрывает стартовый экран, а кусок едет, пока он стоит.
+ */
+const OfflineModal = lazy(() => nextUi().then((m) => ({ default: m.OfflineModal })));
+const LegacyModal = lazy(() => nextUi().then((m) => ({ default: m.LegacyModal })));
+const PaceModal = lazy(() => nextUi().then((m) => ({ default: m.PaceModal })));
 /** Шторка окон — тем же куском (ОС-1): всё, что в ней показывают, едет им же, и без него шторке показать нечего. */
 const Sheet = lazy(() => nextUi().then((m) => ({ default: m.Sheet })));
 /** Карточка клетки и «Походы» нового вида — тем же куском (docs/ui_audit.md, 13). */
@@ -421,9 +425,11 @@ export function App() {
         </Crash>
       </Leave>
       <WinterModal />
-      <OfflineModal />
-      <LegacyModal />
-      <PaceModal />
+      <Suspense fallback={null}>
+        <OfflineModal />
+        <LegacyModal />
+        <PaceModal />
+      </Suspense>
       <Suspense fallback={null}><TutorialOverlay /></Suspense>
       {toast && <div className="toast">{toast}</div>}
       <Suspense fallback={null}>

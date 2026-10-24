@@ -317,9 +317,9 @@ import { campFight, campHolds, guardKinds, holdMinute, homeLosses, machineFight,
 import { AIM_NAME, GUN_AIM_NAME, aimBlock, artilleryAimOf as artilleryAim, aimWords, artilleryAt, gunAfter, gunAimBlock, gunAimOf, gunAimWords, gunBlock, gunsAt, idleBuildings, lostLevel, shotsApplied, shotsText } from '../shelling';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { keptType } from '@/game/merged';
-import { BLOCKADE_BREAKS, BLOCKADE_GIVES, BREAKOUT_GIVES, BREAKOUT_SHARE, BREAK_WORDS, blockadeAfter, blockadeAt, blockadeBlock, blockadeDeeds, blockadeHolds, blockadeRatio, blockadeSince, ratioWords, type BlockadeBreak } from '../blockade';
+import { BLOCKADE_BREAKS, BLOCKADE_GIVES, BREAKOUT_GIVES, BREAKOUT_SHARE, BREAK_WORDS, blockadeAfter, blockadeAt, blockadeBlock, blockadeBusy, blockadeDeeds, blockadeHolds, blockadeRatio, blockadeSince, ratioWords, ringOdds, type BlockadeBreak } from '../blockade';
 import { BLOCKADE_RATIO } from '../data/blockade';
-import { phasesToEven, ratioOfCut, siegeCut, siegeCutOf, starves } from '../siegefood';
+import { phasesToEven, ratioRangeOfCut, ratioWithin, siegeCut, siegeCutOf, starves, type RatioRange } from '../siegefood';
 import { CUT_MAX } from '../data/siegefood';
 import { SIEGE_PHASE as PHASE_MS } from '../data/siegeroll';
 import { AIMS, GUN_AIMS, GUN_SPAN, type Aim } from '../data/shelling';
@@ -448,6 +448,8 @@ import {
   GATE_MORALE_WON,
   TRADE_GOLD_PER_SETTLEMENT,
   TRIBUTE_PER_SETTLEMENT,
+  INTEL_ROUGH_SPREAD,
+  INTEL_VAGUE_SPREAD,
   WORLD_ORIGIN,
   WORLD_SIZE,
 } from '../data/tuning';
@@ -1534,19 +1536,21 @@ export class LocalWorld implements WorldApi {
 
   /**
    * Кольцо блокады глазами окна (Р-5, `world/blockade`): условие, сейчас да или нет, что даёт и чем размыкают. `atk` —
-   * окно осаждающего (может замкнуть); `rough` — мощь гарнизона известна вилкой (соотношение — «около»).
+   * окно осаждающего (может замкнуть). `range` — мощь гарнизона не видна (лагерь под городом игрока, ОС-1в): соотношение —
+   * вилкой (`warRatio`), исход кнопки — по ней (`ringOdds`), гарнизон нулём не считается; решает сервер.
    */
-  private blockadeView(w: SiegeWindow, now: number, camp: number, garrison: number, atk: boolean, rough = false): BlockadeView {
+  private blockadeView(w: SiegeWindow, now: number, camp: number, garrison: number, atk: boolean, range?: RatioRange): BlockadeView {
     const on = blockadeAt(w, now);
-    const reason = on ? null : blockadeBlock(w, now, camp, garrison);
+    const reason = on ? null : range ? blockadeBusy(w, now) : blockadeBlock(w, now, camp, garrison);
+    const odds = range ? ringOdds(range) : undefined;
     const last = [...blockadeDeeds(w)].reverse().find((d) => d.at <= now && !d.on);
     const since = blockadeSince(w, now);
     return {
       on,
       ...(on && since !== null ? { since } : {}),
-      ratio: `${rough ? '≈' : ''}${ratioWords(blockadeRatio(camp, garrison))}`,
+      ...(range ? { range, odds } : { ratio: ratioWords(blockadeRatio(camp, garrison)) }),
       need: BLOCKADE_RATIO,
-      can: atk && !on && reason === null,
+      can: atk && !on && reason === null && odds !== 'no',
       reason: atk ? reason : null,
       gives: BLOCKADE_GIVES,
       breaks: BLOCKADE_BREAKS,
@@ -10434,33 +10438,57 @@ export class LocalWorld implements WorldApi {
       ...this.restViews(camp, undefined),
       phases: this.phasesView(c, now, true),
       parley: this.parleyAtk(c, now, w.fate, null),
-      // Р-5: цель артиллерии и кольцо. Мощь гарнизона соседа — вилкой реестра: соотношение «около», решает сервер.
+      // Р-5: цель артиллерии и кольцо.
       aim: this.aimView(c, now),
-      blockade: this.blockadeView(c, now, troopPower(troops) * (1 - (c.fire ? fireView(c.fire, now).thin : 0)), power.value ?? 0, true, power.precision !== 'exact'),
-      // Лагерь тает (ОС-1б): соотношение — по штрафу, которым сервер режет поля города, и куда оно идёт за фазы.
-      melt: this.campMelt(c),
+      // Мощь гарнизона соседа не видна (ОС-1в): соотношение — вилкой, та же, что у «Полей города»; решает сервер.
+      blockade: this.blockadeView(c, now, 0, 0, true, this.warRatio(w, c, now)),
+      // Лагерь тает (ОС-1б): соотношение — той же вилкой, и куда оно идёт за фазы.
+      melt: this.campMelt(w, c, now),
     };
   }
 
   /**
-   * Лагерь под городом игрока тает (ОС-1б, docs/siege_v2.md, 23.9): соотношение сил — то, по которому сервер режет поля города
-   * (`WarCamp.cut` → `siegefood.ratioOfCut`; за краями кривой — граница), доля лагеря за фазу «без перемен» — та же
-   * `siegeroll.wasteOf`, что у шага сервера (путь от дома, пустой амбар дома — вдвое), и через сколько фаз штраф упадёт к
-   * среднему, если ничего больше не случится (`phasesToEven`). Окно до ОС-1 без штрафа — наибольший, как было.
+   * Соотношение сил лагеря под городом игрока глазами нападающего (ОС-1в): мощь гарнизона ему не видна (мощь реестра — посёлок
+   * и вся дружина со слов игрока, не гарнизон), и знание о соотношении — вилка из двух правд. Штраф сервера (`WarCamp.cut` →
+   * `siegefood.ratioRangeOfCut`): внутри кривой — точное число на последний пересчёт, на краях — полупрямая. Разведка лазутчика
+   * (`SpyIntel.home` — гарнизон той же меркой, что у решения сервера): мощь лагеря сейчас к гарнизону на минуту разведки,
+   * вилкой правила старения разведки (`intel.precisionOf`). Одна вилка на «Поля города» и «Кольцо».
    */
-  private campMelt(c: SiegeWindow): CampMelt {
-    const cut = c.cut ?? CUT_MAX;
-    const { ratio, bound } = ratioOfCut(cut);
+  private warRatio(w: WarView, c: SiegeWindow, now: number): RatioRange {
+    return ratioWithin(c.cut !== undefined ? ratioRangeOfCut(c.cut) : { lo: 0, hi: Infinity }, this.spyRatio(w, c, now));
+  }
+
+  /** Вилка соотношения по последней разведке лазутчика у этого города; разведки нет или она устарела — null. */
+  private spyRatio(w: WarView, c: SiegeWindow, now: number): RatioRange | null {
+    let at = -Infinity;
+    let home: TroopStack | null = null;
+    for (const x of this.spyList()) {
+      const seen = x.out?.at ?? x.arriveAt;
+      if (x.role === 'atk' && x.defCastle === w.defCastle && x.out?.ok && x.out.intel && seen > at) {
+        at = seen;
+        home = x.out.intel.home as TroopStack;
+      }
+    }
+    const precision = home ? precisionOf(now - at) : 'unknown';
+    if (!home || precision === 'unknown') return null;
+    const spread = precision === 'exact' ? 0 : precision === 'rough' ? INTEL_ROUGH_SPREAD : INTEL_VAGUE_SPREAD;
+    const g = troopPower(home);
+    const camp = troopPower(w.army.troops as TroopStack) * (1 - (c.fire ? fireView(c.fire, now).thin : 0));
+    return { lo: blockadeRatio(camp, g * (1 + spread)), hi: blockadeRatio(camp, g * (1 - spread)) };
+  }
+
+  /**
+   * Лагерь под городом игрока тает (ОС-1б, docs/siege_v2.md, 23.9): соотношение сил — вилка `warRatio` (та же, что у кольца),
+   * доля лагеря за фазу «без перемен» — та же `siegeroll.wasteOf`, что у шага сервера (путь от дома, пустой амбар дома —
+   * вдвое), и через сколько фаз штраф упадёт к среднему по краям вилки, если ничего больше не случится (`phasesToEven`).
+   */
+  private campMelt(w: WarView, c: SiegeWindow, now: number): CampMelt {
+    const range = this.warRatio(w, c, now);
     const waste = wasteOf('calm', c.homeDays, (this.save.profile?.food ?? 1) <= 0);
-    const toEven = phasesToEven(ratio, waste);
-    return {
-      cut,
-      ratio,
-      ...(bound ? { bound } : {}),
-      waste,
-      toEven,
-      ...(toEven ? { evenAt: phaseAt(siegeSince(c), rowsOf(c).length + toEven) } : {}),
-    };
+    const soon = phasesToEven(range.lo, waste);
+    const late = phasesToEven(range.hi, waste);
+    const at = (k: number | null): number | undefined => (k ? phaseAt(siegeSince(c), rowsOf(c).length + k) : undefined);
+    return { cut: c.cut ?? CUT_MAX, range, waste, soon, late, ...(soon ? { soonAt: at(soon) } : {}), ...(late ? { lateAt: at(late) } : {}) };
   }
 
   /**

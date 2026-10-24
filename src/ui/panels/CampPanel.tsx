@@ -21,7 +21,7 @@ import { FATE_META } from '@/world/data/fates';
 import { STAGE_BY_ID } from '@/world/data/meta';
 import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, machineShare, playerWood, woodShare, worksRipeAt } from '@/world/works';
 import type { CampMelt, CampView, Fate } from '@/world/types';
-import { cutFood, meltShort, ratioBound } from '@/world/siegewords';
+import { RING_ODDS_SHORT, cutFood, meltShort, rangeWords, ringOddsWords } from '@/world/siegewords';
 import { FatePick } from '@/ui/parts/FatePick';
 import { plural } from '@/ui/parts/plural';
 import { SiegePhases } from '@/ui/parts/SiegePhases';
@@ -74,14 +74,18 @@ export function reliefLine(r: NonNullable<CampView['relief']>, now: number): str
 }
 
 /**
- * Когда штраф к полям города упадёт к среднему (ОС-1б) — словами окна: число фаз — дверью хлеба (`CampMelt.toEven`), срок — до
- * минуты шага, названной миром (`evenAt`).
+ * Когда штраф к полям города упадёт к среднему (ОС-1б) — словами окна: число фаз по краям вилки соотношения — дверью хлеба
+ * (`CampMelt.soon`, `late`), срок — до минуты шага, названной миром (`soonAt`, `lateAt`).
  */
 export function evenLine(m: CampMelt, now: number): string {
-  if (m.toEven === null) return 'не упадёт';
-  if (m.toEven === 0) return 'уже средний';
-  const left = realLeft(Math.max(0, ((m.evenAt ?? now) - now) / 1000));
-  return `${m.bound === 'min' ? 'не раньше ' : ''}через ${m.toEven} ${plural(m.toEven, 'фазу', 'фазы', 'фаз')}, ~${left}`;
+  const left = (at?: number): string => realLeft(Math.max(0, ((at ?? now) - now) / 1000));
+  const phases = (k: number): string => `${k} ${plural(k, 'фазу', 'фазы', 'фаз')}`;
+  if (m.soon === null) return 'не упадёт';
+  if (m.late === 0) return 'уже средний';
+  if (m.late === null) return m.soon === 0 ? 'неизвестно' : `не раньше чем через ${phases(m.soon)}, ~${left(m.soonAt)}`;
+  if (m.soon === m.late) return `через ${phases(m.soon)}, ~${left(m.soonAt)}`;
+  if (m.soon === 0) return `не позже чем через ${phases(m.late)}, ~${left(m.lateAt)}`;
+  return `через ${m.soon}–${phases(m.late)}, ~${left(m.soonAt)}–${left(m.lateAt)}`;
 }
 
 /** Почему лагерь тает и что с этим делать (ОС-1б) — без чисел: числа в строках. */
@@ -229,7 +233,15 @@ export function CampPanel() {
             label="Цель"
             cols={TARGET_COLS}
             rows={[
-              { key: 'power', cells: { what: 'Мощь гарнизона', v: <span className={camp.power.precision === 'unknown' ? 'bad' : ''}>{formatEstimate(camp.power)}</span> } },
+              // Под городом игрока (есть «Поля города») мощь — из реестра замков: посёлок и вся дружина со слов правителя, не
+              // гарнизон (ОС-1в); у логова и двора — мощь заслона по разведке.
+              {
+                key: 'power',
+                cells: {
+                  what: camp.melt ? 'Мощь города по реестру' : 'Мощь гарнизона',
+                  v: <span className={camp.power.precision === 'unknown' ? 'bad' : ''}>{formatEstimate(camp.power)}</span>,
+                },
+              },
               { key: 'food', cells: { what: 'Еды хватит на', v: <b className="good">{hungerLeft(camp.starvesAt, now)}</b> } },
               {
                 key: 'garrison',
@@ -246,7 +258,7 @@ export function CampPanel() {
               label="Поля города"
               cols={MELT_COLS}
               rows={[
-                { key: 'ratio', tip: () => ({ title: 'Лагерь против гарнизона', body: MELT_WHY }), cells: { what: 'Лагерь против гарнизона', v: ratioBound(camp.melt.ratio, camp.melt.bound) } },
+                { key: 'ratio', tip: () => ({ title: 'Лагерь против гарнизона', body: MELT_WHY }), cells: { what: 'Лагерь против гарнизона', v: rangeWords(camp.melt.range) } },
                 { key: 'cut', cells: { what: 'Добыча хлеба у города', v: <b className="good">{cutFood(camp.melt.cut)}</b> } },
                 { key: 'waste', tip: () => ({ title: 'Лагерь тает', body: MELT_WHY }), cells: { what: 'Лагерь тает', v: <span className="bad">{meltShort(camp.melt.waste)}</span> } },
                 { key: 'even', tip: () => ({ title: 'Штраф к среднему', body: MELT_WHY }), cells: { what: 'Штраф станет средним', v: evenLine(camp.melt, now) } },
@@ -388,7 +400,17 @@ export function CampPanel() {
             cols={RING_COLS}
             rows={[
               { key: 'need', cells: { what: 'Нужно: лагерь сильнее гарнизона', v: `вчетверо` } },
-              { key: 'ratio', cells: { what: 'Лагерь сильнее гарнизона', v: <b className={camp.blockade.can || camp.blockade.on ? 'good' : 'bad'}>{camp.blockade.ratio}</b> } },
+              {
+                key: 'ratio',
+                cells: {
+                  what: 'Лагерь сильнее гарнизона',
+                  // Под городом игрока гарнизон не виден — вилкой (ОС-1в), той же, что у «Полей города».
+                  v: <b className={camp.blockade.can || camp.blockade.on ? 'good' : 'bad'}>{camp.blockade.range ? rangeWords(camp.blockade.range) : camp.blockade.ratio}</b>,
+                },
+              },
+              ...(camp.blockade.odds && !camp.blockade.on
+                ? [{ key: 'odds', cells: { what: 'Замкнуть', v: <span className={camp.blockade.odds === 'yes' ? 'good' : camp.blockade.odds === 'no' ? 'bad' : ''}>{RING_ODDS_SHORT[camp.blockade.odds]}</span> } }]
+                : []),
               {
                 key: 'on',
                 cells: {
@@ -408,7 +430,9 @@ export function CampPanel() {
           ) : (
             <>
               {camp.blockade.reason && <p className="note bad">{camp.blockade.reason}</p>}
-              <Btn kind="main" wide why={busy ? '…' : camp.blockade.reason ? 'Сейчас не замкнуть' : null} onClick={() => void order(() => blockade(true), 'Кольцо замкнуто.')}>
+              {/* Исход по вилке (ОС-1в): «удастся», «не удастся» или «зависит от гарнизона»; последнее слово — у сервера. */}
+              {!camp.blockade.reason && camp.blockade.odds && <p className={`note${camp.blockade.odds === 'no' ? ' bad' : ''}`}>{ringOddsWords(camp.blockade.odds)}</p>}
+              <Btn kind="main" wide why={busy ? '…' : camp.blockade.reason ? 'Сейчас не замкнуть' : camp.blockade.odds === 'no' ? 'Не удастся' : null} onClick={() => void order(() => blockade(true), 'Кольцо замкнуто.')}>
                 Замкнуть кольцо
               </Btn>
             </>

@@ -335,6 +335,8 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
       /\/src\/ui\/parts\/Settings\.tsx$/,
       /\/src\/ui\/TutorialOverlay\.tsx$/,
       /\/src\/ui\/Sheet\.tsx$/,
+      // Окна-сообщения после входа (ОС-1в): до входа их закрывает стартовый экран.
+      /\/src\/ui\/(Offline|Legacy|Pace)Modal\.tsx$/,
       /\/src\/world\/siegewords\.ts$/,
     ],
   },

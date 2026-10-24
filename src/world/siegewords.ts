@@ -3,8 +3,9 @@
 // Отдельным модулем от правил: слова читают окно защитника (кусок нового вида) и консоль, а правила едут с миром в первой
 // загрузке. Без `@/`, как и сама дверь.
 import { realSpan } from '../game/span';
-import { ratioWords } from './blockade';
-import { siegeCut, yieldShare } from './siegefood';
+import { ratioWords, type RingOdds } from './blockade';
+import { BLOCKADE_RATIO } from './data/blockade';
+import { siegeCut, yieldShare, type RatioRange } from './siegefood';
 
 /** Соотношение сил словами: «лагерь слабее гарнизона (×0,8)», «силы равны (×1)», «лагерь сильнее гарнизона (×1,6)». */
 export function ratioReason(ratio: number): string {
@@ -23,13 +24,25 @@ export function ratioShort(ratio: number): string {
 }
 
 /**
- * Соотношение по штрафу коротко (ОС-1б, окно лагеря): внутри кривой — как `ratioShort`, за краями — граница: «сильнее, ×1,5 и
- * больше», «слабее, ×0,7 и меньше» (`siegefood.ratioOfCut`).
+ * Соотношение вилкой (ОС-1в, окно лагеря под городом игрока, `siegefood.RatioRange`): точка — «×1,3», открытая сверху — «×1,5
+ * и больше», открытая снизу — «до ×0,7», иначе «от ×2 до ×2,6»; ничего не известно — «неизвестно».
  */
-export function ratioBound(ratio: number, bound?: 'min' | 'max'): string {
-  if (bound === 'min') return `сильнее, ${ratioWords(ratio)} и больше`;
-  if (bound === 'max') return `слабее, ${ratioWords(ratio)} и меньше`;
-  return ratioShort(ratio);
+export function rangeWords(r: RatioRange): string {
+  if (r.lo === r.hi) return ratioWords(r.lo);
+  if (!Number.isFinite(r.hi)) return r.lo > 0 ? `${ratioWords(r.lo)} и больше` : 'неизвестно';
+  if (r.lo <= 0) return `до ${ratioWords(r.hi)}`;
+  return `от ${ratioWords(r.lo)} до ${ratioWords(r.hi)}`;
+}
+
+/** Исход кнопки «Замкнуть кольцо» коротко (ОС-1в, `blockade.ringOdds`). */
+export const RING_ODDS_SHORT: Record<RingOdds, string> = { yes: 'удастся', no: 'не удастся', maybe: 'зависит от гарнизона' };
+
+/** Исход кнопки «Замкнуть кольцо» словами: порог — тем же числом, что у решения (`BLOCKADE_RATIO`). */
+export function ringOddsWords(odds: RingOdds): string {
+  const need = ratioWords(BLOCKADE_RATIO);
+  if (odds === 'yes') return `Замкнуть удастся: при любом гарнизоне из вилки лагерь не слабее нужного — ${need}.`;
+  if (odds === 'no') return `Не удастся: при любом гарнизоне из вилки лагерь слабее нужного — ${need}.`;
+  return `Зависит от гарнизона: вилка накрывает порог ${need}. Решит сервер по настоящему гарнизону; узнать точнее — разведкой лазутчика.`;
 }
 
 /** Доля лагеря за фазу коротко: «~4 % за фазу» (`siegeroll.wasteOf`). */
