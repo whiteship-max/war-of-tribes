@@ -59,10 +59,9 @@ import {
   PRIEST_MORALE,
   PRIEST_MORALE_CAP,
   RITE_MORALE,
-  SIEGE_FOOD_YIELD,
   SIEGE_RATION,
   SIEGE_RATION_CUT,
-  SIEGE_YIELD,
+  SIEGE_SOLDIER_FOOD,
   BLOCKADE_YIELD,
   STARVING_MORALE,
   SMITH_WORK,
@@ -122,6 +121,8 @@ import {
   strengthOf,
   type LoyaltyParts,
 } from './estaterules';
+import { yieldShare } from '@/world/siegefood';
+import { CUT_MAX } from '@/world/data/siegefood';
 import type { IconName } from '@/ui/icons/alias';
 
 /** На здании идёт улучшение. */
@@ -947,7 +948,7 @@ export function foodShortfall(s: GameState, mods: SeasonModifiers = seasonMods(s
   // кто ест — тот и считается.
   // Наёмные мастера едят последними вместе с войском — «по тем же правилам, что у войска»: нехватка
   // делится и на них, и уходят они той же дверью (`sim/upkeep`).
-  const army = (mouthCount(s) * soldierFoodPerDay(s, mods) + mastersFoodPerDay(s, mods)) * siegeRation(s);
+  const army = (mouthCount(s) * siegeSoldierFood(s, mods) + mastersFoodPerDay(s, mods)) * siegeRation(s);
   return { army: army > 0 ? Math.min(1, short / army) : 0, town: short > army };
 }
 
@@ -1169,9 +1170,13 @@ export const underSiege = (s: GameState): boolean => s.siege !== null;
 /**
  * Во сколько раз осада срезала приток этого ресурса. Единственное место, где
  * это решается: панели и тик спрашивают его, а не проверяют осаду у себя.
+ *
+ * Штраф — от соотношения сил лагеря и гарнизона (ОС-1, `world/siegefood`): его решает мир и кладёт мост
+ * (`SiegeState.cut`), доля по ресурсу — `siegefood.yieldShare`. Нет поля — наибольший штраф (хлеб ноль, прочее четверть:
+ * осада до ОС-1). Кольцо блокады — ноль всему.
  */
 export const siegeYield = (s: GameState, r: ResourceId): number =>
-  !underSiege(s) ? 1 : s.siege?.blockade ? BLOCKADE_YIELD : r === 'food' ? SIEGE_FOOD_YIELD : SIEGE_YIELD;
+  !underSiege(s) ? 1 : s.siege?.blockade ? BLOCKADE_YIELD : yieldShare(s.siege?.cut ?? CUT_MAX, r === 'food');
 
 /** Режет готовую выработку осадой. Мутирует на месте — как и всё здесь. */
 function cutBySiege(s: GameState, out: Resources): Resources {
@@ -1218,6 +1223,17 @@ export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMod
   return cutBySiege(s, out);
 }
 
+/**
+ * Валовая добыча хлеба за игровой день без штрафа осады (ОС-1): её везёт слепок осады (`bridge.playerProfile`), и сервер войны
+ * сам режет её штрафом по соотношению сил своей мерки (`world/siegefood`). Постройка под обстрелом не даёт и здесь.
+ */
+export function grossFoodPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
+  const out = emptyResources();
+  for (const b of s.buildings) yardYield(s, out, b, mods);
+  freeYield(s, out, mods);
+  return out.food;
+}
+
 /** Что производит одно здание за день — для его собственной панели. */
 export function buildingProduction(s: GameState, b: Building, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
@@ -1249,8 +1265,18 @@ export function freeRangeProduction(s: GameState, mods: SeasonModifiers = season
 export function foodConsumptionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   // Новобранцы на учениях и раненые уже не жители, но кормятся так же, как бойцы: список ртов один
   // на расход и на голод (`soldierMouths`).
-  return (townFoodPerDay(s, mods) + mouthCount(s) * soldierFoodPerDay(s, mods) + mastersFoodPerDay(s, mods)) * siegeRation(s);
+  return (townFoodPerDay(s, mods) + mouthCount(s) * siegeSoldierFood(s, mods) + mastersFoodPerDay(s, mods)) * siegeRation(s);
 }
+
+/**
+ * Паёк бойца за день с осадой: под лагерем — паёк жителя (`SIEGE_SOLDIER_FOOD`, ОС-1), иначе обычный. Одна дверь на расход и
+ * на голод (`foodShortfall`); слепок осады везёт миру уже осадный (`bridge.playerProfile`).
+ */
+export const siegeSoldierFood = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number =>
+  underSiege(s) ? besiegedSoldierFood(s, mods) : soldierFoodPerDay(s, mods);
+
+/** Осадный паёк бойца за день — паёк жителя (`SIEGE_SOLDIER_FOOD`): его везёт слепок осады, есть осада сейчас или нет. */
+export const besiegedSoldierFood = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number => soldierFoodPerDay(s, mods) * SIEGE_SOLDIER_FOOD;
 
 /**
  * Осадный паёк (docs/siege_v2.md, раздел 5; ответ владельца 6): урезан — весь расход ×¾ (`SIEGE_RATION`), иначе единица.
@@ -1525,6 +1551,55 @@ export function winterForecast(s: GameState): WinterForecast {
     food: forecast(s.resources.food, foodConsumptionPerDay(s, mods) - prod.food, SEASON_DAYS),
     wood: forecast(s.resources.wood, heatingWoodPerDay(s, mods) - prod.wood, SEASON_DAYS),
   };
+}
+
+/**
+ * Сколько сезонов вперёд смотрит прогноз хлеба под осадой, наибольшее: сто игровых лет. Год с ровным или растущим складом
+ * кончает прогноз раньше — дальше сезоны повторяются, и склад не опустеет никогда.
+ */
+const SIEGE_FORECAST_SEASONS = 100 * SEASONS.length;
+
+/**
+ * Через сколько игровых секунд склад не оплатит прокорм под нынешней осадой — **для сведения** (ОС-1, docs/siege_v2.md, 23):
+ * окно защитника пишет срок (`siegewords.breadWords`), мир по нему ставит лагерю логова срок отлучки (`SiegeState.until`).
+ * Голод им не решается: сдаёт город только засуха шага (`sim/siege.siegeHunger`). Считается по сезонам вперёд — те же
+ * добыча со штрафом осады (`productionPerDay`) и расход (`foodConsumptionPerDay`), что у шага, склад не выше вместимости.
+ * Без осады, год без убыли склада (после первого) или сто лет вперёд — бесконечность. Сезон с годом (первая зима мягче) даёт
+ * одно и то же сальдо, и оно считается один раз на вид сезона.
+ */
+export function siegeDryIn(s: GameState): number {
+  if (!underSiege(s)) return Infinity;
+  const cap = storageCap(s);
+  const nets = new Map<string, number>();
+  const netAt = (t: number): number => {
+    const season = seasonOf(t);
+    const year = yearOf(t);
+    const key = `${season}:${season === 'winter' && year === 1 ? 1 : 2}`;
+    let net = nets.get(key);
+    if (net === undefined) {
+      const mods = withBoons(seasonModsFor(season, year), s);
+      net = (productionPerDay(s, mods).food - foodConsumptionPerDay(s, mods)) / DAY_LENGTH;
+      nets.set(key, net);
+    }
+    return net;
+  };
+  let food = Math.max(0, s.resources.food);
+  let t = s.time;
+  // Склад в начале года: год прошёл, а склад не убыл — дальше сезоны те же (зима после первой — одна), и он не опустеет.
+  let yearFood = food;
+  for (let i = 0; i < SIEGE_FORECAST_SEASONS; i++) {
+    const end = (seasonIndex(t) + 1) * SEASON_SECONDS;
+    const net = netAt(t);
+    const span = end - t;
+    if (net < 0 && food + net * span < 0) return t + food / -net - s.time;
+    food = Math.min(cap, food + net * span);
+    t = end;
+    if ((i + 1) % SEASONS.length === 0) {
+      if (food >= yearFood && yearOf(t) > 1) return Infinity;
+      yearFood = food;
+    }
+  }
+  return Infinity;
 }
 
 // ---------- Население ----------

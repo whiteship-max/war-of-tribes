@@ -99,11 +99,20 @@ describe('вход в предысторию — временная кнопка
 
 describe('настройки на стартовом экране — тот же компонент, что в профиле', () => {
   it('оба места показывают один и тот же `parts/Settings`', () => {
-    for (const file of ['ui/StartScreen.tsx', 'ui/panels/ProfilePanel.tsx']) {
-      expect(read(file), `${file}: настройки не оттуда`).toMatch(/import \{ Settings \} from '[./@a-z/]*parts\/Settings'/);
-      // Профиль ставит «Сообщить об ошибке» строкой рядом с разделом и прячет её копию внутри (`bug={false}`, ЗН-4).
-      expect(read(file), `${file}: компонент не показан`).toMatch(/<Settings( bug=\{false\})? \/>/);
-    }
+    // Профиль ставит «Сообщить об ошибке» строкой рядом с разделом и прячет её копию внутри (`bug={false}`, ЗН-4).
+    const profile = read('ui/panels/ProfilePanel.tsx');
+    expect(profile, 'профиль: настройки не оттуда').toMatch(/import \{ Settings \} from '[./@a-z/]*parts\/Settings'/);
+    expect(profile, 'профиль: компонент не показан').toContain('<Settings bug={false} />');
+    // Стартовому экрану компонент отдаёт `App` куском нового вида (ОС-1: первая загрузка не растёт), как шаг имени: кусок —
+    // переэкспорт того же `parts/Settings`, а не своя копия.
+    expect(read('ui/next/index.ts')).toContain("export { Settings } from '../parts/Settings';");
+    const app = read('App.tsx');
+    expect(app).toContain('const Settings = lazy(() => nextUi().then((m) => ({ default: m.Settings })));');
+    // То, что отдаётся, — `StartSettings`: ловушка, граница ожидания и тот же компонент (что касание до приезда куска его
+    // догружает, держит `ui/lazydoors.test.ts`).
+    expect(app, 'App не отдал настройки экрану').toContain('settings={<StartSettings />}');
+    expect(app).toMatch(/export function StartSettings\(\) \{\s*return \(\s*<Crash where="настройки" inline>\s*<Suspense fallback=\{null\}>\s*<Settings \/>/);
+    expect(read('ui/StartScreen.tsx'), 'стартовый экран не показал отданное').toContain('{settingsBody}');
   });
 
   it('стартовый экран не заводит своего звука', () => {

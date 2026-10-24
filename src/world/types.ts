@@ -9,6 +9,8 @@ import type { ArtilleryId, MachineId } from './data/machines';
 import type { Aim, GunAim } from './data/shelling';
 import type { Opening } from './wall';
 import type { OfferKind } from './parley';
+import type { RatioRange } from './siegefood';
+import type { RingOdds } from './blockade';
 import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -205,7 +207,11 @@ export interface SiegeView {
   byName: string;
   /** Когда лагерь встал под стенами, мс. */
   since: number;
-  /** Когда кончится еда, мс мирового времени. */
+  /**
+   * Когда кончится еда, мс мирового времени. У нашего города (ОС-1) — прогноз конца осады без нашего вмешательства: шаг осады,
+   * в котором склад по прогнозу племени не оплатит прокорм (`dryIn`), или фаза, в которую лагерь логова уйдёт от сытого
+   * города. Бесконечность — конца не видно. Голод им не решается.
+   */
   starvesAt: number;
   /** Гарнизон, по которому идут часы голода: он же ускоряет их своим числом. */
   garrison: number;
@@ -216,6 +222,18 @@ export interface SiegeView {
    * города — хлеб окна (docs/siege_v2.md, 21.1). Племя под осадой больше не держит (`bridge.syncSiege`). Нет поля — старый вид.
    */
   bread?: number;
+  /**
+   * Штраф к добыче хлеба под этой осадой, 0..1 (ОС-1, `world/siegefood.siegeCut`) — по соотношению сил `ratio` (мощь лагеря к
+   * гарнизону без ополчения — мерка кольца, `blockade.blockadeRatio`); строку окна пишет `siegewords.cutWords`. Мост кладёт штраф
+   * племени (`SiegeState.cut`). Нет полей — окно до ОС-1: наибольший штраф.
+   */
+  cut?: number;
+  ratio?: number;
+  /**
+   * Когда склад, по прогнозу племени, не оплатит прокорм (ОС-1), мс мира — для сведения: окно пишет «хлеба хватит на ~N ч»
+   * (`siegewords.breadWords`). Нет поля при `cut` — поля кормят город. Голод им не решается.
+   */
+  dryAt?: number;
   /**
    * Сколько бойцов строя стоит в лагере — видно со стены.
    */
@@ -306,8 +324,14 @@ export interface BlockadeView {
   on: boolean;
   /** С какой минуты кольцо замкнуто. */
   since?: number;
-  /** Соотношение мощи лагеря и гарнизона словами: «×3,2», «гарнизона нет», вилкой — у осаждающего. */
-  ratio: string;
+  /** Соотношение мощи лагеря и гарнизона словами: «×3,2», «гарнизона нет». Нет поля — гарнизон известен вилкой (`range`). */
+  ratio?: string;
+  /**
+   * Под городом игрока (ОС-1в): мощь гарнизона нападающему не видна, и соотношение — вилкой из штрафа сервера и разведки
+   * (`LocalWorld.warRatio`, та же, что у «Полей города»), а исход кнопки — по ней (`blockade.ringOdds`). Решает сервер.
+   */
+  range?: RatioRange;
+  odds?: RingOdds;
   /** Порог: во сколько раз лагерь сильнее гарнизона. */
   need: number;
   /** Можно ли замкнуть сейчас (у осаждающего) и почему нет. */
@@ -374,8 +398,11 @@ export type ParleyOrder = { act: 'offer'; kind: OfferKind; fate?: Fate } | { act
 export interface SiegeAnswers {
   /** Починка пролома: цена со склада (треть уровня стен), почему нельзя и когда закроется начатая. */
   repair: { cost: Partial<Record<ResourceId, number>>; reason: string | null; doneAt: number | null };
-  /** Паёк: урезан ли и когда кончится хлеб, если переключить сейчас (`siege.starvesIfRation`). */
-  ration: { on: boolean; starvesAt: number };
+  /**
+   * Паёк: урезан ли и что будет, если переключить сейчас: шаг голода (`starvesAt`, той же мерой, что `SiegeView.starvesAt`) и —
+   * для сведения — минута, когда склад не оплатит прокорм (`dryAt`, ОС-1; нет — поля кормят город).
+   */
+  ration: { on: boolean; starvesAt: number; dryAt?: number };
   /** Сдача — открыть ворота самим: участь на ступень мягче объявленной, гарнизон уходит живым (ответ владельца 5). */
   surrender: Fate;
   /** Машины лагеря, на которые можно выйти вылазкой: какая и сколько бойцов строя её охраняет. */
@@ -523,6 +550,30 @@ export interface CampView extends Omit<SiegeView, 'fall' | 'palisade' | 'garriso
   machines?: MachinesView;
   /** Цель артиллерии лагеря (Р-5, `world/shelling`). Нет — окно до Р-5. */
   aim?: AimView;
+  /** Лагерь тает (ОС-1б): соотношение сил, штраф к полям города и когда он упадёт к среднему. Только под городом игрока. */
+  melt?: CampMelt;
+}
+
+/**
+ * Лагерь под городом игрока тает (ОС-1б, docs/siege_v2.md, 23.9): соотношение сил, по которому сервер режет поля города, и куда
+ * оно идёт. Числа — дверью хлеба (`siegefood.ratioRangeOfCut`, `phasesToEven`) и хода осады (`siegeroll.wasteOf`).
+ */
+export interface CampMelt {
+  /** Штраф к добыче хлеба города, по которому сервер ведёт его склад (`WarCamp.cut`), 0..1. */
+  cut: number;
+  /** Соотношение сил вилкой — та же, что у кольца (`LocalWorld.warRatio`): штраф сервера и разведка лазутчика. */
+  range: RatioRange;
+  /** Доля лагеря, уходящая за фазу «без перемен» (путь от дома, пустой амбар дома — вдвое); мор и требушет — сверху. */
+  waste: number;
+  /**
+   * Через сколько фаз штраф упадёт к среднему — по краям вилки (`siegefood.phasesToEven`): `soon` — при нижнем, `late` — при
+   * верхнем; 0 — уже не выше, null — не упадёт или сверху вилка открыта. Точка — `soon === late`.
+   */
+  soon: number | null;
+  late: number | null;
+  /** Минуты шагов, после которых штраф станет средним, — по `soon` и `late`. */
+  soonAt?: number;
+  lateAt?: number;
 }
 
 /** Машина в окне лагеря: что даёт, в каком она состоянии и можно ли её заказать. Числа — дверью `world/machines`. */
@@ -1918,6 +1969,23 @@ export interface PlayerProfile {
    */
   foodPerHour?: number;
   soldierFoodPerHour?: number;
+  /**
+   * Валовая добыча хлеба за час без штрафа осады (ОС-1, `derived.grossFoodPerDay`): штраф по соотношению сил режет мир и
+   * сервер войны своей меркой (`world/siegefood`).
+   */
+  yieldPerHour?: number;
+  /**
+   * Хлеб осаждённого города — склад (ОС-1, docs/siege_v2.md, 23). `dryFor` — сколько **игровых** секунд склад уже не
+   * оплачивает прокорм (`sim/siege.siegeHunger`): мир сдаёт город голодом в шаге осады, лёгшем на засуху. `dryIn` — через
+   * сколько игровых секунд не оплатит по прогнозу (`derived.siegeDryIn`) — для сведения и срока отлучки. Нет поля — склад
+   * кормит / не опустеет. Без осады обоих нет.
+   */
+  dryFor?: number;
+  dryIn?: number;
+  /** Прогноз `dryIn` с пайком наоборот (урежут — или вернут): окно защитника пишет пользу до нажатия. */
+  dryInRation?: number;
+  /** Племя знает об осаде (`GameState.siege`): склад судит оно, и поля засухи и прогноза — его. Нет — мир судит окном. */
+  besieged?: true;
   /** Насколько дольше видно чужую армию до прихода, **игровых** секунд. Работа Дозора. */
   warning?: number;
   /**

@@ -57,11 +57,27 @@ function brokenThisPhase(w: LogWindow, at: number): boolean {
 
 /** Почему кольцо не замкнуть в минуту `at`; null — можно. */
 export function blockadeBlock(w: LogWindow, at: number, campPower: number, garrisonPower: number): string | null {
-  if (blockadeAt(w, at)) return 'Кольцо и так замкнуто.';
-  if (brokenThisPhase(w, at)) return 'Кольцо прорвали в этой фазе. Замкнуть снова — со следующей.';
+  const busy = blockadeBusy(w, at);
+  if (busy) return busy;
   if (!blockadeHolds(campPower, garrisonPower)) return `Для кольца лагерь должен быть вчетверо сильнее гарнизона: сейчас ${ratioWords(blockadeRatio(campPower, garrisonPower))}.`;
   return null;
 }
+
+/** Почему кольцо не замкнуть, не глядя на мощь: уже замкнуто или прорвано в этой фазе; null — мощь решит. */
+export function blockadeBusy(w: LogWindow, at: number): string | null {
+  if (blockadeAt(w, at)) return 'Кольцо и так замкнуто.';
+  if (brokenThisPhase(w, at)) return 'Кольцо прорвали в этой фазе. Замкнуть снова — со следующей.';
+  return null;
+}
+
+/** Выйдет ли кольцо, если гарнизон известен вилкой. */
+export type RingOdds = 'yes' | 'no' | 'maybe';
+
+/**
+ * Выйдет ли кольцо при вилке соотношения сил (ОС-1в, `siegefood.RatioRange`): вся вилка не ниже порога — «удастся», вся ниже —
+ * «не удастся», накрывает порог — зависит от гарнизона. Порог тот же, что у решения (`blockadeHolds`): решает сервер.
+ */
+export const ringOdds = (r: { lo: number; hi: number }): RingOdds => (r.lo >= BLOCKADE_RATIO ? 'yes' : r.hi < BLOCKADE_RATIO ? 'no' : 'maybe');
 
 /** Окно после отметки кольца в минуту `at`: замкнуто или разомкнуто, и чем. */
 export const blockadeAfter = (w: Pick<SiegeWindow, 'log'>, at: number, on: boolean, why?: BlockadeBreak): { log: SiegeDeed[] } => ({

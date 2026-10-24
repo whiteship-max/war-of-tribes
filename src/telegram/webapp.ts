@@ -130,7 +130,8 @@ declare global {
   }
 }
 
-export const tg = (): TelegramWebApp | undefined => window.Telegram?.WebApp;
+/** Объект Telegram; вне браузера (тесты в node рисуют окна потоком React, `ui/lazydoors.test.ts`) — его нет, как вне Telegram. */
+export const tg = (): TelegramWebApp | undefined => (typeof window === 'undefined' ? undefined : window.Telegram?.WebApp);
 
 export const inTelegram = (): boolean => Boolean(tg()?.initDataUnsafe?.user);
 

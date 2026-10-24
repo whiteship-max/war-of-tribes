@@ -20,7 +20,8 @@ import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { FATE_META } from '@/world/data/fates';
 import { STAGE_BY_ID } from '@/world/data/meta';
 import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, machineShare, playerWood, woodShare, worksRipeAt } from '@/world/works';
-import type { CampView, Fate } from '@/world/types';
+import type { CampMelt, CampView, Fate } from '@/world/types';
+import { RING_ODDS_SHORT, cutFood, meltShort, rangeWords, ringOddsWords } from '@/world/siegewords';
 import { FatePick } from '@/ui/parts/FatePick';
 import { plural } from '@/ui/parts/plural';
 import { SiegePhases } from '@/ui/parts/SiegePhases';
@@ -72,12 +73,35 @@ export function reliefLine(r: NonNullable<CampView['relief']>, now: number): str
   }.`;
 }
 
+/**
+ * Когда штраф к полям города упадёт к среднему (ОС-1б) — словами окна: число фаз по краям вилки соотношения — дверью хлеба
+ * (`CampMelt.soon`, `late`), срок — до минуты шага, названной миром (`soonAt`, `lateAt`).
+ */
+export function evenLine(m: CampMelt, now: number): string {
+  const left = (at?: number): string => realLeft(Math.max(0, ((at ?? now) - now) / 1000));
+  const phases = (k: number): string => `${k} ${plural(k, 'фазу', 'фазы', 'фаз')}`;
+  if (m.soon === null) return 'не упадёт';
+  if (m.late === 0) return 'уже средний';
+  if (m.late === null) return m.soon === 0 ? 'неизвестно' : `не раньше чем через ${phases(m.soon)}, ~${left(m.soonAt)}`;
+  if (m.soon === m.late) return `через ${phases(m.soon)}, ~${left(m.soonAt)}`;
+  if (m.soon === 0) return `не позже чем через ${phases(m.late)}, ~${left(m.lateAt)}`;
+  return `через ${m.soon}–${phases(m.late)}, ~${left(m.soonAt)}–${left(m.lateAt)}`;
+}
+
+/** Почему лагерь тает и что с этим делать (ОС-1б) — без чисел: числа в строках. */
+const MELT_WHY =
+  'Каждую фазу из лагеря уходит доля бойцов: дальше от дома — больше, пустой амбар дома — вдвое, мор и попадание требушета со стены — ещё доля. Пополнить лагерь нельзя: дружина стоит тем составом, с которым вышла. Чем слабее лагерь против гарнизона, тем больше хлеба город берёт с полей, и при среднем штрафе голод приходит втрое позже.';
+
 type View = 'camp' | 'machines' | 'ring' | 'phases' | 'storm';
 
 /** Столбцы окна лагеря (UI-7, docs/ui_v2.md, 5.6): строки `.mod` и ряды кнопок `.mini` — таблицами набора. */
 const TARGET_COLS: readonly Col[] = [
   { key: 'what', title: 'Цель' },
   { key: 'v', title: 'Сейчас', align: 'right', w: '104px' },
+];
+const MELT_COLS: readonly Col[] = [
+  { key: 'what', title: 'Поля города' },
+  { key: 'v', title: 'Сейчас', align: 'right', w: '128px' },
 ];
 const SIDE_COLS: readonly Col[] = [{ key: 'side', title: 'Стороны лагеря' }];
 const WOOD_COLS: readonly Col[] = [
@@ -209,7 +233,15 @@ export function CampPanel() {
             label="Цель"
             cols={TARGET_COLS}
             rows={[
-              { key: 'power', cells: { what: 'Мощь гарнизона', v: <span className={camp.power.precision === 'unknown' ? 'bad' : ''}>{formatEstimate(camp.power)}</span> } },
+              // Под городом игрока (есть «Поля города») мощь — из реестра замков: посёлок и вся дружина со слов правителя, не
+              // гарнизон (ОС-1в); у логова и двора — мощь заслона по разведке.
+              {
+                key: 'power',
+                cells: {
+                  what: camp.melt ? 'Мощь города по реестру' : 'Мощь гарнизона',
+                  v: <span className={camp.power.precision === 'unknown' ? 'bad' : ''}>{formatEstimate(camp.power)}</span>,
+                },
+              },
               { key: 'food', cells: { what: 'Еды хватит на', v: <b className="good">{hungerLeft(camp.starvesAt, now)}</b> } },
               {
                 key: 'garrison',
@@ -220,6 +252,19 @@ export function CampPanel() {
               { key: 'since', cells: { what: 'Лагерь стоит', v: realLeft(Math.max(0, (now - camp.since) / 1000)) } },
             ]}
           />
+          {/* Лагерь тает (ОС-1б): соотношение, по которому сервер режет поля города, доля за фазу и когда штраф станет средним. */}
+          {camp.melt && (
+            <Table
+              label="Поля города"
+              cols={MELT_COLS}
+              rows={[
+                { key: 'ratio', tip: () => ({ title: 'Лагерь против гарнизона', body: MELT_WHY }), cells: { what: 'Лагерь против гарнизона', v: rangeWords(camp.melt.range) } },
+                { key: 'cut', cells: { what: 'Добыча хлеба у города', v: <b className="good">{cutFood(camp.melt.cut)}</b> } },
+                { key: 'waste', tip: () => ({ title: 'Лагерь тает', body: MELT_WHY }), cells: { what: 'Лагерь тает', v: <span className="bad">{meltShort(camp.melt.waste)}</span> } },
+                { key: 'even', tip: () => ({ title: 'Штраф к среднему', body: MELT_WHY }), cells: { what: 'Штраф станет средним', v: evenLine(camp.melt, now) } },
+              ]}
+            />
+          )}
           {/* Выручка, идущая на лагерь (siege_audit, 6): у логова — отряд соседей по донесению, у города игрока — его полководец. */}
           {camp.relief && <p className="note bad">{reliefLine(camp.relief, now)}</p>}
           <Table
@@ -355,7 +400,17 @@ export function CampPanel() {
             cols={RING_COLS}
             rows={[
               { key: 'need', cells: { what: 'Нужно: лагерь сильнее гарнизона', v: `вчетверо` } },
-              { key: 'ratio', cells: { what: 'Лагерь сильнее гарнизона', v: <b className={camp.blockade.can || camp.blockade.on ? 'good' : 'bad'}>{camp.blockade.ratio}</b> } },
+              {
+                key: 'ratio',
+                cells: {
+                  what: 'Лагерь сильнее гарнизона',
+                  // Под городом игрока гарнизон не виден — вилкой (ОС-1в), той же, что у «Полей города».
+                  v: <b className={camp.blockade.can || camp.blockade.on ? 'good' : 'bad'}>{camp.blockade.range ? rangeWords(camp.blockade.range) : camp.blockade.ratio}</b>,
+                },
+              },
+              ...(camp.blockade.odds && !camp.blockade.on
+                ? [{ key: 'odds', cells: { what: 'Замкнуть', v: <span className={camp.blockade.odds === 'yes' ? 'good' : camp.blockade.odds === 'no' ? 'bad' : ''}>{RING_ODDS_SHORT[camp.blockade.odds]}</span> } }]
+                : []),
               {
                 key: 'on',
                 cells: {
@@ -375,7 +430,9 @@ export function CampPanel() {
           ) : (
             <>
               {camp.blockade.reason && <p className="note bad">{camp.blockade.reason}</p>}
-              <Btn kind="main" wide why={busy ? '…' : camp.blockade.reason ? 'Сейчас не замкнуть' : null} onClick={() => void order(() => blockade(true), 'Кольцо замкнуто.')}>
+              {/* Исход по вилке (ОС-1в): «удастся», «не удастся» или «зависит от гарнизона»; последнее слово — у сервера. */}
+              {!camp.blockade.reason && camp.blockade.odds && <p className={`note${camp.blockade.odds === 'no' ? ' bad' : ''}`}>{ringOddsWords(camp.blockade.odds)}</p>}
+              <Btn kind="main" wide why={busy ? '…' : camp.blockade.reason ? 'Сейчас не замкнуть' : camp.blockade.odds === 'no' ? 'Не удастся' : null} onClick={() => void order(() => blockade(true), 'Кольцо замкнуто.')}>
                 Замкнуть кольцо
               </Btn>
             </>

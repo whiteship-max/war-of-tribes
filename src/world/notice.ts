@@ -45,6 +45,7 @@ export interface SiegeFacts {
   fate: Fate;
   /** Когда лагерь встал. Пересчёт часов голода эту отметку не двигает. */
   since: number;
+  /** Шаг голода (ОС-1: у нашего города — шаг, в котором склад по прогнозу не оплатит прокорм). Бесконечность — не опустеет. */
   starvesAt: number;
   /**
    * Ход осады фазами (docs/siege_v2.md, раздел 2), выведенный вперёд из окна той же дверью, что бросит фазы
@@ -167,7 +168,8 @@ export function draftNotices(w: NoticeWorld, now: number): Drafts {
     const fallAt = siege.fallAt ?? siege.starvesAt;
     const gap = firstBreak(w.breaks, fallAt, () => true);
     if (gap) silent.push({ kind: 'siege-fall', why: gap.kind });
-    else
+    // Город кормится сам (ОС-1): голодом его не взять, и падения в черновике нет — лагерь логова снимется в шаге осады.
+    else if (Number.isFinite(fallAt))
       put('siege-fall', `siege-fall:${siege.campId}:${siege.since}`, fallAt, fallAt + RESULT_KEEP, {
         from: plainName(siege.from),
         fate: siege.fate,

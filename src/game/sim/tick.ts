@@ -38,6 +38,7 @@ import { councilStep, vacancyEvent } from './council';
 import { estatesStep } from './estates';
 import { settleHires } from './hire';
 import { dynastyStep } from './dynasty';
+import { siegeHunger } from './siege';
 import { settleWounds } from './infirmary';
 import { log, trimLog } from './log';
 import { recordProduced, refreshCard } from '@/profile/stats';
@@ -58,9 +59,10 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   const dayAfter = Math.floor(s.time / DAY_LENGTH);
 
   // Осаду снимает мир своим пульсом. В догоне пульса нет: он идёт до того, как мир
-  // вообще открылся, — и здесь, и только здесь, осада снимается по сроку голода,
-  // который мир назвал последним (`SiegeState.until`).
-  if (opts.offline && s.siege && s.time >= s.siege.until) s.siege = null;
+  // вообще открылся, — и здесь, и только здесь, осада снимается по сроку, который мир
+  // назвал последним (`SiegeState.until`). Склад в засухе её не снимает (ОС-1): голод
+  // решает мир в шаге осады по этой засухе, и снятая осада стёрла бы её вместе с полем.
+  if (opts.offline && s.siege && s.time >= s.siege.until && s.siege.dry === undefined) s.siege = null;
 
   // Мир мог измениться между тиками (сгорела хижина, кончилась стройка) —
   // сначала приводим в порядок, кто где работает, потом считаем по этим данным.
@@ -94,6 +96,8 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   recordProduced(s, gained);
   const eat = (foodConsumptionPerDay(s, mods) * dt) / DAY_LENGTH;
   s.resources.food -= eat;
+  // Баланс шага до отреза по нулю: по нему осада судит, оплачен ли прокорм (`sim/siege.siegeHunger`, в конце шага).
+  const balance = s.resources.food;
   // Амбар пуст, только если еды на этом шаге не хватило, — а не «почти пуст»: порог
   // тревоги (`derived.foodShortfall`) шагу не судья.
   const empty = s.resources.food < 0;
@@ -234,6 +238,10 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // отлучку (`sim/mail.mailArrive`), — зреют по времени, а не по присутствию.
   // Поднятый мятеж невольников стоит ступени стабильности — один раз, в ту минуту, когда он лёг на стол.
   if (unrest === 'raise' && raiseEvent(s, MUTINY_EVENT)) stabShock(s, 'mutiny');
+
+  // 9. Голод осады (ОС-1): добыча → прокорм → проверка. Проверка — последней: хлеб, пришедший в этот же шаг (караван,
+  // задание), прокорм оплатил, и засухи нет.
+  siegeHunger(s, balance);
 }
 
 /** Догоняет офлайн-время фиксированным шагом. */

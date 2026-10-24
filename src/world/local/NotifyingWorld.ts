@@ -9,7 +9,7 @@
 // Всё, что он читает у мира, у `LocalWorld` открыто как `protected`, а не `private`, — и
 // только это. Писать он не пишет ничего.
 import { LocalWorld, HOME_ID } from './LocalWorld';
-import { ourCamp, siegeSince, starvesAt } from '../siege';
+import { ourCamp, siegeSince } from '../siege';
 import { breachesOf, gatesAt, projectPhases, rowsOf, softerFate } from '../siegeroll';
 import { draftNotices, sightFrom, type Break, type Drafts, type NoticeWorld } from '../notice';
 
@@ -76,9 +76,13 @@ export class NotifyingWorld extends LocalWorld {
     let siege: NoticeWorld['siege'] = null;
     if (w && !ourCamp(w)) {
       // Будущие фазы — той же дверью, что их бросит (`siegeroll.projectPhases`); сдача — участь на ступень мягче.
-      const ahead = projectPhases(w, starvesAt(w));
+      // Конец осады без нашего вмешательства — та же минута, что видит окно (`hunger`; ОС-1: у нашего города — шаг голода
+      // склада по прогнозу племени, а у сытого — фаза, в которую лагерь уйдёт: тогда падения нет вовсе).
+      const end = this.hunger(w);
+      const hungerStep = this.homeHungerStep(w);
+      const ahead = projectPhases(w, end);
       const gates = gatesAt(ahead);
-      const fallAt = gates ?? starvesAt(w);
+      const fallAt = gates ?? hungerStep;
       const declared = this.fateFor(w.fate, HOME_ID, fallAt);
       const done = rowsOf(w).length;
       let breaches = breachesOf(w);
@@ -92,7 +96,7 @@ export class NotifyingWorld extends LocalWorld {
         from: this.byId.get(w.byId)?.name ?? 'Враги',
         fate: gates !== null ? softerFate(declared) : declared,
         since: siegeSince(w),
-        starvesAt: starvesAt(w),
+        starvesAt: fallAt,
         ...(gates !== null ? { fallAt: gates, gates: true } : {}),
         ...(phases.length ? { phases } : {}),
       };

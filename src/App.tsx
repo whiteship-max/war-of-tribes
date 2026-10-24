@@ -1,12 +1,7 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState, type ComponentProps } from 'react';
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
-import { Sheet } from './ui/Sheet';
 import { WinterModal, winterUi } from './ui/WinterModal';
-import { OfflineModal } from './ui/OfflineModal';
-import { LegacyModal } from './ui/LegacyModal';
-import { PaceModal } from './ui/PaceModal';
-import { TutorialOverlay } from './ui/TutorialOverlay';
 import { StartScreen, StartVeil } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
 import { Frozen } from './ui/parts/Frozen';
@@ -22,6 +17,7 @@ import { tutorialActive } from './game/data/tutorial';
 import { Leave } from './ui/parts/leave';
 import { openFromLink } from '@/ui/realm/golink';
 import { Crash } from './ui/Crash';
+import type { Sheet as SheetBody } from './ui/Sheet';
 import { warmAfter } from './boot/warm';
 import { MAP_CHUNKS, mapUi } from './ui/map/chunks';
 
@@ -69,6 +65,19 @@ const TipLayer = lazy(() => nextUi().then((m) => ({ default: m.TipLayer })));
 const Hints = lazy(() => nextUi().then((m) => ({ default: m.Hints })));
 /** Шаг «Как назовёшь город?» стартового экрана — тем же куском: сам экран ничего не грузит (`start.test.ts`). */
 const CityNaming = lazy(() => nextUi().then((m) => ({ default: m.CityNaming })));
+/** Окно «Настройки» стартового экрана — тем же куском, тот же компонент, что в профиле (`parts/Settings`; ОС-1). */
+const Settings = lazy(() => nextUi().then((m) => ({ default: m.Settings })));
+/** Подсказка обучения — тем же куском (ОС-1): она стоит поверх города рядом с верхом и низом, что едут им же. */
+const TutorialOverlay = lazy(() => nextUi().then((m) => ({ default: m.TutorialOverlay })));
+/**
+ * Окна «С возвращением», «Новая партия» и «Время пошло медленнее» — тем же куском (ОС-1в): до входа их, как и подсказку
+ * обучения, закрывает стартовый экран, а кусок едет, пока он стоит.
+ */
+const OfflineModal = lazy(() => nextUi().then((m) => ({ default: m.OfflineModal })));
+const LegacyModal = lazy(() => nextUi().then((m) => ({ default: m.LegacyModal })));
+const PaceModal = lazy(() => nextUi().then((m) => ({ default: m.PaceModal })));
+/** Шторка окон — тем же куском (ОС-1): всё, что в ней показывают, едет им же, и без него шторке показать нечего. */
+const Sheet = lazy(() => nextUi().then((m) => ({ default: m.Sheet })));
 /** Карточка клетки и «Походы» нового вида — тем же куском (docs/ui_audit.md, 13). */
 const WorldNew = lazy(() => nextUi().then((m) => ({ default: m.WorldNew })));
 const MarchesNew = lazy(() => nextUi().then((m) => ({ default: m.MarchesNew })));
@@ -98,6 +107,33 @@ const BuildingsPanel = lazy(() => nextUi().then((m) => ({ default: m.BuildingsPa
 const Minigame = lazy(() => import('./minigames/Minigame').then((m) => ({ default: m.Minigame })));
 /** «Сообщить об ошибке» — своим куском: открывают его редко (docs/admin.md). */
 const BugReport = lazy(() => import('./ui/parts/BugReport').then((m) => ({ default: m.BugReport })));
+
+/**
+ * Окно «Настройки» стартового экрана — то, что `App` отдаёт экрану (ОС-1): касание до того, как кусок доехал, ставит окно с
+ * «Готово» и пустой границей ожидания — не ошибку и не пустой экран, — кусок доехал — настройки. Ловушка над куском: не доехал
+ * вовсе — «Игра обновилась». Держит `ui/lazydoors.test.ts`.
+ */
+export function StartSettings() {
+  return (
+    <Crash where="настройки" inline>
+      <Suspense fallback={null}>
+        <Settings />
+      </Suspense>
+    </Crash>
+  );
+}
+
+/**
+ * Шторка окон своей границей ожидания (ОС-1): касание до того, как кусок доехал, ждёт его, не роняя город и соседние окна, —
+ * кусок доехал — шторка встаёт открытой с окном внутри. Держит `ui/lazydoors.test.ts`.
+ */
+export function SheetDoor(props: ComponentProps<typeof SheetBody>) {
+  return (
+    <Suspense fallback={null}>
+      <Sheet {...props} />
+    </Suspense>
+  );
+}
 
 /** Пока едет кусок промысла — тот же тёмный фон, что у игры: мигать другим цветом незачем. */
 const MINI_WAIT = { position: 'fixed', inset: 0, zIndex: 80, background: 'var(--bg)' } as const;
@@ -352,14 +388,14 @@ export function App() {
           ничего, и столбец возвращается на своё место сам. */}
       {!mapOpen && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
       {!mapOpen && <Suspense fallback={null}><WarSigns where="city" /></Suspense>}
-      <Sheet open={sheet !== null} onClose={closeSheet} tall={tallSheet}>
+      <SheetDoor open={sheet !== null} onClose={closeSheet} tall={tallSheet}>
         {shown && (
           <Crash key={JSON.stringify(shown)} where={`шторка ${shown.kind}`} onClose={closeSheet} inline>
             <SheetContent view={shown} />
           </Crash>
         )}
-      </Sheet>
-      <Sheet open={tradesOpen && !mapOpen} onClose={hideTrades}>
+      </SheetDoor>
+      <SheetDoor open={tradesOpen && !mapOpen} onClose={hideTrades}>
         {/* Содержимое переживает закрытие, пока шторка уезжает (как у шторки построек выше). */}
         <Leave open={tradesOpen} ms={320}>
           <Crash where="промыслы" onClose={hideTrades} inline>
@@ -368,9 +404,9 @@ export function App() {
             </Suspense>
           </Crash>
         </Leave>
-      </Sheet>
+      </SheetDoor>
       {/* Сокровищница (docs/gems.md) — тем же приёмом, что промыслы: своё окно, встаёт вместо шторки. */}
-      <Sheet open={treasuryOpen && !mapOpen} onClose={hideTreasury}>
+      <SheetDoor open={treasuryOpen && !mapOpen} onClose={hideTreasury}>
         <Leave open={treasuryOpen} ms={320}>
           <Crash where="сокровищница" onClose={hideTreasury} inline>
             <Suspense fallback={null}>
@@ -378,7 +414,7 @@ export function App() {
             </Suspense>
           </Crash>
         </Leave>
-      </Sheet>
+      </SheetDoor>
       {!mapOpen && <Suspense fallback={null}><Nav /></Suspense>}
       {/* Меню державы появляется и уходит плавно (`leave.tsx`): закрытое ещё тает, касаний не беря. */}
       <Leave open={!mapOpen && realmOpen}>
@@ -389,10 +425,12 @@ export function App() {
         </Crash>
       </Leave>
       <WinterModal />
-      <OfflineModal />
-      <LegacyModal />
-      <PaceModal />
-      <TutorialOverlay />
+      <Suspense fallback={null}>
+        <OfflineModal />
+        <LegacyModal />
+        <PaceModal />
+      </Suspense>
+      <Suspense fallback={null}><TutorialOverlay /></Suspense>
       {toast && <div className="toast">{toast}</div>}
       <Suspense fallback={null}>
         <TipLayer />
@@ -431,6 +469,7 @@ export function App() {
               <CityNaming onDone={done} />
             </Suspense>
           )}
+          settings={<StartSettings />}
         />
       )}
       {veil && <StartVeil onDone={() => setVeil(false)} />}

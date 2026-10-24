@@ -3,7 +3,6 @@ import { useGame } from '@/game/store';
 import { cityName } from '@/profile/identity';
 import { bootSaying } from '@/boot/stage';
 import { haptic } from '@/telegram/webapp';
-import { Settings } from './parts/Settings';
 import { probe } from '@/debug';
 import { PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, prologueShown, startAction, startStep } from './start';
 
@@ -38,6 +37,7 @@ export function StartScreen({
   onEnter,
   onPrologue,
   naming,
+  settings: settingsBody,
 }: {
   onEnter: () => void;
   onPrologue: () => void;
@@ -46,6 +46,11 @@ export function StartScreen({
    * после главной кнопки, пока у города нет имени.
    */
   naming: (done: () => void) => ReactNode;
+  /**
+   * Настройки — тот же компонент, что в профиле (`parts/Settings`), но в окне по кнопке «Настройки»: его отдаёт `App` тем же
+   * куском, что шаг имени (ОС-1: первая загрузка не растёт), сам экран ничего не грузит.
+   */
+  settings: ReactNode;
 }) {
   // `fresh` — сохранения на диске не было. Это и есть весь вопрос, на который
   // отвечает единственная кнопка (почему она одна — в `ui/start.ts`).
@@ -114,7 +119,7 @@ export function StartScreen({
            Почему это важно, написано в `parts/Settings.tsx`. */
         <div className="modal-backdrop" onClick={() => setSettings(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <Settings />
+            {settingsBody}
             <div className="options">
               <button className="btn" onClick={() => setSettings(false)}>
                 Готово

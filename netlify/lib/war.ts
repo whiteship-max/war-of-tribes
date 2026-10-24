@@ -82,7 +82,9 @@ import {
   rivalRolls,
 } from '../../src/world/rivalspy.js';
 import { gameDaysOfMs, gameSecondsOfMs } from '../../src/game/pace.js';
-import { breadStock, FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import { breadAt, breadStock, FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import { siegeCutOf, starves } from '../../src/world/siegefood.js';
+import { BREAD_SLACK, BREAD_SLACK_MIN } from '../../src/world/data/siegefood.js';
 import { aimBlock as artilleryAimBlock, gunAfter, gunAimBlock, gunBlock, shotsApplied } from '../../src/world/shelling.js';
 import { BREAKOUT_SHARE, blockadeAfter, blockadeAt, blockadeBlock, blockadeDeeds, blockadeHolds, type BlockadeBreak } from '../../src/world/blockade.js';
 import { SIEGE_PHASE } from '../../src/world/data/siegeroll.js';
@@ -103,6 +105,7 @@ import {
   repairsOf,
   rollPhase,
   rowsOf,
+  hungerStepAt,
   softerFate,
   type PhaseRow,
 } from '../../src/world/siegeroll.js';
@@ -548,6 +551,11 @@ export interface SheetAt {
    * сверх обряда и Воеводы. Нет — ноль.
    */
   knights?: number;
+  /**
+   * Потолок валовой добычи хлеба в час (ОС-1, правило «prod», `watch.yieldCapOf`): места дел подтверждённых построек при
+   * подтверждённых жителях, работником в лучших множителях. Слепок, назвавший больше, идёт в осаду с потолком. Нет — как есть.
+   */
+  yieldCap?: number;
 }
 
 // ------------------------------------------------ счёт по видам ---
@@ -617,7 +625,9 @@ function siegeBread(file: WarFile, key: string, sheet: WarSheet, at: number): Wa
 
 /** Слепок с книгами войска, стройки и запасов, без хлеба осады (`liveSheet`). */
 function bookedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSheet {
-  const claim = claimedSheet(file, key, s, at);
+  const claimed = claimedSheet(file, key, s, at);
+  // Добыча хлеба для осады (ОС-1) — не выше потолка подтверждённых построек: поля, которых нет, город не кормят.
+  const claim = s.yieldCap !== undefined && claimed.yieldPerHour !== undefined ? { ...claimed, yieldPerHour: Math.min(claimed.yieldPerHour, s.yieldCap) } : claimed;
   if (!s.book) return s.town ? townSheet(claim, s.town, troopPower(asTroops(claim.home))) : claim;
   // Книга войска (docs/pvp.md, раздел 6): в бой идёт только подтверждённое. Слепок — то, что заявил клиент; книга — что
   // сервер может объяснить обучением, указами и потерями войны. По видам — меньшее; дома — не больше всего войска.
@@ -993,13 +1003,14 @@ function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: Wa
  * Окно осады из слепка обороны: те же часы голода, что у осады логова (`siege.openSiege`). `ration` — паёк с этой минуты
  * (приказ осаждённого); нет — как было. Башня города бьёт по лагерю с силой этой минуты (`bombard.reaim`).
  */
-function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null, ration?: boolean): WarCamp {
+function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null, ration?: boolean, food?: number): WarCamp {
   const win = openSiege({
     byId: w.atkCastle,
     campId: w.id,
     now: at,
-    // Темп войны ускоряет и голод: хлеба в окне во столько же раз меньше.
-    food: prev ? foodLeft(prev as SiegeWindow, at) : sheet.food / pace,
+    // Темп войны ускоряет и голод: хлеба в окне во столько же раз меньше. Хлеб — склад (ОС-1): у той же осады — остаток окна,
+    // а свежая опись склада (`regarrison`) ставит его заново: хлеб, пришедший в город, окно видит.
+    food: food !== undefined ? food / pace : prev ? foodLeft(prev as SiegeWindow, at) : sheet.food / pace,
     garrison: troopTotal(asTroops(sheet.home)),
     townPerHour: sheet.townPerHour,
     perManPerHour: sheet.perManPerHour,
@@ -1032,6 +1043,11 @@ function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null
     // Требушет на стене той же осады переносится; постройки под обстрелом — подтверждённые уровни при постановке (Р-5).
     guns: prev?.guns as SiegeWindow['guns'],
     targets: prev ? prev.targets : sheetTargets(sheet.levels),
+    // Поля за стеной (ОС-1): валовая добыча слепка (не выше потолка подтверждённых построек, `bookedSheet`) и штраф к ней по
+    // соотношению сил этой минуты — мерка кольца (`siegefood.siegeCutOf`); хлеб, когда встал лагерь, — мера доли хлеба кости.
+    yieldPerHour: sheet.yieldPerHour,
+    cut: siegeCutOf(campPower(w, at), garrisonPower(sheet)),
+    breadAtSince: prev ? (prev.breadAtSince ?? prev.foodAtStart) : sheet.food / pace,
   });
   const aimed = reaim(win.fire, win.wood, siegeSince(win), at, aimOfSheet(sheet));
   if (aimed.fire) win.fire = aimed.fire;
@@ -1095,6 +1111,13 @@ function wasted(troops: Counts, share: number): Counts {
  */
 function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): void {
   const camp = w.camp as SiegeWindow;
+  // Шаг осады (ОС-1): добыча → прокорм → проверка — склад окна, вставший на последнюю опись. Не оплатил прокорм — город сдан
+  // голодом, и кость этой фазы не бросается. Ровно ноль — оплачен.
+  if (starves(breadAt(camp, at))) {
+    fall(w, at, sheet, 'hunger');
+    turnBack(w, at, w.to, 'taken');
+    return;
+  }
   const k = rowsOf(camp).length + 1;
   const row = rollPhase(camp, k, atkHungry);
   camp.phases = [...rowsOf(camp), row];
@@ -1124,6 +1147,8 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
   }
   // Наказы осаждённого (8.3, этап 2г) — после наказов лагеря, в ту же минуту и той же дверью, что его кнопки.
   if (w.phase === 'camp' && w.camp) defendStep(w, at, sheet, row);
+  // Истощение и бой фазы сдвинули соотношение сил — штраф к добыче заново (ОС-1): одно событие, один пересчёт окна.
+  if (w.phase === 'camp' && w.camp && siegeCutOf(campPower(w, at), garrisonPower(sheet)) !== w.camp.cut) setCamp(w, campWindow(w, at, sheet, w.camp));
 }
 
 /**
@@ -1305,7 +1330,11 @@ function stormCamp(w: WarRow, at: number, sheet: WarSheet, machines: readonly Ma
 
 function setCamp(w: WarRow, camp: WarCamp): void {
   w.camp = camp;
-  w.starvesAt = Math.round(starvesAt(camp as SiegeWindow));
+  // Минута голода — прогноз для сведения и сроков (ОС-1): шаг осады, в котором склад окна не оплатит прокорм. Город сдаёт
+  // голодом только сам шаг (`phaseStep`), а не эта отметка. Склад не опустеет — отметки нет.
+  const step = hungerStepAt(siegeSince(camp as SiegeWindow), starvesAt(camp as SiegeWindow));
+  if (Number.isFinite(step)) w.starvesAt = Math.round(step);
+  else delete w.starvesAt;
 }
 
 /**
@@ -1319,8 +1348,13 @@ function regarrison(file: WarFile, w: WarRow, s: SheetAt, until: number): boolea
   const camp = w.camp;
   if (!camp || s.at <= camp.startedAt || s.at >= until) return false;
   const live = liveSheet(file, w.def, s, s.at);
-  if (troopTotal(asTroops(live.home)) === camp.garrisonAtStart) return false;
-  setCamp(w, campWindow(w, s.at, live, camp));
+  // Хлеб — склад (ОС-1): опись новее окна называет подтверждённый хлеб (книга запасов), и окно встаёт на него — хлеб,
+  // пришедший в город (караван, весть, промысел), прокорм оплачивает. Допуск — тот же, что у шага: ровно ноль не голод.
+  const fresh = bookedSheet(file, w.def, s, s.at).food;
+  const ledger = breadAt(camp as SiegeWindow, s.at) * pace;
+  const moved = Math.abs(fresh - Math.max(0, ledger)) > Math.max(BREAD_SLACK_MIN, BREAD_SLACK * Math.max(0, ledger));
+  if (troopTotal(asTroops(live.home)) === camp.garrisonAtStart && !moved) return false;
+  setCamp(w, campWindow(w, s.at, live, camp, undefined, moved ? fresh : undefined));
   // Гарнизон сменился — держит ли кольцо мощь лагеря (Р-5).
   ringCheck(w, s.at, live);
   return true;
@@ -1480,19 +1514,18 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
         continue;
       }
       if (w.phase === 'camp') {
-        const hungerAt = w.starvesAt ?? Infinity;
+        // Голодом город сдаёт шаг осады (ОС-1, `phaseStep`), а не отметка прогноза: событий у лагеря три — удар, выручка, фаза.
         // Выручка союзника — тот же удар с тыла, что у полководца города, в минуту своего прихода (раздел 5).
         let relief: WarRelief | null = null;
         for (const r of w.reliefs ?? []) if (!relief || r.at < relief.at) relief = r;
         const strikeAt = Math.min(w.strike?.at ?? Infinity, relief?.at ?? Infinity);
-        const rollAt = w.camp ? nextRollAt(w.camp as SiegeWindow) : Infinity;
-        const phaseAt = rollAt < hungerAt ? rollAt : Infinity;
+        const phaseAt = w.camp ? nextRollAt(w.camp as SiegeWindow) : Infinity;
         const fresh = sheets.get(w.def);
-        if (fresh && regarrison(file, w, fresh, Math.min(hungerAt, strikeAt, phaseAt, now + 1))) {
+        if (fresh && regarrison(file, w, fresh, Math.min(strikeAt, phaseAt, now + 1))) {
           changed = true;
           continue;
         }
-        const next = Math.min(hungerAt, strikeAt, phaseAt);
+        const next = Math.min(strikeAt, phaseAt);
         if (next > now) break;
         changed = true;
         const sheet = sheetOf(w, next);
@@ -1500,25 +1533,20 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
           turnBack(w, next, w.to, 'gone');
           continue;
         }
-        if (strikeAt <= hungerAt && strikeAt <= phaseAt && w.strike && w.strike.at === strikeAt) {
+        if (strikeAt <= phaseAt && w.strike && w.strike.at === strikeAt) {
           const s = w.strike;
           delete w.strike;
           hitCamp(w, s.at, sheet, { rear: s.army, front: s.joint ? sheet.home : undefined, site: s.joint ? 'joint' : 'camp' });
           continue;
         }
-        if (strikeAt <= hungerAt && strikeAt <= phaseAt && relief) {
+        if (strikeAt <= phaseAt && relief) {
           w.reliefs = (w.reliefs ?? []).filter((r) => r !== relief);
           if (!w.reliefs.length) delete w.reliefs;
           hitCamp(w, relief.at, sheet, { rear: relief.army, site: 'camp', ally: relief.castle, city: cityOr(relief.city) });
           continue;
         }
-        if (phaseAt < hungerAt) {
-          const atk = sheets.get(w.atk);
-          phaseStep(w, phaseAt, sheet, atk ? atk.sheet.food <= 0 : false);
-          continue;
-        }
-        fall(w, hungerAt, sheet, 'hunger');
-        turnBack(w, hungerAt, w.to, 'taken');
+        const atk = sheets.get(w.atk);
+        phaseStep(w, phaseAt, sheet, atk ? atk.sheet.food <= 0 : false);
         continue;
       }
       if (w.phase === 'back' && (w.backAt ?? 0) <= now) {

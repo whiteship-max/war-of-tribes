@@ -67,7 +67,7 @@ describe('логово у наших стен: кольцо по правилу 
     const p = holdout(2);
     const start = (await besieged(w, p)).siege!;
     const ring = start.blockade!;
-    expect(ratioOf(ring.ratio), 'точка внутри области: лагерь вчетверо сильнее').toBeGreaterThanOrEqual(BLOCKADE_RATIO);
+    expect(ratioOf(ring.ratio!), 'точка внутри области: лагерь вчетверо сильнее').toBeGreaterThanOrEqual(BLOCKADE_RATIO);
     expect(ring.on, 'бот замкнул кольцо в минуту постановки').toBe(true);
     expect(ring.since).toBe(start.since);
     expect(ring.can, 'осаждённый кольца не замыкает').toBe(false);
@@ -175,7 +175,7 @@ describe('наш лагерь под логовом: кольцо и цель', 
     const w = makeWorld();
     const { win } = await ourCamp(w, { spearman: 40_000 });
     const view = (await w.world.camp())!;
-    expect(ratioOf(view.blockade!.ratio), 'точка внутри области: лагерь вчетверо сильнее').toBeGreaterThanOrEqual(BLOCKADE_RATIO);
+    expect(ratioOf(view.blockade!.ratio!), 'точка внутри области: лагерь вчетверо сильнее').toBeGreaterThanOrEqual(BLOCKADE_RATIO);
     expect(view.blockade!.can).toBe(true);
     expect(await w.world.blockade(true)).toBeNull();
     expect((await w.world.camp())!.blockade!.on).toBe(true);

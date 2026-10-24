@@ -259,7 +259,7 @@ describe('личность берётся только из подписи', () 
   it('война: каждый слепок идёт в бой с книгами войска, стройки и запасов', () => {
     const code = read('lib/routes/war.ts');
     const sets = [...code.matchAll(/\bsheets\.set\(player,\s*([^;]*)\);/g)].map((m) => m[1].replace(/\s+/g, ' '));
-    expect(sets).toEqual(['null', 'null', '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}), ...marshalOf(rec, now) }']);
+    expect(sets).toEqual(['null', 'null', '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}), ...marshalOf(rec, now), ...yieldCapOf(rec, now) }']);
     expect([...code.matchAll(/\bsheets\.set\(/g)].length).toBe(3);
   });
 
