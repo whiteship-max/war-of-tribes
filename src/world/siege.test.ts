@@ -37,6 +37,10 @@ import type { TroopStack } from '@/game/battle/kinds';
 import { shieldVillagers } from './lairs';
 import { setPhaseDie } from './siegeroll';
 
+// ВРЕМЕННО ×3 ДЛЯ ТЕСТА: точки этого теста выведены при прежней скорости пути и при ×3 выходят из области правила —
+// держим ×1; ×3 проверяет netlify/lib/warfast.test.ts. Снять вместе с возвратом `TEST_TRAVEL_SPEED` к 1.
+vi.mock('@/world/data/tuning', async (actual) => ({ ...(await actual<object>()), TEST_TRAVEL_SPEED: 1 }));
+
 // Этот файл — о голоде, участи, проходах и неприкосновенности: кость фаз здесь тихая — каждая фаза «без перемен» (7 при
 // поправках от −5 до +2 даёт 2…9), чтобы сдача и пролом не падали на свои минуты поперёк правила, которое тест держит.
 // Правило фаз — `siegeroll.test.ts` и `siegephase.test.ts`.

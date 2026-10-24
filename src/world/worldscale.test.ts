@@ -12,7 +12,7 @@
 // мира считаются при тридцати. Держать в нём надо ровно то, чего при единице не видно:
 // отношения величин разных часов. Литералам времени тут не место — они уедут при следующем
 // повороте шкалы; здесь сравнивают одно время с другим.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { timeScale, realMs, DAY_LENGTH, gameDaysOfMs } from '@/game/pace';
 import { distance, terrainFactor, travelTime } from './geo';
 import { UNIT_BY_ID } from './data/units';
@@ -37,6 +37,10 @@ import {
   SIEGE_TOWN_LARDER,
 } from './data/tuning';
 import { townEatPerHour, townLarder } from './siege';
+
+// ВРЕМЕННО ×3 ДЛЯ ТЕСТА: точки этого теста выведены при прежней скорости пути и при ×3 выходят из области правила —
+// держим ×1; ×3 проверяет netlify/lib/warfast.test.ts. Снять вместе с возвратом `TEST_TRAVEL_SPEED` к 1.
+vi.mock('@/world/data/tuning', async (actual) => ({ ...(await actual<object>()), TEST_TRAVEL_SPEED: 1 }));
 
 /** Игровых дней в сроке мира. */
 const days = (ms: number): number => gameDaysOfMs(ms);

@@ -5,7 +5,7 @@ import type { Coord, MarchView, Terrain, UnitStack } from './types';
 import { TERRAIN_ORDER } from './data/terrain';
 import { stackSpeed } from './data/units';
 import { cellCost, terrainAt } from './geography';
-import { MARCH_MIN_SECONDS, PATH_SAMPLES_PER_CELL, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
+import { MARCH_MIN_SECONDS, PATH_SAMPLES_PER_CELL, TEST_TRAVEL_SPEED, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
 import { asGame, type GameSec, type RealSecArg } from '../game/pace';
 
 /**
@@ -115,8 +115,13 @@ export function terrainFactor(seed: number, from: Coord, to: Coord): number {
  * Тип говорит то же самое компилятору: `GameSec` не примет ни один форматтер настоящего
  * времени, поэтому срок пути игроку показывают только через `ui/parts/wait.ts`.
  */
-export function travelTime(dist: number, factor: number, speed: number): GameSec {
-  return asGame(Math.max(MARCH_MIN_SECONDS, Math.round((dist / speed) * 60 * factor * 100) / 100));
+export const travelTime = (dist: number, factor: number, speed: number): GameSec =>
+  travelTimeAt(dist, factor, speed, TEST_TRAVEL_SPEED);
+
+/** `travelTime` при множителе скорости `k` (ВРЕМЕННО ×3 ДЛЯ ТЕСТА, `TEST_TRAVEL_SPEED`): при 1 — прежняя формула. */
+export function travelTimeAt(dist: number, factor: number, speed: number, k: number): GameSec {
+  const base = Math.max(MARCH_MIN_SECONDS, Math.round((dist / speed) * 60 * factor * 100) / 100);
+  return asGame(k === 1 ? base : Math.round((base / k) * 100) / 100);
 }
 
 /** То же для отряда: скорость берётся по самому медленному в нём. Игровые секунды. */

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readWarOrder, spySeenId, type CastleClaim, type RivalDeed, type RosterFile, type SpyWatch, type WarOrder, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { advance, applyOrder, emptyWars, liveSheet, newsMap, spiesOf, spyCap, spyMenuOf, type SheetAt, type SpyRow, type WarFile } from './war.js';
@@ -8,6 +8,10 @@ import { energyAt, priceOf, roadCost } from '../../src/world/energy.js';
 import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 import { rivalFate, rivalGuard, rivalHarm, rivalRolls, theftCarry } from '../../src/world/rivalspy.js';
 import { RIVAL_POWER } from '../../src/world/data/spy.js';
+
+// ВРЕМЕННО ×3 ДЛЯ ТЕСТА: точки этого теста выведены при прежней скорости пути и при ×3 выходят из области правила —
+// держим ×1; ×3 проверяет netlify/lib/warfast.test.ts. Снять вместе с возвратом `TEST_TRAVEL_SPEED` к 1.
+vi.mock('../../src/world/data/tuning.js', async (actual) => ({ ...(await actual<object>()), TEST_TRAVEL_SPEED: 1 }));
 
 /**
  * Лазутчик против соседа (docs/spy_pvp.md). Тесты — там, где без них можно подделать исход, украсть из ничего или
