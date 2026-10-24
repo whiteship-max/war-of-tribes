@@ -737,7 +737,9 @@ HEAD один на всех, см. правило 8). Значит развес�
   (`wall.test.ts`, `machines.test.ts`, `netlify/lib/warmachines.test.ts`; docs/siege_v2.md, 15).
 - **Обстрел и блокада** — цель артиллерии, требушет на стене и выстрелы фазы — `world/shelling` (след выстрелов —
   `shotsApplied`), кольцо — `world/blockade` (вчетверо, `blockadeBlock`); одна дверь на мир и сервер войны, кость фазы читает
-  их задним числом (`shelling.test.ts`, `netlify/lib/warshelling.test.ts`; docs/siege_v2.md, 21).
+  их задним числом; под городом игрока гарнизон нападающему не виден — соотношение вилкой из штрафа сервера и разведки
+  (`LocalWorld.warRatio`), исход кнопки — `blockade.ringOdds` (`shelling.test.ts`, `netlify/lib/warshelling.test.ts`,
+  `campmelt.test.ts`; docs/siege_v2.md, 21, 23.12).
 - **Дела в осадном лагере** — укрепить лагерь и обстрел города: `world/siegecraft` (предел, польза, слова), числа —
   `world/data/siegecraft.ts`, цены — `ENERGY_PRICE`; одна дверь на лагерь под логовом и под городом игрока, сервер
   получает только дело (`war.test.ts`, `energyworld.test.ts`; agents).
