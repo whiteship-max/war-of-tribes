@@ -104,6 +104,56 @@
 ssh-строки уводит в фон всю цепочку `a && b &` и держит канал — фон отдельной командой `setsid nohup`; `typecheck` упал на
 `gatemono.test` (литерал W 102 против 95 — `85ff83f`), драйвер встал на обязательном шаге и пошёл с шага 15 после правки.
 
+### Передача: слияние `game/os-1` (24.10.2026, пауза словом владельца)
+
+Задание — docs/siege_v2.md, 23.14 (там же числа, решения по правилу 19 и флаги владельцу); цели стабильности —
+docs/stability.md, «Слияние `game/os-1`». В `master` не влито и не выложено.
+
+**Сделано.** Ветка `game/merge-os1` (GitHub): `e54d722` слияние без конфликтов, `f0f512e` комментарий, `5933ea7` и `5e5bea1` —
+`siege:report` после ОС-1 (стенд остался без осад: лагерь логова слабее гарнизона снимается в первую фазу; решение владельца —
+сильный лагерь ×1.5 гарнизона), `641a7bd` числа осады с сервера, `970fe36` комментарии у них, дальше — только документы. Пол на
+слиянии `e54d722`: 416 файлов, 4902 прошли, 42 пропущены; типы и сборка чистые. **Вывод осады** (неподвижная точка на втором
+прогоне): `CAMP_WASTE` 0.028 → **0.021**, `WALL_FACES` 9.6 → **10.4**, `LADDER_FACES` 7.3 → **7.9** (с ходу ×2.00 поля, три
+пролома ×1.31). **W 102 и таблица у ворот — оставлены** (W выводится 100 при 102, как на `85ff83f`; таблица бой в бой та же).
+Цели: `STAB_DRAG`, `STAB_CALM`, `CROWN_MTTH`, сословия, рынок — равны записанным; совет — круг вывода, `steward` 0.059 оставлен
+(серверный `893de6c` снят); **Ц4 в цели — молчание −4.6 %** (было −5.2 %). **Щуп сохранений до** (код ветки, боевая база только
+чтением): партий 20 из 20, миров 20 из 20, плохих 0; идущих осад нет ни у логова, ни у войн (войн 37, лагерей 0). Щуп —
+`/opt/tribe-ci/probe/saves.ts`, собранный — `saves.mjs`.
+
+**Идёт на сервере** (контейнер `tribe-ci`, сам, без сессии): `run5.sh 21 25` на `970fe36` — пол на итоговом дереве (`npm test`
+прошёл: 416 файлов, 4902 прошли, 42 пропущены, 478 с), типы, сборка, план, `npm run reports -- --base d1784a7 --before --only
+<19 счётных>` (браузерные сняты; база — из кэша `.git/tribe-reports`). Текущий шаг — `/opt/tribe-ci/logs/status`, итоги шагов —
+`summary.tsv`, отчёты — `logs/25-reports.log`, вывод отчёта по одному — `.git/tribe-reports`. Прежние попытки вывода —
+`logs/try1`, `logs/try2`.
+
+**Осталось:** разбор каждого «СДВИНУЛСЯ» причиной (ожидаемо `siege` — сильный лагерь и новые числа; `raid-*`, `lair`, `sack`,
+`notify`, `pop`, `time`, `log`, `order` — ОС-1 и `CAMP_WASTE`) и бой — обещания (кость около 80 %, монотонность без сбоев);
+запись в «Сколько стоит приёмка» и в docs/siege_v2.md 23.14; пакет домой, если на сервере легли коммиты; слияние в `master`;
+выкладка игры и сервера с копией базы; щуп после; боевой адрес — новая сборка, журнал без ошибок и «внимание:»; уборка —
+контейнер `tribe-ci` (папку оставить), ветки `game/os-1`, `game/merge-os1`, `claude/siege-hunger-attrition-39612y`, рабочая копия
+ветки.
+
+**Команды, чтобы продолжить:**
+
+```bash
+ssh tribe@169.58.98.192 'bash /opt/tribe-ci/watch.sh 40'                      # шаг, итоги шагов, хвост лога, отклик боевого
+ssh tribe@169.58.98.192 'grep -nE "замыкани|СДВИНУЛСЯ|в базе отчёта нет" /opt/tribe-ci/logs/25-reports.log'   # вердикты
+ssh tribe@169.58.98.192 'git -C /opt/tribe-ci/repo log --oneline -3'            # легли ли коммиты (HEAD был 970fe36)
+# коммиты легли — пакет: git -C /opt/tribe-ci/repo bundle create /opt/tribe-ci/os1-final.bundle 970fe36..HEAD, scp домой (cmd /c scp),
+# дома git fetch <пакет> HEAD:refs/tmp/os1-final, дифф целиком (правило 10), merge --ff-only, push game/merge-os1
+git -C "C:/Users/white/Desktop/War of Tribes" fetch origin                       # слияние: master — предок ветки
+git -C "C:/Users/white/Desktop/War of Tribes" merge --ff-only origin/game/merge-os1
+git -C "C:/Users/white/Desktop/War of Tribes" push origin master
+ssh tribe@169.58.98.192 'cd ~/tribe && docker compose exec -T app node --no-warnings --input-type=module - < /opt/tribe-ci/probe/saves.mjs'   # щуп до
+ssh tribe@169.58.98.192 'cd ~/tribe && sh deploy/update.sh'                   # копия базы, сборка, перезапуск, здоровье
+ssh tribe@169.58.98.192 'cd ~/tribe && docker compose logs --tail 200 app | grep -iE "error|внимание:"'
+ssh tribe@169.58.98.192 'cd ~/tribe && docker compose exec -T app node --no-warnings --input-type=module - < /opt/tribe-ci/probe/saves.mjs'   # щуп после
+ssh tribe@169.58.98.192 'docker rm -f tribe-ci'                               # уборка: папку /opt/tribe-ci оставить
+```
+
+Щуп собран из кода `970fe36`; если код до выкладки изменится — пересобрать из `/opt/tribe-ci/probe/saves.ts` (esbuild, `--bundle
+--platform=node --format=esm --alias:@=./src --define:import.meta.env=…`) в рабочей копии с `node_modules`.
+
 ## Сколько стоит приёмка
 
 *Итог нового прогона дописывается сюда, первым абзацем.*
