@@ -19,8 +19,8 @@ import { BREACH_MAX } from './siegeroll';
  * W 90) — полусумма 9.55, записано 9.6 (правило 16; docs/siege_v2.md, 19.5). Грань здесь — слабый рычаг: 0.7 грани — 2–3 %
  * ровного штурма, в пределах мерки на восьми осадах.
  */
-export const WALL_FACES = 9.6;
-export const LADDER_FACES = 7.3;
+export const WALL_FACES = 10.4;
+export const LADDER_FACES = 7.9;
 
 /**
  * Цели владельца, из которых выведены грани (docs/siege_v2.md, 17.1): ровный штурм — перевес над лагерем, при котором
