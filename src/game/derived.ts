@@ -952,6 +952,12 @@ export function foodShortfall(s: GameState, mods: SeasonModifiers = seasonMods(s
   return { army: army > 0 ? Math.min(1, short / army) : 0, town: short > army };
 }
 
+/**
+ * Ест ли боец хлеб — строй, новобранец и раненый. Нет (ВРЕМЕННО ДЛЯ ТЕСТА, `TEST_ARMY_FOOD = 0`) — голодная доля
+ * `foodShortfall.army` ложится только на наёмных мастеров, и бойцы голодом не уходят (`sim/upkeep`, `upkeepInfo`).
+ */
+export const troopsEat = (s: GameState, mods: SeasonModifiers = seasonMods(s)): boolean => soldierFoodPerDay(s, mods) > 0;
+
 export interface UpkeepInfo {
   /** Вся ведомость за день по нынешнему составу: войско и наёмные мастера. */
   wages: number;
@@ -988,6 +994,8 @@ export function upkeepInfo(s: GameState): UpkeepInfo {
   const income = taxIncomePerDay(s);
   const unpaid = unpaidShare(s);
   const unfed = foodShortfall(s).army;
+  // Бойцы, что не едят (`troopsEat`), голодом не уходят: голодная доля — только мастерам.
+  const unfedTroops = troopsEat(s) ? unfed : 0;
   const graceDays = payGraceDays(s);
   const lateDays = (s.pay?.late ?? 0) / DAY_LENGTH;
   const share = Math.max(unpaid, unfed);
@@ -1011,7 +1019,8 @@ export function upkeepInfo(s: GameState): UpkeepInfo {
     // Строй и наёмные мастера уходят по большей из двух долей, раненые и новобранцы — только голодом (`sim/upkeep`).
     leavingPerDay:
       why && lateDays >= graceDays
-        ? DESERT_SHARE * (share * (armySize(s) + mastersCount(s)) + unfed * (mouthCount(s) - armySize(s)))
+        ? DESERT_SHARE *
+          (Math.max(unpaid, unfedTroops) * armySize(s) + share * mastersCount(s) + unfedTroops * (mouthCount(s) - armySize(s)))
         : 0,
   };
 }

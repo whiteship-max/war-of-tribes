@@ -39,6 +39,7 @@ import {
   payGraceDays,
   soldierMouths,
   taxIncomePerDay,
+  troopsEat,
   unpaidShare,
   wageOf,
   wagesDue,
@@ -120,6 +121,12 @@ export function upkeepTick(s: GameState, dt: number, unfed: number): void {
   // но называлась неправда. Теперь у каждой части свой повод, свой остаток дроби и своя судьба.
   const hungry = Math.min(share, unfed);
   const owed = Math.max(0, share - hungry);
+  // Бойцы, что не едят (ВРЕМЕННО ДЛЯ ТЕСТА, `derived.troopsEat`), голодом не уходят: их доля — одна неуплата. При пайке —
+  // те же `hungry` и `owed`.
+  const troopUnfed = troopsEat(s) ? unfed : 0;
+  const troopShare = Math.max(unpaid, troopUnfed);
+  const troopHungry = Math.min(troopShare, troopUnfed);
+  const troopOwed = Math.max(0, troopShare - troopHungry);
   const rateOf = (part: number): number => (DESERT_SHARE * part * dt) / DAY_LENGTH;
   /** Сколько целых бойцов уходит этой долей: дробь копится в своём остатке, а `cap` держит сумму обоих поводов. */
   const draw = <K extends string>(carry: Partial<Record<K, number>>, id: K, have: number, cap: number, rate: number): number => {
@@ -137,8 +144,8 @@ export function upkeepTick(s: GameState, dt: number, unfed: number): void {
       continue;
     }
     // Голод считается первым: он забирает своих совсем, и неуплате остаётся то, что сверх него.
-    const byFood = draw(pay.starved, id, have, have, rateOf(hungry));
-    const byPay = draw(pay.gone, id, have, have - byFood, rateOf(owed));
+    const byFood = draw(pay.starved, id, have, have, rateOf(troopHungry));
+    const byPay = draw(pay.gone, id, have, have - byFood, rateOf(troopOwed));
     const whole = byFood + byPay;
     if (whole <= 0) continue;
     s.army[id] = have - whole;
@@ -163,8 +170,8 @@ export function upkeepTick(s: GameState, dt: number, unfed: number): void {
   // кто ест — тот и считается. При голоде они уходят той же долей, что строй, но **всегда голодом и
   // совсем**: жалованья им не положено, и повод «неуплата», возвращающий ушедшего жителем, к ним
   // не относится, в каком бы поводе ни шёл шаг для строя (docs/infirmary.md, решение 4).
-  if (unfed > 0) {
-    const starveRate = rateOf(unfed);
+  if (troopUnfed > 0) {
+    const starveRate = rateOf(troopUnfed);
     const mouths = soldierMouths(s);
     pay.hurt ??= {};
     pay.drafts ??= {};

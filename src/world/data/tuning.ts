@@ -151,6 +151,8 @@ export const MARCH_MIN_SECONDS = gameSec(45);
  * раньше (docs/handbook/acceptance.md, «Временно: ×3 пути для теста»).
  */
 export const TEST_TRAVEL_SPEED = 3;
+// Второй временный множитель теста — паёк войска `TEST_ARMY_FOOD = 0` — лежит в `game/constants.ts` рядом с `SOLDIER_FOOD`:
+// его дверь (`build.soldierFoodPerDay`) читает сервер без `@/`, а этот файл тянет атлас земли.
 
 // ---------- Племена ----------
 

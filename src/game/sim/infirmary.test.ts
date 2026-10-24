@@ -4,7 +4,7 @@
 // мест им хватает (или не хватает, если меряется ёмкость), срок не прошёл (или прошёл), голод идёт и
 // терпение Статуи кончилось. Иначе тест проходил бы даром (CLAUDE.md, правило 11). Шаг — настоящий
 // (`tick`, `catchUp`, `applyExpedition`), а не формула рядом.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { GameState, TroopId } from '../types';
 import { createInitialState } from '../state';
 import { DAY_LENGTH, RESOURCE_IDS, WOUND_DAYS } from '../constants';
@@ -30,6 +30,10 @@ import { catchUp, tick } from './tick';
 import { woundsHome, woundsOfBattle } from './infirmary';
 import { fieldWoundedHome } from '@/world/bridge';
 import type { FigureView } from '@/world/types';
+
+// ВРЕМЕННО ВОЙСКО НЕ ЕСТ ДЛЯ ТЕСТА: этот тест держит расход и голод бойца при пайке — держим `TEST_ARMY_FOOD` 1;
+// 0 проверяет src/game/armyfood.test.ts. Снять при возврате 1.
+vi.mock('@/game/constants', async (actual) => ({ ...(await actual<object>()), TEST_ARMY_FOOD: 1 }));
 
 const DT = 0.5;
 

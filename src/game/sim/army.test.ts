@@ -1,5 +1,5 @@
 // Снаряжение, войска и власть вождя: то, что игрок покупает людьми и железом.
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BuildingTypeId, GameState } from '../types';
 import { SAVE_VERSION, createInitialState } from '../state';
 import { deserialize, serialize } from '../save';
@@ -28,6 +28,10 @@ import {
   productionPerDay,
   recruitRate,
 } from '../derived';
+
+// ВРЕМЕННО ВОЙСКО НЕ ЕСТ ДЛЯ ТЕСТА: этот тест держит расход и голод бойца при пайке — держим `TEST_ARMY_FOOD` 1;
+// 0 проверяет src/game/armyfood.test.ts. Снять при возврате 1.
+vi.mock('@/game/constants', async (actual) => ({ ...(await actual<object>()), TEST_ARMY_FOOD: 1 }));
 
 beforeEach(() => setRandom(seeded(7)));
 

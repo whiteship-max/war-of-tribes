@@ -23,6 +23,7 @@ import {
   RESOURCE_IDS,
   SIEGE_SOLDIER_FOOD,
   SOLDIER_FOOD,
+  TEST_ARMY_FOOD,
   VILLAGER_DEFENSE,
   WALL_REPAIR_SHARE,
 } from './constants';
@@ -223,8 +224,12 @@ const cut = (xs: (number | undefined)[]): number => xs.reduce<number>((m, x) => 
 /** Сколько за игровой день съедают `heads` голов посёлка — жители, невольники, наёмные мастера (`derived.townFoodPerDay`, `mastersFoodPerDay`). */
 export const headsFoodPerDay = (heads: number, seasonFood: number, rationFood: number): number => heads * seasonFood * rationFood;
 
-/** Паёк бойца за игровой день — новобранца и раненого тоже (`derived.soldierFoodPerDay`). */
-export const soldierFoodPerDay = (seasonFood: number, rationFood: number): number => SOLDIER_FOOD * seasonFood * rationFood;
+/**
+ * Паёк бойца за игровой день — новобранца и раненого тоже (`derived.soldierFoodPerDay`). Единственный читатель
+ * `TEST_ARMY_FOOD` (ВРЕМЕННО ВОЙСКО НЕ ЕСТ ДЛЯ ТЕСТА; при 1 — прежний паёк).
+ */
+export const soldierFoodPerDay = (seasonFood: number, rationFood: number): number =>
+  SOLDIER_FOOD * TEST_ARMY_FOOD * seasonFood * rationFood;
 
 /** Паёк бойца в осаде за игровой день — паёк жителя (`SIEGE_SOLDIER_FOOD`, ОС-1): слепок осады и пол расхода сервера. */
 export const siegeSoldierFoodPerDay = (seasonFood: number, rationFood: number): number =>
