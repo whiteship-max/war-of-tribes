@@ -644,12 +644,18 @@ for (const level of LEVELS) {
           if (!t.pulse.siege) continue;
           const garrisonBefore = t.garrison;
           const err = await t.world.strikeCamp('home', joint);
+          const key = joint ? 'с гарнизоном' : 'с тыла';
+          // Мир отказал «Не успеть»: осада кончится до прихода (голод раньше — фазы сдвинули хлеб; лагерь снимется — город
+          // кормится сам, ОС-1). Это та же неудача, что «осада кончилась до прихода» ниже (`strike-miss`), замеченная при приказе.
+          if (err && /^Не успеть: /.test(err)) {
+            cells[key].n++;
+            continue;
+          }
           if (err) throw new Error(`L${level} ${d} мин: ${err}`);
           const g = (await t.world.figures()).find((f) => f.id === 'general')!;
           t.later(g.arriveAt - t.now());
           const after = await t.world.sync(playerProfile(fz.g));
           const rep = (await t.world.reports()).find((r) => r.id.startsWith('camp'));
-          const key = joint ? 'с гарнизоном' : 'с тыла';
           if (!rep) {
             // Боя не было: проход занят или осада кончилась до прихода — считается неудачей.
             const miss = after.effects.find((e) => e.id.startsWith('strike-miss'));
