@@ -1,0 +1,11 @@
+FAIL archer w=2.09 men=2 lost=1 -> removed {}
+FAIL axeman w=2.65 men=3 lost=1 -> removed {}
+FAIL swordsman w=3.21 men=3 lost=1 -> removed {}
+FAIL shieldman w=4.31 men=4 lost=1 -> removed {}
+FAIL shieldman w=4.31 men=4 lost=2 -> removed {}
+FAIL rider w=5.17 men=5 lost=1 -> removed {}
+FAIL rider w=5.17 men=5 lost=2 -> removed {}
+FAIL knight w=5.42 men=5 lost=1 -> removed {}
+FAIL knight w=5.42 men=5 lost=2 -> removed {}
+FAIL legionary w=5.68 men=6 lost=1 -> removed {}
+FAIL legionary w=5.68 men=6 lost=2 -> removed {}

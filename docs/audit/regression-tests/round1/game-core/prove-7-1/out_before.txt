@@ -1,0 +1,2 @@
+{ id: 2, cap: 4800, before: 5300, after: 4800 }
+FAIL: cancel lowered wood

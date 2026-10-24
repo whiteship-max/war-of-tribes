@@ -1,0 +1,20 @@
+src/world/world.test.ts:
+2586 |     const w = makeWorld(11);
+2587 |     const p = profile();
+2588 |     await w.world.sync(p);
+2589 |     const info = await w.world.info();
+2590 |     const target = ((w.world as any).gen.settlements as any[]).filter((s) => s.tribeId).sort((a, b) => distance(info.home, a) - distance(info.home, b))[0];
+2591 |     expect(target).toBeTruthy();
+                          ^
+error: expect(received).toBeTruthy()
+
+Received: undefined
+
+      at <anonymous> (/tmp/hunt/r4/prove-25-1/repo/src/world/world.test.ts:2591:20)
+(fail) PROVE25 > re-signing an active deal is refused [92.09ms]
+
+ 0 pass
+ 99 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [164.00ms]

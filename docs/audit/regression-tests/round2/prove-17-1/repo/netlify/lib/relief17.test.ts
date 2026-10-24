@@ -1,0 +1,32 @@
+import { expect, it } from 'bun:test';
+import { type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
+import { castleIdOf, emptyRoster, upsert } from './roster.js';
+import { advance, applyOrder, emptyWars, type SheetAt, type WarFile, type WarRow } from './war.js';
+import { setPhaseDie } from '../../src/world/siegeroll.js';
+import { siegeSince, type SiegeWindow } from '../../src/world/siege.js';
+import { ENERGY_MAX } from '../../src/world/data/energy.js';
+const A = 'tg-2001', B = 'tg-2002', C = 'tg-2003', T0 = 1_900_000_000_000;
+const claim = (n: string): CastleClaim => ({ name: n, city: n, power: 5000, pop: 400 });
+const sheet = (): WarSheet => ({ army: { spearman: 60, archer: 30, swordsman: 30 }, home: { spearman: 40, archer: 20 }, militia: 20, archers: 6, resolve: 0, pips: {}, rest: 1, food: 2000, townPerHour: 20, perManPerHour: 1, stock: { food: 2000, wood: 3000, stone: 1000 }, stash: 100, gold: 400, pop: 400, bonded: 20, levels: { farm: 4, palisade: 1 }, power: 5000, locks: {}, seen: [] } as WarSheet);
+it('relief army cannot also march', () => {
+  setPhaseDie(() => 7);
+  let roster: RosterFile = emptyRoster();
+  for (const [k, n] of [[A, 'Альфа'], [B, 'Бета'], [C, 'Гамма']]) roster = upsert(roster, k, claim(n), T0);
+  roster.rows[C] = { ...roster.rows[C], x: roster.rows[B].x + 1, y: roster.rows[B].y };
+  const sheets = new Map<string, SheetAt>([[A, { sheet: sheet(), at: T0 }], [B, { sheet: sheet(), at: T0 }], [C, { sheet: sheet(), at: T0 }]]);
+  const ctx = { roster, sheet: (k: string) => sheets.get(k) ?? null };
+  const file = emptyWars() as WarFile;
+  expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'captives', army: { troops: { spearman: 60, archer: 30 }, resolve: 0, pips: {} } }, T0, ctx)).toBeNull();
+  const w = file.wars[0] as WarRow;
+  advance(file, w.arriveAt + 1, sheets);
+  expect(w.phase).toBe('camp');
+  const since = siegeSince(w.camp as SiegeWindow);
+  expect(applyOrder(file, B, { op: 'pact', target: castleIdOf(C) }, since + 1, ctx)).toBeNull();
+  expect(applyOrder(file, C, { op: 'pact', target: castleIdOf(B) }, since + 2, ctx)).toBeNull();
+  const army: WarArmy = { troops: { spearman: 60, swordsman: 30 }, resolve: 0, pips: {}, energy: { value: ENERGY_MAX, at: since, mode: 'hold' } };
+  expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000, from: w.to }, since + 3, ctx)).toBeNull();
+  // Same general, same 90 troops, now marches on A while the relief is still on the road.
+  const r = applyOrder(file, C, { op: 'march', target: castleIdOf(A), mode: 'siege', fate: 'captives', army }, since + 4, ctx);
+  console.log('march result:', r, '| wars led by C:', file.wars.filter((x) => x.atk === C).length, '| reliefs pending:', w.reliefs?.length);
+  expect(r).not.toBeNull();
+});

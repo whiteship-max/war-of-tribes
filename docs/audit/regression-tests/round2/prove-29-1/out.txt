@@ -1,0 +1,25 @@
+bun test v1.4.4 (38afee6c8)
+
+t.test.ts:
+4 |   const H=3600_000, now=1e12;
+5 |   const old = Array.from({length:20},(_,i)=>({id:'E'+i,state:'expired',at:now-24*H+i,until:now-23*H}));
+6 |   const fresh={id:'NEW',state:'created',at:now,until:now+30*60_000};
+7 |   const out=trimmed([...old,fresh] as any,now);
+8 |   // E0 is 1 day old: still inside 7-day late window, huntTransfers would look for it
+9 |   expect(out.map(o=>o.id)).toContain('E0');
+                               ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "E0"
+Received: [
+  "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10", "E11", "E12", "E13", "E14", "E15", "E16", "E17", "E18",
+  "E19", "NEW"
+]
+
+      at <anonymous> (/tmp/hunt/r4/prove-29-1/t.test.ts:9:28)
+(fail) expired-but-hunted order survives trim [1.25ms]
+
+ 0 pass
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [6.00ms]

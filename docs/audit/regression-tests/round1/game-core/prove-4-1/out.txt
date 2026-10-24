@@ -1,0 +1,5 @@
+resolve {
+  error: null,
+  result: 'Пасха. Отстояли службу и сели за столы. Приход доволен.'
+} food 19900 -> 19800 riteUntil 180 -> 190
+FAIL: second rite paid and started in same season

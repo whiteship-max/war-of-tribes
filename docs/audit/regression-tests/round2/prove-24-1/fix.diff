@@ -1,0 +1,5 @@
+7680a7681,7684
+>         if (id === 'general') {
+>           const camp = this.ourSiege(now);
+>           if (camp) this.leaveCamp(camp, now);
+>         }

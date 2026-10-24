@@ -1,0 +1,4 @@
+{"at":{"x":0,"y":0},"time":66.66666666666667,"seconds":0.06666666666666667}
+FAIL: chaser covers 3.333333333333334, needs 10
+{"at":{"x":0,"y":0},"time":200,"seconds":0.2}
+PASS

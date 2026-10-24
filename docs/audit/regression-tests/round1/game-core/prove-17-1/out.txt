@@ -1,0 +1,3 @@
+wood 1000
+FAIL: refund reduced wood 1200 -> 1000
+1

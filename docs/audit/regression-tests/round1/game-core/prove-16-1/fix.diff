@@ -1,0 +1,4 @@
+345c345
+<     s.resources[r] = Math.max(0, Math.min(cap, s.resources[r] + n));
+---
+>     s.resources[r] = Math.max(0, n > 0 ? Math.max(before, Math.min(cap, before + n)) : before + n);

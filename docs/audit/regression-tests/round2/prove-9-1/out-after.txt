@@ -1,0 +1,3 @@
+made last: tribe-2026-10-04-0330-10.sqlite kept: [ "tribe-2026-10-04-0330-10.sqlite" ]
+PASS
+exit 0

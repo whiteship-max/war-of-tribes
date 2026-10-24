@@ -1,0 +1,34 @@
+bun test v1.4.4 (38afee6c8)
+
+netlify/lib/dbl.test.ts:
+22 |  return {file,ctx,wa,wb,t,army};}
+23 | describe('one general, two fights',()=>{
+24 |  it('relief then strike',()=>{setPhaseDie(()=>7);const {file,ctx,wa,wb,t,army}=setup();
+25 |   expect(applyOrder(file,A,{op:'relief',id:wb.id,army,walkMs:3_600_000,from:wb.to},t+3,ctx)).toBeNull();
+26 |   expect(wb.reliefs?.length).toBe(1);
+27 |   expect(applyOrder(file,A,{op:'strike',id:wa.id,army,walkMs:0,from:wa.to} as any,t+4,ctx)).not.toBeNull();});
+                                                                                                     ^
+error: expect(received).not.toBeNull()
+
+Received: null
+
+      at <anonymous> (/tmp/hunt/r4/prove-18-1/orig/netlify/lib/dbl.test.ts:27:97)
+(fail) one general, two fights > relief then strike [63.38ms]
+26 |   expect(wb.reliefs?.length).toBe(1);
+27 |   expect(applyOrder(file,A,{op:'strike',id:wa.id,army,walkMs:0,from:wa.to} as any,t+4,ctx)).not.toBeNull();});
+28 |  it('strike then relief',()=>{setPhaseDie(()=>7);const {file,ctx,wa,wb,t,army}=setup();
+29 |   expect(applyOrder(file,A,{op:'strike',id:wa.id,army,walkMs:0,from:wa.to} as any,t+3,ctx)).toBeNull();
+30 |   expect(wa.strike).toBeTruthy();
+31 |   expect(applyOrder(file,A,{op:'relief',id:wb.id,army,walkMs:3_600_000,from:wb.to},t+4,ctx)).not.toBeNull();});
+                                                                                                      ^
+error: expect(received).not.toBeNull()
+
+Received: null
+
+      at <anonymous> (/tmp/hunt/r4/prove-18-1/orig/netlify/lib/dbl.test.ts:31:98)
+(fail) one general, two fights > strike then relief [4.88ms]
+
+ 0 pass
+ 2 fail
+ 18 expect() calls
+Ran 2 tests across 1 file. [119.00ms]

@@ -1,0 +1,2 @@
+second call returned Попытка на сегодня потрачена. dailyWins 0 -> 0 result lost
+PASS

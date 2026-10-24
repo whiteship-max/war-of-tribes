@@ -1,0 +1,10 @@
+import { createInitialState } from './src/game/state';
+import { tick } from './src/game/sim/tick';
+import { storageCap, productionPerDay, seasonMods } from './src/game/derived';
+const s:any = createInitialState();
+const cap = storageCap(s);
+s.resources.wood = cap + 5000;
+console.log('prodWood', productionPerDay(s, seasonMods(s)).wood, 'cap', cap);
+tick(s, 1);
+console.log('wood after', s.resources.wood);
+if (s.resources.wood < cap + 4000) { console.log('FAIL: overflow stock clipped to cap'); process.exit(1);} console.log('PASS');

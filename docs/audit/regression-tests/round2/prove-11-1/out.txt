@@ -1,0 +1,3 @@
+final = true
+FAIL: tx without mc_block_seqno treated as final
+1

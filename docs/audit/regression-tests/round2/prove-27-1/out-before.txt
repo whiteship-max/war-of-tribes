@@ -1,0 +1,15 @@
+19 |     console.log('applied', applied, 'gemSeen', gemSeen(s));
+20 |     expect(applied).toBe(60);
+                         ^
+error: expect(received).toBe(expected)
+
+Expected: 60
+Received: 50
+
+      at <anonymous> (/tmp/hunt/r4/prove-27-1/repo/netlify/lib/prove27.test.ts:20:21)
+(fail) c27 > device 51+ deeds behind receives every unseen buy [14.99ms]
+
+ 0 pass
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [67.00ms]

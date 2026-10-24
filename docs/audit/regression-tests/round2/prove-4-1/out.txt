@@ -1,0 +1,8 @@
+== original
+final= true
+FAIL: tx without mc_block_seqno marked final
+exit 1
+== fixed
+final= false
+PASS
+exit 0

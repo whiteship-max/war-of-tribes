@@ -1,0 +1,11 @@
+s1 {
+  since: 1900000000000,
+  at: 1900000120000,
+  bodies: {},
+  credit: {
+    barracks: 8,
+  },
+  grant: 1,
+  lost: [],
+} s2 bodies {} forged 98
+FAIL: granted troops lost / forged

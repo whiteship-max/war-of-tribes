@@ -1,0 +1,6 @@
+A still hunted (within 7d): true
+A kept after trim: false
+FAIL: hunted expired order evicted -> late payment for O0 never found
+A still hunted (within 7d): true
+A kept after trim: true
+PASS

@@ -1,0 +1,6 @@
+FAIL seed 1 flank-turned attacker A heavy sector R dx/dz 0 0
+FAIL seed 1 flank-turned attacker C heavy sector R dx/dz 0 0
+orig checked 120 stuck 120
+exit 1
+fixed checked 120 stuck 0
+exit 0

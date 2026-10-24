@@ -1,0 +1,12 @@
+23c23
+< import { serverNow } from './clock';
+---
+> import { deviceNow } from './clock';
+88c88
+<   return serverNow() - l.at > LEASE_STALE_MS ? 'free' : 'other';
+---
+>   return deviceNow() - l.at > LEASE_STALE_MS ? 'free' : 'other';
+93c93
+<   write(LEASE_KEY, JSON.stringify({ tab, at: serverNow() } satisfies Lease));
+---
+>   write(LEASE_KEY, JSON.stringify({ tab, at: deviceNow() } satisfies Lease));

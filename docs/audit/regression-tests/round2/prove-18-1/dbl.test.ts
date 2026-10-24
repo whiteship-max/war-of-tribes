@@ -1,0 +1,32 @@
+import { describe, expect, it } from 'bun:test';
+import type { CastleClaim, RosterFile, WarArmy, WarSheet } from './contract.js';
+import { castleIdOf, emptyRoster, upsert } from './roster.js';
+import { advance, applyOrder, emptyWars, type SheetAt, type WarFile, type WarRow } from './war.js';
+import { ENERGY_MAX } from '../../src/world/data/energy.js';
+import { setPhaseDie } from '../../src/world/siegeroll.js';
+const [A,B,X,Y]=['tg-2001','tg-2002','tg-2003','tg-2004']; const T0=1_900_000_000_000;
+const claim=(n:string):CastleClaim=>({name:n,city:n,power:5000,pop:400});
+const sheet=():WarSheet=>({army:{spearman:60,archer:30,swordsman:30},home:{spearman:40,archer:20},militia:20,archers:6,resolve:0,pips:{},rest:1,food:2000,townPerHour:20,perManPerHour:1,stock:{food:2000,wood:3000,stone:1000},stash:100,gold:400,pop:400,bonded:20,levels:{farm:4,palisade:1},power:5000,locks:{},seen:[]} as WarSheet);
+function setup(){let r:RosterFile=emptyRoster();for(const k of [A,B,X,Y]) r=upsert(r,k,claim(({[A]:'Альфа',[B]:'Бета',[X]:'Гамма',[Y]:'Дельта'} as any)[k]),T0);
+ const base=r.rows[A]; [B,X,Y].forEach((k,i)=>{r.rows[k]={...r.rows[k],x:base.x+3+i,y:base.y+2};});
+ const sheets=new Map<string,SheetAt>([A,B,X,Y].map(k=>[k,{sheet:sheet(),at:T0}]));
+ const ctx={roster:r,sheet:(k:string)=>sheets.get(k)??null}; const file=emptyWars() as WarFile;
+ const sa:WarArmy={troops:{spearman:60,archer:30},resolve:0,pips:{}};
+ expect(applyOrder(file,X,{op:'march',target:castleIdOf(A),mode:'siege',fate:'captives',army:sa},T0,ctx)).toBeNull();
+ expect(applyOrder(file,Y,{op:'march',target:castleIdOf(B),mode:'siege',fate:'captives',army:sa},T0,ctx)).toBeNull();
+ const wa=file.wars[0] as WarRow, wb=file.wars[1] as WarRow; const t=Math.max(wa.arriveAt,wb.arriveAt)+1;
+ advance(file,t,sheets); expect(wa.phase).toBe('camp'); expect(wb.phase).toBe('camp');
+ expect(applyOrder(file,A,{op:'pact',target:castleIdOf(B)},t+1,ctx)).toBeNull();
+ expect(applyOrder(file,B,{op:'pact',target:castleIdOf(A)},t+2,ctx)).toBeNull();
+ const army:WarArmy={troops:{spearman:10},resolve:0,pips:{},energy:{value:ENERGY_MAX,at:t,mode:'hold'}};
+ return {file,ctx,wa,wb,t,army};}
+describe('one general, two fights',()=>{
+ it('relief then strike',()=>{setPhaseDie(()=>7);const {file,ctx,wa,wb,t,army}=setup();
+  expect(applyOrder(file,A,{op:'relief',id:wb.id,army,walkMs:3_600_000,from:wb.to},t+3,ctx)).toBeNull();
+  expect(wb.reliefs?.length).toBe(1);
+  expect(applyOrder(file,A,{op:'strike',id:wa.id,army,walkMs:0,from:wa.to} as any,t+4,ctx)).not.toBeNull();});
+ it('strike then relief',()=>{setPhaseDie(()=>7);const {file,ctx,wa,wb,t,army}=setup();
+  expect(applyOrder(file,A,{op:'strike',id:wa.id,army,walkMs:0,from:wa.to} as any,t+3,ctx)).toBeNull();
+  expect(wa.strike).toBeTruthy();
+  expect(applyOrder(file,A,{op:'relief',id:wb.id,army,walkMs:3_600_000,from:wb.to},t+4,ctx)).not.toBeNull();});
+});

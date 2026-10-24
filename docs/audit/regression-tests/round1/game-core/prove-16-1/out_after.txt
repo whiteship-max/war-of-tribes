@@ -1,0 +1,3 @@
+loot +10: cap 4800 wood 300 over cap (expected 300: loot must not lower stock)
+raid -5: wood 295 over cap (expected 295)
+PASS

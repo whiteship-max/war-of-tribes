@@ -1,0 +1,3 @@
+prodWood 43.65 cap 4800
+wood after 9800
+PASS

@@ -1,0 +1,4 @@
+  leaving: 1482.119,
+  expected: 741.0594999999998
+}
+FAIL: leavingPerDay overstates

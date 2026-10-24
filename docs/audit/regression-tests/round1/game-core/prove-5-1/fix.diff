@@ -1,0 +1,51 @@
+diff -ru /tmp/src/src/game/data/tidings.ts src/game/data/tidings.ts
+--- /tmp/src/src/game/data/tidings.ts	2026-10-24 06:30:29.140455260 +0000
++++ src/game/data/tidings.ts	2026-10-24 10:13:28.875230093 +0000
+@@ -87,7 +87,7 @@
+ /** Сколько в долг даёт купец — и сколько он придёт взыскать: долг и лихва сверху. */
+ const LOAN = 40;
+ const loan = (s: GameState): number => amount(s, LOAN);
+-const debt = (s: GameState): number => amount(s, LOAN * (1 + TIDING.interest));
++const debt = (s: GameState): number => s.merchantDebt ?? Math.round(loan(s) * (1 + TIDING.interest));
+ 
+ /** Через сколько настоящего времени придёт следствие — словами. */
+ const after = (id: string): string => daysSpan(CHAIN_SEASONS[id] * SEASON_DAYS);
+@@ -534,7 +534,9 @@
+         label: 'Взять в долг',
+         hint: (s) => `+${loan(s)} золота. Через ${after('merchant_due')} придёт взыскать ${debt(s)}`,
+         apply: (s) => {
+-          s.gold += loan(s);
++          const got = loan(s);
++          s.gold += got;
++          s.merchantDebt = Math.round(got * (1 + TIDING.interest));
+           later(s, 'merchant_due');
+           return 'Купец отсчитал золото и уехал по своим делам. Обещал вернуться.';
+         },
+@@ -557,6 +559,7 @@
+         cost: (s) => ({ gold: debt(s) }),
+         apply: (s) => {
+           moveFame(s, TIDING.fameMid);
++          delete s.merchantDebt;
+           return 'Долг вернули до монеты. Купец обещал хвалить нас на всех торгах.';
+         },
+       },
+@@ -565,6 +568,7 @@
+         hint: () => FameWord(TIDING.fameDebt),
+         apply: (s) => {
+           moveFame(s, TIDING.fameDebt);
++          delete s.merchantDebt;
+           return 'Купца выставили за ворота с его распиской. О нашем слове будут говорить дурное.';
+         },
+       },
+diff -ru /tmp/src/src/game/types.ts src/game/types.ts
+--- /tmp/src/src/game/types.ts	2026-10-24 06:30:29.149895923 +0000
++++ src/game/types.ts	2026-10-24 10:13:28.876054207 +0000
+@@ -803,6 +803,8 @@
+    * значит, ничего не ждёт.
+    */
+   chains: PendingChain[];
++  /** Долг купцу с лихвой, зафиксированный в момент займа. */
++  merchantDebt?: number;
+   /**
+    * Временные усилители от ответов на вести (docs/events.md): вид и игровая секунда, до
+    * которой он держится. Действует тот, у кого срок впереди, — считается при чтении

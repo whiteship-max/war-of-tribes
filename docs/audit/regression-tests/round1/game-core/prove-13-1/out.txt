@@ -1,0 +1,2 @@
+second call returned null dailyWins 0 -> 1 result won
+FAIL: win accepted after loss

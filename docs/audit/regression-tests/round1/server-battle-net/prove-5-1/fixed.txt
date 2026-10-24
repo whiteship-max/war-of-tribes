@@ -1,0 +1,4 @@
+card ok true cap 24000 wood 13000 confirmed 1200
+forged cap 24000 -> cap flags 1
+card ok true cap 0 wood 13000 confirmed 1200
+forged cap 0 -> cap flags 1

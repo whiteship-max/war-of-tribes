@@ -1,0 +1,33 @@
+import { describe, expect, it } from 'bun:test';
+import { NotifyingWorld } from './local/NotifyingWorld';
+import type { WorldSave } from './local/state';
+import type { GenSettlement } from './gen';
+import type { PlayerProfile } from './types';
+import { distance } from './geo';
+import { shieldVillagers } from './lairs';
+import { ourCamp, siegeActive } from './siege';
+import { setPhaseDie } from './siegeroll';
+type Inner = { save: WorldSave; gen: { settlements: GenSettlement[] }; alive(s: GenSettlement, now: number): boolean };
+describe('vacant general seat', () => {
+  it('lifts our camp', async () => {
+    setPhaseDie(() => 7);
+    let now = 1_700_000_000_000;
+    const world = new NotifyingWorld({ seed: 7, now: () => now, storage: null });
+    const inner = world as unknown as Inner;
+    const p: PlayerProfile = { name: 'T', pop: shieldVillagers(0.1), defense: 30, units: { warrior: 10, scout: 4 }, army: { spearman: 40 }, stock: { food: 600, wood: 400 }, stash: 0 };
+    await world.sync(p);
+    const home = inner.save.home;
+    const lair = inner.gen.settlements.filter((s) => inner.alive(s, now)).sort((a, b) => distance(home, a) - distance(home, b))[0];
+    Object.assign(inner.save.figures.general, { phase: 'field', from: { x: lair.x, y: lair.y }, to: { x: lair.x, y: lair.y }, departAt: now, arriveAt: now, downUntil: 0, busyUntil: 0, held: false, watching: false, energy: undefined, spent: undefined, troops: { spearman: 40 }, handover: undefined });
+    expect(await world.besiege()).toBeNull();
+    expect(ourCamp(inner.save.sieges[lair.id])).toBe(true);
+    const person = inner.save.figures.general.person ?? 0;
+    now += 1000;
+    await world.sync({ ...p, agents: { general: { person, vacant: true } } });
+    const g = inner.save.figures.general;
+    const w = inner.save.sieges[lair.id];
+    console.log('gone', !!g.gone, 'phase', g.phase, 'troops', g.troops, 'campActive', !!(w && ourCamp(w) && siegeActive(w, now)));
+    expect(g.gone).toBeTruthy();
+    expect(!!(w && ourCamp(w) && siegeActive(w, now))).toBe(false);
+  }, 60000);
+});

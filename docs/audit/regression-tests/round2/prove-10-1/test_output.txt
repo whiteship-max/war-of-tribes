@@ -1,0 +1,8 @@
+
+      at <anonymous> (/tmp/hunt/r4/prove-10-1/repo/src/net/lease-skew.test.ts:10:27)
+(fail) a lease beaten just now by another (unsynced) tab is not stale after this tab syncs its clock [3.76ms]
+
+ 0 pass
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [12.00ms]

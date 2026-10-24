@@ -1,0 +1,23 @@
+bun test v1.4.4 (38afee6c8)
+
+src/net/c13.test.ts:
+{"book":{"at":60000,"have":{"wood":3.6999999999999886,"stone":600,"food":900,"hides":180,"charcoal":150,"copper":180,"iron":120,"gold":3983.34164859375},"bonded":0},"hidden":[{"kind":"wood","claimed":0,"held":4,"drop":500,"could":496},{"kind":"gold","claimed":0,"held":3983,"drop":5000,"could":1017}]}
+ 9 |   const ctx = { levels: a.buildings, pop: a.pop, soldiers: 0 };
+10 |   const book = goodsStep(null, undefined, 0, a, 0, ctx).book;
+11 |   const b = { ...a, stock: { ...a.stock, wood: 0, gold: 0 }, deeds: a.deeds + 1 };
+12 |   const step = goodsStep(book, a, 0, b, 60_000, ctx);
+13 |   console.log(JSON.stringify(step));
+14 |   expect(step.book.have.wood).toBeGreaterThan(400);
+                                   ^
+error: expect(received).toBeGreaterThan(expected)
+
+Expected: > 400
+Received: 3.6999999999999886
+
+      at <anonymous> (/tmp/hunt/r4/prove-13-1/repo/src/net/c13.test.ts:14:31)
+(fail) bumped deeds hides stock from the goods book [10.46ms]
+
+ 0 pass
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [79.00ms]

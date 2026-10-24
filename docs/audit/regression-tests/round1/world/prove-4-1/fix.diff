@@ -1,0 +1,10 @@
+24c24
+< import { sideWorks, type WoodPlan } from './works';
+---
+> import { machineWood, sideWorks, type WoodPlan } from './works';
+116a117
+>       ...(raw.machines !== undefined ? { machines: raw.machines } : {}),
+118c119
+<       base: { front: sideWorks(since, from, 'front', built), rear: sideWorks(since, from, 'rear', built) },
+---
+>       base: { front: sideWorks(since, from, 'front', built), rear: sideWorks(since, from, 'rear', built), ...(raw.machines !== undefined || raw.base?.machines !== undefined ? { machines: machineWood(since, from, raw) } : {}) },

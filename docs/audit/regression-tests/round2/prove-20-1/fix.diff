@@ -1,0 +1,18 @@
+diff --git a/src/world/local/LocalWorld.ts b/tmp/hunt/r4/prove-20-1/repo/src/world/local/LocalWorld.ts
+index c080272..b96898d 100644
+--- a/src/world/local/LocalWorld.ts
++++ b/tmp/hunt/r4/prove-20-1/repo/src/world/local/LocalWorld.ts
+@@ -4560,6 +4560,13 @@ export class LocalWorld implements WorldApi {
+       for (const key of Object.keys(deals) as DealId[]) {
+         const pact = deals[key];
+         if (!pact) continue;
++        if (key === 'tribute' || key === 'trade') {
++          const upTo = Math.min(now, pact.until);
++          for (let guard = 0; guard < 200 && upTo - pact.paidAt >= DEAL_PAYOUT; guard++) {
++            pact.paidAt += DEAL_PAYOUT;
++            this.payPact(tribeId, key, pact.paidAt);
++          }
++        }
+         if (now >= pact.until) {
+           delete deals[key];
+           this.addEffect({

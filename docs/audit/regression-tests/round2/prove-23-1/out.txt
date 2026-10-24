@@ -1,0 +1,2 @@
+error null garrison 100 -> 99 march.units {"warrior":100} troops {"clubman":1} view men 100
+FAIL: march carries units.warrior=100 while only 1 left home

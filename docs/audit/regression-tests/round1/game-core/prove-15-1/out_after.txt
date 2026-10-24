@@ -1,0 +1,2 @@
+cap=4800 food=5300 expected>=5300
+PASS

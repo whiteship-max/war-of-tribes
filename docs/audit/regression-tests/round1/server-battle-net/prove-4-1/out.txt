@@ -1,0 +1,2 @@
+farm 8 letters 0 short 13767.2
+FAIL: 1 letter spent, farm:9 not confirmed

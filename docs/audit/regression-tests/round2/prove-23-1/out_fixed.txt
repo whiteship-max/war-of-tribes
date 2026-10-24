@@ -1,0 +1,2 @@
+error Состав отряда не сходится с числом бойцов. garrison 100 -> 100 march.units undefined troops undefined view men undefined
+PASS

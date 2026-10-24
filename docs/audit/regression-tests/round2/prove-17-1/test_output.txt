@@ -1,0 +1,15 @@
+29 |   const r = applyOrder(file, C, { op: 'march', target: castleIdOf(A), mode: 'siege', fate: 'captives', army }, since + 4, ctx);
+30 |   console.log('march result:', r, '| wars led by C:', file.wars.filter((x) => x.atk === C).length, '| reliefs pending:', w.reliefs?.length);
+31 |   expect(r).not.toBeNull();
+                     ^
+error: expect(received).not.toBeNull()
+
+Received: null
+
+      at <anonymous> (/tmp/hunt/r4/prove-17-1/repo/netlify/lib/relief17.test.ts:31:17)
+(fail) relief army cannot also march [93.27ms]
+
+ 0 pass
+ 1 fail
+ 6 expect() calls
+Ran 1 test across 1 file. [162.00ms]

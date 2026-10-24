@@ -1,0 +1,6 @@
+1897a1898
+>       if (file.wars.some((x) => x.def === key && x.strike)) return 'Полководец уже идёт на лагерь.';
+1924a1926
+>       if (file.wars.some((x) => x.def === key && x.strike) || file.wars.some((x) => x.reliefs?.some((r) => r.castle === castleIdOf(key)))) return 'Полководец уже занят.';
+2005a2008
+>   if (file.wars.some((w) => w.reliefs?.some((r) => r.castle === castleIdOf(key)))) return 'Полководец уже идёт на выручку.';

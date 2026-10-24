@@ -1,0 +1,20 @@
+gone true phase down troops undefined campActive true
+26 |     await world.sync({ ...p, agents: { general: { person, vacant: true } } });
+27 |     const g = inner.save.figures.general;
+28 |     const w = inner.save.sieges[lair.id];
+29 |     console.log('gone', !!g.gone, 'phase', g.phase, 'troops', g.troops, 'campActive', !!(w && ourCamp(w) && siegeActive(w, now)));
+30 |     expect(g.gone).toBeTruthy();
+31 |     expect(!!(w && ourCamp(w) && siegeActive(w, now))).toBe(false);
+                                                            ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/tmp/hunt/r4/prove-24-1/repo/src/world/vacant24.test.ts:31:56)
+(fail) vacant general seat > lifts our camp [110.66ms]
+
+ 0 pass
+ 1 fail
+ 4 expect() calls
+Ran 1 test across 1 file. [179.00ms]

@@ -1,0 +1,7 @@
+80a81,82
+> const sortKey = (n: string): string => n.replace(/(?:-(\d+))?\.sqlite$/, (_m, k) => `#${String(k ?? 1).padStart(6, '0')}`);
+> 
+90c92
+<     .sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+---
+>     .sort((a, b) => { const ka = sortKey(a.name), kb = sortKey(b.name); return ka < kb ? 1 : ka > kb ? -1 : 0; });

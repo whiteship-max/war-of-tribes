@@ -1,0 +1,15 @@
+23 |     const after = JSON.stringify({ b: s.buildings, r: s.resources });
+24 |     console.log('price paid', price, 'state changed?', before !== after);
+25 |     expect(after).not.toBe(before);
+                           ^
+error: expect(received).not.toBe(expected)
+
+Expected: not "{\"b\":[{\"id\":1,\"type\":\"campfire\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":2,\"type\":\"town_hall\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":3,\"type\":\"houses\",\"level\":2,\"work\":0,\"workRequired\":0},{\"id\":4,\"type\":\"storage\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":5,\"type\":\"sawmill\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":6,\"type\":\"hunter_hut\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":7,\"type\":\"mine\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":8,\"type\":\"workshop\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":9,\"type\":\"farm\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":10,\"type\":\"church\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":11,\"type\":\"statue\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":12,\"type\":\"infirmary\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":13,\"type\":\"watch\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":14,\"type\":\"stable\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":15,\"type\":\"cache\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":16,\"type\":\"tavern\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":17,\"type\":\"palisade\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":18,\"type\":\"tower\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":19,\"type\":\"smithy\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":20,\"type\":\"market\",\"level\":1,\"work\":0,\"workRequired\":0},{\"id\":21,\"type\":\"barracks\",\"level\":1,\"work\":0,\"workRequired\":0}],\"r\":{\"wood\":645,\"stone\":541,\"food\":900,\"hides\":180,\"charcoal\":150,\"copper\":180,\"iron\":120}}"
+
+      at <anonymous> (/tmp/hunt/r4/prove-28-1/repo/src/game/sim/rush28.test.ts:25:23)
+(fail) cand28 > paid rush whose site finished on its own while in flight delivers nothing [6.44ms]
+
+ 0 pass
+ 1 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [73.00ms]

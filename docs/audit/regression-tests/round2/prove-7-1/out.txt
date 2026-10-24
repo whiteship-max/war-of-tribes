@@ -1,0 +1,2 @@
+quiet: [ "stock" ]  deeds+1: []
+FAIL: no stock flag when deeds bumped

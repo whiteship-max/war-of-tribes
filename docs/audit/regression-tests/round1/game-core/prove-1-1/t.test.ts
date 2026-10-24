@@ -1,0 +1,13 @@
+import { createInitialState } from './src/game/state';
+import { losePop } from './src/game/sim/population';
+import { FREE_JOBS } from './src/game/data/jobs';
+import { idleCount, freeJobCount } from './src/game/derived';
+const s:any = createInitialState(1);
+for (const k in s.workers) s.workers[k]=0;
+for (const k in s.freeJobs) s.freeJobs[k]=0;
+s.pop=10; s.freeJobs[FREE_JOBS[0]]=5;
+console.log('before idle', idleCount(s));
+losePop(s,3);
+const fj = freeJobCount(s, FREE_JOBS[0]);
+console.log('pop',s.pop,'freeJob',fj,'idle',idleCount(s));
+if (fj!==5) { console.log('FAIL: expected 5 free-job workers kept, got', fj); process.exit(1);} console.log('PASS');

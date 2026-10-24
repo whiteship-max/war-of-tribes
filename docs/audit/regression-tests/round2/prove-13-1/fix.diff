@@ -1,0 +1,33 @@
+diff --git a/tmp/src/netlify/lib/goods.ts b/netlify/lib/goods.ts
+index 9d708f8..5bb4e03 100644
+--- a/tmp/src/netlify/lib/goods.ts
++++ b/netlify/lib/goods.ts
+@@ -34,6 +34,8 @@ export interface GoodsBook {
+ 
+ /** Во сколько раз расход между описями может обогнать свой потолок, прежде чем это флаг, — как рост (`watch.GROWTH_SLACK`). */
+ export const GOODS_SLACK = 2;
++/** Most a single deed/outlay may remove of one kind (illustrative: a tenth of storage, gold 1000). */
++const OUTLAY_MAX = (k: string, cap: number): number => (k === 'gold' ? 1000 : cap / 10);
+ 
+ const RESOURCES = new Set<string>(RESOURCE_IDS);
+ 
+@@ -116,14 +118,17 @@ export function goodsStep(prev: GoodsBook | null, a: WatchCard | undefined, aAt:
+   const cap = storageOf(ctx.levels);
+   const claimed = claimedOf(b, cap);
+   const bonded = Math.max(0, b.bonded ?? 0);
+-  if (!prev || !a || !quietBetween(a, b)) return { book: { at: bAt, have: claimed, bonded }, hidden: [] };
++  if (!prev || !a) return { book: { at: bAt, have: claimed, bonded }, hidden: [] };
+   const realMs = Math.max(0, bAt - aAt);
+   const days = gameDaysOfMs(realMs + Math.max(0, b.lead - a.lead) + CLOCK_SKEW_SECONDS * 1000);
+   const drain = drainCeil(ctx.levels, ctx.pop, bonded, ctx.soldiers, ctx.council, ctx.estates);
+   const have: Counts = {};
+   const hidden: GoodsStep['hidden'] = [];
+   for (const k of STOCK_KEYS) {
+-    const could = (drain[k] ?? 0) * days * GOODS_SLACK + 1;
++    const quiet = quietBetween(a, b);
++    if (!quiet && (a.outlays === undefined || b.outlays === undefined || b.away !== a.away || b.caravans !== a.caravans || b.games !== a.games || b.seen !== a.seen)) { have[k] = claimed[k] ?? 0; continue; }
++    const acts = quiet ? 0 : Math.max(0, (b.outlays ?? 0) - (a.outlays ?? 0)) + Math.max(0, b.deeds - a.deeds);
++    const could = (drain[k] ?? 0) * days * GOODS_SLACK + 1 + acts * OUTLAY_MAX(k, cap);
+     const was = prev.have[k] ?? 0;
+     const held = Math.max(0, was - could);
+     const now = claimed[k] ?? 0;

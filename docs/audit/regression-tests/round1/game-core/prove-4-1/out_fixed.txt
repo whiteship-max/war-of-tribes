@@ -1,0 +1,2 @@
+resolve { error: 'Обряд идёт.', result: null } food 19900 -> 19900 riteUntil 180 -> 180
+PASS

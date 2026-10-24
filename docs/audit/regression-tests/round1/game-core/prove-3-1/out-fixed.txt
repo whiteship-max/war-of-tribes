@@ -1,0 +1,3 @@
+loss 145 -5
+gain 150 0
+PASS

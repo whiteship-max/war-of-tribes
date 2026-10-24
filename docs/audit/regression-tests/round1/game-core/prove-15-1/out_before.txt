@@ -1,0 +1,2 @@
+cap=4800 food=4800 expected>=5300
+FAIL: winning lost 500

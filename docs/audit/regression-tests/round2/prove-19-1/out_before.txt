@@ -1,0 +1,15 @@
+7 |   const gone = w.wearCamp(win, 0.05, 1_700_000_000_000, 'Вылазка.');
+8 |   expect(gone).toBe(1);
+                   ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/tmp/hunt/r4/prove-19-1/repo/src/world/wearcamp19.test.ts:8:16)
+(fail) sortie at the stakes costs a scout-only bot camp at least one man [68.93ms]
+
+ 0 pass
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [114.00ms]

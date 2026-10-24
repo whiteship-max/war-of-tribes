@@ -1,0 +1,2 @@
+Rejected: generateWorld (src/world/gen.ts:115-198) and LocalWorld adoptSpawned/spawn (LocalWorld.ts:908,1027) only create settlements via makeLair() with tribeId:null.
+negotiate -> dealBlock returns 'С варварами не договариваются.' for every reachable target, so dealAt is never called. Test (repo/src/world/world.test.ts PROVE25) shows no settlement with tribeId exists (out.txt).

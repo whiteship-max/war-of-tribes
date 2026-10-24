@@ -1,0 +1,16 @@
+61c61,66
+<   const a = positionAt(target, now);
+---
+>   const a0 = positionAt(target, now);
+>   if (now < target.departAt) {
+>     const dd = len(sub(a0, chaser));
+>     if (now + dd / speed <= target.departAt) return { at: { ...a0 }, time: now + dd / speed, seconds: dd / speed / 1000 };
+>   }
+>   const lead = Math.max(0, target.departAt - now);
+66a72,73
+>   // до выхода цель стоит; встреча будет после выхода, поэтому продолжаем её путь назад
+>   const a = { x: a0.x - v.x * lead, y: a0.y - v.y * lead };
+70c77
+<   if (len(d) < 1e-9) return { at: { ...a }, time: now, seconds: 0 };
+---
+>   if (len(sub(a0, chaser)) < 1e-9) return { at: { ...a0 }, time: now, seconds: 0 };

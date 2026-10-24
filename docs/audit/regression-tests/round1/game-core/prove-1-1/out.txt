@@ -1,0 +1,3 @@
+before idle 5
+pop 7 freeJob 4 idle 3
+FAIL: expected 5 free-job workers kept, got 4

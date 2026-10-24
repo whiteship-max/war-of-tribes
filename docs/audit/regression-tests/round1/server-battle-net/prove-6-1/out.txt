@@ -1,0 +1,2 @@
+{"A":{"spear":0,"infantry":0,"archer":0,"cavalry":0,"heavy":0},"B":{"spear":0,"infantry":0,"archer":0,"cavalry":0,"heavy":0},"C":{"spear":0,"infantry":0,"archer":0,"cavalry":0,"heavy":0},"D":{"spear":0,"infantry":0,"archer":0,"cavalry":0,"heavy":0},"E":{"spear":0,"infantry":0,"archer":0,"cavalry":0,"heavy":0},"F":{"spear":0,"infantry":0,"archer":0,"cavalry":0,"heavy":0},"R":{"spear":0,"infantry":0,"archer":0,"cavalry":1,"heavy":0}}
+FAIL: lone rider in reserve

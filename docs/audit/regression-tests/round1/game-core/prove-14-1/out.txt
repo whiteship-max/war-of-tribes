@@ -1,0 +1,2 @@
+{ cap: 1200, before: 2400, after: 1200 }
+FAIL: stock destroyed
