@@ -14,11 +14,14 @@ import { groundGrid, gridHeight } from './ground';
 import { CITY_SPEC } from './spec';
 import { QUALITIES } from '../quality';
 import { inTowerShape, MERLON_FOOT, merlonCorners, MERLON_TOP, PARAPET_IN, wallPlan, type Merlon, type WallPiece } from './forts';
-import { KILN, yardHalls } from './outskirts';
+import { DOVECOTE, dovecoteSeat, GATHER_SHED, KILN, shedSeat, windmillAt, WINDMILL, yardHalls } from './outskirts';
 import { Frame } from './kit';
 
-/** Допуск «не тонет»: пол может быть ниже нарисованной земли не больше чем на столько. */
-const SINK_TOL = 0.1;
+/**
+ * Допуск «не тонет»: пол может быть ниже нарисованной земли не больше чем на столько. Ноль: низ стен не ниже земли
+ * нигде под следом — прежде 0,1 м пропускал сруб охотника, ушедший на «Низком» в землю на 0,11 м.
+ */
+const SINK_TOL = 0;
 
 const plan = cityPlan();
 const COVERED = (s: number, p: { x: number; z: number }): boolean => (p.z > 100 || p.x < -40) && Math.floor(s / 70) % 2 === 0;
@@ -87,6 +90,30 @@ describe('посадка города на рельеф', () => {
         if (lo - 0.5 > s.lo + 0.3) bad.push(`цоколь ${name} висит`);
       }
       expect(halls.length).toBeGreaterThanOrEqual(15);
+      expect(bad).toEqual([]);
+    });
+
+    it(`${q}: постройки дворов ЗД-2 — навес охотников, голубятня, мельница: верх не ниже земли, юбка в земле`, () => {
+      const bad: string[] = [];
+      const hunter = plan.yards.find((y) => y.kind === 'hunter_hut')!;
+      const farm = plan.yards.find((y) => y.kind === 'farm')!;
+      const S = GATHER_SHED;
+      const shed = shedSeat(hunter);
+      const dove = dovecoteSeat(farm);
+      const mill = windmillAt(farm);
+      const items = [
+        { name: 'навес охотников', base: shed.base, lo: shed.lo - 0.2, pts: rect(shed.sf.cx, shed.sf.cz, shed.sf.fx, shed.sf.fz, S.W + 0.9, S.D + 1.1) },
+        { name: 'голубятня', base: dove.base, lo: dove.lo - 0.4, pts: rect(dove.x, dove.z, 1, 0, DOVECOTE.R * 2, DOVECOTE.R * 2) },
+        // Стены мельницы — над каменным цоколем (`windmillTower`: до `base + 0.5`), цоколь — до земли кругом минус 0,6 м.
+        { name: 'мельница', base: mill.base + 0.5, lo: Math.min(...Array.from({ length: 8 }, (_, k) => heightAt(mill.x + Math.cos((k * Math.PI) / 4) * WINDMILL.R0, mill.z + Math.sin((k * Math.PI) / 4) * WINDMILL.R0))) - 0.6, pts: rect(mill.x, mill.z, mill.fx, mill.fz, WINDMILL.R0 * 2, WINDMILL.R0 * 2) },
+      ];
+      for (const it of items) {
+        // Граница области: след — у своего двора, а не за краем сетки.
+        expect(Math.hypot(it.pts[0][0], it.pts[0][1])).toBeLessThan(600);
+        const s = span(it.pts);
+        if (it.base < s.hi - SINK_TOL) bad.push(`${it.name} тонет на ${(s.hi - it.base).toFixed(2)} м`);
+        if (it.lo > s.lo) bad.push(`юбка ${it.name} висит на ${(it.lo - s.lo).toFixed(2)} м`);
+      }
       expect(bad).toEqual([]);
     });
 

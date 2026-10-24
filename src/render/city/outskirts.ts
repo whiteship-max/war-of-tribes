@@ -54,10 +54,11 @@ const hall = (y: Yard, f: number, r: number, rot: number, w: number, d: number, 
 /**
  * Дома дворов: (вперёд, вправо, доворот, ширина, глубина, подъём цоколя) — одни на модели и на тест посадки (`seat.test.ts`).
  * Сторожка Шахты стоит у подножия гряды: редкая сетка земли «Низкого» поднимает там землю выше рельефа — цоколь выше на 0,35 м.
+ * Сруб охотника — на склоне у опушки, там же: сетка «Низкого» на 0,26 м выше рельефа, и без подъёма низ стен уходил в землю.
  */
 const YARD_HALLS: Record<Yard['kind'], readonly (readonly [number, number, number, number, number, number?])[]> = {
   sawmill: [[0, 0, 0, 11, 8]],
-  hunter_hut: [[0, 0, 0, 6.5, 5.5]],
+  hunter_hut: [[0, 0, 0, 6.5, 5.5, 0.2]],
   mine: [[-2.2, 6.6, 0, 5.5, 4.5, 0.35]],
   farm: [
     [0, -6, 0, 15, 8],
@@ -257,6 +258,20 @@ function bridge(b: Builder, br: Bridge, d: Detail): void {
 /** Навес сборщиков у дома охотника (ЗД-2) в рамке двора: середина (вперёд, вправо), ширина и глубина. */
 export const GATHER_SHED = { f: -0.5, r: -9.5, W: 7, D: 4 } as const;
 
+/**
+ * Посадка навеса сборщиков — одна на модель и тест посадки (`seat.test.ts`): кровля — от самой высокой земли под навесом
+ * с напуском кровли (`FLOOR_LIFT` над ней), задняя стенка — юбкой до самой низкой. Прежде всё стояло по земле в середине,
+ * и на склоне у опушки верхний конец навеса уходил в землю. Подъём — как у сруба рядом (`YARD_HALLS`): сетка «Низкого» там
+ * выше рельефа.
+ */
+export function shedSeat(y: Yard): { sf: Frame; base: number; lo: number } {
+  const S = GATHER_SHED;
+  const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
+  const sf = new Frame(...fr.q(S.f, S.r), fr.fx, fr.fz);
+  const span = footSpan(sf.cx, sf.cz, sf.fx, sf.fz, S.W + 0.9, S.D + 1.1);
+  return { sf, base: span.hi + FLOOR_LIFT + 0.2, lo: span.lo };
+}
+
 /** Рама со шкурой: две стойки, две перекладины, шкура растянута внутри; рама чуть заваливается назад. */
 function hideFrame(b: Builder, fr: Frame, f: number, r: number, w: number, h: number, tone: V3): void {
   const g = heightAt(...fr.q(f, r));
@@ -304,8 +319,7 @@ function hunterHut(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3
   );
   // Навес сборщиков: открытый к двору, на столбах под односкатной дранкой, задняя стенка — доски от ветра.
   const S = GATHER_SHED;
-  const sf = new Frame(...fr.q(S.f, S.r), fr.fx, fr.fz);
-  const base = heightAt(sf.cx, sf.cz);
+  const { sf, base, lo } = shedSeat(y);
   const yF = base + 3.1;
   const yB = base + 2.3;
   const T = wood(1.05);
@@ -327,7 +341,7 @@ function hunterHut(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3
   pushQuadOut(b, A, B, C, E, 'roofSlate', tint(CITY.shingleTint, 0.93), [A[0], A[1] + 10, A[2]], 0.95);
   pushQuadOut(b, A, B, C, E, 'wood', wood(0.6), [A[0], A[1] - 10, A[2]], 0.6);
   const [bx, bz] = sf.q(-S.D / 2 - 0.05, 0);
-  box(b, bx, bz, sf.fx, sf.fz, S.W, 0.12, base - 0.2, yB - 0.3, 'wood', grey(0.95), null, { aoBottom: 0.7 });
+  box(b, bx, bz, sf.fx, sf.fz, S.W, 0.12, lo - 0.2, yB - 0.3, 'wood', grey(0.95), null, { aoBottom: 0.7 });
   // Шкуры на рамах — у западной опушки, лицом к двору.
   const hides: [number, number, number][] = [
     [5.4, -15.2, 0.95],
@@ -913,9 +927,8 @@ export function farmGrowth(farm: Yard, penY: Yard, d: Detail): { b: Builder; tie
   }
   tiers.push(b.idx.length);
   // Ступень 2. Голубятня: круглая башенка под шатром.
-  const [dx, dz] = fr.q(-12.5, 1.5);
-  const dg = heightAt(dx, dz);
-  taper(b, dx, dz, 1.55, 1.4, dg - 0.4, dg + 4.6, d === 0 ? 7 : 10, 'plaster', tint(CITY.wallTints[0], 0.95));
+  const { x: dx, z: dz, base: dg, lo: dl } = dovecoteSeat(farm);
+  taper(b, dx, dz, 1.55, 1.4, dl - 0.4, dg + 4.6, d === 0 ? 7 : 10, 'plaster', tint(CITY.wallTints[0], 0.95));
   cone(b, dx, dz, 1.85, dg + 4.5, dg + 6.6, d === 0 ? 7 : 10, 'roofSlate', tint(CITY.shingleTint, 0.88), 0.85);
   // Хлев у южной изгороди загона, внутри неё — касание по нему открывает Ферму: длинный и низкий, под дранкой, лицом к выгону.
   const [bx, bz] = new Frame(penY.x, penY.z, Math.cos(penY.rot), Math.sin(penY.rot)).q(PEN.F - 2.9, 3.5);
@@ -937,6 +950,20 @@ export function farmGrowth(farm: Yard, penY: Yard, d: Detail): { b: Builder; tie
   }
   tiers.push(b.idx.length);
   return { b, tiers };
+}
+
+/** Голубятня Фермы (ступень 2): место в рамке хутора и радиус у земли. */
+export const DOVECOTE = { f: -12.5, r: 1.5, R: 1.55 } as const;
+
+/**
+ * Посадка голубятни — одна на модель и тест посадки: шатёр и верх — от самой высокой земли под следом, кладка — юбкой до
+ * самой низкой. Прежде всё мерилось от земли в середине, и на склоне кладка с верхней стороны уходила в землю.
+ */
+export function dovecoteSeat(farm: Yard): { x: number; z: number; base: number; lo: number } {
+  const fr = new Frame(farm.x, farm.z, Math.cos(farm.rot), Math.sin(farm.rot));
+  const [x, z] = fr.q(DOVECOTE.f, DOVECOTE.r);
+  const span = footSpan(x, z, fr.fx, fr.fz, DOVECOTE.R * 2, DOVECOTE.R * 2);
+  return { x, z, base: span.hi + FLOOR_LIFT, lo: span.lo };
 }
 
 /** Двор по виду; возвращает огни ночи и трубы. */

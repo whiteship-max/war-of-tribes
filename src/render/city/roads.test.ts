@@ -2,10 +2,10 @@
 // карте земель, тупики — дворики, переулок не ложится на мостовую, мостовая у коновязи, грязь у ворот, жители — не по траве.
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { CHURCH, PARVIS, SQUARE_PROPS, WORLD_EDGE, cityPlan, distSeg, insidePoly, type P, type Street } from './layout';
+import { CHURCH, PARVIS, RIVER_HALF, SQUARE_PROPS, WORLD_EDGE, cityPlan, distSeg, heightAt, insidePoly, riverX, type P, type Street } from './layout';
 import { fieldAt, groundMap, hamlets, MAP_AT } from './ground';
 import { LAND_AT, landMap } from './nature';
-import { deadEnds, joins, mudAt, roadU, ROAD_U_MAX } from './roads';
+import { deadEnds, GATE_APRON, joins, mudAt, roadU, ROAD_U_MAX } from './roads';
 import { buildStatic } from './budget';
 import { CityLife } from './life';
 import { CITY_SPEC } from './spec';
@@ -155,16 +155,51 @@ describe('город: дороги и земля (Г-3)', () => {
     expect(checked, 'стыков с мостовой').toBeGreaterThan(0);
   });
 
-  it('у коновязи у рынка — мостовая, грязь — пятнами у поилки; у ворот — грязь, посреди площади — нет', () => {
+  it('у коновязи у рынка — мостовая, грязь — пятнами у поилки; посреди площади — нет', () => {
     const { rail, trough } = SQUARE_PROPS;
     for (const z of [rail.z0, rail.z1, trough.z]) expect(cover(rail.x, z).c, `мостовая у коновязи (${rail.x}, ${z})`).toBeGreaterThan(0.8);
     expect(mudAt(trough.x, trough.z, plan), 'у поилки').toBeGreaterThan(0.5);
     expect(mudAt(rail.x + 8, rail.z0, plan), 'дальше от поилки').toBeLessThan(0.3);
-    for (const g of plan.gates) {
-      const out = { x: g.x + Math.cos(g.out) * 9, z: g.z + Math.sin(g.out) * 9 };
-      expect(mudAt(out.x, out.z, plan), `за воротами (${g.x.toFixed(0)}, ${g.z.toFixed(0)})`).toBeGreaterThan(0.5);
-    }
     expect(mudAt(-12, 0, plan), 'посреди площади').toBeLessThan(0.05);
+  });
+
+  // Перед воротами стояла тёмная лужа: пятно грязи в 0.9 шейдер держит лужей и без дождя (`material.groundMaterial`: лужа —
+  // где `0.55 · грязь` выше 0.15). Подход к воротам с дорогой — проезд и 25 м наружу во всю ширину дороги с обочиной.
+  it('у ворот — утоптанная земля: ни лужи, ни воды, рельеф не ниже дороги', () => {
+    const PUDDLE_MUD = 0.15 / 0.55;
+    const bad: string[] = [];
+    let gates = 0;
+    let checked = 0;
+    for (const g of plan.gates) {
+      const road = plan.roads.find((s) => Math.hypot(s.pts[0].x - g.x, s.pts[0].z - g.z) < 3);
+      if (!road) continue;
+      gates++;
+      const ox = Math.cos(g.out);
+      const oz = Math.sin(g.out);
+      const half = road.half + 2;
+      const floor = heightAt(g.x, g.z);
+      const far = heightAt(g.x + ox * 25, g.z + oz * 25);
+      for (let f = -6; f <= 25; f += 1) {
+        const ax = g.x + ox * f;
+        const az = g.z + oz * f;
+        const axis = heightAt(ax, az);
+        // Без провала вдоль проезда: земля не ниже порога ворот и конца подхода.
+        if (f >= 0 && axis < Math.min(floor, far) - 0.1) bad.push(`провал у ворот (${g.x.toFixed(0)}, ${g.z.toFixed(0)}) на ${f} м: ${(Math.min(floor, far) - axis).toFixed(2)}`);
+        for (let r = -half; r <= half; r += 0.5) {
+          const x = ax - oz * r;
+          const z = az + ox * r;
+          checked++;
+          // Граница области: точка — в подходе к этим воротам.
+          expect(Math.hypot(x - g.x, z - g.z)).toBeLessThan(GATE_APRON);
+          if (mudAt(x, z, plan) >= PUDDLE_MUD) bad.push(`лужа у ворот (${x.toFixed(0)}, ${z.toFixed(0)}): грязь ${mudAt(x, z, plan).toFixed(2)}`);
+          if (Math.abs(x - riverX(z)) < RIVER_HALF + 12) bad.push(`вода у ворот (${x.toFixed(0)}, ${z.toFixed(0)})`);
+          if (heightAt(x, z) < axis - 0.15) bad.push(`рельеф у ворот (${x.toFixed(0)}, ${z.toFixed(0)}) ниже дороги на ${(axis - heightAt(x, z)).toFixed(2)}`);
+        }
+      }
+    }
+    expect(gates, 'ворот с дорогой').toBe(2);
+    expect(checked).toBeGreaterThan(500);
+    expect(bad.slice(0, 8)).toEqual([]);
   });
 
   it('поля у деревень: пашня кругом каждой деревни на дороге; у стены — гласис без пашни', () => {

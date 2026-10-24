@@ -135,7 +135,7 @@ export function joins(e: P, s: Street, all: readonly Street[], plan: CityPlan): 
 }
 
 /**
- * Грязь, 0..1: у ворот (по обе стороны проезда, вдоль дороги), у конюшни, кузницы и трактира, у коновязи и поилки двора
+ * Грязь, 0..1: у конюшни, кузницы и трактира, у коновязи и поилки двора
  * храма, у загона и хутора. Пятнами по шуму — не кругом. Красит сетка земли (вершины, `cwet.y`), а карта покрытий кладёт
  * там землю (`ground.ts`): шейдер делает её тёмной, сырой и в лужах (`material.groundMaterial`).
  */
@@ -150,13 +150,18 @@ export function mudAt(x: number, z: number, plan: CityPlan): number {
     const w = (1 - sstep(0.35, 1.05, d + (vnoise(x / 2.6, z / 2.6, 1e6, 61) - 0.5) * 0.55)) * k;
     if (w > m) m = w;
   }
-  // Низины грунтовых дорог за стеной держат воду: колеи — сырее, чем обочина.
-  if (m < 0.5 && nearRoad(x, z, plan, 0)) {
+  // Низины грунтовых дорог за стеной держат воду: колеи — сырее, чем обочина. У ворот — нет: там утоптанная земля.
+  if (m < 0.5 && nearRoad(x, z, plan, 0) && !nearGate(x, z, plan)) {
     const low = sstep(0.55, 0.8, fbm(x / 23 + 4, z / 23 + 4, 1e6, 3, 67));
     if (low * 0.5 > m) m = low * 0.5;
   }
   return Math.min(1, m);
 }
+
+/** Подход к воротам, м: ближе к воротам грязи и луж нет — ни пятном, ни сыростью колеи (`roads.test.ts`). */
+export const GATE_APRON = 30;
+
+const nearGate = (x: number, z: number, plan: CityPlan): boolean => plan.gates.some((g) => Math.hypot(x - g.x, z - g.z) < GATE_APRON);
 
 const blobsOf = new WeakMap<CityPlan, (readonly [number, number, number, number])[]>();
 
@@ -165,16 +170,8 @@ function mudBlobs(plan: CityPlan): (readonly [number, number, number, number])[]
   const had = blobsOf.get(plan);
   if (had) return had;
   const out: (readonly [number, number, number, number])[] = [];
-  for (const g of plan.gates) {
-    const ox = Math.cos(g.out);
-    const oz = Math.sin(g.out);
-    // По обе стороны проезда: внутри — у начала улицы, снаружи — дальше, вдоль дороги.
-    for (const [f, r, k] of [
-      [-7, 9, 0.75],
-      [9, 11, 0.9],
-      [22, 9, 0.6],
-    ] as const) out.push([g.x + ox * f, g.z + oz * f, r, k]);
-  }
+  // У ворот пятен нет: грязь в 0.9 шейдер держал лужей и без дождя, и перед воротами стояла тёмная лужа. Проезд —
+  // утоптанная земля дороги (`GATE_APRON`).
   for (const c of plan.civic) {
     const k = c.kind === 'stable' ? 0.95 : c.kind === 'smithy' ? 0.7 : c.kind === 'tavern' ? 0.5 : 0;
     if (k === 0) continue;
