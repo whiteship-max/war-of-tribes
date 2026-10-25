@@ -20,6 +20,7 @@ import { FOOD_MOD_MAX, GOLD_OUT_PER_POP_MAX, HEAT_MOD_MAX, headsFoodPerDay, heat
 import { baseWage } from '../../src/game/battle/price.js';
 import { HORSE_MOUTHS, MASTER_PAID_AS } from '../../src/game/data/upkeep.js';
 import { TROOP_IDS } from '../../src/game/data/troops.js';
+import { fitStock } from '../../src/game/stockrules.js';
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { STOCK_KEYS, readCounts, type Counts, type WarSheet, type WatchCard } from './contract.js';
 
@@ -96,12 +97,15 @@ export const quietBetween = (a: WatchCard, b: WatchCard): boolean =>
   a.away === b.away &&
   a.caravans === b.caravans;
 
-/** Склад описи, приведённый к вместимости подтверждённых построек; золото — как есть. */
+/**
+ * Склад описи, приведённый к вместимости подтверждённых построек правилом игры (`stockrules.fitStock`: не выше
+ * вместимости, не ниже нуля — решение владельца, OWNER-DECISIONS, п. 1); золото — как есть, не ниже нуля.
+ */
 function claimedOf(card: WatchCard, cap: number): Counts {
   const out: Counts = {};
   for (const k of STOCK_KEYS) {
-    const v = Math.max(0, card.stock[k] ?? 0);
-    out[k] = RESOURCES.has(k) ? Math.min(v, cap) : v;
+    const v = card.stock[k] ?? 0;
+    out[k] = RESOURCES.has(k) ? fitStock(v, 0, cap) : Math.max(0, v);
   }
   return out;
 }
@@ -131,7 +135,7 @@ export function goodsStep(prev: GoodsBook | null, a: WatchCard | undefined, aAt:
       have[k] = now;
       continue;
     }
-    have[k] = RESOURCES.has(k) ? Math.min(held, cap) : held;
+    have[k] = RESOURCES.has(k) ? fitStock(held, 0, cap) : held;
     hidden.push({ kind: k, claimed: now, held: Math.round(have[k]), drop: Math.round(was - now), could: Math.round(could) });
   }
   return { book: { at: bAt, have, bonded }, hidden };

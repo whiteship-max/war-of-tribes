@@ -6,7 +6,8 @@
 // размере награды разошлись бы при первой правке.
 import type { GameState, ResourceId } from '../types';
 import { START_POP } from '../constants';
-import { population, storageCap } from '../derived';
+import { population } from '../derived';
+import { addStock } from '../sim/stock';
 
 /**
  * Всё, что событие даёт или отнимает, умножается на то, во сколько раз нынешнее
@@ -25,13 +26,8 @@ export const amount = (s: GameState, n: number): number => Math.max(1, Math.roun
 export const crowd = (s: GameState, share: number, min: number): number =>
   Math.max(min, Math.round(population(s) * share));
 
-/** Положить на склад (или снять) под потолок склада; возвращает, сколько легло на самом деле. */
-export const addRes = (s: GameState, r: ResourceId, n: number): number => {
-  const cap = storageCap(s);
-  const before = s.resources[r];
-  s.resources[r] = Math.max(0, Math.min(cap, before + n));
-  return Math.round(s.resources[r] - before);
-};
+/** Положить на склад (или снять) дверью склада (`sim/stock.addStock`); возвращает, сколько легло на самом деле, целым. */
+export const addRes = (s: GameState, r: ResourceId, n: number): number => Math.round(addStock(s, r, n));
 
 /** Сдвинуть мораль на число события: вниз — не ниже нуля, вверх — не выше ста. */
 export const moveMorale = (s: GameState, d: number): void => {

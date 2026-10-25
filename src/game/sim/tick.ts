@@ -41,6 +41,7 @@ import { dynastyStep } from './dynasty';
 import { siegeHunger } from './siege';
 import { settleWounds } from './infirmary';
 import { log, trimLog } from './log';
+import { addStock, stockWords, trimStock, type Gains } from './stock';
 import { recordProduced, refreshCard } from '@/profile/stats';
 
 export interface TickOptions {
@@ -84,14 +85,16 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // 1. Производство и потребление.
   const prod = productionPerDay(s, mods);
   const cap = storageCap(s);
+  // Вместимость могла упасть между шагами (склад потерял уровень): излишек сгорает строкой летописи, а не молча
+  // срезом выработки (`sim/stock`, решение владельца — склад не выше вместимости).
+  trimStock(s, cap);
   // Профиль считает добытое по тому, что действительно легло на склад: полный
-  // склад ничего не добавил, и в итогах этого быть не должно.
+  // склад ничего не добавил, и в итогах этого быть не должно. Выработка — фоновое дело: сверх вместимости она
+  // срезается без окна, отрицательная (уголь жжёт дрова) убавляет как обычно.
   let gained = 0;
   for (const r of RESOURCE_IDS) {
     if (!prod[r]) continue;
-    const before = s.resources[r];
-    s.resources[r] = Math.min(cap, before + (prod[r] * dt) / DAY_LENGTH);
-    gained += Math.max(0, s.resources[r] - before);
+    gained += Math.max(0, addStock(s, r, (prod[r] * dt) / DAY_LENGTH, cap));
   }
   recordProduced(s, gained);
   const eat = (foodConsumptionPerDay(s, mods) * dt) / DAY_LENGTH;
@@ -215,12 +218,15 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
     if (s.completedQuests.includes(q.id)) continue;
     if (!q.check(s)) continue;
     s.completedQuests.push(q.id);
+    // Награда ложится сама, без окна: задание закрывает шаг, а не кнопка. Что не поместилось — в строке задания.
+    const lost: Gains = {};
     for (const r of RESOURCE_IDS) {
       const n = q.reward[r];
-      if (n) s.resources[r] = Math.min(storageCap(s), s.resources[r] + n);
+      if (n) lost[r] = n - addStock(s, r, n);
     }
     s.prestige += 2;
-    log(s, `Задание выполнено: ${q.title}.`, 'quest');
+    const full = stockWords(lost);
+    log(s, `Задание выполнено: ${q.title}.${full ? ` Склад полон: не поместилось ${full}.` : ''}`, 'quest');
   }
 
   // 7а. Стабильность — после морали и прироста: её полосы читают разбор морали этого шага, мятеж податных и голодных

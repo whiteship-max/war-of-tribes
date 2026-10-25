@@ -25,7 +25,8 @@ import { createInitialState } from '../../src/game/state.js';
 import { tick, absence } from '../../src/game/sim/tick.js';
 import { startUpgrade } from '../../src/game/sim/actions.js';
 import { addPop } from '../../src/game/sim/population.js';
-import { rushFree, rushPrice } from '../../src/game/sim/gems.js';
+import { rushPrice } from '../../src/game/sim/gems.js';
+import { rushFree } from '../../src/game/sim/rush.js';
 import {
   bondedTotal,
   buildRate,

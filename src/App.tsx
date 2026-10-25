@@ -76,6 +76,7 @@ const TutorialOverlay = lazy(() => nextUi().then((m) => ({ default: m.TutorialOv
 const OfflineModal = lazy(() => nextUi().then((m) => ({ default: m.OfflineModal })));
 const LegacyModal = lazy(() => nextUi().then((m) => ({ default: m.LegacyModal })));
 const PaceModal = lazy(() => nextUi().then((m) => ({ default: m.PaceModal })));
+const RoomModal = lazy(() => nextUi().then((m) => ({ default: m.RoomModal })));
 /** Шторка окон — тем же куском (ОС-1): всё, что в ней показывают, едет им же, и без него шторке показать нечего. */
 const Sheet = lazy(() => nextUi().then((m) => ({ default: m.Sheet })));
 /** Карточка клетки и «Походы» нового вида — тем же куском (docs/ui_audit.md, 13). */
@@ -429,6 +430,7 @@ export function App() {
         <OfflineModal />
         <LegacyModal />
         <PaceModal />
+        <RoomModal />
       </Suspense>
       <Suspense fallback={null}><TutorialOverlay /></Suspense>
       {toast && <div className="toast">{toast}</div>}

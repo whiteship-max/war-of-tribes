@@ -35,6 +35,9 @@
 //                                                    донесение, знак павшего города словами
 //   GROUP=os1 …                                    — ОС-1 (docs/siege_v2.md, 23): окно осады защитника при трёх
 //                                                    соотношениях сил — штраф к добыче с причиной и «хлеба хватит на ~N ч»
+//   GROUP=au3 …                                    — АУ-3, ECO-1 (docs/audit/OWNER-DECISIONS.md, п. 1): окно «Склад
+//                                                    заполнен» — отмена стройки, ответ на весть, «Начать» промысла;
+//                                                    строка «Склад повреждён» в летописи
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -1310,6 +1313,109 @@ const GROUPS: Record<string, Step[]> = {
     { name: 'sb2b-ruler', run: sb2b('lineage'), wait: 1200 },
     { name: 'sb2b-stability', run: sb2b('stability'), wait: 1500 },
     { name: 'sb2b-quests', run: sb2b('quests', true), wait: 1500 },
+  ],
+  // АУ-3, ECO-1 (docs/audit/OWNER-DECISIONS.md, п. 1): окно «Склад заполнен» — отмена стройки на почти полном складе (два
+  // вида), ответ на весть, «Начать» промысла поверх его сцены; строка «Склад повреждён» в летописи после потери уровня склада.
+  au3: [
+    {
+      name: 'au3-01-cancel',
+      run: `(async () => {
+        window.__ui.reset();
+        const A = await import('/src/game/sim/actions.ts');
+        const D = await import('/src/game/derived.ts');
+        window.__game.getState().act((st) => {
+          const cap = D.storageCap(st);
+          for (const r of Object.keys(st.resources)) st.resources[r] = cap;
+          A.startUpgrade(st, st.buildings.find((x) => x.type === 'houses').id);
+          for (const r of Object.keys(st.resources)) st.resources[r] = cap - 40;
+          return null;
+        });
+        await new Promise((r) => setTimeout(r, 1500));
+        const n = window.__ui.click('Здания', '.nx-nav');
+        await new Promise((r) => setTimeout(r, 1200));
+        const c = window.__ui.clickSel('.sheet.open .hall-qcell:nth-child(1)');
+        if (n !== 'ok' || c !== 'ok') return JSON.stringify(n + ' / ' + c);
+        await new Promise((r) => setTimeout(r, 500));
+        const a = window.__ui.click('Отменить', '.sheet.open');
+        await new Promise((r) => setTimeout(r, 200));
+        const b = window.__ui.click('Точно?', '.sheet.open');
+        await new Promise((r) => setTimeout(r, 400));
+        return JSON.stringify(document.querySelector('.modal.room') ? 'ok' : 'нет окна: ' + a + ' / ' + b);
+      })()`,
+      wait: 600,
+    },
+    {
+      name: 'au3-02-event',
+      run: `(async () => {
+        document.querySelector('.room-act .kit-btn:not(.main)')?.click();
+        await new Promise((r) => setTimeout(r, 300));
+        window.__ui.reset();
+        const M = await import('/src/game/sim/mail.ts');
+        const D = await import('/src/game/derived.ts');
+        (await import('/src/world/store.ts')).useWorld.setState({ pulse: async () => {} });
+        window.__game.getState().act((st) => {
+          M.raiseEvent(st, 'berries');
+          st.resources.food = D.storageCap(st) - 7;
+          return null;
+        });
+        const ev = window.__game.getState().s.inbox.find((e) => e.defId === 'berries');
+        if (!ev) return JSON.stringify('нет вести');
+        window.__ui.click('Вести', '.nx-nav');
+        await new Promise((r) => setTimeout(r, 1000));
+        (await import('/src/ui/realm/open.ts')).useRealm.getState().openMail('event:berries:' + ev.at);
+        await new Promise((r) => setTimeout(r, 700));
+        const a = window.__ui.click('Послать людей', '.nx-realm');
+        await new Promise((r) => setTimeout(r, 400));
+        return JSON.stringify(document.querySelector('.modal.room') ? 'ok' : 'нет окна: ' + a);
+      })()`,
+      wait: 600,
+    },
+    {
+      name: 'au3-03-minigame',
+      run: `(async () => {
+        document.querySelector('.room-act .kit-btn:not(.main)')?.click();
+        await new Promise((r) => setTimeout(r, 300));
+        window.__ui.reset();
+        const D = await import('/src/game/derived.ts');
+        window.__game.getState().act((st) => {
+          for (const r of Object.keys(st.resources)) st.resources[r] = D.storageCap(st) - 2;
+          return null;
+        });
+        (await import('/src/ui/trades.ts')).useTrades.getState().show();
+        await new Promise((r) => setTimeout(r, 1000));
+        const a = window.__ui.clickSel('.nx-trade-go');
+        await new Promise((r) => setTimeout(r, 4000));
+        const b = window.__ui.clickSel('.mg-go');
+        await new Promise((r) => setTimeout(r, 500));
+        return JSON.stringify(document.querySelector('.modal.room') ? 'ok' : 'нет окна: ' + a + ' / ' + b);
+      })()`,
+      wait: 600,
+    },
+    {
+      name: 'au3-04-chronicle',
+      run: `(async () => {
+        document.querySelector('.room-act .kit-btn:not(.main)')?.click();
+        await new Promise((r) => setTimeout(r, 300));
+        (await import('/src/ui/trades.ts')).useTrades.getState().stop();
+        await new Promise((r) => setTimeout(r, 500));
+        window.__ui.reset();
+        const E = await import('/src/game/sim/expedition.ts');
+        const D = await import('/src/game/derived.ts');
+        window.__game.getState().act((st) => {
+          const b = st.buildings.find((x) => x.type === 'storage');
+          b.level = 3;
+          for (const r of Object.keys(st.resources)) st.resources[r] = D.storageCap(st);
+          E.applyExpedition(st, { warriorsLost: 0, scoutsLost: 0, morale: 0, resources: {}, fallen: [{ id: 'storage', from: 3, to: 2 }] });
+          return null;
+        });
+        window.__ui.click('Вести', '.nx-nav');
+        await new Promise((r) => setTimeout(r, 900));
+        (await import('/src/ui/realm/open.ts')).useRealm.getState().openChronicle();
+        await new Promise((r) => setTimeout(r, 700));
+        return JSON.stringify([...document.querySelectorAll('.nx-realm *')].some((e) => e.children.length === 0 && (e.textContent || '').includes('Склад повреждён')) ? 'ok' : 'нет строки');
+      })()`,
+      wait: 600,
+    },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.

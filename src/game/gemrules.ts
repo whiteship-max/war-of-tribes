@@ -63,7 +63,7 @@ export const rushSeconds = (work: number): number => realSeconds(Math.max(0, wor
 
 /**
  * Сколько работы стройки укладывается в последние пять минут нормативного ожидания — их ускоряют даром, без приказа
- * (`sim/gems.rushFree`). Книга стройки сервера засчитывает их каждому уровню сама: сервер этой достройки не видит.
+ * (`sim/rush.rushFree`). Книга стройки сервера засчитывает их каждому уровню сама: сервер этой достройки не видит.
  */
 export const rushFreeWork = (): number => gameSeconds(RUSH_FREE_SECONDS) * GEM_REF_RATE;
 

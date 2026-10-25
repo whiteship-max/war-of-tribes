@@ -109,8 +109,9 @@ describe('где стоит ловушка', () => {
     // С UI-8 (5.7) — и «Мораль» с «Порядком». С П-7 (docs/polish.md) — значки тревог войны: приезжают при входе, как ряд тревог.
     // С СБ-2 — донесение о бое и справки «Жители», «Задания», «Сезон»: окна той же шторки.
     // С РТ-1 — и «Здания» низа: окно той же шторки. С ОС-1 — подсказка обучения и сама шторка: приезжают при входе, тем же
-    // куском, что строка и низ; с ОС-1в — окна-сообщения после входа («С возвращением», «Новая партия», «Время»).
-    const atEntry = new Set(['Hud', 'Alerts', 'WarSigns', 'Nav', 'TipLayer', 'Hints', 'CityNaming', 'WorldNew', 'MarchesNew', 'ArmyPanel', 'PeoplePanel', 'SiegePanel', 'SortiePanel', 'CampPanel', 'MoralePanel', 'OrderPanel', 'BuildingPanel', 'ReportPanel', 'PopPanel', 'QuestsPanel', 'SeasonPanel', 'BuildingsPanel', 'TutorialOverlay', 'Sheet', 'OfflineModal', 'LegacyModal', 'PaceModal']);
+    // куском, что строка и низ; с ОС-1в — окна-сообщения после входа («С возвращением», «Новая партия», «Время»); с ECO-1 — окно
+    // «Склад заполнен» (`RoomModal`), тем же куском и по той же причине.
+    const atEntry = new Set(['Hud', 'Alerts', 'WarSigns', 'Nav', 'TipLayer', 'Hints', 'CityNaming', 'WorldNew', 'MarchesNew', 'ArmyPanel', 'PeoplePanel', 'SiegePanel', 'SortiePanel', 'CampPanel', 'MoralePanel', 'OrderPanel', 'BuildingPanel', 'ReportPanel', 'PopPanel', 'QuestsPanel', 'SeasonPanel', 'BuildingsPanel', 'TutorialOverlay', 'Sheet', 'OfflineModal', 'LegacyModal', 'PaceModal', 'RoomModal']);
     const onTap = lazies.filter((n) => !atEntry.has(n));
     // С РТ-2 — и карта мира: своим куском по кнопке низа (код подтягивается в фоне, когда замок встал, — `boot/warm`, РТ-2б).
     // С ОС-1 — и окно «Настройки» стартового экрана: по кнопке, тем же куском, что шаг имени.

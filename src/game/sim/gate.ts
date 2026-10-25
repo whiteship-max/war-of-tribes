@@ -8,8 +8,7 @@
 import type { GameState, ResourceId, TribeGate } from '../types';
 import type { GateCall, GateFoe, HomeEffect } from '@/world/types';
 import { GATE_FOES } from '@/world/data/gate';
-import { RESOURCE_META } from '../constants';
-import { storageCap } from '../derived';
+import { addStock, stockWords, type Gains } from './stock';
 import { roll } from './roll';
 import { log } from './log';
 import { rebelsSettled } from './stability';
@@ -43,16 +42,11 @@ export function settleGate(s: GameState, e: HomeEffect): void {
     return;
   }
   if (e.battle !== 'won') return;
-  const cap = storageCap(s);
-  const got: string[] = [];
-  for (const [r, n] of Object.entries(call.spoils) as [ResourceId, number][]) {
-    const before = s.resources[r];
-    s.resources[r] = Math.max(0, Math.min(cap, before + n));
-    const delta = Math.round(s.resources[r] - before);
-    if (delta > 0) got.push(`${RESOURCE_META[r].name.toLowerCase()} ${delta}`);
-  }
+  const got: Gains = {};
+  for (const [r, n] of Object.entries(call.spoils) as [ResourceId, number][]) got[r] = Math.round(addStock(s, r, n));
   if (GATE_FOES[call.foe].beasts) s.stats.hunts++;
-  if (got.length > 0) log(s, `Добыча у ворот: ${got.join(', ')}.`, 'good');
+  const words = stockWords(got);
+  if (words) log(s, `Добыча у ворот: ${words}.`, 'good');
 }
 
 /** Мир посчитал эти вызовы — в этот пульс или раньше: что ещё лежит, снимается. */

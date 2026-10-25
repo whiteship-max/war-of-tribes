@@ -23,6 +23,7 @@ import { clampCount } from './SmithyNew';
 import { dropRecruitAsk, recruitAsked } from './recruitAsk';
 import { dec } from '@/game/num';
 import { iconName } from '@/ui/icons/registry';
+import { actRoom } from '@/ui/room';
 
 /**
  * Какой вид выбран при открытии: тот, к которому ведёт шаг обучения (его метка — на кнопке «Нанять» выбранного
@@ -275,7 +276,7 @@ export function HireBody({ s, at, pick, n, onPick, onCount, act, openBuilding, s
                     <i style={{ width: `${pct}%` }} />
                   </i>
                 </div>
-                <Confirm label="Отменить" onConfirm={() => act((st) => cancelRecruit(st, o.id))} />
+                <Confirm label="Отменить" onConfirm={() => actRoom((st) => cancelRecruit(st, o.id))} />
               </div>
             );
           })}

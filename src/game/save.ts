@@ -13,6 +13,7 @@ import { createInitialState, SAVE_VERSION } from './state';
 import { AWAY_AFTER, absence, awayGameSeconds, awaySeconds } from './sim/tick';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
+import { trimStock } from './sim/stock';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
 import { mergeCouncil } from './sim/council';
 import { mergeMarket } from './sim/caravan';
@@ -512,6 +513,10 @@ export function deserialize(json: string): GameState | null {
     }
     normalizeAssignments(s);
     migrate(s, from, data, fold);
+    // Склад не выше вместимости (решение владельца, docs/audit/OWNER-DECISIONS.md, п. 1): партия, записанная, когда лавка и
+    // указ клали сверх неё, приводится здесь — сгоревшее называет строка летописи после входа, тихо не пропадает ничего.
+    const line = trimStock(s, undefined, true);
+    if (line) tell(s, line, 'bad');
     readFrom.set(s, from);
     // Летопись старого сохранения могла копиться по прежнему правилу «последние
     // 80 записей» и растянуться на полгода игрового времени. Приводим её к тому

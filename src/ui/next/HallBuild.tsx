@@ -60,6 +60,7 @@ import { Confirm } from './Confirm';
 import { rate } from './hudTips';
 import { HALL_GROUPS, HALL_SORTS, hallTiles, nextSort, sortTiles, type HallGroup, type HallSort, type HallTile } from './hall';
 import { yardOutput, type YardOutput } from './output';
+import { actRoom } from '@/ui/room';
 
 /**
  * «Здания» низа (РТ-1, docs/city_v3.md, «Решения РТ-1»): окно всех построек — сетка, очередь стройки и лист постройки,
@@ -303,7 +304,7 @@ function UpgradeFoot({ b }: { b: Building }) {
         />
         <div className="hall-foot-acts">
           <RefundNote b={b} />
-          <Confirm label="Отменить" onConfirm={() => act((st) => cancelUpgrade(st, b.id))} />
+          <Confirm label="Отменить" onConfirm={() => actRoom((st) => cancelUpgrade(st, b.id))} />
         </div>
       </div>
     );
@@ -394,7 +395,7 @@ export function QueueActs({ b, onOpen }: { b: Building; onOpen: (id: number) => 
         <Btn onClick={() => act((st) => moveUpgrade(st, b.id, 1))} why={moveBlock(s, b.id, 1)}>
           Ниже
         </Btn>
-        <Btn confirm onClick={() => act((st) => cancelUpgrade(st, b.id))} sub={b.work > 0 ? 'вернёт половину' : 'вернёт всё'}>
+        <Btn confirm onClick={() => actRoom((st) => cancelUpgrade(st, b.id))} sub={b.work > 0 ? 'вернёт половину' : 'вернёт всё'}>
           Отменить
         </Btn>
       </div>

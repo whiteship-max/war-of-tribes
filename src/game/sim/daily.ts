@@ -8,6 +8,7 @@ import { RESOURCE_IDS, START_POP } from '../constants';
 import { DAILY_GAME_BY_ID, dailyGameOf, dailySeed, type DailyGameId } from '../data/daily';
 import { population, storageCap } from '../derived';
 import { log } from './log';
+import { addStock, stockWords, type Gains } from './stock';
 
 /**
  * Потолок одной награды — доля вместимости склада. Он не про баланс, а про
@@ -122,11 +123,12 @@ export function finishDaily(s: GameState, day: number, won: boolean): string | n
   s.daily = { day, result: 'won' };
   s.stats.dailyWins++;
   const reward = dailyReward(s, game);
-  const cap = storageCap(s);
+  const lost: Gains = {};
   for (const r of RESOURCE_IDS) {
     const n = reward[r];
-    if (n) s.resources[r] = Math.min(cap, s.resources[r] + n);
+    if (n) lost[r] = n - addStock(s, r, n);
   }
-  log(s, `Задание дня «${def.name}» выполнено, награда легла на склад.`, 'good');
+  const full = stockWords(lost);
+  log(s, `Задание дня «${def.name}» выполнено, награда легла на склад${full ? `; не поместилось ${full}` : ''}.`, 'good');
   return null;
 }

@@ -23,12 +23,9 @@ import {
   gemSeen,
   gemUnneeded,
   settleUnneeded,
-  rushBlocked,
-  rushFree,
   rushLeft,
   rushPrice,
   rushWork,
-  shopBlocked,
   shopPrice,
 } from './gems';
 import { gemsForWait, rushPriceOfWork } from '../gemrules';
@@ -41,6 +38,9 @@ import { tick } from './tick';
 import { deserialize, enter, serialize, loadFold } from '../save';
 import { watchOf } from '../../net/snapshot';
 import { SAVE_VERSION } from '../state';
+import { overflowOf } from './stockview';
+import { rushBlocked, shopBlocked } from './gemview';
+import { rushFree } from './rush';
 
 // Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
 beforeAll(() => loadFold());
@@ -167,10 +167,12 @@ describe('дела с сервера ложатся ровно один раз',
     expect(applyGemDeeds(s, [deed(1, { res: 'wood', amount: SHOP_LOT })])).toBe(1);
     expect(s.resources.wood).toBe(cap);
     expect(s.log.some((l) => l.text.includes('остальное склад не вместил'))).toBe(true);
-    // Лежащее сверх вместимости (склад потерял уровень) прибавка не отнимает.
+    // Лежащее сверх вместимости (склад потерял уровень) не держится и при прибавке: склад не бывает выше вместимости
+    // (решение владельца, OWNER-DECISIONS, п. 1), излишек сгорает строкой летописи.
     s.resources.wood = cap + 50;
     applyGemDeeds(s, [deed(2, { res: 'wood', amount: SHOP_LOT })]);
-    expect(s.resources.wood).toBe(cap + 50);
+    expect(s.resources.wood).toBe(cap);
+    expect(s.log.some((l) => l.text.startsWith('Склад повреждён: пропало — древесина 50'))).toBe(true);
   });
 
   it('ускорение достраивает идущую стройку этого уровня — и только её', () => {
@@ -224,7 +226,11 @@ describe('лавка: что покупать нельзя', () => {
     const price = shopPrice('stone');
     s.resources.stone = 0;
     expect(shopBlocked(s, 'stone', price, price, 1, null)).toBeNull();
+    // Влезает не всё — покупка открыта: спросит окно «Склад заполнен» (OWNER-DECISIONS, п. 1); не влезает ни единицы — гаснет.
     s.resources.stone = storageCap(s) - SHOP_LOT + 1;
+    expect(shopBlocked(s, 'stone', price, price, 1, null)).toBeNull();
+    expect(overflowOf(s, { stone: SHOP_LOT })).toEqual([{ resource: 'stone', wanted: SHOP_LOT, fits: SHOP_LOT - 1 }]);
+    s.resources.stone = storageCap(s);
     expect(shopBlocked(s, 'stone', price, price, 1, null)).toMatch(/^Склад полон/);
     s.resources.stone = 0;
     expect(shopBlocked(s, 'stone', price, null, 1, null)).toMatch(/^Нет связи/);

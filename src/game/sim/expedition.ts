@@ -28,7 +28,7 @@ import { recordDeath, recordDeed, recordRetire, recordSiege, reputeMorale, type 
 import { hireWhere } from './hire';
 import type { HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
-import { outlay } from './pay';
+import { addStock, outlay, trimStock } from './stock';
 import { stabAfterBattle } from './stability';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 import { count } from '@/ui/parts/plural';
@@ -341,9 +341,7 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   for (const r of RESOURCE_IDS) {
     const n = o.resources[r];
     if (!n) continue;
-    const before = s.resources[r];
-    s.resources[r] = Math.max(0, Math.min(cap, s.resources[r] + n));
-    const delta = s.resources[r] - before;
+    const delta = addStock(s, r, n, cap);
     if (delta > 0) brought[r] = delta;
     else if (delta < 0) taken[r] = -delta;
   }
@@ -426,6 +424,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.fallen && o.fallen.length > 0) {
     log(s, `Постройки потеряли уровни: ${levelLossText(s, levelsLost, o.fallen.length)}.`, 'bad');
   }
+  // Склад мог потерять уровень: что теперь сверх вместимости, сгорает строкой летописи сразу за строкой о потерянных уровнях,
+  // а не срезом следующего шага.
+  if (levelsLost.length > 0) trimStock(s);
   if (o.gold > 0) log(s, `Золота прибыло: ${Math.round(o.gold)}.`, 'good');
   if (o.gold < 0) log(s, `Золота унесли: ${Math.round(-o.gold)}.`, 'bad');
   const armsText = Object.entries(arms)

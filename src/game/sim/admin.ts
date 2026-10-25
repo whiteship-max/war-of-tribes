@@ -12,7 +12,7 @@
 // у них одно — `netlify/lib/gems.creditGems` (docs/gems.md).
 import type { GameState, ResourceId, TroopId } from '../types';
 import { RESOURCE_IDS, RESOURCE_META } from '../constants';
-import { storageCap } from '../derived';
+import { addStock } from './stock';
 import { TROOP_BY_ID } from '../data/troops';
 import { STOCK_KEYS, TROOP_KEYS, type AdminGrant } from '../../../netlify/lib/contract';
 import { log } from './log';
@@ -22,14 +22,10 @@ export const adminSeen = (s: GameState): number => (typeof s.adminSeen === 'numb
 
 /**
  * Положить припас на склад по правилу склада — одна дверь на указ админа и на лавку алмазов (`sim/gems.applyGemDeeds`):
- * прибавка ложится до вместимости и не отнимает того, что уже лежит сверх неё; убавка — до нуля. Возвращает, сколько
- * легло на самом деле (со знаком).
+ * прибавка ложится до вместимости, убавка — до нуля (`sim/stock.addStock`). Возвращает, сколько легло на самом деле
+ * (со знаком). Сверх вместимости не кладёт и указ: склад не бывает выше неё (решение владельца, OWNER-DECISIONS, п. 1).
  */
-export function layStock(s: GameState, r: ResourceId, want: number): number {
-  const before = s.resources[r] ?? 0;
-  s.resources[r] = want > 0 ? Math.max(before, Math.min(storageCap(s), before + want)) : Math.max(0, before + want);
-  return s.resources[r] - before;
-}
+export const layStock = (s: GameState, r: ResourceId, want: number): number => addStock(s, r, want);
 
 /** Число со знаком для летописи: +500, −10. */
 const signed = (n: number): string => (n > 0 ? `+${n}` : `−${Math.abs(n)}`);

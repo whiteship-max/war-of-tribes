@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { serverNow } from '@/net/clock';
 import { useGame } from '@/game/store';
-import { DAILY_GAME_BY_ID, dayIndex, untilNextDay } from '@/game/data/daily';
+import { DAILY_GAME_BY_ID, dailyGameOf, dayIndex, untilNextDay } from '@/game/data/daily';
 import { dailyReward, dailyStatus } from '@/game/sim/daily';
 import { finishDaily, startDaily } from '@/game/sim/actions';
 import { Social } from '../Social';
@@ -12,6 +12,8 @@ import { Icon } from '@/ui/icons/Icon';
 import { realHoursMin } from '@/ui/parts/wait';
 import { nextFrame } from '@/render/loop';
 import { iconName } from '@/ui/icons/registry';
+import { overflowOf } from '@/game/sim/stockview';
+import { askRoom } from '@/ui/room';
 
 /**
  * Вторая страница «Заданий»: сперва ежедневная мини-игра, потом социальные
@@ -66,9 +68,12 @@ export function DailyPage() {
   const def = DAILY_GAME_BY_ID[st.game];
   const reward = dailyReward(s, st.game);
 
-  const begin = (): void => {
+  const begin = async (): Promise<void> => {
     setResult(null);
     const today = dayIndex(serverNow());
+    // Награда победы не влезет на склад — спросить до попытки, а не после неё (OWNER-DECISIONS, п. 1): награда ложится сама
+    // в конце игры, и «Отмена» после победы сожгла бы попытку. «Отмена» здесь — попытка не тронута.
+    if (!(await askRoom(overflowOf(useGame.getState().s, dailyReward(useGame.getState().s, dailyGameOf(today)))))) return;
     if (!act((g) => startDaily(g, today))) return;
     setAttempt(today);
     setPlaying(true);
@@ -166,7 +171,7 @@ export function DailyPage() {
         </div>
       ) : (
         <>
-          <button className="btn wide" onClick={begin}>
+          <button className="btn wide" onClick={() => void begin()}>
             Начать
           </button>
           <div className="note">

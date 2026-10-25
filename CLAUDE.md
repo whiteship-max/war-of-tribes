@@ -356,6 +356,10 @@ HEAD один на всех, см. правило 8). Значит развес�
   (`grantPrivilege`, `revokePrivilege`, `giftEstate`, `estatesStep`, чтение `mergeEstates`); влияние, лояльность, сила, плюс,
   минус, ропот и потолки — `estaterules`, одни на игру и на книгу сословий сервера (правило «estates», `WatchCard.estates`).
   Разойдись они у двоих — сервер счёл бы подделкой честную опору или пропустил бы указ сословия, которое его не открывало;
+- `src/game/sim/stock.ts` и `src/game/stockrules.ts` — склад (ECO-1, docs/handbook/economy.md, «Склад»): одна дверь прибавки и
+  убавки (`addStock`) и правило «не выше вместимости, не ниже нуля» (`fitStock`), одно на партию и на книгу запасов сервера
+  (`netlify/lib/goods.ts`). Разойдись правило у двоих — сервер держал бы склад, которого у игрока нет, или флагом звал бы
+  честный склад «сверх вместимости»;
 - `src/game/sim/market.ts`, `src/game/sim/caravan.ts`, `src/game/marketrules.ts` и `src/game/shift.ts` — рынок (РН-1, docs/city_v3.md, «Решения
   РН-1» и «РН-1б»): `GameState.market` — счёт привоза, уровень, закреплённый на привоз, нажим на цену и последние сделки
   (необязательные поля, версия не растёт); сделки пишет одна дверь `sim/market` (`buyGoods`, `sellGoods`), новый привоз и
@@ -667,6 +671,9 @@ HEAD один на всех, см. правило 8). Значит развес�
   `security.test.ts`; economy).
 - **Палец** — `src/gestures.ts`, один судья на деревню и карту (gestures).
 - **Плата со склада** — `sim/pay` (`pay`, `refund`); цена в интерфейсе — `ui/parts/Cost.tsx` (ui, economy).
+- **Склад** — не выше вместимости и не ниже нуля: одна дверь `sim/stock.addStock` (правило `stockrules.fitStock`, общее с
+  книгой запасов сервера); излишек при упавшей вместимости — `trimStock` строкой летописи; действие игрока, которое не
+  влезает, — окно «Склад заполнен» (`ui/room`, предпросмотр `sim/stockview`) (`sim/stock.test.ts`; economy).
 - **Рынок** — сделка одна дверь `sim/market` (`buyGoods`, `sellGoods`; отмены нет), правила — `marketrules` (привоз каждые 3
   часа по UTC, уровень закреплён на привоз — `sim/caravan.rollShift`, нажим и его отход, `SALE_SHARE` и кошель `PURSE` — выводом
   `npm run market:report -- --derive`); чтения — `sim/market` с настоящей минутой (`marketPrice`, `marketSellPrice`,
@@ -689,7 +696,7 @@ HEAD один на всех, см. правило 8). Значит развес�
   (`rt1.test.ts`; ui).
 - **Очередь стройки** — чтение `derived.buildQueue` (начатое — первым, `currentSite` — первое место), запись `sim/actions`
   (`startUpgrade`, `cancelUpgrade`, `moveUpgrade`), длина `BUILD_QUEUE_MAX`, возврат `labour.cancelRefund`; ускоряется только
-  строящееся (`sim/gems.rushQueued`, сервер — `town.rushFloor`); сервер держит порядок и возврат (`town.queueFaults`,
+  строящееся (`sim/rush.rushQueued`, сервер — `town.rushFloor`); сервер держит порядок и возврат (`town.queueFaults`,
   `watch.cancelledRefund`) (`sim/queue.test.ts`, `security.test.ts`; village, docs/ui_v2.md, 5.13).
 - **Держава** — очки `sim/points` (`bank`, `spend`), гейт `sim/tech` (поля `requiresTech` нет — тест),
   дом правителя `sim/dynasty` (realm).

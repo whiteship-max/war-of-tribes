@@ -9,11 +9,11 @@
 // уплачены. Войско за алмазы не продаётся.
 //
 // Цены — общие с сервером (`game/gemrules.ts`): кнопка показывает ровно то, что сервер спишет.
-import type { Building, GameState, ResourceId } from '../types';
+import type { Building, GameState } from '../types';
 import { GEM_LIMITS, readGemNumbers, type GemEntry } from '../../../netlify/lib/contract';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { buildingById, buildingTitle, currentSite, isSite, storageCap, underSiege } from '../derived';
-import { RESOURCE_META, SIEGE_NO_TRADE } from '../constants';
+import { buildingTitle, isSite } from '../derived';
+import { RESOURCE_META } from '../constants';
 import { SHOP_LOT, gemLine, rushPriceOfWork, rushSeconds } from '../gemrules';
 import { layStock } from './admin';
 import { log } from './log';
@@ -59,62 +59,10 @@ export const rushPrice = (b: Building): number => rushPriceOfWork(rushWork(b));
 export const rushLeft = (b: Building): number => rushSeconds(rushWork(b));
 
 /** Достроить стройку: уровень вверх, стройка снята — следующая в очереди становится первой сама. */
-function finish(b: Building): void {
+export function finish(b: Building): void {
   b.level += 1;
   b.work = 0;
   b.workRequired = 0;
-}
-
-/**
- * Ускорить даром — последние пять минут ожидания. Приказа серверу нет и сеть не нужна: алмазы не тратятся. Дороже —
- * только приказом (`net/gems.orderRush`), и тогда стройку достраивает дело с сервера (`applyGemDeeds`).
- */
-export function rushFree(s: GameState, buildingId: number): string | null {
-  const b = buildingById(s, buildingId);
-  if (!b) return 'Здание не найдено.';
-  if (!isSite(b)) return 'Здесь ничего не строится.';
-  const queued = rushQueued(s, b);
-  if (queued) return queued;
-  if (rushPrice(b) > 0) return 'Даром ускоряются только последние пять минут.';
-  finish(b);
-  log(s, `${buildingTitle(s, b.type)}: ур. ${b.level}, ускорено даром.`, 'good', undefined, 'build');
-  return null;
-}
-
-/**
- * Ускоряется только строящееся — первое в очереди стройки (СТ-1, docs/ui_v2.md): ждущие в очереди ещё не строятся, и
- * ускорить их — то же, что строить два разом. Сервер отказывает в ускорении ждущего по своей книге (`town.rushFloor`).
- */
-export function rushQueued(s: GameState, b: Building): string | null {
-  return isSite(b) && currentSite(s)?.id !== b.id ? 'Ускоряется только строящееся — первое в очереди.' : null;
-}
-
-/**
- * Почему ускорить за алмазы нельзя прямо сейчас; `null` — можно. `balance` — баланс с сервера, `null` — сервера не
- * слышно (без сети траты алмазов нет); `offline` — причина словами, если сервера не слышно.
- */
-export function rushBlocked(b: Building, balance: number | null, offline: string | null): string | null {
-  if (!isSite(b)) return 'Здесь ничего не строится.';
-  if (rushPrice(b) === 0) return null;
-  if (offline !== null || balance === null) return offline ?? 'Нет связи: алмазы тратятся только при связи.';
-  if (balance < rushPrice(b)) return 'Не хватает алмазов.';
-  return null;
-}
-
-// ------------------------------------------------ лавка ---
-
-/** Сколько места на складе под этот припас. */
-export const shopRoom = (s: GameState, r: ResourceId): number => Math.max(0, Math.floor(storageCap(s) - (s.resources[r] ?? 0)));
-
-/** Почему купить в лавке нельзя прямо сейчас; `null` — можно. Сто единиц сверх вместимости не покупаются. */
-export function shopBlocked(s: GameState, r: ResourceId, price: number, balance: number | null, left: number, offline: string | null): string | null {
-  // В осаде торговли нет (`SIEGE_NO_TRADE`): лавка — тот же обоз к городу, и купленное снимало бы голод осады.
-  if (underSiege(s)) return SIEGE_NO_TRADE;
-  if (shopRoom(s, r) < SHOP_LOT) return `Склад полон: ${SHOP_LOT} ${RESOURCE_META[r].name.toLowerCase()} не поместится.`;
-  if (offline !== null || balance === null) return offline ?? 'Нет связи: алмазы тратятся только при связи.';
-  if (left <= 0) return 'На сегодня покупки кончились.';
-  if (balance < price) return 'Не хватает алмазов.';
-  return null;
 }
 
 // ------------------------------------------------ дела с сервера ---

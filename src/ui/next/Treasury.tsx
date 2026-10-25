@@ -7,7 +7,8 @@
 import { Suspense, lazy, useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { RESOURCE_META } from '@/game/constants';
-import { SHOP_DAILY, SHOP_GOODS, SHOP_LOT, shopBlocked, shopPrice, shopRoom } from '@/game/sim/gems';
+import { SHOP_DAILY, SHOP_GOODS, SHOP_LOT, shopPrice } from '@/game/sim/gems';
+import { shopBlocked, shopRoom } from '@/game/sim/gemview';
 import { gemLine, shopResetAt } from '@/game/gemrules';
 import { buildingTitle } from '@/game/derived';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
@@ -25,6 +26,8 @@ import { gemsTip } from './hudTips';
 import { tipAt } from './tip';
 import { Table, type Col } from '@/ui/kit/Table';
 import { iconName } from '@/ui/icons/registry';
+import { overflowOf } from '@/game/sim/stockview';
+import { askRoom } from '@/ui/room';
 
 /**
  * Лавка сегодня по часам сервера — одни часы на лавку и подсказку плашки: «сейчас», от которого считают сутки (полночь
@@ -136,6 +139,8 @@ function Shop() {
   const left = Math.max(0, SHOP_DAILY - used);
   const offline = gemsOffline({ balance, at, why }, now);
   const buy = async (r: (typeof SHOP_GOODS)[number]): Promise<void> => {
+    // Сто не влезут — сначала окно «Склад заполнен»; «Отмена» — приказа нет, алмазы не списаны (OWNER-DECISIONS, п. 1).
+    if (!(await askRoom(overflowOf(useGame.getState().s, { [r]: SHOP_LOT })))) return;
     const err = await orderBuy(r);
     if (err) toast(err);
   };

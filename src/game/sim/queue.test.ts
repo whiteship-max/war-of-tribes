@@ -6,7 +6,7 @@ import { BUILDING_BY_ID } from '../data/buildings';
 import { cancelRefund } from '../labour';
 import type { BuildingTypeId, GameState } from '../types';
 import { cancelUpgrade, moveBlock, moveUpgrade, startUpgrade } from './actions';
-import { rushFree, rushQueued } from './gems';
+import { rushFree, rushQueued } from './rush';
 import { tick } from './tick';
 import { deserialize, serialize } from '../save';
 

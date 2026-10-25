@@ -14,8 +14,9 @@
 // посреди игры энергию потерял — и зайдёт в новую раскладку (зерно — от отметки, она сдвинулась), а не переиграет те же
 // кусты наизусть. Поход в сохранение не едет: второго поля не нужно. Пишет поле только этот модуль.
 import type { GameState, ResourceId } from '../types';
-import { RESOURCE_IDS, RESOURCE_META } from '../constants';
-import { productionPerDay, storageCap } from '../derived';
+import { RESOURCE_IDS } from '../constants';
+import { productionPerDay } from '../derived';
+import { addStock, stockWords } from './stock';
 import { gameDaysOfMs } from '../pace';
 import { YARD_BY_JOB } from '../data/yards';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_BY_ID, MINIGAME_COST, MINIGAME_SHARE, MINIGAMES, type MinigameId } from '../data/minigames';
@@ -150,23 +151,21 @@ export function harvest(s: GameState, outing: Outing, now: number, score: number
   if (!unpaid.delete(outing)) return 'Добыча уже засчитана';
   const id = outing.id;
   const got = minigameHaul(s, id, score);
-  const cap = storageCap(s);
   const stored: Haul = {};
   for (const r of RESOURCE_IDS) {
     const n = got[r];
     if (!n) continue;
-    const room = Math.max(0, Math.floor(cap - s.resources[r]));
-    const put = Math.min(n, room);
-    if (put > 0) {
-      s.resources[r] += put;
-      stored[r] = put;
-    }
+    // Целыми, как их видит игрок: дробь, которую склад ещё вмещал, — не добыча.
+    const before = Math.floor(s.resources[r]);
+    addStock(s, r, n);
+    const put = Math.floor(s.resources[r]) - before;
+    if (put > 0) stored[r] = put;
   }
   const def = MINIGAME_BY_ID[id];
   // Счёт промыслов и их добычи — для наблюдения сервера (docs/admin.md): что легло на склад, а не что выиграно.
   s.stats.games = (s.stats.games ?? 0) + 1;
   s.stats.haul = (s.stats.haul ?? 0) + Object.values(stored).reduce((t, n) => t + (n ?? 0), 0);
-  log(s, `Промысел «${def.name}»: ${haulWords(stored) || 'склад полон'}.`, 'good');
+  log(s, `Промысел «${def.name}»: ${stockWords(stored, '+') || 'склад полон'}.`, 'good');
   return { got, stored, energy: energyShown(s, now) };
 }
 
@@ -176,11 +175,4 @@ export function harvest(s: GameState, outing: Outing, now: number, score: number
  */
 export function refillEnergy(s: GameState): void {
   delete s.energyFull;
-}
-
-/** Добыча словами для летописи: «еда +106, шкуры +9». Пусто — пустая строка. */
-function haulWords(h: Haul): string {
-  return RESOURCE_IDS.filter((r) => h[r])
-    .map((r) => `${RESOURCE_META[r].name.toLowerCase()} +${h[r]}`)
-    .join(', ');
 }

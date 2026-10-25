@@ -56,6 +56,7 @@ import { goTo } from '@/ui/kit/nav';
 import { WINDOW, sourceWord } from '@/ui/kit/sources';
 import { RushButton } from './Rush';
 import { iconName } from '@/ui/icons/registry';
+import { actRoom } from '@/ui/room';
 
 /** Кнопка «Точно?» живёт своим модулем (`Confirm.tsx`): ею пользуются и держава, и найм. */
 export { CONFIRM_MS, Confirm } from './Confirm';
@@ -143,7 +144,7 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
               <i style={{ width: `${share}%` }} />
             </i>
           </div>
-          <Confirm label="Отменить" onConfirm={() => act((st) => cancelUpgrade(st, b.id))} />
+          <Confirm label="Отменить" onConfirm={() => actRoom((st) => cancelUpgrade(st, b.id))} />
         </div>
       )}
       {/* Ускорение за алмазы — от оставшегося времени, последние пять минут даром (docs/gems.md). */}
