@@ -4710,6 +4710,16 @@ export class LocalWorld implements WorldApi {
       for (const key of Object.keys(deals) as DealId[]) {
         const pact = deals[key];
         if (!pact) continue;
+        if (key === 'tribute' || key === 'trade') {
+          // Догон офлайна платит за каждый пропущенный срок, а не один раз: иначе
+          // выгоднее было бы не отходить от экрана. Сроки — до конца договора: истёк он,
+          // пока игрока не было, — сперва выплата, потом снятие (MAP-1).
+          const upTo = Math.min(now, pact.until);
+          for (let guard = 0; guard < 200 && upTo - pact.paidAt >= DEAL_PAYOUT; guard++) {
+            pact.paidAt += DEAL_PAYOUT;
+            this.payPact(tribeId, key, pact.paidAt);
+          }
+        }
         if (now >= pact.until) {
           delete deals[key];
           this.addEffect({
@@ -4722,14 +4732,6 @@ export class LocalWorld implements WorldApi {
             text: `Договор «${DEAL_BY_ID[key].name}» с державой ${this.tribeName(tribeId)} истёк.`,
             good: false,
           });
-          continue;
-        }
-        if (key !== 'tribute' && key !== 'trade') continue;
-        // Догон офлайна платит за каждый пропущенный срок, а не один раз: иначе
-        // выгоднее было бы не отходить от экрана.
-        for (let guard = 0; guard < 200 && now - pact.paidAt >= DEAL_PAYOUT; guard++) {
-          pact.paidAt += DEAL_PAYOUT;
-          this.payPact(tribeId, key, pact.paidAt);
         }
       }
     }
