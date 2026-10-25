@@ -91,15 +91,15 @@ export function dailyReward(s: GameState, game: DailyGameId): Partial<Record<Res
 
 /**
  * Игрок берётся за сегодняшнее задание. Попытка тратится здесь, а не на победе,
- * и записывается сразу как проигранная: уйти с экрана посреди лабиринта и зайти
- * заново — это и есть вторая попытка, а её быть не должно. Победа потом поднимет
- * запись до выигранной.
+ * и записывается сразу как начатая: уйти с экрана посреди лабиринта и зайти
+ * заново — это и есть вторая попытка, а её быть не должно. Итог потом закроет
+ * запись выигранной или проигранной.
  */
 export function startDaily(s: GameState, day: number): string | null {
   if (day < s.daily.day) return 'Задание за этот день уже сыграно.';
   const st = dailyStatus(s, day);
   if (st.played) return st.won ? 'Сегодняшнее задание уже выполнено.' : 'Попытка на сегодня потрачена.';
-  s.daily = { day, result: 'lost' };
+  s.daily = { day, result: 'started' };
   return null;
 }
 
@@ -107,15 +107,18 @@ export function startDaily(s: GameState, day: number): string | null {
  * Итог попытки. Победа кладёт награду на склад, поражение только закрывает день:
  * повтора сегодня нет, в этом и весь вес одной попытки.
  *
- * Кнопке здесь не верят: без начатой попытки итог не принимается, и второй раз
- * за день выиграть нельзя, сколько ни перезагружай страницу.
+ * Кнопке здесь не верят: итог принимается только у начатой и ещё не законченной
+ * попытки — без неё, второй раз за день и победой после поражения (ECO-5) не
+ * засчитывается ничего, сколько ни перезагружай страницу.
  */
 export function finishDaily(s: GameState, day: number, won: boolean): string | null {
   if (s.daily.day !== day || s.daily.result === 'none') return 'Задание на сегодня не начато.';
   if (s.daily.result === 'won') return 'Сегодняшнее задание уже выполнено.';
+  if (s.daily.result !== 'started') return 'Попытка на сегодня потрачена.';
   const game = dailyGameOf(day);
   const def = DAILY_GAME_BY_ID[game];
   if (!won) {
+    s.daily = { day, result: 'lost' };
     log(s, `Задание дня «${def.name}» не далось. Завтра будет новое.`);
     return null;
   }
