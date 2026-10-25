@@ -9,7 +9,7 @@ import type { Telegram } from './telegram.js';
 import { FROZEN_KEY } from './admin.js';
 import { ERA_KEY, WIPED, eraNow, wipeWorld } from './era.js';
 import { creditGems, openLedger, readLedger, type GemLedger } from './gems.js';
-import { KEEP, PAY_HARD_MAX, checkOrders, PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor, readRefund, trimmed, type RefundEntry, type StoredOrder } from './pay.js';
+import { KEEP, PAY_HARD_MAX, checkOrders, readPaidMark, PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor, readRefund, trimmed, type RefundEntry, type StoredOrder } from './pay.js';
 import { CHAIN, FORWARD_TON, MAINNET_USDT, OP_NOTIFY, OP_TRANSFER, PAGES, PAY_ENV, payConfig, readNotice, type Fetch, type PayConfig } from './ton.js';
 import { ERA_HEADER, payComment, type GemsResponse, type PayResponse } from './contract.js';
 import { START_GEMS } from '../../src/game/gemrules.js';
@@ -782,6 +782,141 @@ describe('смена эпохи и платежи: заказ прошлой э�
     expect(stored.orders.find((x) => x.id === o!.id)?.era).toBe(0);
     expect((await call(s, p, undefined, NOW + 12_000, 1)).credited).toBeUndefined();
     expect([purchases(s, p), await balance(s, p, 1)]).toEqual([1, START_GEMS + 100]);
+  });
+});
+
+describe('нагрузка: тысяча транзакций, просроченные заказы и смена эпохи — ни одного двойного начисления', () => {
+  /**
+   * Двадцать пять игроков, по три заказа; в сети — тысяча транзакций: платежи вовремя и поздно, неверная сумма и потом
+   * верная, двойная оплата, неоплаченные, поздние сверх недели, неизвестные номера, поддельный жетон, нефинальные и
+   * поток чужих. Игроки проверяют вразнобой; у каждого пятого книга алмазов до чистого старта не принимает запись — его
+   * оплаченные заказы встречают стирание «оплачен, не начислен». Посреди потока — `/wipeworld`.
+   * Итог сверяется по каждому заказу: верный платёж начислен ровно один раз за все эпохи, остальное — в очереди возвратов.
+   */
+  it('каждый верный платёж — одно начисление за все эпохи; неверные — в очереди возвратов по разу; хеш занят одним заказом', async () => {
+    const s = memoryStores();
+    const T0 = NOW;
+    type Kind = 'ontime' | 'late' | 'wrongThenRight' | 'double' | 'never' | 'lateBeyond';
+    type Planned = { at: number; units?: bigint; comment?: string; source?: Address; final?: boolean; tag?: string };
+    const players = Array.from({ length: 25 }, () => player());
+    const W = new Set(players.filter((_, i) => i % 5 === 0));
+    const refusing: Stores = ((name: StoreName, c?: 'strong' | 'eventual') => {
+      const kv = s.stores(name, c);
+      return name === STORES.gems ? { ...kv, setJSON: async () => ({ modified: false }) } : kv;
+    }) as Stores;
+    const storesOf = (p: number, era: number): Stores => (era === 0 && W.has(p) ? refusing : s.stores);
+
+    // Заказы: по три у каждого, все открыты разом.
+    const orders: { id: string; p: number; at: number; usdt: number; gems: number; kind: Kind }[] = [];
+    let j = 0;
+    for (const [i, p] of players.entries()) {
+      for (let k = 0; k < 3; k++, j++) {
+        const at = T0 + i * 10_000 + k * 2000;
+        const pack = j % 2 ? 'pouch' : 'handful';
+        const r = await order(s, p, pack, at);
+        const o = r.order!;
+        const kind: Kind = j % 10 <= 5 ? 'ontime' : j % 10 === 6 ? 'late' : j % 10 === 7 ? 'wrongThenRight' : j % 10 === 8 ? 'double' : j === 9 || j === 19 ? 'lateBeyond' : 'never';
+        orders.push({ id: o.id, p, at, usdt: o.usdt, gems: o.gems, kind });
+      }
+    }
+
+    // План сети.
+    const plan: Planned[] = [];
+    orders.forEach((o, n) => {
+      const u = units(o.usdt);
+      const c = payComment(o.id);
+      if (o.kind === 'ontime') plan.push({ at: o.at + 30_000 + (n % 7) * 5000, units: u, comment: c, final: n % 20 !== 0, tag: n % 20 === 0 ? 'held' : undefined });
+      if (o.kind === 'late') plan.push({ at: o.at + 2 * 3600_000, units: u, comment: c });
+      if (o.kind === 'wrongThenRight') plan.push({ at: o.at + 40_000, units: u + 1n, comment: c }, { at: o.at + 3 * 3600_000, units: u, comment: c });
+      if (o.kind === 'double') plan.push({ at: o.at + 50_000, units: u, comment: c }, { at: o.at + 55_000, units: u, comment: c });
+      if (o.kind === 'lateBeyond') plan.push({ at: o.at + 8 * 24 * 3600_000, units: u, comment: c });
+    });
+    for (let k = 0; k < 5; k++) plan.push({ at: T0 + 20 * 60_000 + k * 60_000, units: units(5), comment: payComment(`QQQQQQQQQ${k + 2}`) });
+    for (let k = 0; k < 20; k++) plan.push({ at: T0 + 10 * 60_000 + k * 1000, units: units(orders[k].usdt), comment: payComment(orders[k].id), source: walletOf(FAKE_MASTER, PROJECT) });
+    const real = plan.length;
+    for (let k = 0; plan.length < 1000; k++) plan.push({ at: T0 + 60_000 + ((k * 7919) % (5 * 3600_000)) });
+    expect(plan).toHaveLength(1000);
+    plan.sort((a, b) => a.at - b.at);
+    let shown = 0;
+    const held: string[] = [];
+    const reveal = (t: number): void => {
+      while (shown < plan.length && plan[shown].at <= t) {
+        const x = plan[shown++];
+        if (x.units === undefined) chain.noise(1, x.at);
+        else {
+          const h = chain.notify({ units: x.units, comment: x.comment!, at: x.at, ...(x.source ? { source: x.source } : {}), ...(x.final === false ? { final: false } : {}) });
+          if (x.tag === 'held') held.push(h);
+        }
+      }
+    };
+    const check = async (p: number, t: number, era: number): Promise<void> => {
+      reveal(t);
+      await call(s, p, undefined, t, era, storesOf(p, era));
+    };
+
+    // Волна 1: после заказов до полутора часов, раз в минуту — треть игроков вразнобой, по пять разом.
+    for (let tick = 5; tick <= 85; tick++) {
+      const t = T0 + tick * 60_000;
+      // Нефинальные записываются в мастерчейн на сороковой минуте — внутри часа (`STUCK_MS`), как бывает в сети.
+      if (tick === 40) for (const h of held) chain.txs.find((x) => x.hash === h)!.mc_block_seqno = 777;
+      const who = players.filter((_, i) => (tick + i) % 3 === 0);
+      for (let b = 0; b < who.length; b += 5) await Promise.all(who.slice(b, b + 5).map((p, q) => check(p, t + q, 0)));
+    }
+    // До стирания: что начислено в эпохе 0.
+    const keysOf = (): Set<string> => new Set(players.flatMap((p) => (s.ledger(p)?.list ?? []).filter((e) => e.kind === 'purchase').map((e) => e.key)));
+    const before = keysOf();
+    expect(before.size, 'точка внутри области: до стирания начисления были').toBeGreaterThan(10);
+    const pending = orders.filter((o) => W.has(o.p) && (JSON.parse(s.data.get(STORES.pay)!.get(`tg-${o.p}`)!.value) as { orders: StoredOrder[] }).orders.find((x) => x.id === o.id)?.state === 'paid');
+    expect(pending.length, 'точка внутри области: стирание застаёт «оплачен, не начислен»').toBeGreaterThan(3);
+    expect(typeof (await wipeWorld(s.stores, ADMIN, T0 + 90 * 60_000))).toBe('object');
+
+    // Волна 2: эпоха 1, до пяти часов.
+    for (let tick = 0; tick <= 105; tick++) {
+      const t = T0 + 91 * 60_000 + tick * 120_000;
+      const who = players.filter((_, i) => (tick + i) % 2 === 0);
+      for (let b = 0; b < who.length; b += 5) await Promise.all(who.slice(b, b + 5).map((p, q) => check(p, t + q, 1)));
+    }
+    // Через восемь с лишним суток: у одного игрока новый заказ (просмотр идёт, пока что-то ищется), все заходят.
+    const late = T0 + 8 * 24 * 3600_000 + 2 * 3600_000;
+    reveal(late);
+    await call(s, players[1], { op: 'order', pack: 'handful', wallet: PLAYER_WALLET.toString({ testOnly: true }), chain: CHAIN.testnet }, late, 1);
+    for (const [i, p] of players.entries()) await check(p, late + 10_000 + i * 1000, 1);
+    expect(shown).toBe(1000);
+
+    // Итог по каждому заказу.
+    const after = keysOf();
+    const stateOf = (o: { p: number; id: string }): string | undefined =>
+      (JSON.parse(s.data.get(STORES.pay)!.get(`tg-${o.p}`)!.value) as { orders: StoredOrder[] }).orders.find((x) => x.id === o.id)?.state;
+    for (const o of orders) {
+      const key = `pay:${o.id}`;
+
+      const credits = (before.has(key) ? 1 : 0) + (after.has(key) ? 1 : 0);
+      const valid = o.kind !== 'never' && o.kind !== 'lateBeyond';
+      expect([o.kind, credits], o.id).toEqual([o.kind, valid ? 1 : 0]);
+      expect([o.kind, stateOf(o)], o.id).toEqual([o.kind, valid ? 'credited' : 'expired']);
+    }
+    // Начисленное до стирания у тех, чья книга писала, в новой эпохе не повторилось.
+    expect([...before].filter((k) => after.has(k))).toEqual([]);
+    // Каждый игрок в новой эпохе: стартовые плюс то, что легло в ней, — и ни записи сверх.
+    // (Книги нет — в новой эпохе игроку нечего было начислять, и `/api/pay` книгу не открывает.)
+    for (const p of players) {
+      const l = s.ledger(p);
+      if (!l) continue;
+      const got = l.list.filter((e) => e.kind === 'purchase').reduce((t, e) => t + e.delta, 0);
+      expect(l.balance, `tg-${p}`).toBe(START_GEMS + got);
+    }
+    // Очередь возвратов: неверная сумма, вторая оплата, поздние сверх недели, неизвестные номера; поддельный жетон — нет.
+    const queue = [...s.data.get(STORES.pay)!.entries()].filter(([k]) => k.startsWith('refund/')).map(([, v]) => readRefund(JSON.parse(v.value))!);
+    const count = (k: Kind): number => orders.filter((o) => o.kind === k).length;
+    const whys = (re: RegExp): number => queue.filter((e) => re.test(e.why)).length;
+    expect([whys(/сумма не та/), whys(/повторная оплата/), whys(/поздний/), whys(/не выдавал/)]).toEqual([count('wrongThenRight'), count('double'), count('lateBeyond'), 5]);
+    expect(queue).toHaveLength(count('wrongThenRight') + count('double') + count('lateBeyond') + 5);
+    expect(told).toHaveLength(queue.length);
+    // Перевод занят одним заказом; занятых — ровно верных платежей.
+    const marks = [...s.data.get(STORES.paid)!.values()].map((v) => readPaidMark(JSON.parse(v.value))!);
+    expect(marks).toHaveLength(orders.filter((o) => o.kind !== 'never' && o.kind !== 'lateBeyond').length);
+    expect(new Set(marks.map((m) => m.order)).size).toBe(marks.length);
+    expect(real, 'настоящих переводов в плане — меньше тысячи, остальное поток').toBeLessThan(1000);
   });
 });
 
