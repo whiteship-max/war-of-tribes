@@ -55,7 +55,7 @@ describe('отметки полководца в слепке — по само�
     const ctx = { roster, sheet: (k: string) => sheets.get(k) ?? null };
     const file = emptyWars() as WarFile;
     const go = (pips: Record<string, number>, at: number): WarRow => {
-      const army: WarArmy = { troops: { spearman: 300 }, resolve: 0, pips, energy: { value: ENERGY_MAX, at, mode: 'home' } };
+      const army: WarArmy = { troops: { spearman: 300 }, resolve: 0, pips, energy: { value: ENERGY_MAX, at, mode: 'fill' } };
       expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army }, at, ctx)).toBeNull();
       return file.wars[file.wars.length - 1] as WarRow;
     };
