@@ -44,7 +44,7 @@ import type { BuildingTypeId, EstateId, ResourceId } from '../../src/game/types.
 import { rewrite } from './admin.js';
 import { bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
 import { builtForged, buildStep, keyOf, eatFloorOf, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
-import { goodsStep, readGoods, sheetShort, type GoodsBook } from './goods.js';
+import { bondedStep, goodsStep, readGoods, sheetShort, type GoodsBook } from './goods.js';
 import { marketFaults } from './market.js';
 import { DEEDS_PER_MIN_MAX, deedGain, deedTroops, deedsFlag, type DeedKnown } from './deeds.js';
 import { BOOST_MAX } from '../../src/game/marketrules.js';
@@ -121,7 +121,8 @@ export type FlagKind =
   | 'estates'
   | 'market'
   | 'starve'
-  | 'deeds';
+  | 'deeds'
+  | 'bonded';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -153,6 +154,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   market: 'сделки рынка',
   starve: 'сдача голодом при хлебе',
   deeds: 'счёт разовых дел',
+  bonded: 'невольники сверх подтверждённых',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -160,7 +162,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'estates' | 'market' | 'starve' | 'deeds';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'estates' | 'market' | 'starve' | 'deeds' | 'bonded';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -266,6 +268,13 @@ export const CITY_RULES: readonly CityRule[] = [
     formula: 'deeds.deedGain, deedLoss, deedTroops; data/deedgain (scripts/deeds/derive.ts)',
     flag: 'deeds',
     act: 'флаг; сверх скорости дела в допуск не идут',
+  },
+  {
+    id: 'bonded',
+    rule: 'невольники не больше прихода, который подтверждает сервер: уведённые войной, купленные на рынке, пленные боёв мира по таблице наград (уводимые на бойца); расход — книга за описью вниз; продано не больше книги',
+    formula: 'goods.bondedStep, deeds.deedBonded, data/deedgain.fight.led (world/data/units.escort)',
+    flag: 'bonded',
+    act: 'в расход хлеба и руки стройки — подтверждённое; продажа сверх книги — отказ; флаг',
   },
 ];
 
@@ -1138,6 +1147,8 @@ export function booked(
   if (!raw) return rec;
   // Опись устройства, ещё не открывшего новую сборку, — прежним форматом: книги считают по сведённой переходом ЗД-1.
   const watch = foldCard(raw);
+  // Книга невольников (АУ-8, п. 2): приход — войны, рынок и бои мира по таблице; в руки стройки и расход хлеба — подтверждённые.
+  const bonds = bondedStep(rec.goods?.bonds, prior.card, prior.at, watch, at, { file: wars, key, seen: seen ?? [] });
   const town0 = townOf(rec, at);
   // Староста подтверждённого совета (РТ-1) — при ратуше книги стройки: его стройка быстрее, и потолок растёт той же долей; цехи
   // в силе (РТ-2) — так же, по подтверждённым уровням. Крестьяне в силе прибавляют прироста — потолок жителей растёт той же долей.
@@ -1147,7 +1158,7 @@ export function booked(
   const claim = {
     buildings: watch.buildings,
     pop: watch.pop,
-    bonded: watch.bonded,
+    bonded: Math.min(watch.bonded ?? 0, bonds.book.n),
     queued: watch.queued,
     site: watch.site,
     queue: watch.queue,
@@ -1179,9 +1190,21 @@ export function booked(
     soldiers: army.after + people.book.queued,
     council: councilWage(watch, levelIn(people.book.levels, 'town_hall')),
     estates: estateCeilOf(watch, people.book.levels),
+    bonded: bonds.book.n,
   });
-  const next = { ...rec, book: step.book, town: people.book, goods: goods.book };
+  const next = { ...rec, book: step.book, town: people.book, goods: { ...goods.book, bonds: bonds.book } };
   const found: { kind: FlagKind; text: string }[] = [];
+  if (bonds.refused > 0) {
+    found.push({
+      kind: 'bonded',
+      text: `Продано невольников сверх книги на ${big(bonds.refused)}: столько у города не было по приходу, который знает сервер. Продажу сервер не принимает.`,
+    });
+  } else if (bonds.over > 0) {
+    found.push({
+      kind: 'bonded',
+      text: `Невольников заявлено ${big(watch.bonded ?? 0)}, сервер подтверждает ${big(bonds.book.n)} — сверх уведённых войной, купленных на рынке и пленных боёв на ${big(bonds.over)}. В расход хлеба и руки стройки идут подтверждённые.`,
+    });
+  }
   if (goods.hidden.length) {
     const parts = goods.hidden.map((h) => `${stockWord(h.kind)} −${big(h.drop)} (расход позволял ${big(h.could)})`);
     found.push({

@@ -21,8 +21,11 @@ export interface DeedTable {
   loss: Row;
   /** Оно же: бойцы за одно. */
   troops: { flat: number; scale: number };
-  /** Бой (победа, логово, набег): груз на бойца и трофеи у ворот на единицу размера посёлка. */
-  fight: { carry: number; scale: Record<string, number> };
+  /**
+   * Бой (победа, логово, набег): груз на бойца, уводимые на бойца (невольники, книга невольников сервера — АУ-8, п. 2) и
+   * трофеи у ворот на единицу размера посёлка.
+   */
+  fight: { carry: number; led: number; scale: Record<string, number> };
   /** Промысел: доля дневной выработки вида за одну игру. */
   game: Record<string, number>;
   /** Дело лавки алмазов: лот. */
@@ -35,7 +38,7 @@ export const DEED_TABLE: DeedTable = {
   gain: { flat: { wood: 362, stone: 578, food: 722, hides: 386, charcoal: 2, copper: 290, iron: 290, gold: 2 }, scale: { wood: 108, stone: 84, food: 108, hides: 28.8, charcoal: 24, copper: 24, iron: 16.8, gold: 48 } },
   loss: { flat: { wood: 2, stone: 2, food: 2, hides: 2, charcoal: 2, copper: 2, iron: 2, gold: 2 }, scale: { wood: 24, stone: 9.6, food: 42, hides: 14.4, charcoal: 0, copper: 0, iron: 0, gold: 84 } },
   troops: { flat: 2, scale: 0 },
-  fight: { carry: 900, scale: { wood: 18, stone: 0, food: 0, hides: 6, charcoal: 0, copper: 0, iron: 0, gold: 0 } },
+  fight: { carry: 900, led: 6, scale: { wood: 18, stone: 0, food: 0, hides: 6, charcoal: 0, copper: 0, iron: 0, gold: 0 } },
   game: { wood: 0, stone: 0, food: 1.2, hides: 0.23, charcoal: 0, copper: 0, iron: 0, gold: 0 },
   shop: 120,
   caravan: { wood: 8024, stone: 6419, food: 1544, hides: 2442, charcoal: 2442, copper: 1605, iron: 1535, gold: 0 },

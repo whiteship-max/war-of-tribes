@@ -11,7 +11,8 @@
 //    сидах; прибавка, убавка (с ценой ответа), бойцы и трофеи у ворот, которые весть положила вызовом (`s.gate`), делятся на
 //    размер посёлка (`eventKit.scale` — так их считают сами вести);
 //  · задания — наибольшая награда по видам (постоянная часть); ежедневка — база награды на размер посёлка;
-//  · бой — груз бойца (`world/data/units`), промысел — доля дневной выработки за игру, лавка — лот, караван — привоз.
+//  · бой — груз бойца и уводимые на бойца (`world/data/units`), промысел — доля дневной выработки за игру, лавка — лот,
+//    караван — привоз.
 import { createInitialState } from '@/game/state';
 import { RESOURCE_IDS, START_POP } from '@/game/constants';
 import { buildingOfType, maxLevelFor, storageCap } from '@/game/derived';
@@ -183,7 +184,7 @@ export function deriveDeedTable(): DeedTable {
     gain: rowUp(otherFlat, otherScale),
     loss: rowUp(one, ev.loss),
     troops: { flat: up(1), scale: up(ev.troops, true) },
-    fight: { carry: up(Math.max(...UNITS.map((u) => u.carry))), scale: rowUp(one, ev.spoils).scale },
+    fight: { carry: up(Math.max(...UNITS.map((u) => u.carry))), led: up(Math.max(...UNITS.map((u) => u.escort))), scale: rowUp(one, ev.spoils).scale },
     game: Object.fromEntries(KEYS.map((k) => [k, up(gameShare()[k] ?? 0, true)])),
     shop: up(SHOP_LOT),
     caravan: Object.fromEntries(KEYS.map((k) => [k, up(caravanMax()[k] ?? 0)])),
@@ -217,8 +218,11 @@ export interface DeedTable {
   loss: Row;
   /** Оно же: бойцы за одно. */
   troops: { flat: number; scale: number };
-  /** Бой (победа, логово, набег): груз на бойца и трофеи у ворот на единицу размера посёлка. */
-  fight: { carry: number; scale: Record<string, number> };
+  /**
+   * Бой (победа, логово, набег): груз на бойца, уводимые на бойца (невольники, книга невольников сервера — АУ-8, п. 2) и
+   * трофеи у ворот на единицу размера посёлка.
+   */
+  fight: { carry: number; led: number; scale: Record<string, number> };
   /** Промысел: доля дневной выработки вида за одну игру. */
   game: Record<string, number>;
   /** Дело лавки алмазов: лот. */
@@ -231,7 +235,7 @@ export const DEED_TABLE: DeedTable = {
   gain: ${row(t.gain)},
   loss: ${row(t.loss)},
   troops: { flat: ${t.troops.flat}, scale: ${t.troops.scale} },
-  fight: { carry: ${t.fight.carry}, scale: ${counts(t.fight.scale)} },
+  fight: { carry: ${t.fight.carry}, led: ${t.fight.led}, scale: ${counts(t.fight.scale)} },
   game: ${counts(t.game)},
   shop: ${t.shop},
   caravan: ${counts(t.caravan)},

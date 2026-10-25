@@ -22,9 +22,11 @@ import { baseWage } from '../../src/game/battle/price.js';
 import { HORSE_MOUTHS, MASTER_PAID_AS } from '../../src/game/data/upkeep.js';
 import { TROOP_IDS } from '../../src/game/data/troops.js';
 import { fitStock } from '../../src/game/stockrules.js';
-import { deedLoss, type DeedKnown } from './deeds.js';
+import { BONDED_GOOD } from '../../src/game/data/market.js';
+import { deedBonded, deedLoss, type DeedKnown } from './deeds.js';
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
-import { STOCK_KEYS, readCounts, type Counts, type WarSheet, type WatchCard } from './contract.js';
+import { STOCK_KEYS, readCounts, warFallId, type Counts, type WarSheet, type WatchCard } from './contract.js';
+import type { WarFile } from './war.js';
 
 export interface GoodsBook {
   /** Минута записи партии, чья опись легла в книгу. Война берёт книгу, только если слепок лёг той же записью. */
@@ -33,6 +35,110 @@ export interface GoodsBook {
   have: Counts;
   /** Невольники описи — слепок обороны не меньше их. */
   bonded: number;
+  /**
+   * Книга невольников (АУ-8, п. 2): сколько их сервер подтверждает приходом — верхняя граница, в отличие от `bonded`. Нет —
+   * запись старше книги: её заводит первая же опись с текущего числа (`bondedStep`).
+   */
+  bonds?: BondedBook;
+}
+
+/**
+ * Книга невольников (АУ-8, п. 2; OWNER-DECISIONS п. 12, решение владельца 26.10.2026). Приход — только то, что подтверждает
+ * сервер: уведённые войной (запись войн, `WarFall.led` нападающего), купленные на рынке (сделки описи — их цену и привоз
+ * сверяет книга рынка, `market.marketFaults`), пленные боёв мира по таблице наград (`deeds.deedBonded`: мир живёт у клиента).
+ * Расход — продажа, отпуск, смерть, выкуп — книга идёт за описью вниз.
+ */
+export interface BondedBook {
+  /** Сколько невольников сервер подтверждает на минуту записи: не больше описи и прихода. */
+  n: number;
+  /**
+   * Приход, которого опись ещё может не показывать: уведённые войной, чьё падение клиент не принял (`WarSheet.seen`),
+   * купленные, пока караван в пути (`WatchCard.caravans`). Лежит, пока не показан, и входит в допуск каждой следующей записи.
+   */
+  due: { id: string; n: number }[];
+  /** Падения войны (`warFallId`), чьих уведённых книга уже засчитала: второй раз не засчитывает. */
+  led: string[];
+}
+
+/** Единица на дробь: невольники — целые, а опись и запись войн считают округлением. */
+export const BONDED_SLACK = 1;
+
+/** Что знает сервер о приходе невольников, кроме описей. */
+export interface BondedCtx {
+  /** Запись войн; нет (хранилище не ответило) — шаг без проверки. */
+  file: WarFile | null;
+  key: string;
+  /** Что клиент уже принял из войны (`WarSheet.seen` той же записи). */
+  seen: readonly string[];
+}
+
+export interface BondedStep {
+  book: BondedBook;
+  /** Невольников (с проданными) больше книги — на столько. Ноль — честно. */
+  over: number;
+  /** Продано невольников сверх книги — на столько: продажу сервер не принимает (её золото не подтверждается). */
+  refused: number;
+  /** Книга заведена этой записью (старая запись) — без проверки. */
+  seeded: boolean;
+}
+
+/** Падения войны, взятые игроком, с уведёнными. */
+function fallsOf(file: WarFile | null, key: string, at: number): { id: string; n: number }[] {
+  const out: { id: string; n: number }[] = [];
+  for (const w of file?.wars ?? []) {
+    if (w.atk !== key || !w.fall || w.fall.at > at) continue;
+    const n = Math.max(0, Math.floor(w.fall.led ?? 0));
+    if (n > 0) out.push({ id: warFallId(w.id), n });
+  }
+  return out;
+}
+
+/** Сделки рынка с невольниками, новые с прежней описи: купленные (`n > 0`) и проданные. */
+function bondedDeals(a: WatchCard | undefined, b: WatchCard): { buys: { id: string; n: number }[]; sold: number } {
+  const from = a?.market?.seq ?? 0;
+  const buys: { id: string; n: number }[] = [];
+  let sold = 0;
+  for (const d of b.market?.deals ?? []) {
+    if (d.good !== BONDED_GOOD.id || d.seq <= from) continue;
+    if (d.n > 0) buys.push({ id: `m:${d.seq}`, n: Math.floor(d.n) });
+    else sold += Math.floor(-d.n);
+  }
+  return { buys, sold };
+}
+
+const sum = (xs: readonly { n: number }[]): number => xs.reduce((t, x) => t + x.n, 0);
+
+/**
+ * Книга невольников после записи партии: `prev` — книга до неё, `a` и `aAt` — прежняя опись, `b` и `bAt` — новая.
+ * Допуск — книга, ждущий приход, новые падения войны, новые покупки и бои мира промежутка, плюс единица на дробь.
+ * Невольников описи вместе с проданными больше допуска — флаг; проданных больше допуска — отказ. Книги нет или прежней
+ * описи нет — книга заводится с числа описи, без флага (старая запись), и падения, уже лежащие в записи войн, считаются
+ * засчитанными.
+ */
+export function bondedStep(prev: BondedBook | undefined, a: WatchCard | undefined, aAt: number, b: WatchCard, bAt: number, ctx: BondedCtx): BondedStep {
+  const have = Math.max(0, Math.floor(b.bonded ?? 0));
+  const falls = fallsOf(ctx.file, ctx.key, bAt);
+  const seen = new Set(ctx.seen);
+  const deals = bondedDeals(a, b);
+  // Купленные ждут, пока в пути есть караван: какой из них везёт невольников, опись не говорит.
+  const waiting = (x: { id: string }): boolean => (x.id.startsWith('m:') ? b.caravans > 0 : !seen.has(x.id));
+  if (!prev || !a) {
+    const due = [...falls.filter((f) => !seen.has(f.id)), ...deals.buys.filter(waiting)];
+    if (b.caravans > 0 && (b.market?.bought[BONDED_GOOD.id] ?? 0) > 0) due.push({ id: 'm:seed', n: Math.floor(b.market?.bought[BONDED_GOOD.id] ?? 0) });
+    return { book: { n: have, due, led: falls.map((f) => f.id) }, over: 0, refused: 0, seeded: true };
+  }
+  if (!ctx.file) return { book: { ...prev, n: have }, over: 0, refused: 0, seeded: false };
+  const done = new Set(prev.led);
+  const fresh = falls.filter((f) => !done.has(f.id));
+  const world = deedBonded(a, b, Math.max(0, bAt - aAt));
+  const allowed = prev.n + sum(prev.due) + sum(fresh) + sum(deals.buys) + world + BONDED_SLACK;
+  const over = Math.max(0, have + deals.sold - allowed);
+  const refused = Math.max(0, deals.sold - allowed);
+  const n = Math.max(0, Math.min(have, allowed - deals.sold));
+  const due = [...prev.due, ...fresh, ...deals.buys].filter(waiting);
+  // Помнит только падения, что ещё лежат у сервера: остальных он больше не засчитает.
+  const led = [...new Set([...prev.led, ...fresh.map((f) => f.id)])].filter((id) => falls.some((f) => f.id === id));
+  return { book: { n: Number.isFinite(n) ? n : have, due, led }, over: Number.isFinite(over) ? over : 0, refused: Number.isFinite(refused) ? refused : 0, seeded: false };
 }
 
 /** Во сколько раз расход между описями может обогнать свой потолок, прежде чем это флаг, — как рост (`watch.GROWTH_SLACK`). */
@@ -79,6 +185,8 @@ export interface GoodsCtx {
   council?: number;
   /** Потолки сословий по подтверждённым уровням и привилегиям (РТ-2): хлеб города и жалованье войска. Нет — единицы. */
   estates?: { food: number; wage: number };
+  /** Невольники книги невольников (АУ-8, п. 2): едят в потолке расхода только подтверждённые. Нет — опись. */
+  bonded?: number;
 }
 
 export interface GoodsStep {
@@ -126,7 +234,7 @@ export function goodsStep(prev: GoodsBook | null, a: WatchCard | undefined, aAt:
   const known = { grants: ctx.grants };
   if (!prev || !a || !holdsBetween(a, b, realMs, known)) return { book: { at: bAt, have: claimed, bonded }, hidden: [] };
   const days = gameDaysOfMs(realMs + leadGrowth(a.lead, b.lead, realMs + CLOCK_SKEW_SECONDS * 1000) + CLOCK_SKEW_SECONDS * 1000);
-  const drain = drainCeil(ctx.levels, ctx.pop, bonded, ctx.soldiers, ctx.council, ctx.estates);
+  const drain = drainCeil(ctx.levels, ctx.pop, Math.min(bonded, ctx.bonded ?? bonded), ctx.soldiers, ctx.council, ctx.estates);
   // Разовые дела промежутка (вести, ответы державы, указы) снимают не больше таблицы наград (AC-1).
   const deeds = deedLoss(a, b, realMs, known);
   const have: Counts = {};
@@ -167,7 +275,8 @@ export function sheetShort(sheet: WarSheet, book: GoodsBook, prod: Counts): { ki
 }
 
 /**
- * Слепок обороны с книгой запасов (`war.liveSheet`): склад, казна и невольники — книги; хлеб осады — книги, с дробью
+ * Слепок обороны с книгой запасов (`war.liveSheet`): склад, казна и невольники — книги (невольники — не больше книги
+ * невольников); хлеб осады — книги, с дробью
  * слепка (опись держит целые, мост — нет). Книга не той записи, что слепок, — слепок как есть: книга могла не лечь
  * (наблюдение попутное), и сверять её не с чем.
  */
@@ -185,7 +294,8 @@ export function goodsSheet(sheet: WarSheet, sheetAt: number, book: GoodsBook | u
     stock,
     gold: Math.floor(book.have.gold ?? 0),
     food: Math.max(food, Math.min(sheet.food, food + 1)),
-    bonded: Math.max(sheet.bonded, book.bonded),
+    // Невольники — не меньше описи и не больше книги невольников (АУ-8, п. 2): поддельные не уходят в добычу нападающего.
+    bonded: book.bonds ? Math.min(Math.max(sheet.bonded, book.bonded), book.bonds.n + sum(book.bonds.due)) : Math.max(sheet.bonded, book.bonded),
   };
 }
 
@@ -197,5 +307,16 @@ export function readGoods(v: unknown): GoodsBook | null {
   const r = v as Record<string, unknown>;
   const at = n0(r.at);
   if (!at) return null;
-  return { at, have: readCounts(r.have), bonded: Math.floor(n0(r.bonded)) };
+  const bonds = readBonds(r.bonds);
+  return { at, have: readCounts(r.have), bonded: Math.floor(n0(r.bonded)), ...(bonds ? { bonds } : {}) };
+}
+
+/** Книга невольников из записи; нет или испорчена — `undefined` (её заведёт следующая опись). */
+function readBonds(v: unknown): BondedBook | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  const rows = (x: unknown): { id: string; n: number }[] =>
+    Array.isArray(x) ? x.filter((y) => y && typeof y.id === 'string').map((y) => ({ id: String(y.id), n: Math.floor(n0(y.n)) })).slice(0, 256) : [];
+  const led = Array.isArray(r.led) ? r.led.filter((x): x is string => typeof x === 'string').slice(-256) : [];
+  return { n: Math.floor(n0(r.n)), due: rows(r.due), led };
 }

@@ -159,3 +159,18 @@ export function deedTroops(a: WatchCard, b: WatchCard, realMs: number, known?: D
   if (d.windfalls === null && d.other > 0) return Infinity;
   return d.other * (DEED_TABLE.troops.flat + DEED_TABLE.troops.scale * scale) + (grants ? grants.troops : d.grants * GRANT_MAX);
 }
+
+/**
+ * Сколько невольников бои мира промежутка могли привести (АУ-8, п. 2; книга невольников `goods.bondedStep`): уводимые на
+ * бойца (`DEED_TABLE.fight.led` — конвой бойца `world/data/units`, запас ×1.2) на бойцов описи (с ушедшими) за каждое дело боя и добро
+ * без дела (падение логова голодом — без боя, но с уведёнными). Мир живёт у клиента, и сервер знает о его боях только
+ * счётчики; пленные войны и купленные на рынке — книги сервера, не таблица. Опись без счётчика добра без дела с делами —
+ * без потолка (`Infinity`), как у бойцов (`deedTroops`).
+ */
+export function deedBonded(a: WatchCard, b: WatchCard, realMs: number): number {
+  const d = deedSplit(a, b, realMs);
+  if (d.windfalls === null && d.other > 0) return Infinity;
+  // Бойцы в поле (`away`) — тоже конвой: уводит дружина полководца, а не гарнизон.
+  const soldiers = Math.max(...[a, b].map((c) => Object.values(c.troops).reduce((t, n) => t + n, 0) + c.wounded + c.away));
+  return (d.fights + (d.windfalls ?? 0)) * DEED_TABLE.fight.led * soldiers;
+}
