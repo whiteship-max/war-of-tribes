@@ -10,12 +10,18 @@
  *  2. Заказ переходит «оплачен → начислено» один раз; начисленный больше не проверяется.
  *  3. Книга алмазов помнит ключ покупки `pay:<номер>` без обрезки (`GemLedger.paid`).
  *
+ * Просмотр сети — один на кошелёк проекта, курсором (FIN-1, аудит 25.10.2026): каждая проверка читает транзакции после
+ * последней разобранной (`scan/…` в хранилище заказов) и раскладывает найденное по заказам **любого** игрока через указатель
+ * «номер заказа → игрок» (`order/<номер>`). Прежде проверка игрока смотрела от своего старейшего искомого заказа и молча
+ * обрывалась на пятистах транзакциях: неоплаченный заказ недельной давности или поток чужих транзакций прятал новые
+ * платежи. Курсор не перешагивает транзакцию, ещё не записанную в мастерчейн.
+ *
  * Клиенту здесь не верят ни в чём: он называет набор и адрес своего кошелька, а сумму, комментарий, получателя и
  * кошелёк жетона считает сервер; «я заплатил» (`sent`) только переводит заказ в «ждёт перевода» — начисляет только
  * перевод, найденный в сети. Админ начислить не может: `/payments` только читает (`peekPayments`).
  */
 import { parseJson, WRITE_TRIES } from './http.js';
-import { STORES, type Stores } from './kv.js';
+import { STORES, type Kv, type Stores } from './kv.js';
 import { PAY_ID, payComment, readPayOrder, type PayOrderView, type PayTx } from './contract.js';
 import { settlePurchase } from './gems.js';
 import {
@@ -31,6 +37,7 @@ import {
   unitsOf,
   type Fetch,
   type PayConfig,
+  type TonTx,
 } from './ton.js';
 import { GEM_PACKS } from '../../src/game/data/gems.js';
 
@@ -169,6 +176,8 @@ export async function createOrder(
   const id = newOrderId(rand);
   const units = unitsOf(pack.usdt, cfg.decimals);
   const order: StoredOrder = { id, pack: pack.id, gems: pack.amount, usdt: pack.usdt, at: now, until: now + PAY_TTL_MS, state: 'created', units: units.toString() };
+  // Указатель «номер → игрок» — раньше, чем номер уйдёт в перевод: перевод, найденный чужой проверкой, ляжет этому заказу.
+  if (!(await indexOrder(stores, id, player))) return 'Сокровищница не ответила. Попробуй ещё раз.';
   const body = transferBody({ units, to: cfg.wallet, back: owner, comment: payComment(id), queryId: BigInt(now) });
   const tx: PayTx = {
     validUntil: Math.floor(now / 1000) + SIGN_S,
@@ -210,42 +219,198 @@ export async function claimTx(stores: Stores, hash: string, player: string, orde
   }
 }
 
-/** Что нашли в сети для заказа: перевод с верной суммой или с неверной (её — словами). */
-type Found = { tx: string } | { wrong: string };
-
 const usdtText = (units: bigint, decimals: number): string => {
   const d = 10n ** BigInt(decimals);
   const frac = (units % d).toString().padStart(decimals, '0').replace(/0+$/, '');
   return `${units / d}${frac ? `.${frac}` : ''}`;
 };
 
+// ------------------------------------------------ просмотр кошелька (FIN-1) ---
+
+/** Где кончил просмотр кошелька проекта: после транзакции `lt` (её минута — `at`); пока транзакций не было — с `since`. */
+export interface ScanCursor {
+  v: 1;
+  lt?: string;
+  at: number;
+  since: number;
+}
+
+/** Ключ курсора: сеть и кошелёк — курсор одного кошелька другому не годится. */
+export const cursorKey = (cfg: PayConfig): string => `scan/${cfg.net}/${cfg.wallet.workChain}_${cfg.wallet.hash.toString('hex')}`;
+/** Ключ указателя «номер заказа → игрок». */
+export const orderKey = (id: string): string => `order/${id}`;
+/** Файл заказов игрока — ключ `tg-<id>`; курсор и указатели лежат в том же хранилище под своими ключами. */
+const isPlayerKey = (key: string): boolean => key.startsWith('tg-');
+
 /**
- * Найти в сети переводы заказов, которые их ждут. Засчитываем только уведомление `transfer_notification`, которое прислал
- * **кошелёк жетона проекта** (адрес — словами мастера USDT), записанное в мастерчейн, с комментарием `TRIBE-<номер>`.
- * Сумма не та — заказ не оплачен, причина словами.
+ * Сколько ждём записи транзакции в мастерчейн, прежде чем курсор её перешагнёт. Блок шарда входит в мастерчейн за
+ * секунды; транзакция, не записанная за час, — из блока, которого в сети нет: перевода не было, а курсор не должен
+ * стоять на ней вечно.
  */
-export async function huntTransfers(cfg: PayConfig, fetcher: Fetch, orders: StoredOrder[], now: number): Promise<Map<string, Found>> {
-  const out = new Map<string, Found>();
-  const wanted = orders.filter((o) => hunted(o, now));
-  if (!wanted.length) return out;
-  const ours = await projectJettonWallet(cfg, fetcher);
-  const since = Math.min(...wanted.map((o) => o.at)) - 60_000;
-  const byId = new Map(wanted.map((o) => [o.id, o]));
-  for (const tx of await incoming(cfg, fetcher, since)) {
-    if (!tx.final || !tx.source || !tx.source.equals(ours)) continue;
-    const notice = readNotice(tx.body);
-    const m = notice ? /^TRIBE-([A-Z0-9]{10})$/.exec(notice.comment.trim()) : null;
-    const o = m && PAY_ID.test(m[1]) ? byId.get(m[1]) : undefined;
-    if (!notice || !o || out.get(o.id) && 'tx' in out.get(o.id)!) continue;
-    if (notice.units === BigInt(o.units)) out.set(o.id, { tx: tx.hash });
-    else out.set(o.id, { wrong: `Пришло ${usdtText(notice.units, cfg.decimals)} USDT вместо ${o.usdt}, алмазы не начислены. Напиши мастерам игры.` });
+export const STUCK_MS = 3600_000;
+
+export function readCursor(v: unknown): ScanCursor | null {
+  const r = v as Record<string, unknown> | null;
+  if (!r || typeof r !== 'object' || typeof r.since !== 'number' || !Number.isFinite(r.since)) return null;
+  const lt = typeof r.lt === 'string' && /^\d{1,20}$/.test(r.lt) ? r.lt : undefined;
+  const at = typeof r.at === 'number' && Number.isFinite(r.at) ? r.at : 0;
+  return { v: 1, ...(lt ? { lt } : {}), at, since: r.since };
+}
+
+/** Указатель заказа из хранилища: чей заказ; кривой или нет — `undefined`. */
+export function readOrderOwner(v: unknown): string | undefined {
+  const player = (v as { player?: unknown } | null)?.player;
+  return typeof player === 'string' && isPlayerKey(player) ? player : undefined;
+}
+
+/** Указатель заказа: чей. Нет — `undefined`; хранилище не ответило — `null`. */
+async function ownerOf(kv: Kv, id: string): Promise<string | undefined | null> {
+  try {
+    const found = await kv.getWithMetadata(orderKey(id));
+    return readOrderOwner(found ? parseJson(String(found.data)) : null);
+  } catch {
+    return null;
   }
-  return out;
+}
+
+/** Завести указатель «номер → игрок» в пустое место. `true` — лежит этот (заведён сейчас или раньше тем же игроком). */
+async function indexOrder(stores: Stores, id: string, player: string): Promise<boolean> {
+  const kv = stores(STORES.pay, 'strong');
+  try {
+    const w = await kv.setJSON(orderKey(id), { player }, { onlyIfNew: true });
+    if (w.modified) return true;
+    return (await ownerOf(kv, id)) === player;
+  } catch {
+    return false;
+  }
+}
+
+/** Первый просмотр кошелька: указатели всем лежащим заказам — заведённым до просмотра курсором. `false` — не все. */
+async function indexAll(stores: Stores): Promise<boolean> {
+  const kv = stores(STORES.pay, 'strong');
+  try {
+    const { blobs } = await kv.list({});
+    for (const { key } of blobs) {
+      if (!isPlayerKey(key)) continue;
+      const found = await kv.getWithMetadata(key);
+      for (const o of readPayFile(found ? parseJson(String(found.data)) : null).orders) {
+        if (!(await indexOrder(stores, o.id, key))) return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Сдвинуть курсор вперёд условной записью; чужой просмотр ушёл дальше — его курсор остаётся. */
+async function moveCursor(kv: Kv, key: string, next: ScanCursor): Promise<void> {
+  for (let tries = 0; tries < WRITE_TRIES; tries++) {
+    const found = await kv.getWithMetadata(key);
+    const cur = readCursor(found ? parseJson(String(found.data)) : null);
+    if (cur?.lt && (!next.lt || BigInt(cur.lt) >= BigInt(next.lt))) return;
+    const w = await kv.setJSON(key, next, found?.etag ? { onlyIfMatch: found.etag } : { onlyIfNew: true });
+    if (w.modified) return;
+  }
 }
 
 /**
- * Проверка заказов игрока: найти переводы в сети, занять их, начислить оплаченное, отметить истёкшие. Сеть не
- * ответила — заказы как были, начисляем то, что уже «оплачено». Возвращает заказы и сколько алмазов легло сейчас.
+ * Разобрать одну финальную транзакцию кошелька проекта. Засчитываем только уведомление `transfer_notification`, которое
+ * прислал **кошелёк жетона проекта** (адрес — словами мастера USDT), с комментарием `TRIBE-<номер>`; заказ ищем
+ * указателем у любого игрока. Сумма та и заказ ищется — перевод занимается вечно и заказ «оплачен»; сумма не та — причина
+ * словами. `false` — хранилище не ответило: курсор встаёт перед этой транзакцией, следующая проверка разберёт её снова.
+ */
+async function settleTx(stores: Stores, cfg: PayConfig, ours: TonTx['source'], tx: TonTx, now: number): Promise<boolean> {
+  if (!tx.source || !ours || !tx.source.equals(ours)) return true;
+  const notice = readNotice(tx.body);
+  const m = notice ? /^TRIBE-([A-Z0-9]{10})$/.exec(notice.comment.trim()) : null;
+  if (!notice || !m || !PAY_ID.test(m[1])) return true;
+  const id = m[1];
+  const player = await ownerOf(stores(STORES.pay, 'strong'), id);
+  if (player === null) return false;
+  if (!player) return true;
+  let orders: StoredOrder[];
+  try {
+    orders = await readOrders(stores, player);
+  } catch {
+    return false;
+  }
+  const o = orders.find((x) => x.id === id);
+  if (!o || !hunted(o, now)) return true;
+  if (notice.units !== BigInt(o.units)) {
+    const note = `Пришло ${usdtText(notice.units, cfg.decimals)} USDT вместо ${o.usdt}, алмазы не начислены. Напиши мастерам игры.`;
+    return (await noteOrder(stores, player, id, note)) !== null;
+  }
+  const mine = await claimTx(stores, tx.hash, player, id, now);
+  if (mine === null) return false;
+  if (mine === false) return (await noteOrder(stores, player, id, 'Этот перевод уже засчитан другому заказу.')) !== null;
+  const done = await updatePay(stores, player, (f) => {
+    const x = f.orders.find((y) => y.id === id);
+    if (!x || x.state === 'paid' || x.state === 'credited') return null;
+    return {
+      v: 1,
+      orders: f.orders.map((y): StoredOrder => {
+        if (y.id !== id) return y;
+        const { note, ...rest } = y;
+        void note;
+        return { ...rest, state: 'paid', tx: tx.hash };
+      }),
+    };
+  });
+  return done !== null;
+}
+
+/** Причина словами на неоплаченном заказе. `null` — хранилище не ответило. */
+function noteOrder(stores: Stores, player: string, id: string, note: string): Promise<PayFile | null> {
+  return updatePay(stores, player, (f) => {
+    const x = f.orders.find((y) => y.id === id);
+    if (!x || x.note === note || x.state === 'paid' || x.state === 'credited') return null;
+    return { v: 1, orders: f.orders.map((y) => (y.id === id ? { ...y, note } : y)) };
+  });
+}
+
+/**
+ * Просмотр кошелька проекта от курсора: прочитать новые транзакции (не больше бюджета страниц, `ton.incoming`), разобрать
+ * финальные по порядку (`settleTx`) и сдвинуть курсор до последней разобранной. Нефинальную свежую транзакцию курсор
+ * не перешагивает — следующая проверка посмотрит её снова; зависшая дольше `STUCK_MS` пропускается. Первый просмотр
+ * (курсора нет) заводит указатели лежащим заказам и начинает с минуты, раньше которой искомых заказов нет. Возвращает, дочитана ли история до конца. Сеть не ответила — исключение, курсор не тронут.
+ */
+export async function scanWallet(stores: Stores, cfg: PayConfig, fetcher: Fetch, now: number, pages?: number): Promise<boolean> {
+  const kv = stores(STORES.pay, 'strong');
+  const key = cursorKey(cfg);
+  const found = await kv.getWithMetadata(key);
+  let cur = readCursor(found ? parseJson(String(found.data)) : null);
+  if (!cur) {
+    if (!(await indexAll(stores))) return false;
+    cur = { v: 1, at: 0, since: now - PAY_LATE_MS - 60_000 };
+  }
+  const ours = await projectJettonWallet(cfg, fetcher);
+  const got = await incoming(cfg, fetcher, { ...(cur.lt ? { lt: cur.lt } : {}), since: cur.since }, pages);
+  let whole = !got.truncated;
+  let held = false;
+  let next: ScanCursor = cur;
+  for (const tx of got.txs) {
+    if (!tx.final && now - tx.at < STUCK_MS) {
+      // Ждём записи в мастерчейн: курсор встаёт перед ней, а финальные после неё разбираем уже сейчас — повторный
+      // разбор следующей проверкой ничего не задвоит (перевод занят навсегда, «оплачен» ставится один раз).
+      held = true;
+      whole = false;
+      continue;
+    }
+    if (tx.final && !(await settleTx(stores, cfg, ours, tx, now))) {
+      whole = false;
+      break;
+    }
+    if (!held) next = { v: 1, lt: tx.lt, at: tx.at, since: cur.since };
+  }
+  if (!found || next !== cur) await moveCursor(kv, key, next);
+  return whole;
+}
+
+/**
+ * Проверка заказов игрока: просмотреть кошелёк (найденное ложится заказам всех игроков), начислить оплаченное, отметить
+ * истёкшие. Сеть не ответила — заказы как были, начисляем то, что уже «оплачено». Возвращает заказы и сколько алмазов
+ * легло сейчас.
  */
 export async function checkOrders(
   stores: Stores,
@@ -262,43 +427,18 @@ export async function checkOrders(
     return null;
   }
   const lines: string[] = [];
-  // 1. Сеть: что пришло.
-  let found = new Map<string, Found>();
+  // 1. Сеть: что пришло — заказам всех игроков.
   if (cfg && chain && orders.some((o) => hunted(o, now))) {
     try {
-      found = await huntTransfers(cfg, fetcher, orders, now);
+      await scanWallet(stores, cfg, fetcher, now);
     } catch {
       /* сеть TON не ответила — проверим в следующий раз */
     }
   }
-  // 2. Занять найденные переводы — вечно, по одному заказу на перевод.
-  const paid = new Map<string, string>();
-  const notes = new Map<string, string>();
-  for (const [id, f] of found) {
-    if ('wrong' in f) {
-      notes.set(id, f.wrong);
-      continue;
-    }
-    const mine = await claimTx(stores, f.tx, player, id, now);
-    if (mine === true) paid.set(id, f.tx);
-    else if (mine === false) notes.set(id, 'Этот перевод уже засчитан другому заказу.');
-  }
-  // 3. Записать: оплачено, причины, истёкшие.
+  // 2. Записать истёкшие (найденное просмотр уже записал).
   const after = await updatePay(stores, player, (f) => {
     let changed = false;
     const next = f.orders.map((o): StoredOrder => {
-      const tx = paid.get(o.id);
-      if (tx && o.state !== 'paid' && o.state !== 'credited') {
-        changed = true;
-        const { note, ...rest } = o;
-        void note;
-        return { ...rest, state: 'paid', tx };
-      }
-      const note = notes.get(o.id);
-      if (note && o.note !== note && o.state !== 'paid' && o.state !== 'credited') {
-        changed = true;
-        o = { ...o, note };
-      }
       if ((o.state === 'created' || o.state === 'waiting') && now > o.until) {
         changed = true;
         return { ...o, state: 'expired' };
@@ -308,7 +448,7 @@ export async function checkOrders(
     return changed ? { v: 1, orders: next } : null;
   });
   if (!after) return { orders, credited: 0, lines };
-  // 4. Начислить оплаченное — дверью книги алмазов, ключом заказа.
+  // 3. Начислить оплаченное — дверью книги алмазов, ключом заказа.
   let credited = 0;
   let cur = after.orders;
   for (const o of cur.filter((x) => x.state === 'paid')) {
@@ -330,12 +470,13 @@ export async function checkOrders(
   return { orders: cur, credited, lines };
 }
 
-/** Последние заказы всех игроков — команде админа `/payments`. Только чтение. */
+/** Последние заказы всех игроков — команде админа `/payments`. Только чтение; курсор и указатели — не заказы. */
 export async function peekPayments(stores: Stores, limit: number): Promise<{ player: string; order: StoredOrder }[]> {
   const kv = stores(STORES.pay, 'strong');
   const { blobs } = await kv.list({});
   const all: { player: string; order: StoredOrder }[] = [];
   for (const { key } of blobs) {
+    if (!isPlayerKey(key)) continue;
     const found = await kv.getWithMetadata(key);
     for (const order of readPayFile(found ? parseJson(String(found.data)) : null).orders) all.push({ player: key, order });
   }

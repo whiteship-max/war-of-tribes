@@ -9,8 +9,8 @@ import type { Telegram } from './telegram.js';
 import { FROZEN_KEY } from './admin.js';
 import { WIPED } from './era.js';
 import { creditGems, openLedger, readLedger, type GemLedger } from './gems.js';
-import { PAY_LATE_MS, PAY_TTL_MS, newOrderId } from './pay.js';
-import { CHAIN, FORWARD_TON, MAINNET_USDT, OP_NOTIFY, OP_TRANSFER, PAY_ENV, payConfig, readNotice, type Fetch } from './ton.js';
+import { PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor } from './pay.js';
+import { CHAIN, FORWARD_TON, MAINNET_USDT, OP_NOTIFY, OP_TRANSFER, PAGES, PAY_ENV, payConfig, readNotice, type Fetch, type PayConfig } from './ton.js';
 import { payComment, type GemsResponse, type PayResponse } from './contract.js';
 import { START_GEMS } from '../../src/game/gemrules.js';
 import { GEM_PACKS } from '../../src/game/data/gems.js';
@@ -78,6 +78,7 @@ function memoryStores() {
 function fakeChain() {
   const txs: Record<string, unknown>[] = [];
   let calls = 0;
+  let pages = 0;
   let down = false;
   let seq = 0;
   const fetcher: Fetch = async (url, init) => {
@@ -93,8 +94,13 @@ function fakeChain() {
     if (url.includes('/api/v3/transactions?')) {
       const q = new URL(url).searchParams;
       expect(Address.parse(q.get('account')!).equals(PROJECT)).toBe(true);
-      const start = Number(q.get('start_utime'));
-      const list = txs.filter((t) => (t.now as number) >= start).slice(Number(q.get('offset')), Number(q.get('offset')) + Number(q.get('limit')));
+      expect(q.get('sort')).toBe('asc');
+      // Как toncenter v3: от логического времени (включительно) или от минуты, по порядку логического времени.
+      const lt = q.get('start_lt');
+      const start = Number(q.get('start_utime') ?? 0);
+      const from = lt !== null ? txs.filter((t) => BigInt(t.lt as string) >= BigInt(lt)) : txs.filter((t) => (t.now as number) >= start);
+      const list = from.slice(Number(q.get('offset')), Number(q.get('offset')) + Number(q.get('limit')));
+      pages++;
       return { ok: true, status: 200, json: async () => ({ transactions: list, address_book: {} }) };
     }
     return { ok: false, status: 404, json: async () => ({}) };
@@ -107,18 +113,36 @@ function fakeChain() {
     const hash = o.hash ?? hashOf(`tx${++seq}`).toString('base64');
     txs.push({
       hash,
+      lt: String(1_000_000 + txs.length),
       now: Math.floor((o.at ?? NOW) / 1000),
       mc_block_seqno: o.final === false ? null : 100 + seq,
       in_msg: { source: (o.source ?? OUR_JETTON).toRawString().toUpperCase(), message_content: { body: body.toBoc().toString('base64') } },
     });
     return hash;
   };
+  /** Чужие транзакции кошелька проекта — поток, за которым прежде терялись платежи: TON без уведомления жетона. */
+  const noise = (n: number, at = NOW): void => {
+    const body = beginCell().storeUint(0, 32).storeStringTail('спам').endCell().toBoc().toString('base64');
+    for (let i = 0; i < n; i++) {
+      txs.push({
+        hash: hashOf(`noise${++seq}`).toString('base64'),
+        lt: String(1_000_000 + txs.length),
+        now: Math.floor(at / 1000),
+        mc_block_seqno: 100 + seq,
+        in_msg: { source: PLAYER_WALLET.toRawString(), message_content: { body } },
+      });
+    }
+  };
   return {
     fetcher,
     txs,
     notify,
+    noise,
     get calls() {
       return calls;
+    },
+    get pages() {
+      return pages;
     },
     set down(v: boolean) {
       down = v;
@@ -416,6 +440,115 @@ describe('проверка перевода: начисляет только н�
     expect(readNotice('не boc')).toBeNull();
     const bare = beginCell().storeUint(OP_NOTIFY, 32).storeUint(0, 64).storeCoins(5n).storeAddress(PLAYER_WALLET).storeBit(0).endCell();
     expect(readNotice(bare.toBoc().toString('base64'))).toMatchObject({ units: 5n, comment: '' });
+  });
+});
+
+describe('просмотр кошелька курсором: поток транзакций и старые заказы не прячут платёж (FIN-1)', () => {
+  it('тысяча чужих транзакций после заказа — платёж всё равно найден одной проверкой', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.noise(1000);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id) });
+    // Прежде — пять страниц по сто от минуты заказа: тысяча первая транзакция не была видна.
+    expect((await call(s, p)).credited).toBe(POUCH.amount);
+  });
+
+  it('неоплаченный заказ недельной давности не прячет новый платёж (окно прежде шло от него)', async () => {
+    const s = memoryStores();
+    const p = player();
+    await order(s, p, 'handful');
+    chain.noise(650, NOW + 3600_000);
+    const later = NOW + 2 * 3600_000;
+    const b = (await order(s, p, 'pouch', later)).order!;
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(b.id), at: later + 1000 });
+    expect((await call(s, p, undefined, later + 2000)).credited).toBe(POUCH.amount);
+  });
+
+  it('поток длиннее бюджета страниц — платёж задерживается до следующей проверки, а не теряется', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.noise(PAGES * 100 + 500);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id) });
+    const first = await call(s, p);
+    expect(first.credited).toBeUndefined();
+    expect(chain.pages).toBe(PAGES);
+    // Следующая проверка читает от курсора, а не с начала: страниц — сколько осталось дочитать.
+    const second = await call(s, p, undefined, NOW + 6000);
+    expect(second.credited).toBe(POUCH.amount);
+    expect(chain.pages).toBe(PAGES + 6);
+  });
+
+  it('перевод чужого заказа, прочитанный моей проверкой, ложится его заказу: курсор его не теряет', async () => {
+    const s = memoryStores();
+    const a = player();
+    const b = player();
+    await order(s, a);
+    const ob = (await order(s, b, 'handful')).order!;
+    chain.notify({ units: units(1), comment: payComment(ob.id) });
+    // Проверяет игрок А: перевод Б найден его просмотром и записан Б «оплачен».
+    expect((await call(s, a)).credited).toBeUndefined();
+    const filed = JSON.parse(s.data.get(STORES.pay)!.get(`tg-${b}`)!.value) as { orders: { id: string; state: string }[] };
+    expect(filed.orders.find((x) => x.id === ob.id)?.state).toBe('paid');
+    // Б заходит, когда курсор уже ушёл дальше, — начислено ему, ровно раз.
+    expect((await call(s, b, undefined, NOW + 6000)).credited).toBe(100);
+    expect((await call(s, b, undefined, NOW + 12_000)).credited).toBeUndefined();
+    expect(await balance(s, b)).toBe(START_GEMS + 100);
+  });
+
+  it('курсор не перешагивает нефинальную транзакцию: финальная после неё разобрана, нефинальная — когда запишется', async () => {
+    const s = memoryStores();
+    const a = player();
+    const b = player();
+    const oa = (await order(s, a)).order!;
+    const ob = (await order(s, b, 'handful')).order!;
+    const ha = chain.notify({ units: units(POUCH.usdt), comment: payComment(oa.id), final: false });
+    chain.notify({ units: units(1), comment: payComment(ob.id) });
+    expect((await call(s, b)).credited).toBe(100);
+    const cfg = payConfig() as PayConfig;
+    const cursor = () => readCursor(JSON.parse(s.data.get(STORES.pay)!.get(cursorKey(cfg))!.value));
+    const ltA = chain.txs.find((t) => t.hash === ha)!.lt as string;
+    expect(BigInt(cursor()!.lt ?? '0')).toBeLessThan(BigInt(ltA));
+    expect((await call(s, a, undefined, NOW + 6000)).credited).toBeUndefined();
+    chain.txs.find((t) => t.hash === ha)!.mc_block_seqno = 999;
+    expect((await call(s, a, undefined, NOW + 12_000)).credited).toBe(POUCH.amount);
+    expect(BigInt(cursor()!.lt!)).toBeGreaterThan(BigInt(ltA));
+  });
+
+  it('транзакция, не записанная в мастерчейн за час, курсор не держит: за ней платёж найден', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.notify({ units: units(POUCH.usdt), comment: 'не наше', final: false, at: NOW - STUCK_MS - 1000 });
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id) });
+    expect((await call(s, p)).credited).toBe(POUCH.amount);
+    const cfg = payConfig() as PayConfig;
+    const cur = readCursor(JSON.parse(s.data.get(STORES.pay)!.get(cursorKey(cfg))!.value))!;
+    expect(cur.lt).toBe(chain.txs.at(-1)!.lt);
+  });
+
+  it('заказ, заведённый до курсора (без указателя), находится: первый просмотр заводит указатели лежащим заказам', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    const pay = s.data.get(STORES.pay)!;
+    pay.delete(orderKey(o!.id));
+    for (const k of [...pay.keys()]) if (k.startsWith('scan/')) pay.delete(k);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id) });
+    expect((await call(s, p)).credited).toBe(POUCH.amount);
+    expect(JSON.parse(pay.get(orderKey(o!.id))!.value)).toEqual({ player: `tg-${p}` });
+  });
+
+  it('админ видит только заказы: курсор и указатели в списке не появляются', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id) });
+    await call(s, p);
+    expect([...s.data.get(STORES.pay)!.keys()].some((k) => k.startsWith('scan/'))).toBe(true);
+    const rows = await peekPayments(s.stores, 20);
+    expect(rows.map((r) => r.player)).toEqual([`tg-${p}`]);
   });
 });
 

@@ -418,6 +418,8 @@ describe('сервер разбирает ровно названные запи
     }
     expect([...readers].sort()).toEqual([
       'readAdminLog',
+      // оплата алмазов (docs/payments.md): курсор просмотра кошелька (FIN-1)
+      'readCursor',
       'readEraFile',
       'readFrozen',
       'readGrants',
@@ -425,6 +427,8 @@ describe('сервер разбирает ровно названные запи
       'readLeaders',
       'readLedger',
       'readNotify',
+      // оплата алмазов: указатель «номер заказа → игрок» (FIN-1)
+      'readOrderOwner',
       // оплата алмазов (docs/payments.md): заказы игрока и метка оплаченного перевода
       'readPaidMark',
       'readPayFile',
