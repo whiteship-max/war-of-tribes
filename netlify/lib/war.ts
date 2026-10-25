@@ -1120,7 +1120,7 @@ function wasted(troops: Counts, share: number): Counts {
  * иначе залп этой фазы, пока энергии хватает и на него, и на штурм. `atkHungry` — пуст ли амбар дома у нападающего.
  */
 function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): void {
-  const camp = w.camp as SiegeWindow;
+  let camp = w.camp as SiegeWindow;
   // Шаг осады (ОС-1): добыча → прокорм → проверка — склад окна, вставший на последнюю опись. Не оплатил прокорм — город сдан
   // голодом, и кость этой фазы не бросается. Ровно ноль — оплачен.
   if (starves(breadAt(camp, at))) {
@@ -1137,8 +1137,10 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
     turnBack(w, at, w.to, 'lifted');
     return;
   }
-  // Кольцо блокады после броска и истощения: держит ли его мощь лагеря (Р-5).
+  // Кольцо блокады после броска и истощения: держит ли его мощь лагеря (Р-5). Разомкнув, оно кладёт новое окно лагеря —
+  // наказы и залп дальше пишут в него, а не в прежнее (BTL-4).
   ringCheck(w, at, sheet);
+  camp = w.camp as SiegeWindow;
   if (row.out === 'gates') {
     fall(w, at, sheet, 'gates');
     turnBack(w, at, w.to, 'taken');
