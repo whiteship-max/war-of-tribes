@@ -625,6 +625,9 @@ type CampPart = ({ own: TroopStack } | { kinds: Stack }) & { rest?: number };
 const WAR_BUSY = 'Полководец ведёт поход на соседа. Вернуть его можно, только отозвав поход или сняв осаду.';
 
 /** Сумма двух составов по видам. */
+/** Мерная дорога темпа погони, клеток (`LocalWorld.paceOf`): длиннее пола самого короткого похода в любом режиме. */
+const PACE_SPAN = 1000;
+
 const plusTroops = (a: TroopStack, b: TroopStack): TroopStack => {
   const out: TroopStack = { ...a };
   for (const [k, v] of Object.entries(b) as [keyof TroopStack, number | undefined][]) {
@@ -5205,8 +5208,12 @@ export class LocalWorld implements WorldApi {
    * своей арифметики у погони нет, иначе она разошлась бы с ходьбой.
    */
   private paceOf(id: FigureId, from: Coord, to: Coord): number {
-    const seconds = travelTime(1, terrainFactor(this.save.seed, from, to), this.speedOf(id));
-    return seconds > 0 ? 1 / realMs(seconds) : 0;
+    // Мерная дорога, а не одна клетка (ДР-2): срок одной клетки упирается в пол самого короткого похода
+    // (`MARCH_MIN_SECONDS`), и погоня всех фигур шла одним темпом, какой бы ни была их скорость, — режим марша на неё не
+    // влиял бы вовсе. Путь линеен по длине, мерная дорога пола не касается — та же мерка, что у дальности сервера
+    // (`pvp.fieldReach`).
+    const seconds = travelTime(PACE_SPAN, terrainFactor(this.save.seed, from, to), this.speedOf(id));
+    return seconds > 0 ? PACE_SPAN / realMs(seconds) : 0;
   }
 
   /**
