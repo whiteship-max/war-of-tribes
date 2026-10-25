@@ -14,6 +14,7 @@ import { troopTotal } from '@/game/battle/kinds';
 import { postureOf } from '@/world/muster';
 import { formatCoord, secondsLeft } from '@/world/geo';
 import { CHASE_FROM_CAMP } from '@/world/siege';
+import { takingLine } from '@/world/raidwords';
 import type { FigureId, FigureView, MarchView, ReportKind } from '@/world/types';
 import { agentLevel, personName, yearsOf, yearsWord } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
@@ -116,6 +117,8 @@ export function MarchesNew() {
   const now = worldNow();
   const own = ownMarches(marches);
   const incoming = marchesOnUs(marches, homeId);
+  // Чужие отряды, уводящие наших после прорыва (АУ-8, п. 5): догнать можно до самого их двора.
+  const taking = marches.filter((m) => m.hostile && m.phase === 'back' && (m.taking ?? 0) > 0).sort((a, b) => a.arriveAt - b.arriveAt);
   // Полководец в лагере осады — перехвата нет: мир откажет той же строкой (`LocalWorld.chaseBlock`).
   const inCamp = (figures.find((f) => f.id === 'general')?.besieging ?? null) !== null;
 
@@ -165,6 +168,36 @@ export function MarchesNew() {
             }))}
           />
           {inCamp && incoming.some((m) => !m.onCamp) && <p className="nx-tnote bad">{CHASE_FROM_CAMP}</p>}
+        </>
+      )}
+
+      {taking.length > 0 && (
+        <>
+          <h3>Уводят наших</h3>
+          <Table
+            label="Уводят наших"
+            cols={INCOMING_COLS}
+            rows={taking.map((m) => ({
+              key: m.id,
+              cells: {
+                // У идущего домой «куда» — их двор (`turnHome` переставил имена): кто уводит — оттуда.
+                who: <Two top={m.toName} sub={takingLine(m, now)} />,
+                left: <b className="bad">{realLeft(secondsLeft(m.arriveAt, now))}</b>,
+                act: (
+                  <button
+                    type="button"
+                    className="nx-ico44"
+                    disabled={inCamp}
+                    onClick={() => void openChase(m)}
+                    aria-label={inCamp ? `Догнать: ${CHASE_FROM_CAMP}` : `Догнать: ${m.toName}`}
+                  >
+                    <Icon name="ui-target" />
+                  </button>
+                ),
+              },
+            }))}
+          />
+          <p className="nx-tnote">Догнать и разбить — свои вернутся домой. Дойдут — пленных будут держать до выкупа.</p>
         </>
       )}
 

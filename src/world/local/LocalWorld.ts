@@ -172,6 +172,8 @@ import {
 } from '../../../netlify/lib/contract';
 import { fieldWalkSeconds, foodLeft, reliefCredit, spyWalkMs, warWalkMs } from '../pvp';
 import { endWords, pactWarBlock, type ProposalAct, type ProposalView } from '../proposals';
+import { takingWords } from '../raidwords';
+import { realSpan } from '@/game/span';
 import { WATCHER, homeSight, liveSight, standing } from '../sight';
 import { islandNeighbours } from '../spawn';
 import { canShelter, placeOf } from '../shelter';
@@ -578,6 +580,9 @@ type ErrandSpot =
  */
 const onCamp = (m: StoredMarch, camp: SettlementId | null): boolean =>
   camp !== null && !m.own && m.phase === 'out' && m.relief === camp;
+
+/** Скольких наших ведёт чужой отряд домой после прорыва (АУ-8, п. 5): пленные под выкуп и уведённые. */
+const takingOf = (m: StoredMarch): number => (!m.own && m.phase === 'back' ? Math.max(0, m.held ?? 0) + Math.max(0, m.led ?? 0) : 0);
 
 /**
  * Воины отряда мира заданной мощи — одна мерка на набег логова, войну дворов, выручку и разбойников у ворот: по ним мир
@@ -5414,7 +5419,9 @@ export class LocalWorld implements WorldApi {
     // дверь племени (`addStock`, не выше вместимости): окна здесь нет — бой в мире, а не по клику; что не поместится,
     // пропадает, и донесение это называет.
     const loot = field.won && back && m.loot && Object.keys(m.loot).length > 0 ? { ...m.loot } : null;
-    const freed = field.won && back ? (m.held ?? 0) + (m.led ?? 0) : 0;
+    const freed = field.won && back ? takingOf(m) : 0;
+    // Отбитые невольники — невольниками, пленные и горожане — людьми (АУ-8, п. 5): ни потери, ни двойного счёта.
+    const freedBonded = field.won && back ? Math.min(m.led ?? 0, m.ledBonded ?? 0) : 0;
     const over = loot ? this.overflow(loot) : 0;
     const regained = loot !== null || freed > 0;
     const wonText = back
@@ -5449,7 +5456,8 @@ export class LocalWorld implements WorldApi {
       // Перехват в поле: раненые лежат при полководце, пока дружина не вернётся.
       field: lostTroops,
       resources: loot ?? {},
-      ...(freed > 0 ? { pop: freed } : {}),
+      ...(freed - freedBonded > 0 ? { pop: freed - freedBonded } : {}),
+      ...(freedBonded > 0 ? { bonded: freedBonded } : {}),
       prestige: field.won ? 4 : 0,
       morale: field.won ? 5 : -5,
       battle: field.won ? 'won' : 'lost',
@@ -5469,6 +5477,7 @@ export class LocalWorld implements WorldApi {
       m.loot = null;
       m.held = undefined;
       m.led = undefined;
+      m.ledBonded = undefined;
       m.power = Math.max(1, m.power * (1 - field.defenderLoss));
       m.units = stackAfter(m.units, stackLosses(m.units, field.defenderLoss));
       if (stackSize(m.units) === 0) this.remove(m);
@@ -5617,6 +5626,33 @@ export class LocalWorld implements WorldApi {
     // (`siegeFalls`), и пока оно стоит, нет ни осады, ни набега (`scheduleAi`).
     if (spoils) this.save.siegeImmune[HOME_ID] = immuneUntil(at);
 
+    // Пленные. Это не новая потеря: часть тех, кого племя уже посчитало
+    // убитыми, на самом деле уведена — та же условность, что у лазарета.
+    // Поэтому выкуп потом только возвращает и ничего не отнимает, а письмо о
+    // нём остаётся тем, чем должно быть: потерянной возможностью, если его не
+    // открыть.
+    //
+    // Прорвавшиеся уходят домой с добычей и уведёнными (MAP-9, OWNER-DECISIONS п. 5): на обратном пути их можно догнать
+    // и отбить своё (`resolveChase`). Пленные садятся в плен у их двора, когда отряд дойдёт (`arriveHome`). Отбитые
+    // у стен не уходят никуда — их больше нет, как и прежде. Люди уходят из города в минуту прорыва (последствие ниже),
+    // а отряд с ними виден на карте до их двора (АУ-8, п. 5).
+    const goes = spoils !== null && stackSize(attackerLeft) > 0;
+    if (spoils && goes) {
+      m.units = attackerLeft;
+      m.power = Math.max(1, m.power * (1 - outcome.attackerLoss));
+      const carried = winnerGain(spoils).resources;
+      this.turnHome(m, at, Object.keys(carried).length > 0 ? { ...carried } : null);
+      if (held > 0) m.held = held;
+      if (led > 0) m.led = led;
+      // Из уведённых — сколько наших невольников: отбитые вернутся невольниками (АУ-8, п. 5).
+      if (spoils.ledBonded.taken > 0) m.ledBonded = Math.min(led, spoils.ledBonded.taken);
+    } else {
+      this.remove(m);
+      if (held > 0) this.save.captives[m.fromId] = (this.save.captives[m.fromId] ?? 0) + held;
+    }
+    const taking = goes ? takingOf(m) : 0;
+    const takingText = taking > 0 ? ` ${takingWords(taking)}: дойдут до ${m.toName} через ${realSpan((m.arriveAt - at) / 1000)}, можно догнать.` : '';
+
     this.addReport({
       id: `${m.id}-defense`,
       at,
@@ -5636,31 +5672,10 @@ export class LocalWorld implements WorldApi {
       battle: record,
       ...(loss?.fallen ? { fallen: loss.fallen } : {}),
       text: spoils
-        ? `${m.fromName} прорвались через заслон. ${lossText(declared, spoils)}`
+        ? `${goes ? this.raider(m) : m.fromName} прорвались через заслон. ${lossText(declared, spoils)}${takingText}`
         : `${m.fromName} отбиты у стен.`,
       read: false,
     });
-
-    // Пленные. Это не новая потеря: часть тех, кого племя уже посчитало
-    // убитыми, на самом деле уведена — та же условность, что у лазарета.
-    // Поэтому выкуп потом только возвращает и ничего не отнимает, а письмо о
-    // нём остаётся тем, чем должно быть: потерянной возможностью, если его не
-    // открыть.
-    //
-    // Прорвавшиеся уходят домой с добычей и уведёнными (MAP-9, OWNER-DECISIONS п. 5): на обратном пути их можно догнать
-    // и отбить своё (`resolveChase`). Пленные садятся в плен у их двора, когда отряд дойдёт (`arriveHome`). Отбитые
-    // у стен не уходят никуда — их больше нет, как и прежде.
-    if (spoils && stackSize(attackerLeft) > 0) {
-      m.units = attackerLeft;
-      m.power = Math.max(1, m.power * (1 - outcome.attackerLoss));
-      const carried = winnerGain(spoils).resources;
-      this.turnHome(m, at, Object.keys(carried).length > 0 ? { ...carried } : null);
-      if (held > 0) m.held = held;
-      if (led > 0) m.led = led;
-    } else {
-      this.remove(m);
-      if (held > 0) this.save.captives[m.fromId] = (this.save.captives[m.fromId] ?? 0) + held;
-    }
 
     this.addEffect({
       id: `${m.id}-defense`,
@@ -5890,8 +5905,11 @@ export class LocalWorld implements WorldApi {
   private letterCandidates(now: number): LetterCandidate[] {
     const home = this.save.home;
     const busy = new Set(this.save.letters.map((l) => l.fromId));
+    // Логово, держащее наших после прорыва (АУ-8, п. 5), пишет одно письмо — о выкупе: дворов племён в мире может не быть,
+    // и без этого уведённые в плен не возвращались бы никогда.
+    const held = (s: GenSettlement): boolean => (this.save.captives[s.id] ?? 0) > 0;
     const near = this.gen.settlements.filter(
-      (s) => s.tribeId && distance(s, home) <= AI_RANGE && !busy.has(s.id),
+      (s) => (s.tribeId || held(s)) && distance(s, home) <= AI_RANGE && !busy.has(s.id),
     );
     return near.map((s) => {
       // Против кого зовут вставать: ближний двор другого племени. Выбор
@@ -5916,6 +5934,7 @@ export class LocalWorld implements WorldApi {
         standing: this.standingOf(s, now),
         attitude: this.save.diplomacy[s.id]?.attitude ?? 0,
         captives: Math.max(0, this.save.captives[s.id] ?? 0),
+        ...(s.tribeId ? {} : { lair: true as const }),
         ...(rival ? { rivalId: rival.id, rivalName: rival.name } : {}),
       };
     });
@@ -6708,6 +6727,8 @@ export class LocalWorld implements WorldApi {
     return this.save.marches.filter((m) => {
       if (m.own) return true;
       if (m.targetId === HOME_ID && m.phase === 'out' && m.arriveAt - now <= warn) return true;
+      // Уводит наших (АУ-8, п. 5): у пострадавшего отряд на карте до самого их двора — его можно догнать.
+      if (takingOf(m) > 0) return true;
       if (onCamp(m, camp) && m.arriveAt - now <= warn) return true;
       const at = m.phase === 'stay' ? m.to : marchPosition(m, now);
       return inSight(discs, at.x, at.y);
@@ -6761,6 +6782,7 @@ export class LocalWorld implements WorldApi {
       // Чужой отряд, идущий на наш лагерь осады, — тем же правилом, каким мир решает, видна ли выручка по донесению.
       ...(onCamp(m, camp) ? { onCamp: true } : {}),
       ...(rest ? { rest } : {}),
+      ...(takingOf(m) > 0 ? { taking: takingOf(m) } : {}),
     };
   }
 
