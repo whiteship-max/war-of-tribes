@@ -48,7 +48,7 @@ import {
 } from './contract.js';
 import { stackTotal, type Pips, type Stack } from '../../src/battle/index.js';
 import { TROOPS_OF_KIND, troopTotal, type TroopStack } from '../../src/game/battle/kinds.js';
-import { kindsOf, troopLosses, troopPower } from '../../src/game/battle/price.js';
+import { kindsOf, shareLosses, troopLosses, troopPower } from '../../src/game/battle/price.js';
 import { wallRepairCost } from '../../src/game/build.js';
 import { statAt } from '../../src/game/train.js';
 import { ENGINES } from '../../src/game/data/engines.js';
@@ -1096,12 +1096,9 @@ function shotsStep(w: WarRow, row: PhaseRow, at: number): void {
   if (after.guns !== camp.guns) camp.guns = after.guns;
 }
 
-/** Войско после истощения фазы: доля `share` с каждого рода, как при потерях в бою. */
+/** Войско после истощения фазы: доля `share` с каждого рода, остаток рода — к ближнему (`price.shareLosses`, BTL-1). */
 function wasted(troops: Counts, share: number): Counts {
-  const kinds = kindsOf(asTroops(troops));
-  const hit = { ...kinds };
-  for (const k of Object.keys(hit) as (keyof typeof hit)[]) hit[k] = Math.round(kinds[k] * share);
-  return minus(troops, troopLosses(asTroops(troops), hit) as Counts);
+  return minus(troops, shareLosses(asTroops(troops), share) as Counts);
 }
 
 /**

@@ -87,22 +87,43 @@ export const troopPower = (t: TroopStack): number => {
   return n;
 };
 
-/** Сколько бойцов строя даёт n бойцов этого вида. Ноль людей — ноль строя. */
+/** Сколько бойцов строя даёт n бойцов этого вида. Ноль людей — ноль строя. Род в один вид — это и есть `kindsOf`. */
 export const menOf = (troop: TroopId, n: number): number => (n > 0 ? Math.max(1, Math.round(n * battleWeight(troop))) : 0);
 
-/** Состав в родах боя — то, что понимает ядро. */
+/**
+ * Состав в родах боя — то, что понимает ядро. Род — одним округлением суммы весов своих видов (BTL-1): не дальше полчеловека
+ * от неё. Прежде округлялся каждый вид, и род из топорников и латников выходил на полтора человека больше своего веса.
+ */
 export function kindsOf(t: TroopStack): Stack {
+  const weight: Stack = emptyStack();
+  for (const id of TROOP_IDS) {
+    const n = Math.max(0, t[id] ?? 0);
+    if (n > 0) weight[KIND_OF[id]] += n * battleWeight(id);
+  }
   const out: Stack = emptyStack();
-  for (const id of TROOP_IDS) out[KIND_OF[id]] += menOf(id, Math.max(0, t[id] ?? 0));
+  for (const k of UNIT_KINDS) out[k] = weight[k] > 0 ? Math.max(1, Math.round(weight[k])) : 0;
   return out;
 }
+
+/**
+ * Остаток рода меньше одного бойца (BTL-1). Потери боя снимают его одним бойцом всегда (`'loss'`): бой назвал этих людей
+ * павшими, и тяжёлый боец не уходит от них округлением. Доля войска — истощение лагеря за фазу, выбитое башней — к ближнему
+ * (`'share'`): она дробная каждую фазу, и остаток вверх таял бы лагерь быстрее своей доли (лагерь из 96 бойцов — около 4 %
+ * за фазу вместо `CAMP_WASTE` 2,1 %), а прогноз окна лагеря (`siegefood.phasesToEven`) разошёлся бы с сервером.
+ */
+export type Remainder = 'loss' | 'share';
 
 /**
  * Потери по роду переводятся обратно в бойцов племени: доля от каждого вида этого
  * рода, слабые первыми — как в `removeSoldiers`. Так отряд из дубинщиков и латников
  * теряет сперва дубинщиков, а не «полтора латника».
+ *
+ * Бойцы снимаются целиком (BTL-1): по каждому виду — вниз до целого, а остаток — одним бойцом первому виду, у которого
+ * остались люди (у доли войска — если остаток не меньше половины его веса, `Remainder`). Потери боя: снятый вес не меньше
+ * потерь и больше их меньше чем на вес одного бойца. Прежде остаток округлялся по каждому виду, и тяжёлый боец, потерявший
+ * меньше половины своего веса, не погибал никогда. Не вверх по каждому виду: так слабые гибли бы сверх своей доли.
  */
-export function spreadLosses(t: TroopStack, kind: UnitKind, lostMen: number): TroopStack {
+export function spreadLosses(t: TroopStack, kind: UnitKind, lostMen: number, rest: Remainder = 'loss'): TroopStack {
   const out: TroopStack = {};
   if (lostMen <= 0) return out;
   let left = lostMen;
@@ -111,21 +132,39 @@ export function spreadLosses(t: TroopStack, kind: UnitKind, lostMen: number): Tr
     const have = Math.max(0, t[id] ?? 0);
     if (have <= 0 || left <= 0) continue;
     const w = battleWeight(id);
-    const take = Math.min(have, Math.round(left / w));
+    const take = Math.min(have, Math.floor(left / w));
     if (take > 0) {
       out[id] = take;
       left -= take * w;
+    }
+  }
+  if (left > 1e-9) {
+    for (const id of TROOPS_OF_KIND[kind]) {
+      if (Math.max(0, t[id] ?? 0) - (out[id] ?? 0) <= 0) continue;
+      if (rest === 'loss' || left >= battleWeight(id) / 2) out[id] = (out[id] ?? 0) + 1;
+      break;
     }
   }
   return out;
 }
 
 /** Потери сразу по всем родам. */
-export function troopLosses(t: TroopStack, lost: Stack): TroopStack {
+export function troopLosses(t: TroopStack, lost: Stack, rest: Remainder = 'loss'): TroopStack {
   const out: TroopStack = {};
   for (const k of UNIT_KINDS) {
-    const part = spreadLosses(t, k, lost[k]);
+    const part = spreadLosses(t, k, lost[k], rest);
     for (const id of TROOP_IDS) if (part[id]) out[id] = (out[id] ?? 0) + (part[id] as number);
   }
   return out;
 }
+
+/** Доля `share` каждого рода войска, людьми строя: «убыло 30 %» — это 30 % в каждой полосе, а не тридцать первых попавшихся. */
+export function shareOfKinds(t: TroopStack, share: number): Stack {
+  const kinds = kindsOf(t);
+  const out = emptyStack();
+  for (const k of UNIT_KINDS) out[k] = Math.round(kinds[k] * share);
+  return out;
+}
+
+/** Кто уходит с долей войска `share` (истощение фазы, выбитое башней): остаток рода — к ближнему (`Remainder`). */
+export const shareLosses = (t: TroopStack, share: number): TroopStack => troopLosses(t, shareOfKinds(t, share), 'share');

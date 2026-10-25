@@ -13,7 +13,7 @@ import {
   type UnitKind,
 } from '@/battle';
 import { TROOPS_OF_KIND, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
-import { kindsOf, troopLosses, troopPower } from '@/game/battle/price';
+import { kindsOf, shareOfKinds, troopLosses, troopPower } from '@/game/battle/price';
 import { TROOP_IDS } from '@/game/data/troops';
 import { has, own, wholeNonNeg } from '@/game/guard';
 import { troopsOfKinds } from '@/game/battle/faces';
@@ -2284,10 +2284,8 @@ export class LocalWorld implements WorldApi {
       const troops = f.troops ?? {};
       // Доля потерь ложится на каждый род ровно так же, как её считает бой:
       // «убыло 30%» — это 30% в каждой полосе, а не тридцать первых попавшихся.
-      const kinds = kindsOf(troops);
-      const hit = emptyStack();
-      for (const k of Object.keys(kinds) as UnitKind[]) hit[k] = Math.round(kinds[k] * loss);
-      const lost = troopLosses(troops, hit);
+      // Бой у рогаток — потери боя, остаток рода одним бойцом; истощение фазы — доля лагеря, остаток к ближнему (BTL-1).
+      const lost = troopLosses(troops, shareOfKinds(troops, loss), atLeastOne ? 'loss' : 'share');
       const left: TroopStack = {};
       for (const [key, n] of Object.entries(troops) as [keyof TroopStack, number][]) {
         const rest = (n ?? 0) - (lost[key] ?? 0);

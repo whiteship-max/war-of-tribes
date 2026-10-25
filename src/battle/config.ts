@@ -9,8 +9,11 @@ import type { PhaseId, PipId, Profile, UnitKind } from './types';
  * релизом со следующим номером. Номер лежит во входе боя (`BattleInput.rules`, вход войны `WarInput.rules`) и в его итоге
  * (`BattleResult.rules`): старые бои не пересчитываются, а журнал боя, который клиент пересчитывает из входа сервера, идёт
  * по версии этого входа. Нет поля — бой старше версий: `FIRST_RULES`.
+ *
+ * Версии: 1 — правила до АУ-5; 2 — релиз АУ-5 (docs/audit/AU-5.md): потери тяжёлых и род одним округлением (BTL-1),
+ * ополчение при вере (BTL-3), одинокий всадник в строю (BTL-5).
  */
-export const BATTLE_RULES = 1;
+export const BATTLE_RULES = 2;
 
 /** Версия боёв, посчитанных до того, как версия появилась. */
 export const FIRST_RULES = 1;
