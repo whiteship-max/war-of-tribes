@@ -2440,7 +2440,10 @@ const spyWalk = (from: { x: number; y: number }, to: { x: number; y: number }): 
 
 const spyActive = (x: SpyRow): boolean => x.phase !== 'done';
 
-/** Лазутчик города дома в минуту `at`: слепок говорит, а свои дела, которых слепок ещё не знал, — поправляют. */
+/**
+ * Лазутчик города дома в минуту `at`: слепок говорит, а свои дела, которых слепок ещё не знал, — поправляют. Гибель раньше
+ * слепка в нём уже учтена — на месте павшего новый (BTL-8): прежде павший держал город «без лазутчика дома» всю неделю записи.
+ */
 function spyHomeAt(file: WarFile, key: string, s: SheetAt, at: number): boolean {
   let home = s.sheet.watch?.home ?? false;
   for (const x of file.spies ?? []) {
@@ -2448,7 +2451,9 @@ function spyHomeAt(file: WarFile, key: string, s: SheetAt, at: number): boolean 
     const back = x.phase === 'done' && !x.out?.dead ? (x.endAt ?? x.backAt ?? Infinity) : Infinity;
     if (back <= at) {
       if (back > s.at) home = true;
-    } else if (x.phase !== 'done' || x.out?.dead) {
+    } else if (x.out?.dead) {
+      if ((x.out.at ?? x.arriveAt) > s.at) home = false;
+    } else if (x.phase !== 'done') {
       home = false;
     }
   }
