@@ -20,7 +20,7 @@ import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
 import { probe, revealWorld, takeBakes, takeCosts, takeGaps } from '@/debug';
-import { hasWorldApi, setWorldApi, worldApi } from './api';
+import { hasWorldApi, setWorldApi, worldApi, type WorldApi } from './api';
 import { LocalWorld, type LocalWorldOptions } from './local/LocalWorld';
 import { NotifyingWorld } from './local/NotifyingWorld';
 import { tribePulse } from './bridge';
@@ -438,6 +438,25 @@ export interface WorldStore {
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Поколение мира: растёт, когда мир заменён (`swapWorld` — постройка при входе, «Начать заново»). Пульс, начатый у
+ * прежнего мира, сверяет его по возвращении и не кладёт чужой ответ ни в партию, ни в стор (OPS-4).
+ */
+let generation = 0;
+
+/** Подключить мир (или снять — `null`): единственная замена мира в сторе. */
+export function swapWorld(api: WorldApi | null): void {
+  generation++;
+  setWorldApi(api);
+}
+
+/** Идущая постройка мира: второй вход ждёт её, а не строит второй мир (OPS-4). */
+let booting: Promise<void> | null = null;
+/** Идущий пульс и пульс, ждущий за ним: пульсы идут по одному, лишние сливаются в один (OPS-4). */
+let pulsing: Promise<void> | null = null;
+let queued: Promise<void> | null = null;
+
 /**
  * Поправка часов мира к нашим. У локального мира она нулевая — он и живёт по
  * тем же часам (часы партии, `partyNow`), — у настоящего сервера мира будет своя.
@@ -480,87 +499,53 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   boot: async () => {
     if (get().ready) return;
-    if (!hasWorldApi()) {
-      // Клетку замка называет общий реестр, и знать её надо **до** постройки
-      // мира: собранный не на том месте, он потом переписывался бы под ногами
-      // у игрока. Ожидание тут ограничено само собой — у запроса свой срок, а
-      // неудача возвращается значением, — и первого кадра игры оно не касается:
-      // деревня к этому времени давно на экране.
-      await rosterReady();
-      const world = openWorld({ reveal: revealWorld(), home: castleCell() ?? undefined, castles: worldCastles, era: knownEra() });
-      // Реестр назвал другую клетку, чем та, на которой партия шла без него.
-      // Молча такое не делается: карта пропала, и игрок узнаёт об этом строкой.
-      if (world.movedByRoster) {
-        useGame.getState().world((s) => {
-          log(s, 'Город встал на своё место на карте. Разведанное вокруг прежнего забыто.', 'bad');
-        });
+    if (booting) return booting;
+    booting = (async () => {
+      if (!hasWorldApi()) {
+        // Клетку замка называет общий реестр, и знать её надо **до** постройки
+        // мира: собранный не на том месте, он потом переписывался бы под ногами
+        // у игрока. Ожидание тут ограничено само собой — у запроса свой срок, а
+        // неудача возвращается значением, — и первого кадра игры оно не касается:
+        // деревня к этому времени давно на экране.
+        await rosterReady();
+        const world = openWorld({ reveal: revealWorld(), home: castleCell() ?? undefined, castles: worldCastles, era: knownEra() });
+        // Реестр назвал другую клетку, чем та, на которой партия шла без него.
+        // Молча такое не делается: карта пропала, и игрок узнаёт об этом строкой.
+        if (world.movedByRoster) {
+          useGame.getState().world((s) => {
+            log(s, 'Город встал на своё место на карте. Разведанное вокруг прежнего забыто.', 'bad');
+          });
+        }
+        swapWorld(world);
       }
-      setWorldApi(world);
-    }
-    const info = await worldApi().info();
-    set({ info, ready: true });
-    await get().pulse();
-    set({ tribes: await worldApi().tribes(), deals: await worldApi().deals() });
-    if (!timer) timer = setInterval(() => void get().pulse(), PULSE_MS);
-  },
-
-  pulse: async () => {
-    if (!hasWorldApi()) return;
-    // Пульс племени — одна дверь на игру и на автопилот отчётов (`bridge.tribePulse`): слепок,
-    // последствия, ушедшие, осада и вера. Состояние правится на месте, по свежему объекту стора;
-    // перерисовку сделает ближайший тик симуляции — лишний рендер на каждый пульс (`PULSE_MS`)
-    // не нужен. Последствия — другое дело: их игрок должен увидеть сразу.
-    const pulse = await tribePulse(
-      worldApi(),
-      { get: () => useGame.getState().s, apply: (change) => change(useGame.getState().s) },
-      { marches: get().marches, figures: get().figures },
-    );
-    if (pulse.effects.length > 0) {
-      useGame.getState().world(() => {});
-      // Последствие без строки — одно дело агента (разведчик дошёл до логова): это
-      // не событие, и телефон вздрагивать из-за него не должен.
-      if (pulse.effects.some((e) => e.text || e.fell || e.retired)) haptic('medium');
-    }
-    if (pulse.reports.length > 0) {
-      useGame.getState().showToast(pulse.reports[0].title);
-      // Список мог быть уже открыт: без этого свежий отчёт не появится, пока
-      // игрок не закроет и не откроет панель заново.
-      if (get().reports.length > 0) void get().loadReports();
-    }
-
-    // Осада началась или кончилась, город взят — поселения на карте выглядят иначе, и
-    // держать куски до их срока значило бы показывать вчерашний город.
-    const look = siegeLook(pulse);
-    if (lastLook !== null && (look !== lastLook || pulse.reports.length > 0)) ageChunks();
-    lastLook = look;
-
-    clockOffset = pulse.now - partyNow();
-    set({
-      marches: pulse.marches,
-      figures: pulse.figures,
-      siege: pulse.siege,
-      unread: pulse.unread,
-      now: pulse.now,
+      const g = generation;
+      const info = await worldApi().info();
+      if (g !== generation) return;
+      set({ info, ready: true });
+      await get().pulse();
+      set({ tribes: await worldApi().tribes(), deals: await worldApi().deals() });
+      if (!timer) timer = setInterval(() => void get().pulse(), PULSE_MS);
+    })().finally(() => {
+      booting = null;
     });
-    // Черновики уведомлений — после пульса, из того, что он оставил в сохранении мира, и стройка партии (ВС-1).
-    if (NOTIFY_ON) void notifying?.notices().then((d) => withStab(withBuild(d.items, pulse.now), pulse.now).then((items) => notifyDrafts(items, pulse.now)));
-    // Стол писем перечитывается тем же пульсом: срок письма разбирает мир в
-    // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
-    // иначе протухшее висело бы в столбике до следующего действия игрока.
-    void get().loadLetters();
-    void get().loadRivals();
-    // Окно осаждающего живёт тем же пульсом, пока лагерь стоит; снят — окна нет.
-    if (pulse.figures.some((f) => f.id === 'general' && f.besieging)) void get().loadCamp();
-    else if (get().camp) set({ camp: null });
-    if (get().selected && get().card) void get().refreshCard();
-    // Открытое меню живёт теми же пульсами: в причинах отказа стоят отсчёты
-    // («дипломат занят ещё 3:00»), и замерший на месте отсчёт читается как
-    // сломанный экран, а не как запрет.
-    // План перехвата тем более: цель идёт, и точка встречи уезжает вместе с ней.
-    const chased = get().menu?.march;
-    if (chased) void get().loadPlan(chased.id);
-    if (get().menu) void get().loadErrands();
+    return booting;
   },
+
+  pulse: () => {
+    // Пульс уже идёт — этот встаёт за ним (действие игрока, ждущее пульса, увидит свой итог), и ждущий один на всех.
+    if (pulsing) {
+      queued ??= pulsing.then(() => {
+        queued = null;
+        return get().pulse();
+      });
+      return queued;
+    }
+    pulsing = pulseOnce().finally(() => {
+      pulsing = null;
+    });
+    return pulsing;
+  },
+
 
   ensureRegion: (rect) => {
     if (!hasWorldApi()) return;
@@ -1146,7 +1131,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   resetWorld: async () => {
     clearCache();
-    setWorldApi(
+    swapWorld(
       openWorld({
         seed: freshSeed(),
         reveal: revealWorld(),
@@ -1184,6 +1169,68 @@ export const useWorld = create<WorldStore>((set, get) => ({
     await get().boot();
   },
 }));
+
+/** Один пульс клиентского мира — по одному за раз (`WorldStore.pulse`, OPS-4). */
+async function pulseOnce(): Promise<void> {
+  if (!hasWorldApi()) return;
+  // Пульс племени — одна дверь на игру и на автопилот отчётов (`bridge.tribePulse`): слепок,
+  // последствия, ушедшие, осада и вера. Состояние правится на месте, по свежему объекту стора;
+  // перерисовку сделает ближайший тик симуляции — лишний рендер на каждый пульс (`PULSE_MS`)
+  // не нужен. Последствия — другое дело: их игрок должен увидеть сразу.
+  const g = generation;
+  const pulse = await tribePulse(
+    worldApi(),
+    // Мир заменён, пока ответ шёл, — последствия прежнего мира в партию не ложатся (OPS-4).
+    { get: () => useGame.getState().s, apply: (change) => g === generation && change(useGame.getState().s) },
+    { marches: useWorld.getState().marches, figures: useWorld.getState().figures },
+  );
+  if (g !== generation) return;
+  if (pulse.effects.length > 0) {
+    useGame.getState().world(() => {});
+    // Последствие без строки — одно дело агента (разведчик дошёл до логова): это
+    // не событие, и телефон вздрагивать из-за него не должен.
+    if (pulse.effects.some((e) => e.text || e.fell || e.retired)) haptic('medium');
+  }
+  if (pulse.reports.length > 0) {
+    useGame.getState().showToast(pulse.reports[0].title);
+    // Список мог быть уже открыт: без этого свежий отчёт не появится, пока
+    // игрок не закроет и не откроет панель заново.
+    if (useWorld.getState().reports.length > 0) void useWorld.getState().loadReports();
+  }
+
+  // Осада началась или кончилась, город взят — поселения на карте выглядят иначе, и
+  // держать куски до их срока значило бы показывать вчерашний город.
+  const look = siegeLook(pulse);
+  if (lastLook !== null && (look !== lastLook || pulse.reports.length > 0)) ageChunks();
+  lastLook = look;
+
+  clockOffset = pulse.now - partyNow();
+  useWorld.setState({
+    marches: pulse.marches,
+    figures: pulse.figures,
+    siege: pulse.siege,
+    unread: pulse.unread,
+    now: pulse.now,
+  });
+  // Черновики уведомлений — после пульса, из того, что он оставил в сохранении мира, и стройка партии (ВС-1).
+  if (NOTIFY_ON) void notifying?.notices().then((d) => withStab(withBuild(d.items, pulse.now), pulse.now).then((items) => notifyDrafts(items, pulse.now)));
+  // Стол писем перечитывается тем же пульсом: срок письма разбирает мир в
+  // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
+  // иначе протухшее висело бы в столбике до следующего действия игрока.
+  void useWorld.getState().loadLetters();
+  void useWorld.getState().loadRivals();
+  // Окно осаждающего живёт тем же пульсом, пока лагерь стоит; снят — окна нет.
+  if (pulse.figures.some((f) => f.id === 'general' && f.besieging)) void useWorld.getState().loadCamp();
+  else if (useWorld.getState().camp) useWorld.setState({ camp: null });
+  if (useWorld.getState().selected && useWorld.getState().card) void useWorld.getState().refreshCard();
+  // Открытое меню живёт теми же пульсами: в причинах отказа стоят отсчёты
+  // («дипломат занят ещё 3:00»), и замерший на месте отсчёт читается как
+  // сломанный экран, а не как запрет.
+  // План перехвата тем более: цель идёт, и точка встречи уезжает вместе с ней.
+  const chased = useWorld.getState().menu?.march;
+  if (chased) void useWorld.getState().loadPlan(chased.id);
+  if (useWorld.getState().menu) void useWorld.getState().loadErrands();
+}
 
 /**
  * Стенд бюджета кадра: стор и накопленные времена кадров. Только по флагу
