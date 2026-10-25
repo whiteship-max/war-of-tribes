@@ -25,6 +25,7 @@ import {
   readAdminLog,
   readFrozen,
   readGrants,
+  unseenGrants,
   rewrite,
   type FrozenFile,
   type GrantsFile,
@@ -392,9 +393,12 @@ async function give(io: Io, args: string[], admin: number, now: number): Promise
   if (typeof parsed === 'string') return say(parsed);
   const f = await one(io, parsed.who);
   if (typeof f === 'string') return say(f);
+  // Применённые партией указы (номер не выше её `seen`) сбрасываются здесь (AC-3): книге войска и допуску дел они уже не нужны —
+  // оба берут указы новее записанной описи.
+  const seen = f.rec.card?.seen ?? 0;
   const done = await rewrite(io.stores(STORES.admin, 'strong'), grantsKey(f.key), readGrants, (cur) => {
     const n = cur.seq + 1;
-    return { v: 1 as const, seq: n, list: [...cur.list, { n, at: now, by: admin, stock: parsed.stock, troops: parsed.troops }] };
+    return { v: 1 as const, seq: n, list: [...unseenGrants(cur, seen), { n, at: now, by: admin, stock: parsed.stock, troops: parsed.troops }] };
   });
   if (!done) return say('Указ не записался: хранилище занято. Повтори.');
   // Весть игроку в бот (ВС-1, род «указы»): что легло. Не легла весть — указ цел, игрок увидит его в летописи.

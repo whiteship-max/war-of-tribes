@@ -7,10 +7,10 @@ import { gems } from './routes/gems.js';
 import { reportWith } from './routes/report.js';
 import { STORES, type Kv, type Stores } from './kv.js';
 import type { Telegram } from './telegram.js';
-import { FROZEN_ORDER, adminIds, grantsKey, readAdminLog, readFrozen, readGrants } from './admin.js';
+import { FROZEN_ORDER, adminIds, grantsKey, noteOf, readAdminLog, readFrozen, readGrants } from './admin.js';
 import { cell, kindOf, parseGive, statsCsv } from './commands.js';
 import { readWatchRecord, flagsBetween, flagsOf } from './watch.js';
-import { GEM_GOODS, REPORT_LIMITS, readAdminNote, readGrant, type WatchCard } from './contract.js';
+import { GEM_GOODS, GRANTS_HARD, GRANTS_PAGE, REPORT_LIMITS, readAdminNote, readGrant, type WatchCard } from './contract.js';
 import { readNotify, topicOf } from './notify.js';
 import { noticeText } from './words.js';
 
@@ -285,6 +285,43 @@ describe('указ: номером, один раз, без алмазов', () 
     const log = readAdminLog(s.json(STORES.admin, 'log'));
     expect(log.list.map((e) => e.what)).toEqual(['Указ №1: древесина +500, копейщики −3', 'Указ №2: золото +50']);
     expect(log.list.every((e) => e.by === ADMIN && e.who === 'tg-7001')).toBe(true);
+  });
+
+  it('AC-3: 51 неприменённый указ доходит весь — порциями самых старых, а не последние 50 (архив prove-8-1)', () => {
+    const list = Array.from({ length: 51 }, (_, i) => ({ n: i + 1, at: 1, by: 1, stock: { wood: 10 }, troops: {} }));
+    const g = readGrants({ v: 1, seq: 51, list });
+    expect(g.list.length).toBe(51);
+    const first = readAdminNote(noteOf(false, g, 0));
+    expect(first.grants.map((x) => x.n)).toEqual(Array.from({ length: GRANTS_PAGE }, (_, i) => i + 1));
+    // Партия применила порцию — следующая запись отдаёт остаток.
+    expect(readAdminNote(noteOf(false, g, GRANTS_PAGE)).grants.map((x) => x.n)).toEqual([51]);
+    // Клиент из длинного списка берёт самые старые: применять по порядку и не перепрыгнуть номер.
+    expect(readAdminNote({ grants: list }).grants.map((x) => x.n)).toEqual(Array.from({ length: GRANTS_PAGE }, (_, i) => i + 1));
+  });
+
+  it('AC-3: хранилище держит до жёсткого потолка, а запись указа сбрасывает применённые партией', async () => {
+    const many = Array.from({ length: GRANTS_HARD + 100 }, (_, i) => ({ n: i + 1, at: 1, by: 1, stock: { wood: 1 }, troops: {} }));
+    const g = readGrants({ v: 1, seq: many.length, list: many });
+    expect(g.list.length).toBe(GRANTS_HARD);
+    expect(g.list[0].n).toBe(101);
+    expect(g.seq).toBe(many.length);
+
+    // Свой игрок и свой час записи: сито частоты общее на процесс. Команда — в NOW: ведро бота админа не уводим вперёд.
+    const s = memoryStores();
+    const t = fakeTg();
+    await saveCall(s, 'PUT', { baseEtag: null, record: record(card()) }, NOW + 3_600_000, 7101);
+    // Шестьдесят указов — прямо в хранилище: шестьдесят команд подряд упёрлись бы в сито частоты бота.
+    const sixty = Array.from({ length: 60 }, (_, i) => ({ n: i + 1, at: NOW, by: ADMIN, stock: { wood: 1 }, troops: {} }));
+    await s.stores(STORES.admin, 'strong').setJSON(grantsKey('tg-7101'), { v: 1, seq: 60, list: sixty });
+    expect(readGrants(s.json(STORES.admin, grantsKey('tg-7101'))).list.length).toBe(60);
+    const pull = await saveCall(s, 'GET', undefined, NOW + 3_601_000, 7101);
+    const push = await saveCall(s, 'PUT', { baseEtag: pull.body.etag, record: record(card({ seen: 40 })) }, NOW + 3_660_000, 7101);
+    expect(push.status).toBe(200);
+    expect(readWatchRecord(s.json(STORES.watch, 'tg-7101'))?.card?.seen).toBe(40);
+    await command(s, t, ADMIN, '/give 7101 дерево 1', NOW);
+    const after = readGrants(s.json(STORES.admin, grantsKey('tg-7101')));
+    expect(after.list.map((x) => x.n)).toEqual(Array.from({ length: 21 }, (_, i) => 41 + i));
+    expect(after.seq).toBe(61);
   });
 
   it('указ неизвестному игроку не ложится', async () => {

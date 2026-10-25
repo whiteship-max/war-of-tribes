@@ -1651,8 +1651,18 @@ export type TroopKey = (typeof TROOP_KEYS)[number];
 /** Потолок одного числа указа по модулю. Больше на складе и в войске не бывает. */
 export const GRANT_MAX = 1e7;
 
-/** Сколько последних указов игрока лежит на сервере. Номер у партии один, и обрезка списка ничего не теряет. */
-export const GRANTS_KEEP = 50;
+/**
+ * Порция указов в записке игроку (AC-3): самые старые неприменённые, не больше этого числа. Партия применяет их по порядку, и
+ * следующая запись отдаёт следующую порцию — номер у партии один, и порция ничего не теряет. Прежде на сервере лежали 50
+ * последних, и 51-й неприменённый указ вытеснял первый навсегда.
+ */
+export const GRANTS_PAGE = 50;
+
+/**
+ * Жёсткий потолок указов игрока в хранилище (AC-3). Применённые партией (номер не выше `WatchCard.seen`) сбрасывает запись
+ * нового указа; до потолка доходит только игрок, не заходивший, пока админ отдал ему сотни указов.
+ */
+export const GRANTS_HARD = 500;
 
 /** Указ админа глазами клиента: номер, минута и что поменять. Кто отдал — знает только журнал админа. */
 export interface AdminGrant {
@@ -1745,7 +1755,8 @@ export function readAdminNote(v: unknown): AdminNote {
   const r = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
   const grants = Array.isArray(r.grants) ? r.grants.map(readGrant).filter((g): g is AdminGrant => g !== null) : [];
   grants.sort((a, b) => a.n - b.n);
-  return { frozen: r.frozen === true, grants: grants.slice(-GRANTS_KEEP) };
+  // Самые старые: партия применяет по порядку, и порция с конца перепрыгнула бы номера (AC-3).
+  return { frozen: r.frozen === true, grants: grants.slice(0, GRANTS_PAGE) };
 }
 
 /**
