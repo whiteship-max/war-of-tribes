@@ -379,19 +379,18 @@ export function buildStep(prev: TownBook, at: number, claim: TownClaim, gems: re
         }
       } else {
         const full = upgradeWork(BUILDING_BY_ID[type], l);
-        let need = Math.max(0, full - free - (mine?.done ?? 0));
-        if (need > work && letters >= 1) {
-          const k2 = Math.min(Math.floor(letters), Math.ceil((need - work) / (EVENT_WORK_MAX * full)));
-          letters -= k2;
-          need = Math.max(0, need - k2 * EVENT_WORK_MAX * full);
-        }
-        if (need > work) {
-          // Остальное не подтверждается: сколько не хватило до заявленного — для флага.
-          short += need - work;
+        const need = Math.max(0, full - free - (mine?.done ?? 0));
+        const k2 = need > work && letters >= 1 ? Math.min(Math.floor(letters), Math.ceil((need - work) / (EVENT_WORK_MAX * full))) : 0;
+        const left = Math.max(0, need - k2 * EVENT_WORK_MAX * full);
+        if (left > work) {
+          // Остальное не подтверждается: сколько не хватило до заявленного — для флага (счёт прежний: с вестями). Вести
+          // на неподтверждённый уровень не тратятся (AC-7): прежде они уходили, а уровень оставался неподтверждённым.
+          short += left - work;
           for (let m = l + 1; m <= want; m++) short += Math.max(0, upgradeWork(BUILDING_BY_ID[type], m) - free);
           break;
         }
-        work -= need;
+        letters -= k2;
+        work -= left;
       }
       if (mine) site = null;
       lv = l;

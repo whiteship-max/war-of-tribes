@@ -496,3 +496,23 @@ describe('тайная служба и орудие башни — в преде
     expect(def.level, 'точка внутри области: орудию нужна башня выше первой').toBeGreaterThan(1);
   });
 });
+
+describe('AC-7: вести тратятся только на уровень, который ими подтвердился', () => {
+  it('весть не тратится на уровень, которого она не закрывает (архив prove-4-1)', () => {
+    const s = seedTown(0);
+    const prev = { ...s, levels: { ...s.levels, farm: 8 }, letters: 1, credit: 0 };
+    const step = buildStep(prev, 0, { buildings: { ...prev.levels, farm: 9 }, pop: prev.pop });
+    // Одной вести мало на девятый уровень — уровень не подтверждён, и весть осталась.
+    expect(step.book.levels.farm).toBe(8);
+    expect(step.book.letters).toBe(1);
+    expect(step.short).toBeGreaterThan(0);
+  });
+
+  it('вести хватает — уровень подтверждён, весть потрачена', () => {
+    const s = seedTown(0);
+    const prev = { ...s, levels: { ...s.levels, farm: 1 }, letters: LETTER_SLOTS, credit: 0 };
+    const step = buildStep(prev, 0, { buildings: { ...prev.levels, farm: 2 }, pop: prev.pop });
+    expect(step.book.levels.farm).toBe(2);
+    expect(step.book.letters).toBeLessThan(LETTER_SLOTS);
+  });
+});
