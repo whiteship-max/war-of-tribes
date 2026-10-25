@@ -20,7 +20,7 @@ import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, START_POP, TEST_ARMY_FOOD } from '../../src/game/constants.js';
 import { START_GEMS, fullWork, rushPriceOfWork } from '../../src/game/gemrules.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
-import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
+import { DAY_LENGTH, SPEEDS, gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
 import { STAB_BAND, stabPrice, stabSelfRiseCeil } from '../../src/game/stabrules.js';
 import { crownAnswersCeil, crownEvery } from '../../src/game/crownrules.js';
 import { GOODS_SLACK, drainCeil } from './goods.js';
@@ -348,6 +348,19 @@ describe('таблица правил города: каждое правило 
     // Сама опись с потолком выше выработки — флаг; потолок по выработке — нет.
     expect(flagsOf(card({ prod, haulCap: 1e9 }), NOW).map((f) => f.kind)).toContain('haul');
     expect(flagsOf(card({ prod, haulCap: Math.floor(ceil) }), NOW).map((f) => f.kind)).not.toContain('haul');
+  });
+
+  it('AC-8: опережение часов растёт не быстрее высшей скорости проверки — названное сверх не открывает время', () => {
+    const a = card({ lead: 0 });
+    const flags = (y: WatchCard): FlagKind[] => flagsBetween(a, NOW, y, NOW + HOUR).map((f) => f.kind);
+    // Опережение на триста лет за час — время партии за ним не пускается, и сам рост — флаг.
+    const forged = card({ lead: 1e13, time: a.time + gameSecondsOfMs(1e12), clock: NOW + HOUR });
+    expect(flags(forged)).toContain('time');
+    expect(flags(forged)).toContain('haste');
+    // Честная высшая скорость: опережение (120 − 1) часов за час — время партии за ним идёт без флага «время».
+    const top = SPEEDS[SPEEDS.length - 1];
+    const fair = card({ lead: (top - 1) * HOUR, time: a.time + gameSecondsOfMs(top * HOUR), clock: NOW + HOUR });
+    expect(flags(fair)).not.toContain('time');
   });
 
   it('войска больше нанятых: пять тысяч копейщиков с первой записи — сервер подтверждает ноль, в рейтинг они не идут', async () => {

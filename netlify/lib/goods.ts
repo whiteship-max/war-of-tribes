@@ -16,7 +16,7 @@
  * `war.liveSheet`). Лежит в записи наблюдения игрока (`WatchRecord.goods`). Чистая: без хранилища и без часов.
  */
 import { RESOURCE_IDS } from '../../src/game/constants.js';
-import { gameDaysOfMs } from '../../src/game/pace.js';
+import { gameDaysOfMs, leadGrowth } from '../../src/game/pace.js';
 import { FOOD_MOD_MAX, GOLD_OUT_PER_POP_MAX, HEAT_MOD_MAX, headsFoodPerDay, heatingWood, mastersCeil, soldierFoodPerDay, storageOf, type Levels } from '../../src/game/build.js';
 import { baseWage } from '../../src/game/battle/price.js';
 import { HORSE_MOUTHS, MASTER_PAID_AS } from '../../src/game/data/upkeep.js';
@@ -125,7 +125,7 @@ export function goodsStep(prev: GoodsBook | null, a: WatchCard | undefined, aAt:
   const realMs = Math.max(0, bAt - aAt);
   const known = { grants: ctx.grants };
   if (!prev || !a || !holdsBetween(a, b, realMs, known)) return { book: { at: bAt, have: claimed, bonded }, hidden: [] };
-  const days = gameDaysOfMs(realMs + Math.max(0, b.lead - a.lead) + CLOCK_SKEW_SECONDS * 1000);
+  const days = gameDaysOfMs(realMs + leadGrowth(a.lead, b.lead, realMs + CLOCK_SKEW_SECONDS * 1000) + CLOCK_SKEW_SECONDS * 1000);
   const drain = drainCeil(ctx.levels, ctx.pop, bonded, ctx.soldiers, ctx.council, ctx.estates);
   // Разовые дела промежутка (вести, ответы державы, указы) снимают не больше таблицы наград (AC-1).
   const deeds = deedLoss(a, b, realMs, known);

@@ -15,7 +15,7 @@
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { STOCK_KEYS, type Counts, type WatchCard, type WatchDeal } from './contract.js';
-import { gameDaysOfMs } from '../../src/game/pace.js';
+import { gameDaysOfMs, leadGrowth } from '../../src/game/pace.js';
 import { BONDED_GOOD } from '../../src/game/data/market.js';
 import { depthOf, fromPurse, goodOf, lotOf, pressAt, purseOf, shiftOf, shiftOffer, supplyOf } from '../../src/game/marketrules.js';
 
@@ -149,7 +149,8 @@ export function marketFaults(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   }
 
   // Продано не больше, чем могло быть: запас прежней описи, выработка за промежуток и купленное (телега могла прийти).
-  const days = gameDaysOfMs(Math.max(0, bAt - aAt) + Math.max(0, b.lead - a.lead) + CLOCK_SKEW_SECONDS * 1000);
+  const span = Math.max(0, bAt - aAt) + CLOCK_SKEW_SECONDS * 1000;
+  const days = gameDaysOfMs(span + leadGrowth(a.lead, b.lead, span));
   const stock = new Set<string>(STOCK_KEYS);
   for (const [g, n] of Object.entries(soldSum)) {
     const def = goodOf(g);

@@ -12,7 +12,7 @@
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchAdvisor, type WatchCard, type WatchCrownEntry } from './contract.js';
-import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, realMs } from '../../src/game/pace.js';
+import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, leadGrowth, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
 import { DEED_TABLE } from '../../src/game/data/deedgain.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
@@ -518,7 +518,12 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
 export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: number, known?: DeedKnown): { kind: FlagKind; text: string }[] {
   const out: { kind: FlagKind; text: string }[] = [];
   const realMs = Math.max(0, bAt - aAt);
-  const leadMs = Math.max(0, b.lead - a.lead);
+  // Опережение под скоростью проверки — не больше высшей ступени (`pace.leadGrowth`, AC-8): названное сверх — флаг, и в допуск
+  // не идёт.
+  const leadMs = leadGrowth(a.lead, b.lead, realMs + CLOCK_SKEW_SECONDS * 1000);
+  if (b.lead - a.lead > leadMs + 1) {
+    out.push({ kind: 'haste', text: `Опережение часов выросло на ${span(b.lead - a.lead)} за ${span(realMs)} — высшая скорость проверки даёт не больше ${span(leadMs)}.` });
+  }
   // Сколько игровых дней могло пройти: настоящее время, опережение под скоростью проверки и допуск на часы.
   const canDays = gameDaysOfMs(realMs + leadMs + CLOCK_SKEW_SECONDS * 1000);
   const wentDays = (b.time - a.time) / DAY_LENGTH;
