@@ -18,6 +18,7 @@
 import { describeEvent } from './log';
 import {
   FRONT,
+  HORSE_KINDS,
   REAR,
   SECTORS,
   UNIT_KINDS,
@@ -1325,7 +1326,8 @@ function moveOf(
 
 /** Конный удар этого сектора: куда и насколько он сейчас вынесен. */
 function chargeAt(cast: Cast, c: CastSector, t: number): { x: number; z: number; u: number } | null {
-  const horse = c.byFace.some((f) => f.kind === 'cavalry' && f.figures > 0);
+  // Конница — оба рода: латные всадники тоже выносят клин (BTL-8; прежде ролик знал только лёгкую).
+  const horse = c.byFace.some((f) => HORSE_KINDS.includes(f.kind) && f.figures > 0);
   if (!horse) return null;
   for (const m of cast.marks) {
     if (m.side !== c.side || !m.sector) continue;
