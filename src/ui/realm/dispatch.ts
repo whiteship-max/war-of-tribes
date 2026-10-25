@@ -108,8 +108,9 @@ export interface Dispatch {
 }
 
 /**
- * Событие племени, ждущее ответа, — донесением. null — вид события неизвестен. Числа — от размера посёлка, который весть
- * помнит (`ActiveEvent.size`, ECO-2): окно показывает то, что спишет и даст ответ.
+ * Событие племени, ждущее ответа, — донесением. null — вид события неизвестен. Цена — та, что весть посчитала в минуту
+ * прихода (`ActiveEvent.cost`), прочие числа — от размера посёлка, который весть помнит (`ActiveEvent.size`; ECO-2, ECO-3):
+ * окно показывает то, что спишет и даст ответ.
  */
 export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispatch | null {
   return atSize(ev.size, () => eventView(s, ev, now));
@@ -135,8 +136,8 @@ function eventView(s: GameState, ev: ActiveEvent, now: number): Dispatch | null 
       id: String(i),
       label: o.label,
       hint: optionHint(o, s) ?? null,
-      cost: eventCost(o, s),
-      block: eventBlock(o, s),
+      cost: eventCost(o, s, ev.cost?.[i]),
+      block: eventBlock(o, s, ev.cost?.[i]),
       ...(o.points ? { points: o.points } : {}),
       ...(crown ? { lines: crownLines(s, def.id, i) } : {}),
     })),

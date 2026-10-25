@@ -97,7 +97,17 @@ export function eventsPerScale(): { gain: Record<string, number>; loss: Record<s
           if (!ev) throw new Error(`весть ${def.id} не легла на стол пробного посёлка`);
           const before = structuredClone(s);
           const gates = s.gate.length;
-          const r = resolveEvent(s, i, eventId(ev));
+          // Вывод меряет, что ответ даёт, когда его можно дать: условие варианта (`EventOption.block`, ECO-3) — о минуте
+          // ответа (стройка идёт, святыни нет), а не о размере награды. Пробный посёлок условия не держит — снимаем его.
+          const opt = def.options[i];
+          const block = opt.block;
+          opt.block = undefined;
+          let r: ReturnType<typeof resolveEvent>;
+          try {
+            r = resolveEvent(s, i, eventId(ev));
+          } finally {
+            opt.block = block;
+          }
           if (r.error) throw new Error(`ответ ${def.id}#${i} на пробном посёлке ×${scale}: ${r.error}`);
           answers++;
           const d = diff(before, s);

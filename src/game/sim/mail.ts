@@ -20,8 +20,8 @@
 // Часов модуль не читает: «сейчас» приходит числом (`mailStep(s, now)`), как
 // день ежедневки. Шаг симуляции (`tick`) про настоящие часы не знает вовсе.
 import type { ActiveEvent, EventSize, GameState } from '../types';
-import { EVENT_BY_ID, eventBlock, payEventCost, pickEvent, type EventDef } from '../data/events';
-import { atSize } from '../data/eventKit';
+import { EVENT_BY_ID, eventBlock, eventCost, payEventCost, pickEvent, type EventDef } from '../data/events';
+import { atSize, sizeOf } from '../data/eventKit';
 import { LETTER_PAUSE_MAX, LETTER_PAUSE_MIN, LETTER_TTL } from '@/world/data/tuning';
 import { hashId } from '@/world/diplomacy';
 import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
@@ -55,13 +55,13 @@ const pick = (s: GameState, id?: string): ActiveEvent | null =>
   (id === undefined ? s.inbox[0] : s.inbox.find((e) => eventId(e) === id)) ?? null;
 
 /**
- * Единственная дверь, закрывающая событие: применить вариант и убрать со стола. Цена и исход считаются от размера посёлка,
- * который весть помнит (`ActiveEvent.size`, ECO-2), — не от нынешнего.
+ * Единственная дверь, закрывающая событие: применить вариант и убрать со стола. Цена — та, что весть посчитала в минуту
+ * прихода (`ActiveEvent.cost`), исход — от размера посёлка, который весть помнит (`ActiveEvent.size`; ECO-2, ECO-3).
  */
 function closeEvent(s: GameState, ev: ActiveEvent, def: EventDef, optionIndex: number, silent: boolean): string {
   const opt = def.options[optionIndex];
   const result = atSize(ev.size, () => {
-    payEventCost(opt, s);
+    payEventCost(opt, s, ev.cost?.[optionIndex]);
     return opt.apply(s);
   });
   s.inbox = s.inbox.filter((e) => e !== ev);
@@ -84,7 +84,7 @@ export function resolveEvent(
   if (!opt) return { error: 'Неверный выбор.', result: null };
   // Цена списывается в двери, до `apply`, и отказ приходит отсюда же: цена одна
   // на показ, на запрет и на списание.
-  const block = atSize(ev.size, () => eventBlock(opt, s));
+  const block = atSize(ev.size, () => eventBlock(opt, s, ev.cost?.[optionIndex]));
   if (block) return { error: block, result: null };
   return { error: null, result: closeEvent(s, ev, def, optionIndex, false) };
 }
@@ -106,10 +106,20 @@ export function lapseEvent(s: GameState, id?: string): string | null {
  * два «Пожара» разом читались бы сбоем. Стол полон — сначала уходит то, у кого
  * срок ближе всех (ещё без срока — позже всех), своим молчанием. Возвращает, легло
  * ли событие.
+ *
+ * Весть запоминает размер посёлка (`size`: у следствия — размер звена, иначе нынешний) и цену каждого варианта от него
+ * (ECO-3): ответ сутки спустя платит и получает то, что весть назвала, когда пришла.
  */
 export function raiseEvent(s: GameState, defId: string, size?: EventSize): boolean {
   if (s.inbox.some((e) => e.defId === defId)) return false;
-  const ev: ActiveEvent = { defId, at: s.time, ...(size ? { size } : {}) };
+  const def = EVENT_BY_ID[defId];
+  const at = size ?? { ...sizeOf(s) };
+  const ev: ActiveEvent = {
+    defId,
+    at: s.time,
+    size: at,
+    ...(def ? { cost: atSize(at, () => def.options.map((o) => eventCost(o, s))) } : {}),
+  };
   if (!ownSlot(ev)) {
     const kick = kickFrom(
       s.inbox.filter((e) => !ownSlot(e)).map((e) => ({ e, until: e.until ?? Infinity, at: e.at })),
