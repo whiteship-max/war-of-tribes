@@ -2432,9 +2432,6 @@ export function newsDiff(before: Map<string, WarNews>, after: Map<string, WarNew
 // игрок видел их в меню (`spyMenuOf`), и применяются ровно они; что дело сделало с городом, считается по слепку обороны
 // в минуту прихода (`rivalHarm`). Кости — из номера дела (`rivalRolls`): тот же номер даёт тот же исход у кого угодно.
 
-/** Свежесть меню: приказ исполняется по минуте меню, если ей не больше стольких мс (как `OrderOption.at` у логова). */
-export const SPY_SHOWN_FRESH = 10_000;
-
 /** Путь лазутчика между двумя клетками с темпом войны. */
 const spyWalk = (from: { x: number; y: number }, to: { x: number; y: number }): number => Math.round(spyWalkMs(from, to) / pace);
 
@@ -2523,10 +2520,14 @@ export function spyMenuOf(file: WarFile, key: string, target: string, now: numbe
   return { target, at: now, walkMs: plan.walkMs, options: plan.options };
 }
 
-/** Приказ лазутчику: числа — на минуту меню, если она свежая; не те, что видел игрок, — отказ, а не другое дело. */
+/**
+ * Приказ лазутчику: числа — на минуту сервера; не те, что видел игрок, — отказ, а не другое дело. Минуту меню (`order.at`)
+ * сервер не берёт (BTL-8): прежде приказ шёл по ней, если ей не больше 10 с, и подделанный клиент выбирал в этом окне
+ * минуту, когда охрана соседа была слабее. Числа меню меняются только на границах (часть суток, лазутчик соседа ушёл или
+ * вернулся, гарнизон), и честный приказ проходит как прежде.
+ */
 function spyOrder(file: WarFile, key: string, order: Extract<WarOrder, { op: 'spy' }>, now: number, ctx: OrderCtx): string | null {
-  const at = order.at <= now && now - order.at <= SPY_SHOWN_FRESH ? order.at : now;
-  const plan = spyPlan(file, key, order.target, at, ctx);
+  const plan = spyPlan(file, key, order.target, now, ctx);
   if (typeof plan === 'string') return plan;
   const opt = plan.options.find((o) => o.deed === order.deed);
   if (!opt) return 'Такого дела нет.';
