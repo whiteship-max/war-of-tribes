@@ -11,7 +11,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROUTES } from './routes/index.js';
 import { reportWith } from './routes/report.js';
 import { STORES, type Kv, type Stores } from './kv.js';
-import { ERA_KEY } from './era.js';
+import { ERA_KEY, eraNow } from './era.js';
+import { ERA_HEADER } from './contract.js';
+import { settlePurchase } from './gems.js';
 import { rewrite } from './admin.js';
 import { reportId } from './reports.js';
 import { readWatchRecord } from './watch.js';
@@ -90,6 +92,39 @@ describe('стирание после проверки эпохи', () => {
     );
     expect(res.status).toBe(503);
     expect((await home.stores(STORES.saves, 'strong').list({})).blobs).toEqual([]);
+  });
+});
+
+// АУ-8, п. 7 (решение владельца 26.10.2026): у приказов алмазов и оплаты эпоха проверяется и перед самой записью книги
+// алмазов (`gems.settle`, страж записи), как у партии, реестра, войны и уведомлений. Иначе стирание, начатое после проверки
+// на входе, получало книгу, открытую запросом старой эпохи, — со стартовыми и тратой — уже в новой.
+describe('стирание после проверки эпохи — алмазы и оплата (АУ-8, п. 7)', () => {
+  /** Хранилища, где чтение книги алмазов закрывает мир на стирание: проверка эпохи на входе уже пройдена. */
+  const closing = (): Stores => (name, consistency) => {
+    const kv = home.stores(name, consistency);
+    if (name !== STORES.gems) return kv;
+    return {
+      ...kv,
+      getWithMetadata: async (key: string) => {
+        await home.stores(STORES.world, 'strong').setJSON(ERA_KEY, { v: 1, era: 0, wiping: true, at: NOW });
+        return kv.getWithMetadata(key);
+      },
+    };
+  };
+
+  it('приказ алмазов: книга не пишется, ответ — 503 стирания', async () => {
+    const res = await ROUTES['/api/gems'](
+      new Request('https://x/api/gems', { headers: { 'x-telegram-init-data': signInit(A, Math.floor(NOW / 1000) - 60), [ERA_HEADER]: '0' } }),
+      { stores: closing(), now: NOW, ip: null },
+    );
+    expect(res.status).toBe(503);
+    expect((await home.stores(STORES.gems, 'strong').list({})).blobs).toEqual([]);
+  });
+
+  it('начисление оплаты: книга не пишется, страж записи спрошен (по исходнику двери оплаты)', async () => {
+    expect(await settlePurchase(closing(), `tg-${A}`, { amount: 100, key: 'pay:X', at: NOW }, async () => (await eraNow(home.stores)).wiping !== true)).toBeNull();
+    expect((await home.stores(STORES.gems, 'strong').list({})).blobs).toEqual([]);
+    expect(src('./pay.ts')).toMatch(/settlePurchase\(stores, player, \{ amount: o\.gems, key: `pay:\$\{o\.id\}`, at: now \}, stillOpen\)/);
   });
 });
 

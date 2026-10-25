@@ -682,7 +682,13 @@ export async function checkOrders(
       }
       continue;
     }
-    const done = await settlePurchase(stores, player, { amount: o.gems, key: `pay:${o.id}`, at: now });
+    // Эпоха — ещё раз, перед самой записью книги (OPS-3, АУ-8 п. 7): идёт стирание или эпоха сменилась — книга не пишется,
+    // замок отпускается, и заказ ляжет в открытой эпохе.
+    const stillOpen = async (): Promise<boolean> => {
+      const e = await eraNow(stores).catch(() => null);
+      return open(e) && e.era === era.era;
+    };
+    const done = await settlePurchase(stores, player, { amount: o.gems, key: `pay:${o.id}`, at: now }, stillOpen);
     if (!done || done.error) {
       await creditFree(stores, lock);
       continue;

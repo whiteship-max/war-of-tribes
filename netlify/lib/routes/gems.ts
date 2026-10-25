@@ -50,8 +50,10 @@ export const gems: Route = async (req, io) => {
   const frozen = order !== null && isFrozen(await frozenNow(io.stores), key);
   // Остаток стройки сервер считает сам — по книге стройки (docs/pvp.md, раздел 7; дыра docs/gems.md, 5.1 закрыта).
   const left = order?.op === 'rush' && !frozen ? await rushLeft(io, key, order.building, order.level, now) : undefined;
-  const done = await settleGems(io.stores, key, now, frozen ? null : order, left);
-  if (!done) return deny(503, 'busy', { 'retry-after': '3' });
+  // Эпоха — ещё раз, перед самой записью книги (OPS-3, АУ-8 п. 7), как у партии и войны.
+  const stillOpen = async (): Promise<boolean> => (await eraGate(req, io)) === null;
+  const done = await settleGems(io.stores, key, now, frozen ? null : order, left, stillOpen);
+  if (!done) return (await eraGate(req, io)) ?? deny(503, 'busy', { 'retry-after': '3' });
 
   const error = frozen ? FROZEN_ORDER : done.error;
   // Партия применит дела сама, по номеру: самые старые после её номера — из приказа или строки запроса (FIN-4).

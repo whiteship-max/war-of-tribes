@@ -323,25 +323,49 @@ export function settleGems(
   at: number,
   order: GemOrder | null = null,
   left?: number | null,
+  gate?: WriteGate,
 ): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string; warn?: string } | null> {
-  return settle(stores, player, at, (cur) => (order ? applyGemOrder(cur, order, at, left) : { ledger: null }));
+  return settle(stores, player, at, (cur) => (order ? applyGemOrder(cur, order, at, left) : { ledger: null }), gate);
 }
+
+/**
+ * Страж записи книги (OPS-3, АУ-8 п. 7): эпоха ещё открыта и та же — спрашивается перед самой записью, как у партии и войны.
+ * `false` — пишет не эта эпоха (идёт стирание или эпоха сменилась): книга не пишется, ответ — как «хранилище не ответило».
+ */
+export type WriteGate = () => Promise<boolean>;
 
 /**
  * Начислить оплаченный набор — вторая и последняя дверь, которая зовёт `creditGems` (источник `purchase`, ключ
  * `pay:<номер заказа>`). Зовёт её только проверка перевода (`lib/pay.ts`), когда сервер сам нашёл перевод в сети. Повтор
  * ничего не начисляет. `null` — хранилище не ответило: заказ остаётся «оплачен» и начислится следующей проверкой.
  */
-export function settlePurchase(stores: Stores, player: string, grant: Omit<GemGrant, 'source'>): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string } | null> {
-  return settle(stores, player, grant.at, (cur) => {
-    const done = creditGems(cur, { ...grant, source: 'purchase' });
-    if (typeof done === 'string') return { ledger: null, error: done };
-    return { ledger: done.ledger === cur ? null : done.ledger, ...(done.entry ? { entry: done.entry } : {}) };
-  });
+export function settlePurchase(
+  stores: Stores,
+  player: string,
+  grant: Omit<GemGrant, 'source'>,
+  gate?: WriteGate,
+): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string } | null> {
+  return settle(
+    stores,
+    player,
+    grant.at,
+    (cur) => {
+      const done = creditGems(cur, { ...grant, source: 'purchase' });
+      if (typeof done === 'string') return { ledger: null, error: done };
+      return { ledger: done.ledger === cur ? null : done.ledger, ...(done.entry ? { entry: done.entry } : {}) };
+    },
+    gate,
+  );
 }
 
 /** Одна дверь записи хранилища алмазов: прочитать (открыть со стартовыми), сделать шаг, записать условно. */
-async function settle(stores: Stores, player: string, at: number, act: (cur: GemLedger) => OrderStep): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string; warn?: string } | null> {
+async function settle(
+  stores: Stores,
+  player: string,
+  at: number,
+  act: (cur: GemLedger) => OrderStep,
+  gate?: WriteGate,
+): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string; warn?: string } | null> {
   const kv: Kv = stores(STORES.gems, 'strong');
   try {
     for (let tries = 0; tries < WRITE_TRIES; tries++) {
@@ -353,6 +377,8 @@ async function settle(stores: Stores, player: string, at: number, act: (cur: Gem
       const step = act(cur);
       const next = step.ledger ?? (stored ? null : cur);
       if (!next) return { ledger: cur, ...(step.entry ? { entry: step.entry } : {}), ...(step.error ? { error: step.error } : {}), ...(step.warn ? { warn: step.warn } : {}) };
+      // Эпоха — ещё раз, перед самой записью (OPS-3, АУ-8 п. 7): стирание после проверки на входе не получает книгу старой эпохи.
+      if (gate && !(await gate())) return null;
       const written = await kv.setJSON(player, next, found?.etag ? { onlyIfMatch: found.etag } : { onlyIfNew: true });
       if (written.modified) return { ledger: next, ...(step.entry ? { entry: step.entry } : {}), ...(step.error ? { error: step.error } : {}), ...(step.warn ? { warn: step.warn } : {}) };
     }
