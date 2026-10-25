@@ -3063,16 +3063,17 @@ export class LocalWorld implements WorldApi {
   private resolveRelief(m: StoredMarch, at: number): void {
     const id = m.relief as SettlementId;
     const w = this.siegeOf(id, at);
-    this.remove(m);
     // Осаду успели снять без них — отряд разворачивается и уходит домой.
-    if (!w) return;
+    if (!w) return this.reliefHome(m, at, 0);
     const party = raidingParty(this.save.seed, m.id, m.power);
     const out = this.campBattle(id, at, m.seed, {
       front: { kinds: party.kinds, rest: restAt(m.rest, at, stackTotal(party.kinds)) },
       from: m.from,
     });
     // Проход занят — выручка к рогаткам не пробилась и ушла ни с чем.
-    if (!out || out.refused) return;
+    if (!out || out.refused) return this.reliefHome(m, at, 0);
+    // Уцелевшие уходят домой (MAP-10): потери — доля дравшихся, а дралась только прошедшая через рогатки часть.
+    this.reliefHome(m, at, out.field.attackerLoss * out.share);
     const ours = ourCamp(w);
     const campLost = this.resolveSortieOn(id, at, out.field, `${m.fromName} пришли на выручку осаждённым.`, 'relief');
     if (!ours) return;
@@ -3103,6 +3104,20 @@ export class LocalWorld implements WorldApi {
           : ''),
       read: false,
     });
+  }
+
+  /**
+   * Выручка кончила дело — уцелевшие уходят домой, как поход соседа на соседа (`resolveWar`); прежде отряд снимался с карты
+   * в любом исходе (MAP-10). Цели у них больше нет: по дороге домой они не выручка.
+   */
+  private reliefHome(m: StoredMarch, at: number, loss: number): void {
+    m.relief = undefined;
+    if (loss > 0) {
+      m.power = Math.max(1, m.power * (1 - loss));
+      m.units = stackAfter(m.units, stackLosses(m.units, loss));
+    }
+    if (stackSize(m.units) > 0) this.turnHome(m, at, null);
+    else this.remove(m);
   }
 
   /**
@@ -4604,6 +4619,9 @@ export class LocalWorld implements WorldApi {
           }
           if (this.save.figures[id].phase === 'down') continue;
         }
+        // Откуда шёл — до того, как приход поставит его на клетку цели: штурм по прибытии берёт переправу по последнему
+        // шагу пути (MAP-10, `place.groundAt`).
+        const came = { ...f.from };
         f.from = { ...f.to };
         f.departAt = at;
         f.phase = this.touching(f.to)?.home ? 'home' : 'field';
@@ -4613,7 +4631,7 @@ export class LocalWorld implements WorldApi {
         // Дело из «Походов» без своей двери прихода — в минуту прихода, ценой, списанной приказом (Р-4).
         if (f.errand) this.errandArrived(id, at);
         // «Дойти и ударить»: бой в минуту прихода, не дожидаясь игрока, — онлайн и офлайн одинаково.
-        if (id === 'general' && f.assault) this.assaultArrived(at);
+        if (id === 'general' && f.assault) this.assaultArrived(at, came);
         if (this.save.figures[id].phase === 'down') continue;
         // Полководец с дружиной встал у своих ворот — дружина вошла в оборону, и
         // за стеной прибавилось ртов. Путь из осаждённого города заперт, а домой
@@ -4932,7 +4950,14 @@ export class LocalWorld implements WorldApi {
    * сразу — везти её обратно фигурой значило бы завести у неё второй груз и
    * второй маршрут, а этого шага здесь нет.
    */
-  private attackAt(target: GenSettlement, at: number, declared: Fate, camp: SiegeWindow | null = null): AttackResult {
+  private attackAt(
+    target: GenSettlement,
+    at: number,
+    declared: Fate,
+    camp: SiegeWindow | null = null,
+    /** Откуда полководец вышел на клетку цели; нет — стоял у неё (`from` фигуры). */
+    came?: Coord,
+  ): AttackResult {
     const f = this.save.figures.general;
     const troops = f.troops ?? {};
     const men = troopTotal(troops);
@@ -4945,7 +4970,7 @@ export class LocalWorld implements WorldApi {
     const field = resolveField({
       seed,
       // Место боя — клетка цели; переправа — если полководец вышел на неё через русло.
-      ground: groundAt(this.save.seed, target, this.save.figures.general.from),
+      ground: groundAt(this.save.seed, target, came ?? this.save.figures.general.from),
       // Мораль между боями — у обеих сторон одним правилом (14.31): дружина и гарнизон логова своими парами.
       attacker: { kinds: kindsOf(troops), resolve: this.ownResolve(), pips: this.generalPips(), rest: this.generalRest(at) },
       // Штурм из своего лагеря: гарнизон дерётся с духом осады и обстрела (`besiegedRest`); стен у двора мира нет — штурм
@@ -8249,7 +8274,7 @@ export class LocalWorld implements WorldApi {
    * Полководец дошёл с приказом «дойти и ударить»: бой в минуту прихода `at`, теми же проверками удара, что у приказа.
    * Цена уже заплачена при приказе. Не вышло — строкой летописи, почему боя не было.
    */
-  private assaultArrived(at: number): void {
+  private assaultArrived(at: number, came: Coord): void {
     const f = this.save.figures.general;
     const order = f.assault;
     f.assault = undefined;
@@ -8281,7 +8306,7 @@ export class LocalWorld implements WorldApi {
     }
     // «Дойти и осадить»: лагерь в минуту прихода, цена уже списана приказом.
     if (order.siege) return this.pitchCamp(target as GenSettlement, at, order.fate, 0, Boolean(order.blockade));
-    this.attackAt(target as GenSettlement, at, order.fate);
+    this.attackAt(target as GenSettlement, at, order.fate, null, came);
   }
 
   // ---------- Дело агента у цели (Р-4, docs/AGENTS.md, раздел 16) ----------
