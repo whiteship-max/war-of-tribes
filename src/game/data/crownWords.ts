@@ -3,6 +3,7 @@
 // Числа здесь не пишутся — что ответ даст, называют последствия (`sim/crown.crownWords`), одной правдой на исход и окно.
 import type { GameState } from '../types';
 import { faithOf } from '../derived';
+import { own } from '../guard';
 
 export interface CrownText {
   /** Текст вести: до 160 знаков, слогом летописи. */
@@ -280,10 +281,10 @@ function estateWords(): Record<string, CrownText> {
 
 /** Текст вести державы. */
 export const crownText = (id: string, s: GameState): string => {
-  const w = CROWN_WORDS[id];
+  const w = own(CROWN_WORDS, id);
   if (!w) return '';
   return typeof w.text === 'function' ? w.text(s) : w.text;
 };
 
 /** Исход ответа словами летописи. */
-export const crownDone = (id: string, i: number): string => CROWN_WORDS[id]?.done[i] ?? '';
+export const crownDone = (id: string, i: number): string => own(CROWN_WORDS, id)?.done[i] ?? '';

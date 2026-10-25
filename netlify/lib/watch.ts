@@ -16,6 +16,7 @@ import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, realMs } from '../../src/gam
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
+import { has, own } from '../../src/game/guard.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { prodCeil, storageOf } from '../../src/game/build.js';
 import { GONE_NAME, MERGED_INTO, MERGED_SAVE, foldTown } from '../../src/game/yardmerge.js';
@@ -458,7 +459,7 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
     }
   }
   // Постройки, ушедшие в дворы (правило «merge», ЗД-1), опись новой сборки не называет: их нет ни в игре, ни в её описи.
-  const gone = Object.keys(card.buildings).filter((t) => Object.prototype.hasOwnProperty.call(MERGED_INTO, t));
+  const gone = Object.keys(card.buildings).filter((t) => has(MERGED_INTO, t));
   if (gone.length > 0 && saveOf(card.build) >= MERGED_SAVE) {
     const list = gone.map((t) => `${GONE_NAME[t] ?? t} ${big(card.buildings[t] ?? 0)}`).join(', ');
     out.push({
@@ -885,7 +886,7 @@ export function crownFlags(a: WatchCard, b: WatchCard, realMs: number): { kind: 
   if (!x) return out;
   const { seen } = crownNew(a, b);
   for (const e of seen) {
-    const rule = CROWN_RULES[e.id];
+    const rule = own(CROWN_RULES, e.id);
     if (!rule) out.push({ kind: 'crown', text: `Ответ на весть «${e.id}», которой в игре нет.` });
     else if (e.opt >= rule.opts.length) {
       out.push({ kind: 'crown', text: `Весть «${e.id}»: ответа №${e.opt + 1} нет — у неё ${rule.opts.length}.` });
@@ -895,7 +896,7 @@ export function crownFlags(a: WatchCard, b: WatchCard, realMs: number): { kind: 
   const book = new Map<number, WatchCrownEntry>();
   for (const e of [...(a.crown?.last ?? []), ...x.last]) book.set(e.n, e);
   for (const e of seen) {
-    const rule = CROWN_RULES[e.id];
+    const rule = own(CROWN_RULES, e.id);
     if (!rule || rule.kind === 'chain') continue;
     const every = crownEvery(e.id);
     const twin = [...book.values()].find((o) => o.id === e.id && o.n !== e.n && Math.abs(o.at - e.at) < every);
@@ -949,7 +950,7 @@ export function cancelledRefund(a: WatchCard, b: WatchCard): { refund: Partial<R
   const still = new Set(b.queue.map((e) => keyOf(e.type, e.level)));
   let count = 0;
   for (const e of a.queue.slice(0, BUILD_QUEUE_MAX)) {
-    if (!(e.type in BUILDING_BY_ID) || still.has(keyOf(e.type, e.level))) continue;
+    if (!has(BUILDING_BY_ID, e.type) || still.has(keyOf(e.type, e.level))) continue;
     if ((b.buildings[e.type] ?? 0) >= e.level) continue;
     const started = a.site?.type === e.type && a.site.level === e.level && a.site.done > 0;
     for (const [r, v] of Object.entries(cancelRefund(BUILDING_BY_ID[e.type as BuildingTypeId], e.level, started)) as [ResourceId, number][]) refund[r] = (refund[r] ?? 0) + v;

@@ -15,6 +15,7 @@ import {
 import { TROOPS_OF_KIND, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { kindsOf, troopLosses, troopPower } from '@/game/battle/price';
 import { TROOP_IDS } from '@/game/data/troops';
+import { has } from '@/game/guard';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { BattlePlace } from '@/game/battle/ground';
 import type { WorldApi } from '../api';
@@ -352,6 +353,7 @@ import {
   inTown,
   musterMs,
   ownOf,
+  pickTroops,
   plus,
   roomOf,
   standingShare,
@@ -3238,13 +3240,8 @@ export class LocalWorld implements WorldApi {
     // Через фронт: вылазка лезет в рогатки, обращённые к городу.
     const held = this.defenders(now);
     const home = held.all;
-    const going: TroopStack = {};
-    for (const [key, raw] of Object.entries(troops ?? {}) as [keyof TroopStack, number][]) {
-      const n = Math.max(0, Math.floor(raw ?? 0));
-      if (n <= 0) continue;
-      if (n > (home[key] ?? 0)) return { error: 'Столько бойцов дома нет.', reportId: null, won: false };
-      going[key] = n;
-    }
+    const going = pickTroops(troops, home);
+    if (!going) return { error: 'Столько бойцов дома нет.', reportId: null, won: false };
     const men = troopTotal(going);
     if (men === 0) return { error: 'Отряд пустой.', reportId: null, won: false };
 
@@ -7551,13 +7548,8 @@ export class LocalWorld implements WorldApi {
     if (block) return block;
     const room = roomOf(this.save.profile?.army ?? {}, this.save.marches);
     const held = f.troops ?? {};
-    const next: TroopStack = {};
-    for (const [key, raw] of Object.entries(troops ?? {}) as [keyof TroopStack, number][]) {
-      const want = Math.max(0, Math.floor(raw ?? 0));
-      if (want <= 0) continue;
-      if (want > (room[key] ?? 0)) return 'Столько бойцов дома нет.';
-      next[key] = want;
-    }
+    const next = pickTroops(troops, room);
+    if (!next) return 'Столько бойцов дома нет.';
     // Дружину из осаждённого города не увести: это тот же выход, только другим
     // приказом. Вернуть её в гарнизон осада не мешает — под запретом выход, а не
     // вход, и подкрепление под стенами дело хорошее.
@@ -8433,7 +8425,7 @@ export class LocalWorld implements WorldApi {
     const spot = this.errandSpot(o.target, now);
     if (!spot) return 'Цели на месте нет.';
     if (!def.on.includes(spot.kind)) return 'Это дело не к этой цели.';
-    if (o.fate !== undefined && !(o.fate in FATES)) return 'Такой участи нет.';
+    if (o.fate !== undefined && !has(FATES, o.fate)) return 'Такой участи нет.';
     const fate = o.fate ?? FATE_DEFAULT;
     const id = o.agent;
     const f = this.save.figures[id];
@@ -8818,13 +8810,8 @@ export class LocalWorld implements WorldApi {
     const w = this.homeSiege(now);
     const held = this.defenders(now);
     const home = held.all;
-    const going: TroopStack = {};
-    for (const [key, raw] of Object.entries(troops ?? {}) as [keyof TroopStack, number][]) {
-      const n = Math.max(0, Math.floor(raw ?? 0));
-      if (n <= 0) continue;
-      if (n > (home[key] ?? 0)) return { error: 'Столько бойцов дома нет.', reportId: null, won: false };
-      going[key] = n;
-    }
+    const going = pickTroops(troops, home);
+    if (!going) return { error: 'Столько бойцов дома нет.', reportId: null, won: false };
     if (troopTotal(going) === 0) return { error: 'Отряд пустой.', reportId: null, won: false };
     if (!w) {
       const pvp = this.warOnUs();
@@ -10735,13 +10722,8 @@ export class LocalWorld implements WorldApi {
     const why = burnBlock(w.camp as unknown as SiegeWindow, id, now);
     if (why) return { error: why, reportId: null, won: false };
     const home = this.defenders(now).all;
-    const going: TroopStack = {};
-    for (const [key, raw] of Object.entries(troops ?? {}) as [keyof TroopStack, number][]) {
-      const n = Math.max(0, Math.floor(raw ?? 0));
-      if (n <= 0) continue;
-      if (n > (home[key] ?? 0)) return { error: 'Столько бойцов дома нет.', reportId: null, won: false };
-      going[key] = n;
-    }
+    const going = pickTroops(troops, home);
+    if (!going) return { error: 'Столько бойцов дома нет.', reportId: null, won: false };
     if (troopTotal(going) === 0) return { error: 'Отряд пустой.', reportId: null, won: false };
     const err = await this.warSend({ op: 'sally', id: w.id, machine: id, troops: going as Counts });
     return err ? { error: err, reportId: null, won: false } : { error: null, ...this.warReportOf(w.id) };
@@ -10920,13 +10902,8 @@ export class LocalWorld implements WorldApi {
   /** Вылазка на лагерь игрока: состав — приказом, бой — у сервера, той же дверью, что у лагеря логова. */
   private async warSortie(w: WarView, troops: TroopStack, now: number): Promise<AttackResult> {
     const home = this.defenders(now).all;
-    const going: TroopStack = {};
-    for (const [key, raw] of Object.entries(troops ?? {}) as [keyof TroopStack, number][]) {
-      const n = Math.max(0, Math.floor(raw ?? 0));
-      if (n <= 0) continue;
-      if (n > (home[key] ?? 0)) return { error: 'Столько бойцов дома нет.', reportId: null, won: false };
-      going[key] = n;
-    }
+    const going = pickTroops(troops, home);
+    if (!going) return { error: 'Столько бойцов дома нет.', reportId: null, won: false };
     if (troopTotal(going) === 0) return { error: 'Отряд пустой.', reportId: null, won: false };
     const err = await this.warSend({ op: 'sortie', id: w.id, troops: going as Counts });
     return err ? { error: err, reportId: null, won: false } : { error: null, ...this.warReportOf(w.id) };

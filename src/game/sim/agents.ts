@@ -47,6 +47,7 @@ import {
   type TraitNumbers,
 } from '../data/traits';
 import { ITEMS, slotName, type ItemId } from '../data/items';
+import { has } from '../guard';
 import { cityName } from '../../../netlify/lib/contract';
 import { perilText, veilAt } from '@/world/peril';
 import { SIEGE_PIPS_MAX } from '@/world/data/siegeroll';
@@ -617,7 +618,7 @@ export function regear(
   if (!Number.isInteger(slot) || slot < 0 || slot >= SLOT_COUNT) return 'Такого места нет.';
   if (slot >= slotsOpen(p.xp)) return `Это место откроется на ур. ${THIRD_SLOT_LEVEL}.`;
   if (item !== null) {
-    if (!Object.prototype.hasOwnProperty.call(ITEMS, item)) return 'Такой вещи нет.';
+    if (!has(ITEMS, item)) return 'Такой вещи нет.';
     if (!owned.includes(item)) return 'Этой вещи у тебя нет.';
     if (p.slots.some((x, i) => i !== slot && x === item)) return 'Эта вещь уже надета.';
   }

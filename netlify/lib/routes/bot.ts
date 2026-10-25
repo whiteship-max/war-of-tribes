@@ -47,6 +47,7 @@ import { telegram, type Telegram } from '../telegram.js';
 import { adminCommand } from '../commands.js';
 import { adminIds } from '../admin.js';
 import { paymentOf, refusePayment } from '../tgpay.js';
+import { own } from '../../../src/game/guard.js';
 
 /** Обновлений в минуту на игрока — нажатий кнопок больше не бывает. */
 const PER_MINUTE = 30;
@@ -122,7 +123,7 @@ function changeOf(update: Record<string, unknown>): { id: number; change: Change
     if (typeof pressed !== 'string') return null;
     if (pressed === CALLBACK_MENU) return { id, change: { menu: true, callback: cb.id, chat: id } };
     const legacy = pressed === CALLBACK_OFF || pressed === CALLBACK_ON;
-    const sw = legacy ? { on: pressed === CALLBACK_ON } : Object.prototype.hasOwnProperty.call(PANEL, pressed) ? PANEL[pressed] : null;
+    const sw = legacy ? { on: pressed === CALLBACK_ON } : (own(PANEL, pressed) ?? null);
     if (!sw) return null;
     const msg = (cb.message ?? {}) as Record<string, unknown>;
     const chat = userId((msg.chat as Record<string, unknown> | undefined)?.id);

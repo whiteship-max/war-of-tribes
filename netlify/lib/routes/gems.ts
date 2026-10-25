@@ -18,6 +18,7 @@ import { buildMult, noted, observe, readWatchRecord, townOf, warned } from '../w
 import { rushFloor } from '../town.js';
 import { STORES } from '../kv.js';
 import { BUILDING_BY_ID } from '../../../src/game/data/buildings.js';
+import { has } from '../../../src/game/guard.js';
 import type { BuildingTypeId } from '../../../src/game/types.js';
 import { gemLine } from '../../../src/game/gemrules.js';
 
@@ -78,7 +79,7 @@ export const gems: Route = async (req, io) => {
  * цена по остатку игры, как до книги (ускорение не падает из-за попутного чтения).
  */
 async function rushLeft(io: Parameters<Route>[1], key: string, building: string, level: number, now: number): Promise<number | null | undefined> {
-  if (!(building in BUILDING_BY_ID)) return null;
+  if (!has(BUILDING_BY_ID, building)) return null;
   try {
     const found = await io.stores(STORES.watch, 'strong').getWithMetadata(key);
     const rec = readWatchRecord(found ? parseJson(String(found.data)) : null);

@@ -35,6 +35,7 @@
 // (docs/AGENTS.md, «Впереди»).
 import type { FigureId } from '@/world/types';
 import type { LineagePlace, Tally } from '../types';
+import { has } from '../guard';
 
 export type TraitId = 'victor' | 'beaten' | 'swift' | 'butcher' | 'carter' | 'unseen' | 'marked' | 'deft' | 'lagging';
 
@@ -200,7 +201,7 @@ export const TRAIT_BY_ID: Readonly<Record<TraitId, TraitDef>> = Object.fromEntri
 ) as Record<TraitId, TraitDef>;
 
 export const isTraitId = (v: unknown): v is TraitId =>
-  typeof v === 'string' && Object.prototype.hasOwnProperty.call(TRAIT_BY_ID, v);
+  typeof v === 'string' && has(TRAIT_BY_ID, v);
 
 /** Сколько дел засчитано человеку: удачи и неудачи вместе. */
 export const deedsOf = (t: Tally): number => t.ok + t.fail;

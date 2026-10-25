@@ -11,6 +11,7 @@ import { SHOP_DAILY, SHOP_GOODS, SHOP_LOT, shopBlocked, shopPrice, shopRoom } fr
 import { gemLine, shopResetAt } from '@/game/gemrules';
 import { buildingTitle } from '@/game/derived';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { has } from '@/game/guard';
 import { gemsOffline, orderBuy, useGems, type GemsStore } from '@/net/gems';
 import { serverNow } from '@/net/clock';
 import type { BuildingTypeId } from '@/game/types';
@@ -210,7 +211,7 @@ function History() {
   const list = useGems((g) => g.list);
   const balance = useGems((g) => g.balance);
   if (list.length === 0) return <div className="note">{balance === null ? 'Нет связи. Журнал откроется, когда она вернётся.' : 'Записей ещё нет.'}</div>;
-  const name = (b: string): string => (b in BUILDING_BY_ID ? buildingTitle(s, b as BuildingTypeId) : b);
+  const name = (b: string): string => (has(BUILDING_BY_ID, b) ? buildingTitle(s, b as BuildingTypeId) : b);
   return (
     <div className="nx-gem-log">
       {[...list].reverse().map((e) => (

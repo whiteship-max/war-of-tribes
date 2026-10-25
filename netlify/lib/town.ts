@@ -21,6 +21,7 @@
  * (`routes/gems.ts`). Лежит в записи наблюдения игрока (`WatchRecord.town`). Чистая: без хранилища и без часов.
  */
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
+import { has } from '../../src/game/guard.js';
 import type { BuildingTypeId } from '../../src/game/types.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, START_POP } from '../../src/game/constants.js';
 import { gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
@@ -151,7 +152,7 @@ export function readTown(v: unknown): TownBook | null {
   if (since <= 0 || at <= 0) return null;
   const s = (r.site && typeof r.site === 'object' ? r.site : null) as Record<string, unknown> | null;
   const site =
-    s && typeof s.type === 'string' && (s.type in BUILDING_BY_ID || hasGone([s.type])) && Number.isInteger(s.level)
+    s && typeof s.type === 'string' && (has(BUILDING_BY_ID, s.type) || hasGone([s.type])) && Number.isInteger(s.level)
       ? { type: s.type, level: Math.floor(n0(s.level)), done: n0(s.done) }
       : null;
   const peak = (r.peak && typeof r.peak === 'object' ? r.peak : {}) as Record<string, unknown>;
@@ -265,7 +266,7 @@ export function queueFaults(claim: TownClaim, prev?: { site?: TownSite | null })
   q.forEach((e, i) => {
     const key = keyOf(e.type, e.level);
     if (i >= BUILD_QUEUE_MAX) out.push({ key, why: `${i + 1}-е место при очереди в ${BUILD_QUEUE_MAX}` });
-    else if (!(e.type in BUILDING_BY_ID)) out.push({ key, why: 'такой постройки нет' });
+    else if (!has(BUILDING_BY_ID, e.type)) out.push({ key, why: 'такой постройки нет' });
     else if (seen.has(e.type)) out.push({ key, why: 'вторая стройка той же постройки' });
     else if (e.level !== levelIn(claim.buildings, e.type as BuildingTypeId) + 1 || e.level > top(e.type as BuildingTypeId)) {
       out.push({ key, why: `уровень не следующий: постройка ур. ${levelIn(claim.buildings, e.type as BuildingTypeId)}` });
@@ -462,7 +463,7 @@ export function floorAt(book: TownBook, at: number): { pop: number; power: numbe
 export function townSheet(sheet: WarSheet, book: TownBook, homePower: number): WarSheet {
   const levels: Counts = {};
   for (const [k, v] of Object.entries(sheet.levels)) {
-    const n = k in BUILDING_BY_ID ? Math.min(v, levelIn(book.levels, k as BuildingTypeId)) : 0;
+    const n = has(BUILDING_BY_ID, k) ? Math.min(v, levelIn(book.levels, k as BuildingTypeId)) : 0;
     if (n > 0) levels[k] = n;
   }
   const cap = storageOf(book.levels);
@@ -558,7 +559,7 @@ export function rushFloor(book: TownBook, claimed: Counts, bonded: number, type:
   for (const k of ahead < 0 ? book.queue : book.queue.slice(0, ahead)) {
     const [t, l] = k.split(':');
     const lv = Number(l);
-    if (!(t in BUILDING_BY_ID) || !Number.isInteger(lv) || lv <= levelIn(book.levels, t as BuildingTypeId)) continue;
+    if (!has(BUILDING_BY_ID, t) || !Number.isInteger(lv) || lv <= levelIn(book.levels, t as BuildingTypeId)) continue;
     const done = book.site && book.site.type === t && book.site.level === lv ? book.site.done : 0;
     work -= Math.max(0, upgradeWork(BUILDING_BY_ID[t as BuildingTypeId], lv) - free - done);
     if (work < 0) return null;

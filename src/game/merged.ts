@@ -6,13 +6,10 @@
  */
 import type { BuildingTypeId } from './types';
 import { BUILDING_BY_ID } from './data/buildings';
+import { own } from './guard';
 
 /** Ушедшее здание → двор, в который оно вошло. */
 export const MERGED_INTO: Readonly<Record<string, BuildingTypeId>> = { pen: 'farm', gathering: 'hunter_hut', quarry: 'mine' };
-
-/** Своё поле таблицы, а не прототипа: тип постройки из записи — чужая строка, и «toString» таблицей не является. */
-export const own = <T>(table: Readonly<Record<string, T>>, key: string): T | undefined =>
-  Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
 
 /** Тип постройки, каким его знает игра сейчас: ушедший — его двор, нынешний — он сам, чужой — null. */
 export const keptType = (type: string): BuildingTypeId | null =>

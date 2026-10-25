@@ -55,6 +55,7 @@ import { ENGINES } from '../../src/game/data/engines.js';
 import { campFight, guardKinds, homeLosses, machineFight, wallFight } from '../../src/world/fights.js';
 import { SCALING, wallFront } from '../../src/world/wall.js';
 import { PROPOSALS, answerBlock, type ProposalAct, type ProposalEnd, type ProposalKind, type ProposalView } from '../../src/world/proposals.js';
+import { has, own } from '../../src/game/guard.js';
 import {
   GUARD_SHARE,
   assaultOf,
@@ -277,7 +278,7 @@ export function readWars(raw: unknown): WarFile {
     : [];
   const offer = (x: Partial<PactOffer>): PactOffer => {
     const at = Number(x.at) || 0;
-    const kind = x.kind && PROPOSALS[x.kind] ? x.kind : 'pact';
+    const kind = x.kind && has(PROPOSALS, x.kind) ? x.kind : 'pact';
     return {
       id: typeof x.id === 'string' && x.id ? x.id : proposalId(x.from as string, at),
       kind,
@@ -577,7 +578,7 @@ function plus(a: Counts, b: Counts): Counts {
   return out;
 }
 
-const fits = (want: Counts, have: Counts): boolean => Object.entries(want).every(([k, v]) => (v ?? 0) <= (have[k] ?? 0));
+const fits = (want: Counts, have: Counts): boolean => Object.entries(want).every(([k, v]) => (v ?? 0) <= (own(have, k) ?? 0));
 
 /** Сид боя войны: номер войны и номер боя — одна и та же война даёт один и тот же бой у кого угодно. */
 export function warSeed(id: string, n: number): number {

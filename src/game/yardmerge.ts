@@ -20,7 +20,8 @@ import type { BuildingTypeId, JobId, ResourceId } from './types';
 import { BUILDINGS, BUILDING_BY_ID, jobsOf } from './data/buildings';
 import { YARD_BY_JOB } from './data/yards';
 import { upgradeCost, upgradeWork } from './labour';
-import { MERGED_INTO, hasGone, keptType, own } from './merged';
+import { MERGED_INTO, hasGone, keptType } from './merged';
+import { has, own } from './guard';
 
 export { MERGED_INTO, hasGone, keptType } from './merged';
 
@@ -166,7 +167,7 @@ export function foldParty(data: Record<string, unknown>): PartyFold {
   const next = foldLevels(levels);
   const buildings: RawBuilding[] = [];
   for (const b of all) {
-    if (Object.prototype.hasOwnProperty.call(MERGED_INTO, b.type)) continue;
+    if (has(MERGED_INTO, b.type)) continue;
     const pair = MERGED_PAIRS.find((p) => p.kept === b.type && p.gone in levels);
     if (!pair) {
       buildings.push(b);

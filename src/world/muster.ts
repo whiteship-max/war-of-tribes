@@ -31,6 +31,7 @@
 // должно.
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
+import { own } from '@/game/guard';
 import { realMs } from '@/game/pace';
 import { AI_WARNING_BASE, HANDOVER_BASE, HANDOVER_MAX, HANDOVER_PER_MAN } from './data/tuning';
 import type { FigurePhase } from './types';
@@ -179,6 +180,23 @@ export function weakest(t: TroopStack, n: number): TroopStack {
     left -= take;
   }
   return out;
+}
+
+/**
+ * Кого выводит приказ из тех, кто стоит в `home`: вылазка, прорыв, вылазка к машине, раскладка дружины. Состав из
+ * приказа — чужие ключи и числа; больше, чем стоит, — `null` («Столько бойцов дома нет»). Одна дверь на все приказы
+ * мира с составом.
+ */
+export function pickTroops(troops: TroopStack | null | undefined, home: TroopStack): TroopStack | null {
+  const going: TroopStack = {};
+  // По видам бойцов, а не по ключам приказа: «constructor» из приказа — не вид (SETUP-3).
+  for (const id of TROOP_IDS) {
+    const n = Math.max(0, Math.floor(own(troops ?? {}, id) ?? 0));
+    if (n <= 0) continue;
+    if (n > (home[id] ?? 0)) return null;
+    going[id] = n;
+  }
+  return going;
 }
 
 /**
