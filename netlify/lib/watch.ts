@@ -14,6 +14,7 @@ import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchAdvisor, type WatchCard, type WatchCrownEntry } from './contract.js';
 import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
+import { DEED_TABLE } from '../../src/game/data/deedgain.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { has, own } from '../../src/game/guard.js';
@@ -290,6 +291,14 @@ export function foldCard(card: WatchCard): WatchCard {
  * Выработка описи для сверки роста — не выше потолка её же уровней и жителей (правило «prod», `build.prodCeil`): заявленная
  * сверх мест и множителей выработка не объясняет рост склада. Золото — налог и вера — как заявлено.
  */
+/**
+ * Потолок добычи одного промысла при полном счёте (AC-4): доля дневной выработки вида за игру (`DEED_TABLE.game` — вывод из
+ * данных игры с запасом ×1.2, наибольшая по промыслам) на выработку. Им же считает игра (`sim/minigames.minigameCap`), а
+ * `WatchCard.haulCap` описи — только слова клиента: правило спрашивает этот потолок, а названный выше него — флаг.
+ */
+export const haulCeil = (prod: Counts): number =>
+  RESOURCE_IDS.reduce((n, r) => n + (DEED_TABLE.game[r] ?? 0) * Math.max(0, prod[r] ?? 0), 0);
+
 export function prodOf(card: WatchCard): Counts {
   const ceil = prodCeil(card.buildings, card.pop, yardMult(card, card.buildings));
   const out: Counts = { ...card.prod };
@@ -468,6 +477,11 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
       out.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости склада ${big(card.cap)} — сверх склада игра не кладёт ничего (или склад потерял уровень).` });
     }
   }
+  // Потолок промысла описи выше потолка по её же выработке (AC-4): игра считает его той же долей, и выше он не бывает.
+  const haulTop = haulCeil(prodOf(card));
+  if (card.haulCap > haulTop + 1) {
+    out.push({ kind: 'haul', text: `Потолок промысла в описи ${big(card.haulCap)} за игру, а по выработке — не больше ${big(haulTop)}.` });
+  }
   // Постройки, ушедшие в дворы (правило «merge», ЗД-1), опись новой сборки не называет: их нет ни в игре, ни в её описи.
   const gone = Object.keys(card.buildings).filter((t) => has(MERGED_INTO, t));
   if (gone.length > 0 && saveOf(card.build) >= MERGED_SAVE) {
@@ -593,7 +607,8 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
     // Энергия: полный запас и приток за прошедшее время партии; игра стоит `MINIGAME_COST`.
     const can = Math.floor((ENERGY_MAX + ((realMs + leadMs) / ENERGY_REFILL) * ENERGY_MAX) / MINIGAME_COST);
     if (played > can) out.push({ kind: 'games', text: `Промыслов ${signed(played)} за ${span(realMs)}; энергии хватало не больше чем на ${big(can)}.` });
-    const cap = Math.max(a.haulCap, b.haulCap);
+    // Потолок игры — по выработке и долям промыслов из данных игры (`haulCeil`, AC-4), а не из описи: опись его только называет.
+    const cap = Math.max(haulCeil(prodOf(a)), haulCeil(prodOf(b)));
     const got = b.haul - a.haul;
     if (got > cap * played + played) {
       out.push({ kind: 'haul', text: `Добыча промыслов ${signed(got)} за ${big(played)} игр; потолок — ${big(cap)} за игру.` });
@@ -1211,14 +1226,14 @@ export function booked(
   }
   // Запасы не выше предела (правило «stock», `CITY_RULES`): вместимость — подтверждённых уровней (`build.storageOf`, ею же
   // считает игра, `derived.storageCap`). Опись, назвавшая вместимость не больше подтверждённой, уже сверена в `flagsOf`.
+  // Сверяется всегда, какую бы вместимость опись ни назвала (AC-4): прежде правило спрашивалось, только если опись назвала
+  // больше подтверждённой, и опись с `cap: 0` проходила мимо обоих правил.
   const cap = storageOf(people.book.levels);
-  if (watch.cap > cap) {
-    for (const k of RESOURCE_IDS) {
-      const have = watch.stock[k] ?? 0;
-      if (have > cap + 1) {
-        found.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости подтверждённых построек ${big(cap)} (опись называет ${big(watch.cap)}). В войну идёт не больше вместимости.` });
-        break;
-      }
+  for (const k of RESOURCE_IDS) {
+    const have = watch.stock[k] ?? 0;
+    if (have > cap + 1) {
+      found.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости подтверждённых построек ${big(cap)} (опись называет ${big(watch.cap)}). В войну идёт не больше вместимости.` });
+      break;
     }
   }
   return found.length ? addFlags(next, at, found) : next;

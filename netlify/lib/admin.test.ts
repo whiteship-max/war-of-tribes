@@ -136,7 +136,8 @@ const card = (over: Partial<WatchCard> = {}): WatchCard => ({
   buildings: { town_hall: 2 },
   pop: 50,
   stock: { wood: 100, gold: 10 },
-  prod: { wood: 300, gold: 20 },
+  // Хлеб — промыслы приносят хлеб и шкуры: потолок промысла по выработке (AC-4, `watch.haulCeil`) чуть выше `haulCap` описи.
+  prod: { wood: 300, food: 170, gold: 20 },
   cap: 1000,
   troops: { spearman: 10 },
   queued: 0,

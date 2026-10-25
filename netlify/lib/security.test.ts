@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROUTES } from './routes/index.js';
 import { botWith } from './routes/bot.js';
 import { STORES } from './kv.js';
-import { CITY_RULES, WARN, bookOf, buildMult, confirmedOf, confirmedPower, estateCeilOf, flagsBetween, marshalOf, prodOf, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
+import { CITY_RULES, WARN, bookOf, buildMult, confirmedOf, confirmedPower, estateCeilOf, flagsBetween, flagsOf, haulCeil, marshalOf, prodOf, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
 import { ESTATES, LOYAL, estateCeil, influenceOf, loyaltyCeil, privFromRow } from '../../src/game/estaterules.js';
 import { readLedger, settlePurchase } from './gems.js';
 import { ROSTER_KEY, readRoster } from './roster.js';
@@ -319,6 +319,35 @@ describe('таблица правил города: каждое правило 
     expect(storageOf(big)).toBeGreaterThan(cap * 3);
     expect(kinds(rec)).toContain('cap');
     expect(warnings(rec).some((t) => /вместимости подтверждённых построек/.test(t))).toBe(true);
+  });
+
+  it('AC-4: опись назвала вместимость нулём — склад сверх подтверждённой всё равно «внимание:» (архив prove-5-1)', async () => {
+    const p = player(5121);
+    const cap = storageOf(LEVEL1);
+    expect(await p.push(card({ cap: 0, stock: { wood: cap * 3, gold: 10 } }), NOW)).toBe(200);
+    const rec = await p.watch();
+    expect(kinds(rec)).toContain('cap');
+    expect(warnings(rec).some((t) => /вместимости подтверждённых построек/.test(t))).toBe(true);
+    // Честная опись у самой вместимости — без флага: точка у края правила.
+    const q = player(5122);
+    expect(await q.push(card({ cap, stock: { wood: cap, gold: 10 } }), NOW)).toBe(200);
+    expect(kinds(await q.watch())).not.toContain('cap');
+  });
+
+  it('AC-4: потолок добычи промысла считает сервер из выработки, а не берёт из описи', () => {
+    const prod = { wood: 300, food: 600, hides: 40, gold: 20 };
+    const a = card({ prod, games: 0, haul: 0, haulCap: 0 });
+    const ceil = haulCeil(prodOf(a));
+    expect(ceil).toBeGreaterThan(0);
+    const b = (over: Partial<WatchCard>): WatchCard => card({ ...over, prod, clock: NOW + HOUR, time: a.time + gameSecondsOfMs(HOUR) });
+    const flags = (y: WatchCard): FlagKind[] => flagsBetween(a, NOW, y, NOW + HOUR).map((f) => f.kind);
+    // Огромный потолок в описи не пропускает добычу сверх потолка по выработке.
+    expect(flags(b({ games: 2, haul: Math.ceil(ceil * 2) + 50, haulCap: 1e9 }))).toContain('haul');
+    // Честная добыча — до потолка по выработке — без флага, какой бы потолок ни назвала опись.
+    expect(flags(b({ games: 2, haul: Math.floor(ceil * 2), haulCap: 0 }))).not.toContain('haul');
+    // Сама опись с потолком выше выработки — флаг; потолок по выработке — нет.
+    expect(flagsOf(card({ prod, haulCap: 1e9 }), NOW).map((f) => f.kind)).toContain('haul');
+    expect(flagsOf(card({ prod, haulCap: Math.floor(ceil) }), NOW).map((f) => f.kind)).not.toContain('haul');
   });
 
   it('войска больше нанятых: пять тысяч копейщиков с первой записи — сервер подтверждает ноль, в рейтинг они не идут', async () => {
