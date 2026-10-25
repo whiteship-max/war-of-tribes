@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readArmy, readCounts, readEnergy, readPrefs, readRecord, type SaveRecord } from './contract.js';
+import { WALK_MS_MAX, readArmy, readCounts, readEnergy, readPrefs, readRecord, readWarOrder, type SaveRecord } from './contract.js';
 import { energyAt } from '../../src/world/energy.js';
 
 const LIMITS = { game: 200, world: 100 };
@@ -97,5 +97,19 @@ describe('AC-8: пояс игрока — только настоящий', () =
     expect(readPrefs({ tz: 'Europe/Berlin' }).tz).toBe('Europe/Berlin');
     expect(readPrefs({ tz: 'UTC' }).tz).toBe('UTC');
     expect(readPrefs({ tz: '' }).tz).toBe('');
+  });
+});
+
+describe('AC-8: срок пути удара и выручки — без среза в сутки', () => {
+  it('честный путь длиннее суток доходит до сервера как есть; бесконечность — нет', () => {
+    const base = { id: 'w1', army: { troops: { spearman: 5 } }, from: { x: 3, y: 4 } };
+    const HOUR = 3_600_000;
+    for (const op of ['strike', 'relief'] as const) {
+      const o = readWarOrder({ op, ...base, walkMs: 30 * HOUR }) as { walkMs: number } | null;
+      expect(o?.walkMs, op).toBe(30 * HOUR);
+      const far = readWarOrder({ op, ...base, walkMs: 1e300 }) as { walkMs: number } | null;
+      expect(Number.isFinite(far!.walkMs)).toBe(true);
+      expect(far!.walkMs).toBe(WALK_MS_MAX);
+    }
   });
 });

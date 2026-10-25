@@ -1551,6 +1551,12 @@ export function readArmy(v: unknown, latest = Infinity): WarArmy | null {
 }
 
 /** Приказ войны из тела запроса: новый объект, лишние поля (и всякий «исход») отбрасываются. */
+/**
+ * Потолок срока пути удара и выручки (`walkMs`) — только против бесконечности (AC-8). Прежде путь резался до суток, и честный
+ * дальний поход сервер считал быстрее пола пути и ставил флаг подделки (`war.walkOf` сверяет срок с полом сам).
+ */
+export const WALK_MS_MAX = 30 * 24 * 3600_000;
+
 /** Приказ войны из тела запроса. `latest` — часы сервера с допуском: позже них отметки энергии не бывает (AC-8). */
 export function readWarOrder(v: unknown, latest = Infinity): WarOrder | null {
   if (!v || typeof v !== 'object') return null;
@@ -1608,7 +1614,7 @@ export function readWarOrder(v: unknown, latest = Infinity): WarOrder | null {
       const walk = num(r.walkMs);
       const from = readSpot(r.from);
       return id && army && walk !== null && from
-        ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)), from }
+        ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(WALK_MS_MAX, Math.max(0, walk)), from }
         : null;
     }
     case 'repair':
@@ -1635,7 +1641,7 @@ export function readWarOrder(v: unknown, latest = Infinity): WarOrder | null {
       const army = readArmy(r.army, latest);
       const walk = num(r.walkMs);
       const from = readSpot(r.from);
-      return id && army && walk !== null && from ? { op: 'relief', id, army, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)), from } : null;
+      return id && army && walk !== null && from ? { op: 'relief', id, army, walkMs: Math.min(WALK_MS_MAX, Math.max(0, walk)), from } : null;
     }
     case 'pact':
     case 'unpact': {
