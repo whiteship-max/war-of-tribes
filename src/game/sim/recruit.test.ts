@@ -147,6 +147,11 @@ describe('кандидаты: тем же механизмом, что прос�
     expect(recruitsOf(s, 'scout').map((c) => c.n), 'нанятый ушёл из листа').not.toContain(n);
     expect(dismissAgent(s, 'scout', HOME)).toBeNull();
     expect(recruitsOf(s, 'scout').map((c) => c.n), 'уволенный в том же окне вторым не встаёт').not.toContain(n);
+    // Сменённый тем же окном: его метки на месте больше нет — помнит только книга взятых (`took`).
+    const next = bestRecruit(s, 'scout')!;
+    expect(hireRecruit(s, 'scout', next.n, HOME)).toBeNull();
+    expect(s.agents.scout.cand?.n, 'точка внутри области: на месте другой').not.toBe(n);
+    expect(recruitsOf(s, 'scout').map((c) => c.n), 'сменённый в том же окне вторым не встаёт').not.toContain(n);
     const living = new Set(livingNames(s));
     for (const role of AGENT_ROLES) for (const c of recruitsOf(s, role)) expect(living.has(c.name), `${c.name}: тёзки нет`).toBe(false);
     const blind = town(9, 7);
