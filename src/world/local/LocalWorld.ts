@@ -7848,6 +7848,8 @@ export class LocalWorld implements WorldApi {
         continue;
       }
       if (want?.vacant && !f.gone) {
+        // Лагерь уходит вместе с полководцем — до того, как он сходит с карты: осада без него не стоит (MAP-3).
+        if (id === 'general') this.dropCamp(now);
         this.offMap(id, now);
         f.held = false;
         f.busyUntil = 0;
@@ -7856,6 +7858,14 @@ export class LocalWorld implements WorldApi {
       }
       if (want?.retiring && !f.gone) this.retireStep(id, now);
     }
+    // Сохранение, где лагерь пережил пустое место (до MAP-3), чинится здесь: лагерь без живого полководца снимается.
+    if (this.save.figures.general.gone) this.dropCamp(now);
+  }
+
+  /** Снять наш лагерь, если он стоит: полководец ушёл с места. */
+  private dropCamp(now: number): void {
+    const camp = this.ourSiege(now);
+    if (camp) this.leaveCamp(camp, now);
   }
 
   /** Новый человек на месте: у своих ворот и с чистыми руками — или пустое место под его номером. */
