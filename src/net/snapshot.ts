@@ -38,7 +38,7 @@ import { troopTotal } from '@/game/battle/kinds';
 import { hiredAt } from '@/game/sim/army';
 import { minigameCap } from '@/game/sim/minigames';
 import { adminSeen } from '@/game/sim/admin';
-import { gemSeen } from '@/game/sim/gems';
+import { gemSeen, gemUnneeded } from '@/game/sim/gems';
 import { stabLevel, stabOf } from '@/game/sim/stability';
 import { crownOf } from '@/game/sim/crown';
 import { councilOf } from '@/game/sim/council';
@@ -154,6 +154,8 @@ export function watchOf(s: GameState): WatchCard {
     lead: whole(leadAt()),
     seen,
     gemSeen: gemmed,
+    // Ускорения «не понадобилось» (FIN-5): сервер вернёт алмазы по книге стройки и назовёт рассуждённые.
+    ...(gemUnneeded(s).length ? { gemUnneeded: gemUnneeded(s) } : {}),
     // Книга стабильности сервера (docs/stability.md, 2.7): ступень и счёт покупок, трат и мятежей.
     stab: stabCard(s),
     // Книга вестей державы (СБ-2): счёт ответов и последние из них — чтением одной двери (`sim/crown.crownOf`).

@@ -34,9 +34,10 @@ import { allow, botToken, deny, json, parseJson, readBody, type Route } from '..
 import { GEM_SEEN_PARAM, readGemSeen, readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
 import { STORES } from '../kv.js';
 import { frozenNow, grantsOf, isFrozen, noteOf } from '../admin.js';
-import { booked, invitedBy, observe, tooFast, touched, wrote } from '../watch.js';
+import { booked, invitedBy, noted, observe, readWatchRecord, tooFast, touched, wrote } from '../watch.js';
 import { readWars, WARS_KEY, type WarFile } from '../war.js';
-import { gemNoteOf, rushesOf, settleGems } from '../gems.js';
+import { gemNoteOf, rushesOf, settleGems, settleRefunds } from '../gems.js';
+import { gemLine } from '../../../src/game/gemrules.js';
 
 /**
  * Потолки на части записи. Партия племени укладывается в десятки килобайт; мир — нет: каждый из тридцати отчётов о бое
@@ -175,15 +176,39 @@ export const save: Route = async (req, io) => {
       sheet: record.war,
     }),
   );
+  // Ускорения «не понадобилось» (FIN-5): возврат — только по книге стройки, которую эта запись только что двинула.
+  const back = await refundsOf(io, key, record.watch?.gemUnneeded ?? [], now);
+  const book = back?.ledger ?? ledger?.ledger;
   const body: PushResponse = {
     now,
     etag: written.etag,
     rev: record.rev,
     admin,
-    ...(ledger ? { gems: gemNoteOf(ledger.ledger, record.watch?.gemSeen, now) } : {}),
+    ...(book ? { gems: { ...gemNoteOf(book, record.watch?.gemSeen, now), ...(back ? { settled: back.settled } : {}) } } : {}),
   };
   return json(body);
 };
+
+/**
+ * Рассудить ускорения, которые партия назвала ненужными (FIN-5): книга стройки — из наблюдения, после этой записи;
+ * возврат — дверью книги алмазов (`gems.settleRefunds`), строка — в журнал города. Нечего рассуждать или хранилище не
+ * ответило — `null`: номера подождут следующей записи.
+ */
+async function refundsOf(io: Parameters<Route>[1], key: string, asks: readonly number[], now: number) {
+  if (!asks.length) return null;
+  try {
+    const found = await io.stores(STORES.watch, 'strong').getWithMetadata(key);
+    const town = readWatchRecord(found ? parseJson(String(found.data)) : null).town;
+    const done = await settleRefunds(io.stores, key, asks, { own: town?.own ?? [], levels: town?.levels ?? {} }, now);
+    if (done?.refunded.length) {
+      const lines = done.refunded.map((e) => `Алмазы: ${gemLine(e)} — стройка кончилась сама.`);
+      await observe(io.stores, key, (rec) => lines.reduce((r, line) => noted(r, now, 'deed', line), rec));
+    }
+    return done;
+  } catch {
+    return null;
+  }
+}
 
 /** Запись войн для книги войска — только чтение и попутно: ошибка хранилища не роняет запись партии. */
 async function readWarsSoft(io: Parameters<Route>[1]): Promise<WarFile | null> {

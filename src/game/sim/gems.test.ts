@@ -21,6 +21,8 @@ import {
   SHOP_LOT,
   applyGemDeeds,
   gemSeen,
+  gemUnneeded,
+  settleUnneeded,
   rushBlocked,
   rushFree,
   rushLeft,
@@ -37,6 +39,7 @@ import { SOCIAL_LINKS } from '../data/social';
 import { dailyReward } from './daily';
 import { tick } from './tick';
 import { deserialize, enter, serialize, loadFold } from '../save';
+import { watchOf } from '../../net/snapshot';
 import { SAVE_VERSION } from '../state';
 
 // Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
@@ -181,6 +184,29 @@ describe('дела с сервера ложатся ровно один раз',
     applyGemDeeds(s, [deed(2, { kind: 'rush', building: 'houses', level: level + 2 })]);
     expect(hut.level).toBe(level + 1);
     expect(gemSeen(s)).toBe(2);
+  });
+
+  it('ускорение, которое не понадобилось: стройка и склад не тронуты, номер — серверу описью; решённые снимаются (FIN-5)', () => {
+    const { s, hut } = siteLeft(8 * 60);
+    const level = hut.level;
+    // Стройка кончилась сама, пока приказ ускорения был в пути (архив аудита, prove-28).
+    hut.level += 1;
+    hut.work = 0;
+    hut.workRequired = 0;
+    const before = JSON.stringify({ b: s.buildings, r: s.resources });
+    applyGemDeeds(s, [deed(4, { kind: 'rush', building: 'houses', level: level + 1, delta: -20 })]);
+    expect(JSON.stringify({ b: s.buildings, r: s.resources })).toBe(before);
+    // Прежде дело молча пропадало: алмазы списаны, ничего не дано и ничего не вернуть.
+    expect(gemUnneeded(s)).toEqual([4]);
+    expect(s.log.some((l) => l.text.includes('20 алмазов вернутся, если сервер подтвердит'))).toBe(true);
+    expect(watchOf(s).gemUnneeded).toEqual([4]);
+    // Номер переживает сохранение; партия без списка — без поля в описи.
+    expect(gemUnneeded(deserialize(serialize(s))!)).toEqual([4]);
+    expect(watchOf(createInitialState()).gemUnneeded).toBeUndefined();
+    // Сервер рассудил — номер снят; чужие номера в ответе ничего не ломают.
+    expect(settleUnneeded(s, [4, 99])).toBe(1);
+    expect(s.gemUnneeded).toBeUndefined();
+    expect(watchOf(s).gemUnneeded).toBeUndefined();
   });
 
   it('дело не трогает ни золота, ни войска, ни ресурсов сверх названного', () => {

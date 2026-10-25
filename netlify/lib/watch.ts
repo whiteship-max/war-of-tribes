@@ -1102,7 +1102,19 @@ export function booked(
   // в силе (РТ-2) — так же, по подтверждённым уровням. Крестьяне в силе прибавляют прироста — потолок жителей растёт той же долей.
   const steward = buildMult(watch, town0.levels);
   const growth = estateCeilOf(watch, town0.levels).growth;
-  const claim = { buildings: watch.buildings, pop: watch.pop, bonded: watch.bonded, queued: watch.queued, site: watch.site, queue: watch.queue, steward, growth };
+  // Номер применённых дел алмазов и ускорения «не понадобилось» — книга сначала пробует их уровни работой (FIN-5).
+  const claim = {
+    buildings: watch.buildings,
+    pop: watch.pop,
+    bonded: watch.bonded,
+    queued: watch.queued,
+    site: watch.site,
+    queue: watch.queue,
+    steward,
+    growth,
+    gemSeen: watch.gemSeen,
+    unneeded: watch.gemUnneeded,
+  };
   const built = buildStep(town0, at, claim, gems, prior.card?.site);
   const book0 = bookOf(rec, at);
   const step = bookAfter(book0, at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, grants, wars, key, seen ?? [], built.book.levels);

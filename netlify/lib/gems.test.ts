@@ -80,8 +80,8 @@ function memoryStores() {
   return { stores, data, ledger };
 }
 
-function signInit(id: number): string {
-  const fields: Record<string, string> = { auth_date: String(Math.floor(NOW / 1000) - 60), user: JSON.stringify({ id, username: `p${id}` }) };
+function signInit(id: number, now = NOW): string {
+  const fields: Record<string, string> = { auth_date: String(Math.floor(now / 1000) - 60), user: JSON.stringify({ id, username: `p${id}` }) };
   const check = Object.entries(fields)
     .sort(([a], [b]) => (a < b ? -1 : 1))
     .map(([k, v]) => `${k}=${v}`)
@@ -441,6 +441,94 @@ describe('книги стройки и войска засчитывают ус�
     expect(rushed.level, 'ускоренные уровни подтверждены').toBe(6);
     expect(rushed.spear, 'ускоренные казармы учат быстрее — подтверждено больше').toBeGreaterThan(plain.spear);
     expect(rushed.spear).toBeLessThan(400);
+  });
+});
+
+describe('ускорение, которое не понадобилось, возвращается — только если книга стройки подтвердила уровень своей работой (FIN-5)', () => {
+  const PRICE = 15;
+  /** Игрок, запись партии и ускорение `houses` до ур. 2, списанное сервером в минуту `at`: его номер. */
+  const setup = async () => {
+    const s = memoryStores();
+    const p = player();
+    await call(s, p);
+    let etag: string | null = null;
+    const put = async (now: number, w: WatchCard): Promise<{ status: number; gems?: GemsResponse }> => {
+      const req = new Request('https://x/api/save', {
+        method: 'PUT',
+        headers: { 'x-telegram-init-data': signInit(p, now), 'content-type': 'application/json' },
+        body: JSON.stringify({ baseEtag: etag, record: { v: 1, rev: 0, updatedAt: 0, device: 'd', game: '{}', world: null, card: { name: 'В', day: 1, pop: 30, power: 1, army: 1 }, watch: w } }),
+      });
+      const res = await save(req, { stores: s.stores, now, ip: null });
+      const body = (await res.json()) as { etag: string; gems?: GemsResponse };
+      etag = body.etag;
+      return { status: res.status, gems: body.gems };
+    };
+    const rush = async (at: number, building = 'houses', level = 2): Promise<number> => {
+      const l = s.ledger(p)!;
+      const n = l.seq + 1;
+      await s.stores(STORES.gems).setJSON(`tg-${p}`, { ...l, balance: l.balance - PRICE, seq: n, list: [...l.list, { n, at, delta: -PRICE, kind: 'rush', key: `rush-${n}`, building, level }] });
+      return n;
+    };
+    const refunds = (): number => s.ledger(p)!.list.filter((e) => e.kind === 'refund').length;
+    return { s, p, put, rush, refunds };
+  };
+  const site = { site: { type: 'houses', level: 2, done: 0 }, queue: [{ type: 'houses', level: 2 }] };
+
+  it('стройка кончилась сама, пока ускорение было в пути: возврат ровно один раз, сколько бы раз игра ни прислала номер', async () => {
+    const t = await setup();
+    await t.put(NOW, card({ buildings: { houses: 1 }, ...site, gemSeen: 1 }));
+    const n = await t.rush(NOW + 60_000);
+    // Запись партии через сутки: уровень достроен своей работой, дело ускорения партия ещё не применила (номер ниже).
+    await t.put(NOW + DAY_MS, card({ buildings: { houses: 2 }, gemSeen: 1 }));
+    const before = t.s.ledger(t.p)!.balance;
+    // Дело пришло, стройка уже не идёт — партия шлёт номер «не понадобилось».
+    const r = await t.put(NOW + DAY_MS + 10_000, card({ buildings: { houses: 2 }, gemSeen: n, gemUnneeded: [n] }));
+    expect(r.status).toBe(200);
+    expect(t.s.ledger(t.p)!.balance).toBe(before + PRICE);
+    expect(r.gems?.settled).toEqual([n]);
+    const again = await t.put(NOW + DAY_MS + 20_000, card({ buildings: { houses: 2 }, gemSeen: n, gemUnneeded: [n] }));
+    expect([t.s.ledger(t.p)!.balance, t.refunds(), again.gems?.settled]).toEqual([before + PRICE, 1, [n]]);
+    expect(t.s.ledger(t.p)!.list.find((e) => e.kind === 'refund')).toMatchObject({ delta: PRICE, building: 'houses', level: 2, key: `refund:${n}` });
+  });
+
+  it('ускорение пригодилось (уровень — за алмазы), а игра шлёт «не понадобилось»: книга не подтверждает работой — ничего', async () => {
+    const t = await setup();
+    await t.put(NOW, card({ buildings: { houses: 1 }, ...site, gemSeen: 1 }));
+    const n = await t.rush(NOW + 5_000);
+    // Вести, которые кладут труд стройки, книга уже потратила: недостачу работы покрыть нечем.
+    const w = t.s.data.get(STORES.watch)!.get(`tg-${t.p}`)!;
+    const rec = JSON.parse(w.value) as { town: { letters: number } };
+    w.value = JSON.stringify({ ...rec, town: { ...rec.town, letters: 0 } });
+    const before = t.s.ledger(t.p)!.balance;
+    // Через десять секунд «готово» то, на что работы посёлка не хватило бы и с двойным запасом книги (310 работы против
+    // 88), — и игра врёт, что ускорение не понадобилось.
+    const r = await t.put(NOW + 10_000, card({ buildings: { houses: 2 }, gemSeen: n, gemUnneeded: [n] }));
+    expect(r.status).toBe(200);
+    expect([t.s.ledger(t.p)!.balance, t.refunds()]).toEqual([before, 0]);
+    // Решено: уровень подтверждён ускорением — номер снимается, и повтор ничего не даёт.
+    expect(r.gems?.settled).toEqual([n]);
+    await t.put(NOW + DAY_MS, card({ buildings: { houses: 2 }, gemSeen: n, gemUnneeded: [n] }));
+    expect([t.s.ledger(t.p)!.balance, t.refunds()]).toEqual([before, 0]);
+  });
+
+  it('поддельный номер — покупка лавки, чужой или несуществующий — ничего не начисляет', async () => {
+    const t = await setup();
+    await call(t.s, t.p, buy('k-fin5-buy', 'wood'));
+    const bought = t.s.ledger(t.p)!.list.find((e) => e.kind === 'buy')!.n;
+    await t.put(NOW, card({ buildings: { houses: 1 }, gemSeen: bought }));
+    const before = t.s.ledger(t.p)!.balance;
+    const r = await t.put(NOW + DAY_MS, card({ buildings: { houses: 1 }, gemSeen: bought, gemUnneeded: [bought, 999_999, 1] }));
+    expect([t.s.ledger(t.p)!.balance, t.refunds()]).toEqual([before, 0]);
+    expect([...(r.gems?.settled ?? [])].sort((a, b) => a - b)).toEqual([1, bought, 999_999]);
+  });
+
+  it('уровень ещё не подтверждён (книга отстаёт) — номер ждёт, ничего не начислено и не снято', async () => {
+    const t = await setup();
+    await t.put(NOW, card({ buildings: { houses: 1 }, ...site, gemSeen: 1 }));
+    const n = await t.rush(NOW + 60_000);
+    const before = t.s.ledger(t.p)!.balance;
+    const r = await t.put(NOW + 90_000, card({ buildings: { houses: 1 }, ...site, gemSeen: n, gemUnneeded: [n] }));
+    expect([t.s.ledger(t.p)!.balance, r.gems?.settled ?? []]).toEqual([before, []]);
   });
 });
 

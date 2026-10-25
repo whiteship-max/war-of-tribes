@@ -132,7 +132,7 @@ export const GOOD_OF: Readonly<Record<ResourceId, string>> = {
 /** Запись журнала, как её видят обе стороны: изменение, вид и дело. */
 export interface GemLineOf {
   delta: number;
-  kind: 'start' | 'purchase' | 'buy' | 'rush';
+  kind: 'start' | 'purchase' | 'buy' | 'rush' | 'refund';
   res?: ResourceId;
   amount?: number;
   building?: string;
@@ -154,6 +154,6 @@ export function gemLine(e: GemLineOf, name: (building: string) => string = (b) =
         ? 'покупка'
         : e.kind === 'buy'
           ? `лавка: ${e.amount ?? SHOP_LOT} ${e.res ? GOOD_OF[e.res] : ''}`.trim()
-          : `ускорение: ${e.building ? name(e.building) : 'стройка'}${e.level ? ` до ур. ${e.level}` : ''}`;
+          : `${e.kind === 'refund' ? 'возврат за ускорение' : 'ускорение'}: ${e.building ? name(e.building) : 'стройка'}${e.level ? ` до ур. ${e.level}` : ''}`;
   return `${signedGems(e.delta)} ${what}`;
 }

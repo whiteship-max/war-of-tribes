@@ -70,6 +70,13 @@ export const provideGemSeen = (fn: () => number): void => {
   seenOf = fn;
 };
 
+let settle: ((settled: number[]) => void) | null = null;
+
+/** Чем снимать рассуждённые сервером ускорения «не понадобилось» (FIN-5) — отдаёт стор игры. */
+export const provideGemSettled = (fn: (settled: number[]) => void): void => {
+  settle = fn;
+};
+
 /** Номер последнего применённого дела; стор ещё не отдал — `null` (сервер ответит по-старому). */
 export const gemSeenNow = (): number | null => (seenOf ? seenOf() : null);
 
@@ -97,6 +104,7 @@ export function takeGems(raw: unknown): void {
   useGems.setState({ balance: note.balance, shop: note.shop, at: serverNow(), why: null });
   const before = gemSeenNow();
   if (note.deeds.length && apply) apply(note.deeds);
+  if (note.settled?.length && settle) settle(note.settled);
   const after = gemSeenNow();
   if (note.more && before !== null && after !== null && after > before && chased < CHASE_MAX) {
     chased++;

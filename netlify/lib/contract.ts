@@ -1850,6 +1850,12 @@ export interface WatchCard {
    */
   gemSeen?: number;
   /**
+   * Ускорения за алмазы, которые не понадобились (FIN-5, `GameState.gemUnneeded`): дело пришло, когда стройка уже кончилась
+   * сама. Сервер возвращает алмазы, только если книга стройки подтвердила тот уровень работой посёлка без этого ускорения.
+   * Нет поля — нечего возвращать или опись до FIN-5.
+   */
+  gemUnneeded?: number[];
+  /**
    * Стабильность державы (docs/stability.md, 2.7): ступень и счёт для книги стабильности — сколько ступеней куплено и
    * очков каждого вида на них ушло, сколько мятежей поднялось и сколько подавлено боем. Нет поля — опись до стабильности.
    */
@@ -2148,6 +2154,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     lead: whole(r.lead, 1e12),
     seen: whole(r.seen, 1e9),
     ...(r.gemSeen !== undefined ? { gemSeen: whole(r.gemSeen, 1e12) } : {}),
+    ...readUnneeded(r.gemUnneeded),
     ...readStab(r.stab),
     ...readCrown(r.crown),
     ...readCouncil(r.council),
@@ -2317,10 +2324,11 @@ export interface FeedResponse {
 
 /**
  * Виды записей журнала алмазов: стартовые (сервер кладёт при первом входе в эпоху мира), покупка набора (место под
- * оплату; сегодня её нет), покупка в лавке и ускорение стройки. Начисляют только `start` и `purchase` — одной дверью
- * `netlify/lib/gems.creditGems`; `buy` и `rush` только списывают.
+ * оплату; сегодня её нет), покупка в лавке, ускорение стройки и возврат ускорения, которое не понадобилось (FIN-5).
+ * Начисляют только `start`, `purchase` и `refund` — одной дверью `netlify/lib/gems.creditGems`; `buy` и `rush` только
+ * списывают.
  */
-export const GEM_KINDS = ['start', 'purchase', 'buy', 'rush'] as const;
+export const GEM_KINDS = ['start', 'purchase', 'buy', 'rush', 'refund'] as const;
 export type GemKind = (typeof GEM_KINDS)[number];
 
 /** Припасы лавки — виды склада без золота: золото за алмазы не продаётся. */
@@ -2328,7 +2336,7 @@ export const GEM_GOODS = ['wood', 'stone', 'food', 'hides', 'charcoal', 'copper'
 export type GemGood = (typeof GEM_GOODS)[number];
 
 /** Потолки журнала: ключ повтора, сколько записей лежит, сколько уходит в окно «История» и в записку сохранения. */
-export const GEM_LIMITS = { key: 64, keep: 1000, view: 100, deeds: 50, building: 32 } as const;
+export const GEM_LIMITS = { key: 64, keep: 1000, view: 100, deeds: 50, building: 32, unneeded: 20 } as const;
 
 /** Запись журнала алмазов глазами клиента. Номер — по порядку у игрока, как у указов. */
 export interface GemEntry {
@@ -2367,6 +2375,11 @@ export interface GemNote {
   deeds: GemEntry[];
   /** Неприменённых дел больше порции: игра, применив эти, сразу спрашивает следующие. */
   more?: true;
+  /**
+   * Ускорения «не понадобилось» из описи, которые сервер рассудил (FIN-5): вернул алмазы или отказал навсегда. Игра снимает
+   * их из своего списка; не названные ждут — книга стройки ещё не подтвердила уровень.
+   */
+  settled?: number[];
 }
 
 /** Строка запроса, в которой игра называет номер последнего применённого дела алмазов (`GameState.gemSeen`, FIN-4). */
@@ -2376,6 +2389,20 @@ export const GEM_SEEN_PARAM = 'gemSeen';
 export function readGemSeen(v: unknown): number | undefined {
   const n = typeof v === 'string' && /^\d{1,15}$/.test(v) ? Number(v) : v;
   return wholeNonNeg(n, 1e12) ? (n as number) : undefined;
+}
+
+/** Номера записей журнала алмазов: целые от единицы, без повторов, не больше `GEM_LIMITS.unneeded`. */
+export function readGemNumbers(v: unknown): number[] {
+  if (!Array.isArray(v)) return [];
+  const out: number[] = [];
+  for (const x of v) if (wholeNonNeg(x, 1e12) && x >= 1 && !out.includes(x)) out.push(x);
+  return out.slice(0, GEM_LIMITS.unneeded);
+}
+
+/** Ускорения «не понадобилось» из описи (FIN-5): пусто — поля нет. */
+function readUnneeded(v: unknown): { gemUnneeded?: number[] } {
+  const list = readGemNumbers(v);
+  return list.length ? { gemUnneeded: list } : {};
 }
 
 /** Ответ `/api/gems`: записка, журнал для «Истории» и, на приказ, — его запись или отказ словами. */
@@ -2463,6 +2490,7 @@ export function readGemNote(v: unknown): GemNote | null {
     shop: { day: Math.max(0, Math.floor(num(shop.day) ?? 0)), used: Math.max(0, Math.floor(num(shop.used) ?? 0)) },
     deeds: deeds.slice(0, GEM_LIMITS.deeds),
     ...(r.more === true ? { more: true as const } : {}),
+    ...(Array.isArray(r.settled) ? { settled: readGemNumbers(r.settled) } : {}),
   };
 }
 

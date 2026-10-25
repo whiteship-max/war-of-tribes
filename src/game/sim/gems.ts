@@ -10,7 +10,7 @@
 //
 // Цены — общие с сервером (`game/gemrules.ts`): кнопка показывает ровно то, что сервер спишет.
 import type { Building, GameState, ResourceId } from '../types';
-import type { GemEntry } from '../../../netlify/lib/contract';
+import { GEM_LIMITS, readGemNumbers, type GemEntry } from '../../../netlify/lib/contract';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { buildingById, buildingTitle, currentSite, isSite, storageCap, underSiege } from '../derived';
 import { RESOURCE_META, SIEGE_NO_TRADE } from '../constants';
@@ -33,6 +33,19 @@ export {
 
 /** Номер последней применённой записи журнала алмазов. */
 export const gemSeen = (s: GameState): number => (typeof s.gemSeen === 'number' && Number.isFinite(s.gemSeen) ? s.gemSeen : 0);
+
+/** Ускорения «не понадобилось», которые ждут решения сервера (FIN-5): номера, целые, без повторов. */
+export const gemUnneeded = (s: GameState): number[] => readGemNumbers(s.gemUnneeded);
+
+/** Сервер рассудил эти ускорения (вернул алмазы или отказал навсегда) — снять их из списка. Возвращает, сколько снято. */
+export function settleUnneeded(s: GameState, settled: readonly number[]): number {
+  const was = gemUnneeded(s);
+  const left = was.filter((n) => !settled.includes(n));
+  if (left.length === was.length && was.length === (s.gemUnneeded?.length ?? 0)) return 0;
+  if (left.length) s.gemUnneeded = left;
+  else delete s.gemUnneeded;
+  return was.length - left.length;
+}
 
 // ------------------------------------------------ ускорение ---
 
@@ -113,7 +126,8 @@ export function shopBlocked(s: GameState, r: ResourceId, price: number, balance:
  *
  *  · лавка — припас на склад по правилу склада (`layStock`): сверх вместимости не ложится;
  *  · ускорение — достраивает стройку этого здания до названного уровня, если она ещё идёт; уже достроено (дело приехало
- *    позже, чем стройка кончилась сама) — ничего, и летопись говорит об этом.
+ *    позже, чем стройка кончилась сама) — партия не меняется, номер ложится в `gemUnneeded`: сервер вернёт списанное,
+ *    если книга стройки подтвердит уровень работой посёлка (FIN-5), и летопись говорит об этом.
  */
 export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number {
   const fresh = deeds.filter((e) => e.n > gemSeen(s)).sort((a, b) => a.n - b.n);
@@ -131,7 +145,9 @@ export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number 
         finish(b);
         log(s, `${name}: ур. ${b.level}, ускорено за ${-e.delta} алмазов.`, 'good', undefined, 'build');
       } else {
-        log(s, `${name}: ускорение не понадобилось — стройка до ур. ${e.level} уже не идёт.`, 'info', undefined, 'build');
+        // Номер — серверу описью: он вернёт списанное, если книга стройки подтвердит уровень работой посёлка (FIN-5).
+        s.gemUnneeded = [...gemUnneeded(s).filter((n) => n !== e.n), e.n].slice(-GEM_LIMITS.unneeded);
+        log(s, `${name}: ускорение не понадобилось — стройка до ур. ${e.level} уже не идёт. ${-e.delta} алмазов вернутся, если сервер подтвердит, что она кончилась сама.`, 'info', undefined, 'build');
       }
       continue;
     }

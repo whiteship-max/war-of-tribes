@@ -231,6 +231,55 @@ describe('честный игрок: книга подтверждает нас�
   });
 });
 
+describe('ускорение, которое не понадобилось: уровень — работой посёлка, если партия дела не применила (FIN-5)', () => {
+  const rush = [{ n: 7, building: 'barracks', level: 2 }];
+  const book = { ...seedTown(T0), letters: 0 };
+  const claim = (seen: number | undefined, unneeded?: number[]): TownClaim => ({
+    buildings: { ...book.levels, barracks: 2 },
+    pop: START_POP,
+    ...(seen !== undefined ? { gemSeen: seen } : {}),
+    ...(unneeded ? { unneeded } : {}),
+  });
+
+  it('партия ещё не применила ускорение, работы хватает — уровень своей работой: номер в «own», работа потрачена', () => {
+    // Пять минут: работы с запасом книги — ровно на копилку; уровень казарм дороже даровых пяти минут.
+    const at = T0 + 5 * MIN;
+    expect(upgradeWork(BUILDING_BY_ID.barracks, 2)).toBeGreaterThan(rushFreeWork());
+    const mine = buildStep(book, at, claim(6), rush);
+    const spent = buildStep(book, at, claim(7), rush);
+    expect([mine.book.levels.barracks, mine.book.own]).toEqual([2, [7]]);
+    expect([spent.book.levels.barracks, spent.book.own]).toEqual([2, []]);
+    // Уровень работой стоил копилки; уровень за алмазы — нет.
+    expect(mine.book.credit).toBeLessThan(spent.book.credit);
+    // Назвала ускорение ненужным, уже применив его, — то же правило: работой, если хватает.
+    expect(buildStep(book, at, claim(7, [7]), rush).book.own).toEqual([7]);
+    // Опись до FIN-5 (номера нет) — как прежде, за алмазы.
+    expect(buildStep(book, at, claim(undefined), rush).book.own).toEqual([]);
+  });
+
+  it('работы не хватает — уровень за алмазы, как прежде: ни «own», ни флага стройки', () => {
+    const fast = buildStep(book, T0 + 1000, claim(6, [7]), rush);
+    expect([fast.book.levels.barracks, fast.book.own, fast.short]).toEqual([2, [], 0]);
+  });
+
+  it('метка легла, когда уровень уже подтверждён работой, — уровень своей работой, метка снята', () => {
+    const built = { ...book, levels: { ...book.levels, barracks: 2 } };
+    const late = buildStep(built, T0 + 1000, claim(7), [{ n: 8, building: 'barracks', level: 2 }]);
+    expect([late.book.own, late.book.paid]).toEqual([[8], []]);
+    // А метка уровня выше подтверждённого ждёт — она ещё понадобится.
+    const ahead = buildStep(built, T0 + 1000, claim(7), [{ n: 9, building: 'barracks', level: 3 }]);
+    expect([ahead.book.own, ahead.book.paid]).toEqual([[], ['barracks:3']]);
+  });
+
+  it('список «own» переживает чтение книги; книга до FIN-5 — пустой', () => {
+    const mine = buildStep(book, T0 + 5 * MIN, claim(6), rush).book;
+    expect(readTown(JSON.parse(JSON.stringify(mine)))!.own).toEqual([7]);
+    const { own, ...old } = mine;
+    void own;
+    expect(readTown(JSON.parse(JSON.stringify(old)))!.own).toEqual([]);
+  });
+});
+
 describe('подделка: уровни и жители — не больше объяснимого', () => {
   it('все постройки десятого уровня с первой минуты — подтверждён посёлок новой партии, флаг', () => {
     const book = seedTown(T0);

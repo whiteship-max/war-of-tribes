@@ -144,12 +144,25 @@ describe('сервер ничего не начисляет, кроме одно
   /**
    * С 09.10.2026 (docs/payments.md) зовущих два: стартовые и оплата набора (`settlePurchase`, источник `purchase`).
    * `settlePurchase` зовёт только проверка перевода `lib/pay.ts` — после того, как перевод найден в сети и занят.
+   * С FIN-5 (аудит 25.10.2026) — третий: возврат ускорения, которое не понадобилось (`refundRushes`, источник `refund`), —
+   * ровно списанное за это ускорение и только по книге стройки (`proof.own`); зовёт его только запись партии.
    */
-  it('creditGems зовут только стартовые эпохи и оплата, найденная в сети, — ни приказ, ни сохранение, ни админ', () => {
+  it('creditGems зовут только стартовые эпохи, оплата, найденная в сети, и возврат по книге стройки — ни приказ, ни админ', () => {
     const calls = files().flatMap((f) =>
       [...codeOnly(readFileSync(f, 'utf8')).matchAll(/(?<!function )\bcreditGems\(([^;]*)\);/g)].map((m) => `${rel(f)}: ${m[1].replace(/\s+/g, ' ')}`),
     );
-    expect(calls).toEqual(["lib/gems.ts: blank(), { source: '', amount: START_GEMS, key: '', at }", "lib/gems.ts: cur, { ...grant, source: '' }"]);
+    expect(calls).toEqual([
+      "lib/gems.ts: blank(), { source: '', amount: START_GEMS, key: '', at }",
+      "lib/gems.ts: cur, { source: '', amount: -e.delta, key: '', at, building: e.building, level: e.level }",
+      "lib/gems.ts: cur, { ...grant, source: '' }",
+    ]);
+    // Возврат: только запись ускорения (вид, постройка, уровень, списание), только без прежнего возврата и только по книге
+    // стройки — в этом порядке, до начисления. Зовёт его только запись партии (`settleRefunds`).
+    const gemsCode = read('lib/gems.ts');
+    const refund = gemsCode.slice(gemsCode.indexOf('export function refundRushes'), gemsCode.indexOf('export async function settleRefunds'));
+    expect(refund).toMatch(/if \(!e \|\| e\.kind !== 'rush' \|\| !e\.building \|\| !e\.level \|\| e\.delta >= 0\) \{[\s\S]*?continue;[\s\S]*?if \(byKey\(cur, `refund:\$\{n\}`\)\) \{[\s\S]*?continue;[\s\S]*?if \(proof\.own\.includes\(n\)\) \{\n\s*const done = creditGems\(/);
+    const refunders = files().flatMap((f) => [...codeOnly(readFileSync(f, 'utf8')).matchAll(/(?<!function )\b(?:settleRefunds|refundRushes)\(/g)].map(() => rel(f)));
+    expect(refunders.sort()).toEqual(['lib/gems.ts', 'lib/routes/save.ts']);
     const purchases = files().flatMap((f) =>
       [...codeOnly(readFileSync(f, 'utf8')).matchAll(/(?<!function )\bsettlePurchase\(/g)].map(() => rel(f)),
     );
