@@ -50,7 +50,8 @@ export type EnergyAction =
   | 'strike'
   | 'chase'
   | 'fortify'
-  | 'bombard';
+  | 'bombard'
+  | 'gait';
 
 export interface EnergyPrice {
   agent: FigureId;
@@ -141,6 +142,13 @@ export const ENERGY_PRICE: Record<EnergyAction, EnergyPrice> = {
     why:
       'Бой без сшибки — между лагерем (10) и штурмом (20). Дело фазы (docs/siege_v2.md, 2.5): один залп за фазу, и столько ' +
       'же энергии лагерь копит за фазу (`ENERGY_CAMP`).',
+  },
+  // ДР-2 (docs/siege_v2.md, 25.1, М6): смена режима марша в пути и в поле. Дома — даром.
+  gait: {
+    agent: 'general',
+    name: 'смена режима марша',
+    price: 10,
+    why: 'Та же работа топором и телегами, что поставить лагерь (10): обоз разгружают или собирают в поле, боя нет.',
   },
 };
 

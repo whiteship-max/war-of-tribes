@@ -16,6 +16,7 @@
 import { readArms } from '../../src/heraldry/arms.js';
 import { wholeNonNeg } from '../../src/game/guard.js';
 import type { ProposalAct, ProposalView } from '../../src/world/proposals.js';
+import { GAIT_SPEED, type Gait } from '../../src/world/data/gait.js';
 
 /** Краткая опись партии — на случай, когда игрок выбирает между двумя. */
 export interface SaveCard {
@@ -890,7 +891,23 @@ export interface WarEnergy {
   mode: 'drain' | 'fill' | 'camp' | 'hold';
   homeAt?: number;
   stopAt?: number;
+  /** Темп дороги — множитель скорости режима марша (ДР-2, `world/energy.EnergyMark.rate`). Нет — 1. */
+  rate?: number;
 }
+
+/** Темп дороги из записи: в пределах скоростей режимов марша (`GAIT_SPEED`), иначе — нет поля (1). */
+const readRate = (v: unknown): number | null => {
+  const n = num(v);
+  if (n === null || n === 1) return null;
+  const speeds = Object.values(GAIT_SPEED);
+  return Math.max(Math.min(...speeds), Math.min(Math.max(...speeds), n));
+};
+
+/** Режим марша в записи войны (ДР-2): «налегке» или «с обозом»; обычный — без поля. */
+export type WarGait = Exclude<Gait, 'normal'>;
+
+/** Режим марша из записи (ДР-2, `world/gait.readGait`): «налегке» или «с обозом», иначе — обычный, без поля. */
+export const readGaitField = (v: unknown): { gait?: WarGait } => (v === 'light' || v === 'train' ? { gait: v } : {});
 
 /** Отметка энергии из приказа: новый объект; запас не выше полного, мусор — нет отметки. */
 export function readEnergy(v: unknown, latest = Infinity): WarEnergy | undefined {
@@ -910,12 +927,14 @@ export function readEnergy(v: unknown, latest = Infinity): WarEnergy | undefined
   };
   const homeAt = turn(r.homeAt);
   const stopAt = turn(r.stopAt);
+  const rate = mode === 'drain' ? readRate(r.rate) : null;
   return {
     value: Math.max(0, Math.min(100, value)),
     at,
     mode,
     ...(homeAt !== null ? { homeAt } : {}),
     ...(stopAt !== null ? { stopAt } : {}),
+    ...(rate !== null ? { rate } : {}),
   };
 }
 
@@ -1107,6 +1126,8 @@ export interface WarCamp {
   /** Ход осады фазами (`world/siegeroll`, docs/siege_v2.md, раздел 2): уровень частокола, дни пути лагеря от дома. */
   wall?: number;
   homeDays?: number;
+  /** Лагерь с обозом (ДР-2, `SiegeWindow.gait`): без подвоза из дома. Нет — обычный. */
+  gait?: 'train';
   /**
    * Журнал дел с минутой (`SiegeWindow.log`): залпы и починки; с Р-5 — цель артиллерии лагеря и требушета на стене, кольцо
    * блокады (`world/shelling`, `world/blockade`). Нет поля — лагерь до фаз.
@@ -1182,6 +1203,9 @@ export interface WarStrike {
   army: WarArmy;
   /** Зовут ли гарнизон во фронт — совместный удар. */
   joint: boolean;
+  /** Режим марша дружины и дорога до лагеря, мс (ДР-2): налегке дружина тает в пути — в минуту удара. Нет — обычный. */
+  gait?: WarGait;
+  walk?: number;
 }
 
 /**
@@ -1215,6 +1239,16 @@ export interface WarView {
   arriveAt: number;
   phase: WarPhase;
   army: WarArmy;
+  /** Режим марша похода (ДР-2, `world/gait`). Нет — обычный, как до ДР-2. */
+  gait?: WarGait;
+  /**
+   * Отрезок пути после смены режима (ДР-2, М6): откуда и с какой минуты войско идёт дальше — после стоянки. Нет — путь от
+   * выхода (`from`, `sentAt`) или от конца войны (`backFrom`, `endAt`).
+   */
+  legFrom?: { x: number; y: number };
+  legAt?: number;
+  /** С какой минуты налегке не списано истощение (ДР-2, М4): списывает сервер в минуты событий. Нет — не налегке. */
+  wornAt?: number;
   /**
    * С кем войско вышло (`army.troops` в минуту выхода): столько сервер вычитает из гарнизона нападающего, пока его слепок
    * лёг раньше выхода (`war.liveSheet`, docs/retinue.md). Нет — война старше поля, берётся нынешнее войско.
@@ -1252,6 +1286,9 @@ export interface WarRelief {
   sent?: number;
   at: number;
   army: WarArmy;
+  /** Режим марша выручки и её дорога, мс (ДР-2): налегке тает в пути — в минуту удара. Нет — обычный. */
+  gait?: WarGait;
+  walk?: number;
 }
 
 /**
@@ -1396,7 +1433,10 @@ export const spySeenId = (id: string): string => `${id}.spy`;
  */
 export type WarOrder =
   // `blockade` — поход «Блокада» из «Походов» (Р-5): дойдёт, встанет лагерем и замкнёт кольцо, если хватит мощи.
-  | { op: 'march'; target: string; mode: WarMode; fate: NoticeFate; army: WarArmy; blockade?: true }
+  // `gait` — режим марша полководца (ДР-2, `world/gait`): нет — обычный (старый клиент шлёт так).
+  | { op: 'march'; target: string; mode: WarMode; fate: NoticeFate; army: WarArmy; blockade?: true; gait?: WarGait }
+  // Смена режима марша в пути (ДР-2, М6): стоянка и цена — правилом сервера той же дверью, что у мира.
+  | { op: 'gait'; id: string; gait: Gait }
   | { op: 'recall'; id: string }
   | { op: 'storm'; id: string; fate?: NoticeFate; machines?: WarMachine[] }
   | { op: 'wood'; id: string; machines: number }
@@ -1406,7 +1446,7 @@ export type WarOrder =
   | { op: 'sortie'; id: string; troops: Counts }
   | { op: 'craft'; id: string; act: WarCraftAct }
   | { op: 'orders'; id: string; orders: WarOrders }
-  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number; from: Spot }
+  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number; from: Spot; gait?: WarGait }
   | { op: 'repair'; id: string }
   | { op: 'ration'; id: string; on: boolean }
   | { op: 'defend'; id: string; defend: WarDefend }
@@ -1419,7 +1459,7 @@ export type WarOrder =
   | { op: 'surrender'; id: string }
   | { op: 'offer'; id: string; kind: 'terms' | 'tribute'; fate?: NoticeFate }
   | { op: 'answer'; id: string; kind: 'terms' | 'tribute'; yes: boolean }
-  | { op: 'relief'; id: string; army: WarArmy; walkMs: number; from: Spot }
+  | { op: 'relief'; id: string; army: WarArmy; walkMs: number; from: Spot; gait?: WarGait }
   | { op: 'pact'; target: string }
   | { op: 'unpact'; target: string }
   // Ответ на предложение соседа по номеру (ДП-1, `world/proposals`): принять, отклонить или отозвать своё. Проверяет сервер:
@@ -1609,7 +1649,12 @@ export function readWarOrder(v: unknown, latest = Infinity): WarOrder | null {
       const army = readArmy(r.army, latest);
       // Кольцо — только у осады: штурм с ходу кольца не замыкает.
       const ring = mode === 'siege' && r.blockade === true ? { blockade: true as const } : {};
-      return target && mode && fate && army ? { op: 'march', target, mode, fate, army, ...ring } : null;
+      // Режим — как назван: «налегке» с осадой сервер отклоняет флагом (ДР-2, М9), и стирать его здесь нельзя.
+      return target && mode && fate && army ? { op: 'march', target, mode, fate, army, ...ring, ...readGaitField(r.gait) } : null;
+    }
+    case 'gait': {
+      const gait = r.gait === 'light' || r.gait === 'normal' || r.gait === 'train' ? r.gait : null;
+      return id && gait ? { op: 'gait', id, gait } : null;
     }
     case 'aim': {
       const aim = [...WAR_AIMS, ...WAR_GUN_AIMS].find((a) => a === r.aim);
@@ -1653,7 +1698,7 @@ export function readWarOrder(v: unknown, latest = Infinity): WarOrder | null {
       const walk = num(r.walkMs);
       const from = readSpot(r.from);
       return id && army && walk !== null && from
-        ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(WALK_MS_MAX, Math.max(0, walk)), from }
+        ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(WALK_MS_MAX, Math.max(0, walk)), from, ...readGaitField(r.gait) }
         : null;
     }
     case 'repair':
@@ -1680,7 +1725,9 @@ export function readWarOrder(v: unknown, latest = Infinity): WarOrder | null {
       const army = readArmy(r.army, latest);
       const walk = num(r.walkMs);
       const from = readSpot(r.from);
-      return id && army && walk !== null && from ? { op: 'relief', id, army, walkMs: Math.min(WALK_MS_MAX, Math.max(0, walk)), from } : null;
+      return id && army && walk !== null && from
+        ? { op: 'relief', id, army, walkMs: Math.min(WALK_MS_MAX, Math.max(0, walk)), from, ...readGaitField(r.gait) }
+        : null;
     }
     case 'pact':
     case 'unpact': {

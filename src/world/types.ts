@@ -12,6 +12,7 @@ import type { OfferKind } from './parley';
 import type { RatioRange } from './siegefood';
 import type { RingOdds } from './blockade';
 import type { GameSec } from '@/game/pace';
+import type { Gait } from './data/gait';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { BattlePlace } from '@/game/battle/ground';
@@ -1189,6 +1190,8 @@ export interface AssaultPlan {
   men: number;
   /** Цена штурма и хватит ли её к минуте прихода, с дорогой (`world/energy.energyBlock`). */
   energy: EnergyCost;
+  /** Та же дорога в каждом режиме марша (ДР-2): выбор до приказа. Нет — полководцу не выйти. */
+  gaits?: GaitRow[];
 }
 
 /** Разорённое поселение глазами игрока. */
@@ -1228,6 +1231,8 @@ export interface CardWar {
   power: number;
   /** Цена похода в энергии полководца — штурмом и осадой: дело у стен, и его должно хватить к приходу, с дорогой. */
   energy?: { storm: EnergyCost; siege: EnergyCost };
+  /** Поход в каждом режиме марша (ДР-2): срок, убыль налегке, встанет ли лагерь — до выхода. */
+  gaits?: GaitRow[];
   /**
    * Хватит ли после осады на штурм из лагеря — словами, до выхода (`LocalWorld.campStormNote`): в лагере энергия не
    * копится (docs/siege_audit.md, решение 9). Нет поля — осада сама не по карману.
@@ -1421,6 +1426,36 @@ export interface FigureView {
   energy?: EnergyView;
   /** Энергия кончилась на карте: идёт домой сам, неуязвим и дел не берёт, пока не дойдёт. */
   spent: boolean;
+  /** Режим марша (ДР-2, `world/gait`). Только у полководца. */
+  march?: GaitView;
+}
+
+/**
+ * Режим марша полководца глазами окна отряда (ДР-2, docs/siege_v2.md, 25.1): какой сейчас, чего стоит сменить и что режим
+ * значит в пути. Числа — дверью `world/gait`, те же, что применит приказ.
+ */
+export interface GaitView {
+  gait: Gait;
+  /** Стоянка смены режима идёт до этой минуты; 0 — не стоит. */
+  haltUntil: number;
+  /** Сколько бойцов ушло налегке с начала нынешнего отрезка. */
+  worn: number;
+  /** Сменить режим сейчас: даром (дома) или стоянкой и энергией; отказ по каждому режиму — почему на него нельзя. */
+  change: { free: boolean; price: number; haltMs: number; block: Partial<Record<Gait, string | null>> };
+}
+
+/**
+ * Дорога полководца к цели в каждом режиме марша — для выбора до приказа (ДР-2): срок, сколько бойцов уйдёт налегке до
+ * прихода (ожидание доли, `gait.lightShare`), встанет ли лагерь и хватит ли энергии. Той же дверью, что исполнит приказ.
+ */
+export interface GaitRow {
+  gait: Gait;
+  walkMs: number;
+  /** Ожидание ушедших налегке к минуте прихода, бойцов (доля × отряд); не налегке — 0. */
+  lost: number;
+  /** Отказ лагеря в этом режиме (налегке); null — лагерь встанет или приказ не осада. */
+  siege: string | null;
+  energy: EnergyCost;
 }
 
 /**
@@ -1970,6 +2005,11 @@ export interface PlayerProfile {
    * ни одним полем — потому «моя вера бьёт твою» и не может случиться. Нет поля (слепок до ДР-1) — духа нет, множители единица.
    */
   spirit?: Spirit;
+  /**
+   * Дух дружины, накормленной обозом (ДР-2, М5б): тот же `sim/spirit`, но без строки голода. Его кладёт в бой отряд полководца
+   * с обозом. Нет поля — дух сытый совпадает с `spirit` (голода нет или слепок до ДР-2).
+   */
+  spiritFed?: Spirit;
   /**
    * Сколько еды лежит на складе. То же, что `stock.food`, но отдельным числом:
    * осада считает не добычу, а на сколько дней хватит хлеба, и спрятанное в

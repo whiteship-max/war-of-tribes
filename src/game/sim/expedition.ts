@@ -295,9 +295,12 @@ export function sendableUnits(s: GameState): { warrior: number; scout: number } 
 }
 
 /** Кто из войска и сколько разведчиков числится не дома. Считается миром и переставляется целиком. */
-export function setAway(s: GameState, away: TroopStack, scouts: number): void {
+export function setAway(s: GameState, away: TroopStack, scouts: number, fed: TroopStack = {}): void {
   s.away = { ...away };
   s.scoutsAway = Math.max(0, Math.round(scouts));
+  // Отряд с обозом (ДР-2): его кормит обоз — голод дома его не трогает (`sim/upkeep`).
+  if (Object.values(fed).some((n) => (n ?? 0) > 0)) s.awayFed = { ...fed };
+  else delete s.awayFed;
 }
 
 /** Убирает не вернувшихся разведчиков. Племя не вымирает целиком из-за разведки. */

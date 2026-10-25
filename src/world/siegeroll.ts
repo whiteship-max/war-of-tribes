@@ -14,6 +14,7 @@ import type { Fate } from './types';
 import { foodLeft, siegeSince, starvesAt } from './siege';
 import { machineFaces, phaseShots, shotsText, type Aim, type GunAim } from './shelling';
 import { blockadeAt, type BlockadeBreak } from './blockade';
+import { campFed } from './gait';
 import { MOD_BLOCKADE } from './data/blockade';
 import type { ArtilleryId, MachineId } from './data/machines';
 import {
@@ -422,10 +423,11 @@ export function setPhaseDie(fn: ((seed: string, k: number) => number) | null): v
 
 /**
  * Доля лагеря, уходящая за фазу (раздел 3): `a × (1 + дни пути от дома / D)`, мор — ещё одна такая доля, пустой амбар
- * дома — вдвое. Не больше единицы.
+ * дома — вдвое. Не больше единицы. Лагерь с обозом (`fed`, ДР-2, М5 — `gait.campFed`): путь от дома и амбар дома — подвоз,
+ * а обоз и есть второй склад лагеря, поэтому у него остаётся `a` (мор — как у всех).
  */
-export function wasteOf(out: PhaseOut, homeDays: number | undefined, hungry = false): number {
-  const base = CAMP_WASTE * (1 + Math.max(0, homeDays ?? 0) / CAMP_WASTE_DAYS) * (hungry ? CAMP_WASTE_HUNGRY : 1);
+export function wasteOf(out: PhaseOut, homeDays: number | undefined, hungry = false, fed = false): number {
+  const base = fed ? CAMP_WASTE : CAMP_WASTE * (1 + Math.max(0, homeDays ?? 0) / CAMP_WASTE_DAYS) * (hungry ? CAMP_WASTE_HUNGRY : 1);
   return Math.min(1, base * (out === 'plague' ? 2 : 1));
 }
 
@@ -433,7 +435,7 @@ export function wasteOf(out: PhaseOut, homeDays: number | undefined, hungry = fa
  * Бросок фазы `k` по окну — строка журнала. `homeDays` и `hungry` — для истощения: путь лагеря от дома и пуст ли амбар
  * дома (только у лагеря игрока).
  */
-export function rollPhase(w: RollWindow & Pick<SiegeWindow, 'homeDays'>, k: number, hungry = false, share?: number): PhaseRow {
+export function rollPhase(w: RollWindow & Pick<SiegeWindow, 'homeDays' | 'gait'>, k: number, hungry = false, share?: number): PhaseRow {
   const prior = rowsOf(w).slice(0, k - 1);
   const mods = modsOf(w, k, prior, share);
   const seed = rollSeed(w);
@@ -444,7 +446,8 @@ export function rollPhase(w: RollWindow & Pick<SiegeWindow, 'homeDays'>, k: numb
   const { shots, gun } = phaseShots(w as SiegeWindow, at, (tag) => dieOf(`${seed}#${tag}`, k), prior);
   // Попадание требушета на стене по лагерю — ещё одна доля истощения фазы (как мор).
   const hits = gun.filter((s) => s.hit && s.camp).length;
-  const waste = Math.min(1, wasteOf(out, w.homeDays, hungry) + hits * wasteOf('calm', w.homeDays, hungry));
+  const fed = campFed(w.gait);
+  const waste = Math.min(1, wasteOf(out, w.homeDays, hungry, fed) + hits * wasteOf('calm', w.homeDays, hungry, fed));
   return { at, die, mods, out, waste, ...(shots.length ? { shots } : {}), ...(gun.length ? { gun } : {}) };
 }
 
@@ -453,11 +456,11 @@ export function rollPhase(w: RollWindow & Pick<SiegeWindow, 'homeDays'>, k: numb
  * сдаче. Так черновик вести знает минуту пролома и сдачи заранее (`world/notice`): у бота-осаждающего дел нет, и
  * прогноз здесь — то, что случится, пока никто не вмешался; вмешательство — разрыв.
  */
-export function projectPhases(w: RollWindow & Pick<SiegeWindow, 'homeDays'>, until: number): PhaseRow[] {
+export function projectPhases(w: RollWindow & Pick<SiegeWindow, 'homeDays' | 'gait'>, until: number): PhaseRow[] {
   const out: PhaseRow[] = [];
   // Конец осады называет тот, кто зовёт: у города, чей склад — окно, это час голода окна; у нашего (ОС-1) — шаг голода склада.
   const end = until;
-  let win: RollWindow & Pick<SiegeWindow, 'homeDays'> = { ...w, phases: [...rowsOf(w)] };
+  let win: RollWindow & Pick<SiegeWindow, 'homeDays' | 'gait'> = { ...w, phases: [...rowsOf(w)] };
   // Город, который кормится сам (ОС-1), голода не ждёт вовсе: прогноз смотрит не дальше `PROJECT_PHASES` фаз.
   const last = rowsOf(w).length + PROJECT_PHASES;
   for (let k = rowsOf(w).length + 1; k <= last && phaseAt(siegeSince(w as SiegeWindow), k) < end; k++) {

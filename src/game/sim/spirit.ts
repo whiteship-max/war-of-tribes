@@ -63,6 +63,15 @@ export const spiritView = (s: GameState): SpiritView => spiritOfIn(spiritIn(s));
 export const spiritOf = (s: GameState): Spirit => spiritNumbers(spiritView(s));
 
 /**
+ * Дух отряда, накормленного обозом (ДР-2, docs/siege_v2.md, 25.1, М5б): тот же расчёт без строки голода. Голода нет — нет и
+ * отдельного духа (`undefined`): сытый совпадает с `spiritOf`.
+ */
+export function spiritFedOf(s: GameState): Spirit | undefined {
+  const inn = spiritIn(s);
+  return inn.unfed > 0 ? spiritNumbers(spiritOfIn({ ...inn, unfed: 0 })) : undefined;
+}
+
+/**
  * Бой кончился: память духа — победа прибавляет, поражение отнимает (`spiritrules.gloryAfter`). Зовёт его та же минута, что
  * пишет счёт битв (`sim/expedition`, рядом с `recordBattle`): бой — одним итогом.
  */

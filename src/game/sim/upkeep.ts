@@ -149,8 +149,10 @@ export function upkeepTick(s: GameState, dt: number, unfed: number): void {
       delete pay.starved[id];
       continue;
     }
-    // Голод считается первым: он забирает своих совсем, и неуплате остаётся то, что сверх него.
-    const byFood = draw(pay.starved, id, have, have, rateOf(troopHungry));
+    // Голод считается первым: он забирает своих совсем, и неуплате остаётся то, что сверх него. Отряд с обозом (ДР-2, М5б,
+    // `GameState.awayFed`) голод дома не трогает: голодные — из прочих, их же доля.
+    const hungryHave = Math.max(0, have - (s.awayFed?.[id] ?? 0));
+    const byFood = draw(pay.starved, id, hungryHave, hungryHave, rateOf(troopHungry));
     const byPay = draw(pay.gone, id, have, have - byFood, rateOf(troopOwed));
     const whole = byFood + byPay;
     if (whole <= 0) continue;

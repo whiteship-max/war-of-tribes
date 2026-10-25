@@ -3,6 +3,7 @@
 // что за интерфейсом сейчас стоит LocalWorld.
 import type { CraftAct } from './siegecraft';
 import type { MachineId } from './data/machines';
+import type { Gait } from './data/gait';
 import type { Aim } from './data/shelling';
 import type { SiegeOrders } from './siegeroll';
 import { create } from 'zustand';
@@ -321,6 +322,8 @@ export interface WorldStore {
    */
   errand: (order: ErrandOrder) => Promise<string | null>;
   recallFigure: (id: FigureId) => Promise<string | null>;
+  /** Режим марша полководца (ДР-2, `WorldApi.setGait`): дома — даром, в пути — стоянкой и энергией. Ошибка — текстом. */
+  setGait: (gait: Gait) => Promise<string | null>;
   /**
    * Поставить лазутчика наблюдателем или снять. Пока он смотрит, он не
    * приказывает — и наоборот: смотреть или действовать и есть решение.
@@ -636,6 +639,18 @@ export const useWorld = create<WorldStore>((set, get) => ({
       return err;
     }
     await get().pulse();
+    return null;
+  },
+
+  setGait: async (gait) => {
+    const err = await worldApi().setGait(gait);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    await get().pulse();
+    // Карточка цели считает срок пути в нынешнем режиме — пересчитать её.
+    await get().refreshCard();
     return null;
   },
 

@@ -43,7 +43,7 @@ import { fateLocks } from '@/game/sim/tech';
 import { syncFaith } from '@/game/sim/faith';
 import { woundsHome } from '@/game/sim/infirmary';
 import { dropGates, gateCalls, settleGate } from '@/game/sim/gate';
-import { spiritOf } from '@/game/sim/spirit';
+import { spiritFedOf, spiritOf } from '@/game/sim/spirit';
 import { tagSince } from '@/game/sim/log';
 import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayOf, homeOf, type Away } from './muster';
@@ -233,6 +233,11 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // Дух дружины (ДР-1): мораль и дисциплина. Стойкость обряда, Воеводы совета (РТ-1) и сословий (РТ-2) — строки морали
     // (`sim/spirit`), а не своя прибавка: дух один, и мир не спрашивает, откуда он.
     spirit: spiritOf(s),
+    // Дух отряда с обозом (ДР-2, М5б): без голода. Голода нет — поля нет.
+    ...(() => {
+      const fed = spiritFedOf(s);
+      return fed ? { spiritFed: fed } : {};
+    })(),
     stock,
     stash,
     storeCap: storageCap(s),
@@ -291,9 +296,20 @@ export function syncAway(s: GameState, marches: MarchView[], figures: FigureView
     if (!m.own) continue;
     scouts += m.units.scout ?? 0;
   }
-  if (s.scoutsAway === scouts && sameStack(s.away, troops)) return false;
-  setAway(s, troops, scouts);
+  const fed = awayFedOf(figures);
+  if (s.scoutsAway === scouts && sameStack(s.away, troops) && sameStack(s.awayFed ?? {}, fed)) return false;
+  setAway(s, troops, scouts, fed);
   return true;
+}
+
+/**
+ * Кого кормит обоз (ДР-2, М5б): отряд полководца с обозом вне своих стен — дома он в гарнизоне и ест со склада, как все.
+ * Режим и место — словами мира (`FigureView.march`, `atHome`).
+ */
+export function awayFedOf(figures: readonly FigureView[]): TroopStack {
+  const g = figures.find((f) => f.id === 'general');
+  if (!g || g.march?.gait !== 'train' || g.atHome || g.phase === 'down' || g.gone) return {};
+  return { ...g.troops };
 }
 
 /**

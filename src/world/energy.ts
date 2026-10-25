@@ -42,6 +42,11 @@ export interface EnergyMark {
    * пути не домой; у пути домой — `homeAt`.
    */
   stopAt?: number;
+  /**
+   * Темп дороги (ДР-2, М8): во сколько раз быстрее обычного уходит запас в пути — множитель скорости режима марша
+   * (`gait.gaitSpeed`), поэтому та же дорога стоит ту же энергию в любом режиме. Нет поля — 1, как до ДР-2.
+   */
+  rate?: number;
 }
 
 /** Энергия глазами игрока: целая вниз, полный запас и когда что случится. */
@@ -58,10 +63,13 @@ export interface EnergyView {
 const EPS = 1e-9;
 const clamp = (v: number): number => (Number.isFinite(v) ? Math.max(0, Math.min(ENERGY_MAX, v)) : ENERGY_MAX);
 
-/** Запас через `dt` мс в режиме `mode` от значения `v`. */
-function step(v: number, mode: EnergyMode, dt: number): number {
+/** Темп дороги отметки: положительное число, иначе 1. */
+const rateOf = (r: number | undefined): number => (r !== undefined && Number.isFinite(r) && r > 0 ? r : 1);
+
+/** Запас через `dt` мс в режиме `mode` от значения `v`; `rate` — темп дороги. */
+function step(v: number, mode: EnergyMode, dt: number, rate = 1): number {
   if (!(dt > 0)) return v;
-  if (mode === 'drain') return Math.max(0, v - (ENERGY_MAX * dt) / ENERGY_ROAD);
+  if (mode === 'drain') return Math.max(0, v - (ENERGY_MAX * dt * rate) / ENERGY_ROAD);
   if (mode === 'fill') return Math.min(ENERGY_MAX, v + (ENERGY_MAX * dt) / ENERGY_FILL);
   if (mode === 'camp') return Math.min(ENERGY_MAX, v + (ENERGY_MAX * dt) / ENERGY_CAMP);
   return v;
@@ -98,15 +106,17 @@ export const freshMark = (at: number, mode: EnergyMode = 'fill', ends: MarkEnds 
   ...endsOf(ends),
 });
 
-/** Концы режима отметки: приход домой (`homeAt`) и приход к цели (`stopAt`). */
+/** Концы режима отметки: приход домой (`homeAt`) и приход к цели (`stopAt`); темп дороги (`rate`) — у пути. */
 export interface MarkEnds {
   homeAt?: number;
   stopAt?: number;
+  rate?: number;
 }
 
 const endsOf = (e: MarkEnds): MarkEnds => ({
   ...(e.homeAt !== undefined ? { homeAt: e.homeAt } : {}),
   ...(e.stopAt !== undefined ? { stopAt: e.stopAt } : {}),
+  ...(rateOf(e.rate) !== 1 ? { rate: rateOf(e.rate) } : {}),
 });
 
 /** Сколько энергии в минуту `now`, дробью. Нет отметки — полный запас. Раньше отметки — её значение. */
@@ -115,7 +125,7 @@ export function energyAt(mark: EnergyMark | undefined, now: number): number {
   const v = clamp(mark.value);
   if (!(now > mark.at)) return v;
   const turn = turnOf(mark);
-  const first = step(v, mark.mode, Math.min(now, turn?.at ?? Infinity) - mark.at);
+  const first = step(v, mark.mode, Math.min(now, turn?.at ?? Infinity) - mark.at, rateOf(mark.rate));
   return turn && now > turn.at ? step(first, turn.to, now - turn.at) : first;
 }
 
@@ -128,7 +138,7 @@ export const energyShown = (mark: EnergyMark | undefined, now: number): number =
  */
 export function emptyAt(mark: EnergyMark | undefined): number | null {
   if (!mark || mark.mode !== 'drain') return null;
-  const t = mark.at + (clamp(mark.value) / ENERGY_MAX) * ENERGY_ROAD;
+  const t = mark.at + (clamp(mark.value) / ENERGY_MAX) * (ENERGY_ROAD / rateOf(mark.rate));
   return t < (turnOf(mark)?.at ?? Infinity) ? t : null;
 }
 
@@ -149,10 +159,11 @@ export function remark(mark: EnergyMark | undefined, at: number, mode: EnergyMod
 
 /**
  * Отметка дороги с минуты `at` до прихода в `arriveAt`: путь уходит, а придя, домой — копится, к цели — стоит. Одна
- * функция на мир (`LocalWorld.energyStance`) и на сервер войны (`netlify/lib/war.ts`): дорога у них одна.
+ * функция на мир (`LocalWorld.energyStance`) и на сервер войны (`netlify/lib/war.ts`): дорога у них одна. `rate` — темп
+ * дороги режима марша (`gait.gaitSpeed`, ДР-2): быстрее идёт — быстрее тратит, та же дорога — та же энергия.
  */
-export function onRoad(mark: EnergyMark | undefined, at: number, arriveAt: number, home: boolean): EnergyMark {
-  return remark(mark, at, 'drain', home ? { homeAt: arriveAt } : { stopAt: arriveAt });
+export function onRoad(mark: EnergyMark | undefined, at: number, arriveAt: number, home: boolean, rate = 1): EnergyMark {
+  return remark(mark, at, 'drain', { ...(home ? { homeAt: arriveAt } : { stopAt: arriveAt }), rate });
 }
 
 /** Заплатить цену в минуту `at`: значение минус цена (не ниже нуля), режим прежний. */
@@ -161,11 +172,11 @@ export function spend(mark: EnergyMark | undefined, at: number, price: number): 
   return { ...remark(base, at, base.mode, base), value: Math.max(0, energyAt(base, at) - Math.max(0, price)) };
 }
 
-/** Сколько энергии съест дорога в `ms` настоящих мс по карте. */
-export const roadCost = (ms: number): number => (ENERGY_MAX * Math.max(0, ms)) / ENERGY_ROAD;
+/** Сколько энергии съест дорога в `ms` настоящих мс по карте; `rate` — темп дороги режима марша (ДР-2). */
+export const roadCost = (ms: number, rate = 1): number => (ENERGY_MAX * Math.max(0, ms) * rateOf(rate)) / ENERGY_ROAD;
 
-/** На сколько мс пути по карте хватит `value` энергии. */
-export const roadOf = (value: number): number => (Math.max(0, value) / ENERGY_MAX) * ENERGY_ROAD;
+/** На сколько мс пути по карте хватит `value` энергии; `rate` — темп дороги. */
+export const roadOf = (value: number, rate = 1): number => (Math.max(0, value) / ENERGY_MAX) * (ENERGY_ROAD / rateOf(rate));
 
 /** Цена дела. */
 export const priceOf = (action: EnergyAction): number => ENERGY_PRICE[action].price;
@@ -174,17 +185,19 @@ export const priceOf = (action: EnergyAction): number => ENERGY_PRICE[action].pr
  * Сколько энергии останется на месте дела после дороги до него и его цены, дробью, не ниже нуля. Так меряется, хватит ли
  * у стен на следующее дело — штурм из лагеря после осады (docs/siege_audit.md, решение 9): в лагере энергия стоит.
  */
-export const leftAfter = (have: number, price: number, road = 0): number => Math.max(0, have - roadCost(road) - Math.max(0, price));
+export const leftAfter = (have: number, price: number, road = 0, rate = 1): number =>
+  Math.max(0, have - roadCost(road, rate) - Math.max(0, price));
 
 /** Энергия числом на экране — целая вниз, как `energyShown`: обещать дело, на которое сил ещё нет, нельзя. */
 export const shownEnergy = (v: number): number => Math.floor(Math.max(0, v) + EPS);
 
 /**
  * Хватит ли энергии на дело — одна проверка на мир, сервер и меню. `have` — сколько сейчас, `price` — цена, `road` —
- * сколько съест дорога до места дела (мс пути по карте; дело на месте — 0). null — хватит, иначе отказ словами.
+ * сколько съест дорога до места дела (мс пути по карте; дело на месте — 0), `rate` — её темп (режим марша, ДР-2). null —
+ * хватит, иначе отказ словами.
  */
-export function energyBlock(have: number, price: number, road = 0): string | null {
-  const left = have - roadCost(road);
+export function energyBlock(have: number, price: number, road = 0, rate = 1): string | null {
+  const left = have - roadCost(road, rate);
   if (left + EPS >= price) return null;
   const now = Math.floor(Math.max(0, have) + EPS);
   if (road > 0) return `Не хватит энергии: на месте будет ${Math.floor(Math.max(0, left) + EPS)}, нужно ${price}.`;

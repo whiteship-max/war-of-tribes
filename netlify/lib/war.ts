@@ -153,6 +153,7 @@ import {
 } from '../../src/world/parley.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
 import { energyAt, energyBlock, onRoad, priceOf, remark, spend, type EnergyMark } from '../../src/world/energy.js';
+import { gaitField, gaitHaltMs, gaitName, gaitSpeed, readGait, roadLosses, siegeBlockOf, type Gait } from '../../src/world/gait.js';
 import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
@@ -903,7 +904,7 @@ function wear(a: WarArmy, lost: Counts, share: number, at: number): WarArmy {
  * мира на клиенте (`world/energy.onRoad`; docs/agent_energy.md, раздел 2).
  */
 function homeward(w: WarRow, at: number, backAt: number): void {
-  w.army = { ...w.army, energy: onRoad(w.army.energy, at, backAt, true) };
+  w.army = { ...w.army, energy: onRoad(w.army.energy, at, backAt, true, gaitSpeed(w.gait)) };
 }
 
 /**
@@ -1123,11 +1124,32 @@ export const setWarPace = (n: number): void => {
   pace = Number.isFinite(n) && n >= 1 ? n : 1;
 };
 
-/** Путь войска между двумя клетками с темпом войны. */
-const walk = (from: { x: number; y: number }, to: { x: number; y: number }): number => Math.round(warWalkMs(from, to) / pace);
+/** Путь войска между двумя клетками с темпом войны, в режиме марша `g` (ДР-2). */
+const walk = (from: { x: number; y: number }, to: { x: number; y: number }, g?: Gait): number => Math.round(warWalkMs(from, to, g) / pace);
+
+/** Где войско похода в минуту `at`: после смены режима — от начала нового отрезка, в стоянку — на месте (ДР-2, М6). */
+const marchSpot = (w: WarRow, at: number): { x: number; y: number } => warAt(w.legFrom ?? w.from, w.to, w.legAt ?? w.sentAt, w.arriveAt, at);
+
+/** Где войско на обратном пути в минуту `at`. */
+const backSpot = (w: WarRow, at: number): { x: number; y: number } =>
+  warAt(w.backFrom ?? w.to, w.from, w.legAt ?? w.endAt ?? at, w.backAt ?? at, at);
+
+/**
+ * Истощение налегке с `wornAt` до минуты `at` (ДР-2, М4): доля вида той же дверью, что у мира (`gait.roadLosses`), сид —
+ * поход и начало отрезка. Списывается в минуты событий — приход, поворот домой, возврат, смена режима, — поэтому шаг
+ * очереди сервера, частый или редкий, даёт тех же ушедших. Не налегке — ничего.
+ */
+function wearLight(w: WarRow, at: number): void {
+  if (w.gait !== 'light' || w.wornAt === undefined || !(at > w.wornAt)) return;
+  const lost = roadLosses(w.army.troops, 'light', at - w.wornAt, `${w.id}:${w.wornAt}`);
+  w.army = { ...w.army, troops: minus(w.army.troops, lost) };
+  w.wornAt = at;
+}
 
 /** Войско уходит домой от минуты `at` с места `from`. Некому уходить — война кончена на месте. */
 function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: WarEnd): void {
+  // Налегке — истощение до этой минуты (ДР-2): поворот домой — событие отрезка.
+  wearLight(w, at);
   // Журнал фаз переживает лагерь: по нему вести и донесение у обеих сторон (`newsOf`).
   if (w.camp?.phases?.length) w.phases = w.camp.phases;
   // Выбитое башней записывается одним разом, когда лагерь снят, — как у лагеря под логовом (`LocalWorld.liftSiege`).
@@ -1146,7 +1168,9 @@ function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: Wa
   }
   w.phase = 'back';
   w.backFrom = from;
-  w.backAt = at + walk(from, w.from);
+  delete w.legFrom;
+  delete w.legAt;
+  w.backAt = at + walk(from, w.from, readGait(w.gait));
   homeward(w, at, w.backAt);
 }
 
@@ -1179,6 +1203,8 @@ function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null
     // истощение считает игровые дни дороги), журнал дел и фаз и наказы той же осады переносятся.
     wall: prev ? prev.wall : (sheet.levels.palisade ?? 0),
     homeDays: prev ? prev.homeDays : gameDaysOfMs(warWalkMs(w.from, w.to)),
+    // Лагерь с обозом (ДР-2, М5) — без подвоза из дома; записан при постановке, у той же осады переносится.
+    gait: prev ? prev.gait : w.gait === 'train' ? 'train' : undefined,
     log: prev ? prev.log : [],
     phases: prev?.phases,
     orders: prev?.orders,
@@ -1651,6 +1677,8 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
     for (let guard = 0; guard < 64; guard++) {
       if (w.phase === 'march' && w.arriveAt <= now) {
         changed = true;
+        // Налегке — истощение пути до минуты прихода (ДР-2): к стене подходят те, кто дошёл.
+        wearLight(w, w.arriveAt);
         const sheet = sheetOf(w, w.arriveAt);
         if (!sheet) {
           turnBack(w, w.arriveAt, w.to, 'gone');
@@ -1713,6 +1741,9 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
       }
       if (w.phase === 'back' && (w.backAt ?? 0) <= now) {
         changed = true;
+        // Налегке — истощение обратного пути до минуты возврата (ДР-2): домой входят те, кто дошёл.
+        wearLight(w, w.backAt ?? now);
+        delete w.wornAt;
         w.phase = 'done';
         continue;
       }
@@ -1783,7 +1814,7 @@ export interface OrderCtx {
  * Невозможное — отказ словами и флаг «срок пути» (`OrderCtx.forged`). Честный срок — по ландшафту личной карты, и он
  * не короче пола: ландшафт не бывает быстрее самой быстрой клетки. Возвращает отказ или срок, мс мира.
  */
-function walkOf(order: { from: { x: number; y: number }; walkMs: number }, to: { x: number; y: number }, s: SheetAt, now: number, ctx: OrderCtx): string | number {
+function walkOf(order: { from: { x: number; y: number }; walkMs: number; gait?: Gait }, to: { x: number; y: number }, s: SheetAt, now: number, ctx: OrderCtx): string | number {
   const gen = s.sheet.gen;
   if (gen) {
     const went = distance(gen, order.from);
@@ -1793,10 +1824,12 @@ function walkOf(order: { from: { x: number; y: number }; walkMs: number }, to: {
       return 'Полководец не мог оказаться там так быстро. Обнови игру и попробуй снова.';
     }
   }
-  const floor = fieldWalkFloorMs(order.from, to);
+  // Пол — в режиме марша, названном приказом (ДР-2, М9): налегке быстрее, и пол у него свой; назвать «налегке» — значит и
+  // идти с его истощением (его списывает мир, приказ несёт состав к минуте прихода).
+  const floor = fieldWalkFloorMs(order.from, to, order.gait);
   // Миллисекунда — округление: клиент и сервер переводят одну и ту же дорогу в мс одной формулой.
   if (order.walkMs + 1 < floor) {
-    ctx.forged?.(`Срок пути удара полководца ${Math.round(order.walkMs / 1000)} с, а от клетки ${spot(order.from)} до цели ${distance(order.from, to).toFixed(1)} кл. — не меньше ${Math.round(floor / 1000)} с.`, 'walk');
+    ctx.forged?.(`Срок пути удара полководца ${Math.round(order.walkMs / 1000)} с (${gaitName(order.gait).toLowerCase()}), а от клетки ${spot(order.from)} до цели ${distance(order.from, to).toFixed(1)} кл. — не меньше ${Math.round(floor / 1000)} с.`, 'walk');
     return 'Так быстро полководцу не дойти. Обнови игру и попробуй снова.';
   }
   return Math.max(order.walkMs, floor);
@@ -1839,16 +1872,22 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
     case 'recall': {
       const w = theirs(file, order.id, key, 'atk');
       if (!w || w.phase !== 'march') return 'Отряд уже не в пути.';
-      // Обратный путь — по уже пройденному: развернулись там, где шли.
-      const at = warAt(w.from, w.to, w.sentAt, w.arriveAt, now);
+      // Обратный путь — по уже пройденному: развернулись там, где шли. После смены режима (ДР-2) пройденное — не время с
+      // выхода, а путь от места поворота нынешним режимом.
+      const at = marchSpot(w, now);
+      wearLight(w, now);
       w.end = 'recalled';
       w.endAt = now;
       w.phase = 'back';
       w.backFrom = at;
-      w.backAt = now + Math.max(0, now - w.sentAt);
+      w.backAt = now + (w.legAt !== undefined ? walk(at, w.from, readGait(w.gait)) : Math.max(0, now - w.sentAt));
+      delete w.legFrom;
+      delete w.legAt;
       homeward(w, now, w.backAt);
       return null;
     }
+    case 'gait':
+      return gaitOrder(file, key, order.id, order.gait, now);
     case 'retreat': {
       const w = theirs(file, order.id, key, 'atk');
       if (!w || w.phase !== 'camp') return 'Лагеря уже нет.';
@@ -2102,11 +2141,11 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const walkMs = walkOf(order, w.to, s, now, ctx);
       if (typeof walkMs === 'string') return walkMs;
       const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
-      const tired = energyBlock(have, priceOf('strike'), walkMs);
+      const tired = energyBlock(have, priceOf('strike'), walkMs, gaitSpeed(order.gait));
       if (tired) return tired;
       const at = now + Math.round(walkMs / pace);
       if (at >= (w.starvesAt ?? Infinity)) return 'Не успеть: хлеб в городе кончится раньше.';
-      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army, s) }];
+      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army, s), ...gaitField(order.gait) }];
       markGeneral(file, key, have, now);
       // Ключ союзника — для вестей ему о его выручке (19.2); наружу не уходит.
       w.allies = { ...(w.allies ?? {}), [me]: { key, city: cityOr(ctx.roster.rows[key]?.city) } };
@@ -2135,9 +2174,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const walkMs = walkOf(order, w.to, s, now, ctx);
       if (typeof walkMs === 'string') return walkMs;
       const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
-      const tired = energyBlock(have, priceOf('strike'), walkMs);
+      const tired = energyBlock(have, priceOf('strike'), walkMs, gaitSpeed(order.gait));
       if (tired) return tired;
-      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(order.army, s), joint: order.joint };
+      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(order.army, s), joint: order.joint, ...gaitField(order.gait) };
       markGeneral(file, key, have, now);
       return null;
     }
@@ -2251,15 +2290,22 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (short) return short;
   // Энергия полководца — той же дверью, что у мира (`world/energy`): дело у стен — ценой при выходе, и её должно хватить
   // к минуте прихода, с дорогой; дорога уходит по дням пути, у стен — стоит (docs/agent_energy.md, раздел 2).
+  // Режим марша (ДР-2, М7, М9): налегке лагерь не встаёт — интерфейс такой осады не шлёт, значит это подделка.
+  const gait = readGait(order.gait);
+  const noCamp = order.mode === 'siege' ? siegeBlockOf(gait) : null;
+  if (noCamp) {
+    ctx.forged?.(`Поход на осаду налегке: лагерь налегке не ставят, интерфейс такой приказ не шлёт.`);
+    return noCamp;
+  }
   const from = { x: own.x, y: own.y };
   const to = { x: row.x, y: row.y };
-  const walkMs = walk(from, to);
+  const walkMs = walk(from, to, gait);
   // Отметка — из приказа, но не выше того, что сервер знает о полководце сам (`generalCap`): вернувшийся из похода
   // не выходит в новый с полным запасом, пока не отдохнёт дома (docs/siege_audit.md, решение 11).
   const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
-  const tired = energyBlock(have, priceOf(order.mode), walkMs);
+  const tired = energyBlock(have, priceOf(order.mode), walkMs, gaitSpeed(gait));
   if (tired) return tired;
-  const energy = onRoad(spend({ value: have, at: now, mode: 'hold' }, now, priceOf(order.mode)), now, now + walkMs, false);
+  const energy = onRoad(spend({ value: have, at: now, mode: 'hold' }, now, priceOf(order.mode)), now, now + walkMs, false, gaitSpeed(gait));
   file.seq += 1;
   file.wars.push({
     id: `w${file.seq.toString(36)}${(now % 46656).toString(36)}`,
@@ -2279,8 +2325,49 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     army: { ...ruleArmy(order.army, mine), energy },
     went: { ...order.army.troops },
     ...(order.blockade && order.mode === 'siege' ? { ring: true as const } : {}),
+    ...gaitField(gait),
+    ...(gait === 'light' ? { wornAt: now } : {}),
     battles: [],
   });
+  return null;
+}
+
+/**
+ * Смена режима марша в пути (ДР-2, М6) — та же стоянка и цена, что у мира (`gait.gaitHaltMs`, `ENERGY_PRICE.gait`): войско
+ * встаёт на месте, после стоянки идёт дальше новой скоростью. Нельзя в лагере; налегке — у похода на осаду (лагерь налегке не
+ * встаёт). Налегке до этой минуты — истощение списано; налегке с неё — отрезок с минуты смены (стоянка в поле — тоже поле).
+ */
+function gaitOrder(file: WarFile, key: string, id: string, next: Gait, now: number): string | null {
+  const w = theirs(file, id, key, 'atk');
+  if (!w || (w.phase !== 'march' && w.phase !== 'back')) return w?.phase === 'camp' ? 'В лагере режим марша не меняют.' : 'Отряд уже не в пути.';
+  const was = readGait(w.gait);
+  if (was === next) return 'Отряд и так идёт этим режимом.';
+  if (w.phase === 'march' && w.mode === 'siege') {
+    const noCamp = siegeBlockOf(next);
+    if (noCamp) return `${noCamp} Поход идёт на осаду.`;
+  }
+  if ((w.legAt ?? 0) > now) return 'Отряд ещё стоит: обоз не собран.';
+  const have = energyAt(w.army.energy, now);
+  const tired = energyBlock(have, priceOf('gait'));
+  if (tired) return tired;
+  const march = w.phase === 'march';
+  const spot = march ? marchSpot(w, now) : backSpot(w, now);
+  wearLight(w, now);
+  const legAt = now + Math.round(gaitHaltMs() / pace);
+  const arrive = legAt + walk(spot, march ? w.to : w.from, next);
+  w.gait = next === 'normal' ? undefined : next;
+  if (w.gait === undefined) delete w.gait;
+  if (next === 'light') w.wornAt = now;
+  else delete w.wornAt;
+  w.legAt = legAt;
+  if (march) {
+    w.legFrom = spot;
+    w.arriveAt = arrive;
+  } else {
+    w.backFrom = spot;
+    w.backAt = arrive;
+  }
+  w.army = { ...w.army, energy: onRoad(spend(w.army.energy, now, priceOf('gait')), now, arrive, !march, gaitSpeed(next)) };
   return null;
 }
 
