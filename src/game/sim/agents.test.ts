@@ -33,9 +33,11 @@ import {
   regear,
   sightBonusOf,
   stealthOf,
+  traitsBorn,
 } from './agents';
 import { applyEffects, playerProfile } from '@/world/bridge';
 import { hireRecruit, recruitsOf } from './recruits';
+import { deedXp } from '../agentrules';
 import { creditTech } from './tech';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { PIP_IDS, type Pips } from '@/battle';
@@ -179,7 +181,8 @@ describe('гибель забирает человека, а не часть п�
   });
 
   it('весть, пришедшая после найма, нового не убивает, и его дел за погибшего не засчитывает', () => {
-    const s = createInitialState();
+    // Сид закреплён: кандидат приходит со своими чертами, и «способному» удача даёт больше (АГ-1, `agentrules.deedXp`).
+    const s = createInitialState(5);
     s.faith.id = 'catholic';
     applyEffects(s, [fell('scout', 0)]);
     s.gold = 10_000;
@@ -192,7 +195,7 @@ describe('гибель забирает человека, а не часть п�
     applyEffects(s, [fell('scout', 0)]);
     expect(s.agents.scout.vacant, 'весть о прежнем нового не трогает').toBe(false);
     expect(recordDeed(s, { agent: 'scout', ok: true, at: 1_700_000_000_000, person: 0 }), 'дело прежнего не засчитывается').toBe(0);
-    expect(recordDeed(s, { agent: 'scout', ok: true, at: 1_700_000_000_000, person: 1 })).toBe(DEED_XP.ok);
+    expect(recordDeed(s, { agent: 'scout', ok: true, at: 1_700_000_000_000, person: 1 })).toBe(deedXp(true, traitsBorn(s, 'scout')));
   });
 
   it('задержание места не освобождает: дело-неудача, опыт при нём', () => {
