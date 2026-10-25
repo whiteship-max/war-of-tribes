@@ -9,6 +9,7 @@ import {
   emptyStack,
   stackTotal,
   type Pips,
+  type Spirit,
   type Stack,
   type UnitKind,
 } from '@/battle';
@@ -529,6 +530,9 @@ export interface LocalWorldOptions {
 }
 
 /** Соль кости гибели разбитого полководца: своё число из сида того же боя. */
+/** Дух нашей стороны в приказ и слепок сервера (ДР-1, `WarArmy.spirit`, `WarSheet.spirit`): нет духа — нет поля. */
+const spiritField = (v: Spirit | undefined): { spirit?: Spirit } => (v ? { spirit: { morale: v.morale, discipline: v.discipline } } : {});
+
 const ROUT_SALT = 0x726f7574;
 
 /** Схватили ли часовые разведчика: первая кость прихода легла ниже доли поимки. */
@@ -2055,6 +2059,8 @@ export class LocalWorld implements WorldApi {
     /** Чем лагерь одет — для показа (ролик и отчёт одевают им чужой отряд); в бой ступень не идёт. */
     gear: Partial<Record<UnitKind, number>>;
     resolve?: number;
+    /** Дух того, чьё войско в лагере (ДР-1): у нашего — дух дружины, у чужого — никакого. */
+    spirit?: Spirit;
     /** Отметки того, кто ведёт лагерь: у нашего — полководец, у чужого — никто. */
     pips?: Pips;
     /** Сколько бойцов строя стоит в лагере. */
@@ -2082,7 +2088,7 @@ export class LocalWorld implements WorldApi {
         kinds,
         gear: this.ownGear(troops),
         // Наш лагерь держит дружина полководца — это его бой, и его отметки в нём есть.
-        resolve: this.ownResolve(),
+        spirit: this.ownSpirit(),
         pips: this.generalPips(),
         men: stackTotal(kinds),
         power: troopPower(troops) * (1 - thin),
@@ -2215,10 +2221,10 @@ export class LocalWorld implements WorldApi {
       at,
       sight: { since: siegeSince(w), builders: this.buildersOf(w, at), gateAt: w.gateAt, rearGateAt: w.rearGateAt, wood: camp.wood },
       // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого её нет.
-      camp: { kinds: camp.kinds, resolve: camp.resolve, pips: camp.pips, rest: camp.rest },
+      camp: { kinds: camp.kinds, resolve: camp.resolve, pips: camp.pips, rest: camp.rest, spirit: camp.spirit },
       front: partOf(attack.front),
       rear: partOf(attack.rear),
-      resolve: own ? this.ownResolve() : undefined,
+      spirit: own ? this.ownSpirit() : undefined,
       pips: own ? (attack.general ? this.generalPips() : this.homePips(at)) : undefined,
       ground: cell ? groundAt(this.save.seed, cell, attack.from) : undefined,
       // Укрепления лагеря — та же дверь, что у лагеря под городом игрока на сервере (`siegecraft.fortFaces`).
@@ -2552,7 +2558,7 @@ export class LocalWorld implements WorldApi {
       const standing = standingShare(held.own, held.standing, held.all);
       sortie = {
         kinds: kindsOf(held.all),
-        resolve: this.ownResolve(),
+        spirit: this.ownSpirit(),
         pips: this.homePips(at),
         rest: mixRest([
           { rest: this.garrisonRest(held.own, ripe), men: this.menOf(troopsAfter(held.all, standing)) },
@@ -4071,20 +4077,21 @@ export class LocalWorld implements WorldApi {
    * даёт в бою мораль, и именно так сытые кони и добрая сбруя работают.
    */
   /**
-   * Стойкость нашей стороны: обряд перед боем, если он идёт. Число приезжает
-   * готовым в слепке деревни — мир про веру, храм и уклад не знает и знать не
-   * должен, ему передают одну прибавку к морали.
+   * Дух нашей стороны (ДР-1): мораль и дисциплина дружины. Числа приезжают готовыми в слепке деревни (`PlayerProfile.spirit`)
+   * — мир про жалованье, стабильность, совет, веру и храм не знает и знать не должен. Стойкость обряда и Воеводы — строки
+   * морали, своей прибавки у нашей стороны больше нет (`resolve` наших боёв — ноль). Слепок до ДР-1 — духа нет.
    *
    * Стоит рядом с `ownGear` нарочно: наша сторона в мире узнаётся ровно по
    * этим двум вызовам, и забыть один из них труднее, когда они рядом.
    */
-  private ownResolve(): number {
-    return Math.max(0, this.save.profile?.fervour ?? 0);
+  private ownSpirit(): Spirit | undefined {
+    const v = this.save.profile?.spirit;
+    return v ? { morale: v.morale, discipline: v.discipline } : undefined;
   }
 
   /**
    * Отметки полководца в бою, который **ведёт он**: удар по двору и логову, перехват, удар по лагерю
-   * из поля и наш лагерь, по которому бьют. Стойкость в этих боях — тот же обряд (`ownResolve`), что
+   * из поля и наш лагерь, по которому бьют. Дух в этих боях — тот же дух дружины (`ownSpirit`), что
    * у всех наших: прежний натиск в неё больше не прибавляется (docs/battle_eu4.md, пачка 1).
    */
   private generalPips(): Pips {
@@ -4991,7 +4998,7 @@ export class LocalWorld implements WorldApi {
       // Место боя — клетка цели; переправа — если полководец вышел на неё через русло.
       ground: groundAt(this.save.seed, target, came ?? this.save.figures.general.from),
       // Мораль между боями — у обеих сторон одним правилом (14.31): дружина и гарнизон логова своими парами.
-      attacker: { kinds: kindsOf(troops), resolve: this.ownResolve(), pips: this.generalPips(), rest: this.generalRest(at) },
+      attacker: { kinds: kindsOf(troops), spirit: this.ownSpirit(), pips: this.generalPips(), rest: this.generalRest(at) },
       // Штурм из своего лагеря: гарнизон дерётся с духом осады и обстрела (`besiegedRest`); стен у двора мира нет — штурм
       // идёт в поле, во всю ширину (стена-проход, `world/wall`, — только у города игрока).
       defender: { kinds: garrison.kinds, rest: this.besiegedRest(target.id, at, garrisonMen, camp) },
@@ -5393,7 +5400,7 @@ export class LocalWorld implements WorldApi {
       // Место боя — клетка встречи; нападает полководец, и переправа — его шаг на неё (бой на воде — переправа).
       ground: groundAt(this.save.seed, spot, f.from),
       // Мораль между боями (14.31): дружина — своей парой, отряд — своей.
-      attacker: { kinds: kindsOf(troops), resolve: this.ownResolve(), pips: this.generalPips(), rest: this.generalRest(at) },
+      attacker: { kinds: kindsOf(troops), spirit: this.ownSpirit(), pips: this.generalPips(), rest: this.generalRest(at) },
       defender: { kinds: party.kinds, rest: restAt(m.rest, at, partyMen) },
     });
     if (field.result) {
@@ -5747,7 +5754,7 @@ export class LocalWorld implements WorldApi {
         kinds: kindsOf(home),
         militia,
         archers,
-        resolve: this.ownResolve(),
+        spirit: this.ownSpirit(),
         pips: this.homePips(at),
         rest: this.homeRest(held, at, militia),
       },
@@ -8986,9 +8993,9 @@ export class LocalWorld implements WorldApi {
     const guard = guardKinds(camp.kinds, BREAKOUT_SHARE);
     const { field } = machineFight({
       seed,
-      guard: { kinds: guard, resolve: camp.resolve, pips: camp.pips, rest: camp.rest },
+      guard: { kinds: guard, resolve: camp.resolve, pips: camp.pips, rest: camp.rest, spirit: camp.spirit },
       sortie: { kinds: kindsOf(going), rest },
-      resolve: this.ownResolve(),
+      spirit: this.ownSpirit(),
       pips: this.homePips(now),
       ground: groundAt(this.save.seed, this.save.home),
     });
@@ -10866,7 +10873,8 @@ export class LocalWorld implements WorldApi {
       from: this.spotOf(f, now),
       army: {
         troops: force as Counts,
-        resolve: this.ownResolve(),
+        resolve: 0,
+        ...spiritField(this.ownSpirit()),
         pips: { ...this.generalPips() } as Counts,
         ...(f.rest ? { rest: { ...f.rest } } : {}),
         energy: { ...this.energyOf('general', now) },
@@ -10952,7 +10960,8 @@ export class LocalWorld implements WorldApi {
       home: { ...held.all } as Counts,
       militia,
       archers,
-      resolve: this.ownResolve(),
+      resolve: 0,
+      ...spiritField(this.ownSpirit()),
       pips: { ...this.homePips(now) } as Counts,
       rest: this.homeRest(held, now, militia),
       food: Math.max(0, p.food ?? 0),
@@ -11065,7 +11074,8 @@ export class LocalWorld implements WorldApi {
       ...(ring && mode === 'siege' ? { blockade: true as const } : {}),
       army: {
         troops: troops as Counts,
-        resolve: this.ownResolve(),
+        resolve: 0,
+        ...spiritField(this.ownSpirit()),
         pips: { ...this.generalPips() } as Counts,
         ...(rest ? { rest: { ...rest } } : {}),
         // Энергия полководца — отметкой: цену дела у стен и дорогу считает сервер той же дверью (`world/energy`).
@@ -11152,7 +11162,8 @@ export class LocalWorld implements WorldApi {
       from: this.spotOf(f, now),
       army: {
         troops: force as Counts,
-        resolve: this.ownResolve(),
+        resolve: 0,
+        ...spiritField(this.ownSpirit()),
         pips: { ...this.generalPips() } as Counts,
         ...(f.rest ? { rest: { ...f.rest } } : {}),
         energy: { ...this.energyOf('general', now) },

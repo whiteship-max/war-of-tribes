@@ -16,7 +16,6 @@ import {
   homeArmyPower,
   faithOf,
   faithTilt,
-  armyResolve,
   intelKeen,
   besiegedSoldierFood,
   grossFoodPerDay,
@@ -44,6 +43,7 @@ import { fateLocks } from '@/game/sim/tech';
 import { syncFaith } from '@/game/sim/faith';
 import { woundsHome } from '@/game/sim/infirmary';
 import { dropGates, gateCalls, settleGate } from '@/game/sim/gate';
+import { spiritOf } from '@/game/sim/spirit';
 import { tagSince } from '@/game/sim/log';
 import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayOf, homeOf, type Away } from './muster';
@@ -227,14 +227,12 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // Замки гейта на участь: какие участи игрок объявить не может — готовой строкой
     // двери гейта. Мир не знает ни ветвей, ни уровней, как не знает черт.
     ...locksOut(s),
-    // Вера. В мир едут два числа и ни слова о храме: чем деревня верит — чтобы
-    // сосед мог отнестись к ней прохладнее (`world/faith.faithAttitude`), — и
-    // прибавка к стойкости от идущего обряда. Ни уклада, ни набожности, ни
-    // реликвии мир не видит: это дела прихода, а не карты. К обряду прибавляется
-    // Воевода совета Ратуши (РТ-1) и сословия (РТ-2: рыцари прибавляют, купцы режут — `derived.armyResolve`): стойкость
-    // одна, и мир не спрашивает, откуда она.
+    // Вера. В мир едет одно число и ни слова о храме: чем деревня верит — чтобы сосед мог отнестись к ней прохладнее
+    // (`world/faith.faithAttitude`). Ни уклада, ни набожности, ни реликвии мир не видит: это дела прихода, а не карты.
     faith: faithOf(s),
-    fervour: armyResolve(s),
+    // Дух дружины (ДР-1): мораль и дисциплина. Стойкость обряда, Воеводы совета (РТ-1) и сословий (РТ-2) — строки морали
+    // (`sim/spirit`), а не своя прибавка: дух один, и мир не спрашивает, откуда он.
+    spirit: spiritOf(s),
     stock,
     stash,
     storeCap: storageCap(s),

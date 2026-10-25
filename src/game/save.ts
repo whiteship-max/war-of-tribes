@@ -19,6 +19,8 @@ import { mergeCouncil } from './sim/council';
 import { mergeRecruit } from './sim/recruit';
 import { mergeMarket } from './sim/caravan';
 import { mergeEstates } from './sim/estates';
+import { mergeWage } from './sim/upkeep';
+import { mergeSpirit } from './sim/spirit';
 import { dynastyStep, mergeRealm, newHouse, skillLine } from './sim/dynasty';
 import { adminNotice, creditTech, fateNotice, gateOf, levelName, techLevel } from './sim/tech';
 import { BRANCH_OF, WAR_FATES } from './data/realm';
@@ -438,7 +440,13 @@ export function deserialize(json: string): GameState | null {
         gone: { ...(data.pay?.gone ?? {}) },
         hurt: { ...(data.pay?.hurt ?? {}) },
         drafts: { ...(data.pay?.drafts ?? {}) },
+        // Жалованье дружине и счёт уплаченного (ДР-1) — с проверкой: партия до ДР-1 приезжает с полным, давно.
+        wage: undefined,
+        paid: undefined,
+        ...mergeWage(data.pay),
       },
+      // Память боёв дружины (ДР-1) — только целой записью; партия до ДР-1 приезжает без неё.
+      spirit: mergeSpirit(data.spirit),
       // Раненых до лазарета с местами и сроком не было: старая партия приезжает с пустым лазаретом.
       wounded: data.wounded ?? [],
       // Вставших раненых отряда полководца до раскладки не считали: старая партия начинает счёт с нуля.

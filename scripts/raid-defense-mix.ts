@@ -26,9 +26,8 @@
 //     (docs/battle_eu4.md, 14.35, «Всадник у ворот»: охват по излишку ширины).
 //  5. **Потолок морали и обряд** — срезает ли потолок морали прибавку храма у какого-нибудь вида, уровня храма и устава
 //     (docs/battle_eu4.md, 14.24).
-import { MORALE, deploySetup, stackOf, stackTotal, startMorale } from '@/battle';
+import { MORALE, SPIRIT, deploySetup, stackOf, stackTotal, startMorale, type Spirit } from '@/battle';
 import { withDiceStep } from '@/battle/bench';
-import { FAITHS, OBSERVANCES, tiltAt } from '@/game/data/faiths';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL } from '@/game/constants';
 import { KIND_OF } from '@/game/battle/kinds';
 import { LocalWorld } from '@/world/local/LocalWorld';
@@ -754,34 +753,29 @@ async function oneSoldierPart(): Promise<void> {
 }
 
 /**
- * Раздел 5 — срезает ли потолок морали прибавку обряда (docs/battle_eu4.md, 14.24; слово владельца по 14.34). Мораль на
- * входе в бой считает ядро (`battle.startMorale`): род вида (морали за снаряжение нет — путь П2, 14.35) и стойкость
- * (`resolve`) — прибавка обряда той веры, уровня храма и устава, какой её даёт игра (`data/faiths.tiltAt`). Прибавка
- * срезана, если мораль с обрядом выше, чем без него, меньше чем на прибавку. Вид — однородный отряд: у смешанного мораль
- * на входе — средняя по людям, и выше самого стойкого вида она не бывает.
+ * Раздел 5 — срезает ли потолок морали верх духа (ДР-1, docs/siege_v2.md, «Решения ДР-1»; прежде — прибавку обряда, 14.24):
+ * стойкость обряда, Воеводы и сословий идёт в бой строками морали дружины, а мораль шкалы — множителем стартовой морали
+ * (`battle.spiritMorale`, верх — `SPIRIT.morale.high`). Мораль на входе в бой считает ядро (`battle.startMorale`): род вида
+ * (морали за снаряжение нет — путь П2, 14.35) на множитель духа. Множитель срезан, если мораль с верхом духа ниже, чем мораль
+ * рода на этот множитель. Вид — однородный отряд: у смешанного мораль на входе — средняя по людям.
  */
 export function ceilingPart(): void {
   console.log('');
-  console.log('--- 5. Потолок морали и обряд: срезает ли потолок прибавку храма ---');
-  console.log(`Мораль на входе — battle.startMorale: мораль рода вида (за снаряжение морали нет — путь П2, 14.35) и прибавка обряда (data/faiths.tiltAt) — потолок ${MORALE.max}.`);
-  const rites = FAITHS.filter((f) => f.tilt.fervour > 0).flatMap((f) =>
-    OBSERVANCES.flatMap((o) => Array.from({ length: MAX_BUILDING_LEVEL }, (_, i) => ({ faith: f.id, obs: o.id, level: i + 1, add: tiltAt(f.id, i + 1, o.id).fervour }))),
-  );
-  const top = rites.reduce((a, b) => (b.add > a.add ? b : a));
-  console.log(`Обряд даёт прибавку у веры: ${[...new Set(rites.map((r) => r.faith))].join(', ')}; наибольшая — +${top.add} (храм ${top.level}-го уровня, устав ${top.obs}).`);
-  console.log(' вид                 род        без обряда  с наибольшим обрядом  запас до потолка  срезано с (храм, устав)');
+  console.log('--- 5. Потолок морали и верх духа: срезает ли потолок мораль дружины ---');
+  console.log(`Мораль на входе — battle.startMorale: мораль рода вида (за снаряжение морали нет — путь П2, 14.35) на множитель морали духа (верх шкалы — ×${SPIRIT.morale.high}) — потолок ${MORALE.max}.`);
+  console.log(' вид                 род        без духа  с верхом духа  запас до потолка  срезано');
   let cut = 0;
+  const top = { morale: SPIRIT.top, discipline: SPIRIT.even };
   for (const id of TROOP_IDS) {
     const kind = KIND_OF[id];
-    const at = (add: number): number => startMorale({ ...deploySetup({ [kind]: 1 }), resolve: add }, stackOf({ [kind]: 1 }));
-    const bare = at(0);
-    const first = rites.filter((r) => at(r.add) - bare < r.add - 1e-9).sort((a, b) => a.add - b.add)[0];
-    if (first) cut += 1;
-    console.log(
-      ` ${TROOP_BY_ID[id].name.padEnd(19)} ${kind.padEnd(10)} ${pad(bare, 10)}  ${pad(at(top.add), 20)}  ${pad(Math.round((MORALE.max - bare - top.add) * 100) / 100, 16)}  ${first ? `${first.level}-й, ${first.obs} (+${first.add})` : 'нет'}`,
-    );
+    const at = (spirit?: Spirit): number => startMorale({ ...deploySetup({ [kind]: 1 }), ...(spirit ? { spirit } : {}) }, stackOf({ [kind]: 1 }));
+    const bare = at();
+    const high = at(top);
+    const shorn = high < bare * SPIRIT.morale.high - 1e-9;
+    if (shorn) cut += 1;
+    console.log(` ${TROOP_BY_ID[id].name.padEnd(19)} ${kind.padEnd(10)} ${pad(bare, 8)}  ${pad(high, 13)}  ${pad(Math.round((MORALE.max - high) * 100) / 100, 16)}  ${shorn ? 'да' : 'нет'}`);
   }
-  console.log(cut > 0 ? `ПОТОЛОК СРЕЗАЕТ ОБРЯД у ${cut} видов из ${TROOP_IDS.length}.` : `Потолок срезает обряд: ни у одного вида из ${TROOP_IDS.length}, ни при каком уровне храма и уставе.`);
+  console.log(cut > 0 ? `ПОТОЛОК СРЕЗАЕТ ДУХ у ${cut} видов из ${TROOP_IDS.length}.` : `Потолок срезает дух: ни у одного вида из ${TROOP_IDS.length}.`);
 }
 
 export async function defenseMixSection(): Promise<void> {

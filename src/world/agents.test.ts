@@ -161,12 +161,13 @@ beforeEach(() => {
 });
 
 describe('отметки полководца: его бои — всегда, свои стены и вылазка — только пока он в городе', () => {
-  const FERVOUR = 4;
+  /** Дух дружины слепком деревни (ДР-1): во все наши бои — он, своей прибавки стойкости больше нет. */
+  const SPIRIT_P = { morale: 33, discipline: 81 };
   const LEVEL = 4;
 
-  it('удар по логову: отметки — его, стойкость — один обряд, снаряжение — то же, что у дружины', async () => {
+  it('удар по логову: отметки — его, дух — дружины, снаряжение — то же, что у дружины', async () => {
     const w = makeWorld();
-    const p = tribeProfile(LEVEL, { fervour: FERVOUR });
+    const p = tribeProfile(LEVEL, { spirit: SPIRIT_P });
     expect(Object.keys(p.pips ?? {}).length, 'точка внутри области: у полководца четвёртого уровня отметки есть').toBeGreaterThan(0);
     await w.world.sync(p);
     const lair = nearestLair(w);
@@ -176,14 +177,15 @@ describe('отметки полководца: его бои — всегда, �
     expect(res.error).toBeNull();
     const input = battleSince(mark);
     expect(input.attacker.pips).toEqual(p.pips);
-    expect(input.attacker.resolve, 'натиска в стойкости больше нет: только обряд').toBe(FERVOUR);
+    expect(input.attacker.spirit, 'дух — наш, слепком деревни').toEqual(SPIRIT_P);
+    expect(input.attacker.resolve, 'своей прибавки стойкости больше нет: она — строка морали').toBe(0);
     // Ступени снаряжения в бою нет (путь П2, 14.35): вещи пришли туда весом — людьми строя.
     expect('gear' in input.attacker, 'ступень снаряжения в бой не идёт').toBe(false);
   });
 
   it('наш лагерь, по которому бьют, держит дружина полководца — отметки есть', async () => {
     const w = makeWorld();
-    const p = tribeProfile(LEVEL, { fervour: FERVOUR, pips: ALL_PIPS });
+    const p = tribeProfile(LEVEL, { spirit: SPIRIT_P, pips: ALL_PIPS });
     await w.world.sync(p);
     const lair = nearestLair(w);
     stand(w, lair);
@@ -193,7 +195,7 @@ describe('отметки полководца: его бои — всегда, �
     w.inner.campBattle(lair.id, w.now(), 5, { front: { kinds, gear: {} }, setup: null });
     const input = battleSince(mark);
     expect(input.defender.pips).toEqual(ALL_PIPS);
-    expect(input.defender.resolve).toBe(FERVOUR);
+    expect(input.defender.spirit).toEqual(SPIRIT_P);
   });
 
   /** Чужой лагерь под нашими стенами: отряд из логова, окно осады. */
@@ -223,7 +225,7 @@ describe('отметки полководца: его бои — всегда, �
 
   it('удар полководца по лагерю из поля — отметки есть, все четыре', async () => {
     const w = makeWorld();
-    const p = tribeProfile(LEVEL, { fervour: FERVOUR, pips: ALL_PIPS });
+    const p = tribeProfile(LEVEL, { spirit: SPIRIT_P, pips: ALL_PIPS });
     await w.world.sync(p);
     campAtHome(w);
     const home = w.inner.save.home;
@@ -234,7 +236,7 @@ describe('отметки полководца: его бои — всегда, �
   });
 
   /** Хлеба вдоволь: без него окно осады кончилось бы в ту же минуту, и выходить было бы не на кого. */
-  const fed = { fervour: FERVOUR, pips: ALL_PIPS, food: 100_000, foodPerHour: 10, soldierFoodPerHour: 1 };
+  const fed = { spirit: SPIRIT_P, pips: ALL_PIPS, food: 100_000, foodPerHour: 10, soldierFoodPerHour: 1 };
 
   it('вылазка, когда дружина в поле, — отметок нет: вылазку ведёт гарнизон', async () => {
     const w = makeWorld();
@@ -248,7 +250,7 @@ describe('отметки полководца: его бои — всегда, �
     expect(res.error).toBeNull();
     const input = battleSince(mark);
     expect(input.attacker.pips).toEqual({});
-    expect(input.attacker.resolve).toBe(FERVOUR);
+    expect(input.attacker.spirit).toEqual(SPIRIT_P);
   });
 
   it('вылазка, когда дружина стоит у ворот, — её ведёт полководец, все четыре отметки', async () => {
@@ -293,25 +295,25 @@ describe('отметки полководца: его бои — всегда, �
 
   it('оборона деревни, когда дружина в поле, — отметок нет, даже у полководца пятого уровня', async () => {
     const w = makeWorld();
-    const p = tribeProfile(5, { fervour: FERVOUR, pips: ALL_PIPS });
+    const p = tribeProfile(5, { spirit: SPIRIT_P, pips: ALL_PIPS });
     await w.world.sync(p);
     const home = w.inner.save.home;
     stand(w, { x: home.x + 6, y: home.y });
     const input = battleSince(raidAtWall(w));
     expect(input.defender.pips).toEqual({});
-    expect(input.defender.resolve).toBe(FERVOUR);
+    expect(input.defender.spirit).toEqual(SPIRIT_P);
   });
 
   it('оборона деревни, когда дружина у ворот, — ведёт полководец со всеми отметками: манёвр обороны держит переправу', async () => {
     // Л9 пересмотрено (docs/battle_eu4.md, 14.5): «у стены без манёвра» писалось, пока манёвр жил в фазах обхода и
     // резерва. Работа манёвра теперь переправа, и у EU4 манёвр обороняющегося держит её нападающему.
     const w = makeWorld();
-    const p = tribeProfile(5, { fervour: FERVOUR, pips: ALL_PIPS });
+    const p = tribeProfile(5, { spirit: SPIRIT_P, pips: ALL_PIPS });
     await w.world.sync(p);
     atGates(w);
     const input = battleSince(raidAtWall(w));
     expect(input.defender.pips, 'у стены — все отметки, и манёвр').toEqual(ALL_PIPS);
-    expect(input.defender.resolve).toBe(FERVOUR);
+    expect(input.defender.spirit).toEqual(SPIRIT_P);
   });
 
   // Решение владельца 16.10.2026 (docs/ui_v2.md, 6.10): полководец в городе без отряда защищает стены — правило
@@ -322,7 +324,7 @@ describe('отметки полководца: его бои — всегда, �
   it('оборона деревни, полководец в городе без отряда, — ведёт он: у ворот и укрывшись', async () => {
     for (const sheltered of [false, true]) {
       const w = makeWorld();
-      const p = tribeProfile(5, { fervour: FERVOUR, pips: ALL_PIPS });
+      const p = tribeProfile(5, { spirit: SPIRIT_P, pips: ALL_PIPS });
       await w.world.sync(p);
       atGates(w, {});
       const g = w.inner.save.figures.general;

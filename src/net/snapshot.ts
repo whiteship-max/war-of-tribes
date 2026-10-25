@@ -9,7 +9,7 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchMarket, type WatchStab } from '../../netlify/lib/contract';
+import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchMarket, type WatchSpirit, type WatchStab } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { SAVE_VERSION } from '@/game/state';
 import {
@@ -43,6 +43,7 @@ import { stabLevel, stabOf } from '@/game/sim/stability';
 import { crownOf } from '@/game/sim/crown';
 import { councilOf } from '@/game/sim/council';
 import { agentsWatch } from '@/game/sim/recruit';
+import { spiritOf, wageMode } from '@/game/sim/spirit';
 import { ADVISOR_POSTS } from '@/game/councilrules';
 import { estatesOf, privList } from '@/game/sim/estates';
 import { ESTATES } from '@/game/estaterules';
@@ -173,7 +174,15 @@ export function watchOf(s: GameState): WatchCard {
     // Книга рынка (РН-1): привоз, счёт, серебро купцов, нажим и последние сделки — как лежат в партии (`sim/market`). Сделок не
     // было — поля нет.
     ...(s.market?.seq ? { market: marketCard(s) } : {}),
+    // Книга духа (ДР-1): жалованье, мораль и дисциплина в эту минуту и счёт уплаченного дружине — одной дверью (`sim/spirit`).
+    spirit: spiritCard(s),
   };
+}
+
+/** Дух дружины для описи: режим жалованья, мораль и дисциплина той же двери, что везёт их в бой, и счёт уплаченного. */
+function spiritCard(s: GameState): WatchSpirit {
+  const v = spiritOf(s);
+  return { wage: wageMode(s), morale: v.morale, discipline: v.discipline, paid: Math.floor(s.pay?.paid ?? 0) };
 }
 
 /** Рынок для описи: то, что записала дверь сделок (`sim/market`), без пересчёта — цену сервер выводит сам. */

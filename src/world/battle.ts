@@ -22,6 +22,7 @@ import {
   type GroundPenalty,
   type Pips,
   type Side,
+  type Spirit,
   type Stack,
   type Widen,
 } from '@/battle';
@@ -51,6 +52,12 @@ export interface FieldSide {
    * одна дверь — `world/rest`; нет поля — полная.
    */
   rest?: number;
+  /**
+   * Мораль и дисциплина войска, 0…100 (ДР-1, `ArmySetup.spirit`): у нас — дух дружины (`game/spiritrules`, мост везёт его
+   * слепком `PlayerProfile.spirit`), у соседа — его слепок, срезанный потолком книги сервера, у логова — ничего. Нет поля —
+   * множители единица.
+   */
+  spirit?: Spirit;
   /**
    * Какая часть стороны — гарнизон, вышедший из ворот в совместный удар, по родам (`ArmySetup.garrison`): ядро только
    * раскладывает её по секторам в итог, чтобы ролик вывел гарнизон из ворот, а дружину с поля. Исход от поля не зависит.
@@ -140,6 +147,8 @@ export function resolveField(input: FieldInput): FieldOutcome {
   const defender = deploySetup(input.defender.kinds, FRONT_WIDTH, rules);
   // Доля морали кладётся, только если сторона не свежая: бой свежих сторон — тот же, что до морали между боями.
   const rested = (r: number | undefined): { rest?: number } => (r !== undefined && r < 1 ? { rest: r } : {});
+  // Дух — только если он есть: бой без него (логово, вход старше ДР-1) — тот же, что до духа, байт в байт.
+  const spirited = (v: Spirit | undefined): { spirit?: Spirit } => (v ? { spirit: { morale: v.morale, discipline: v.discipline } } : {});
 
   const result = simulateBattle({
     seed: input.seed,
@@ -150,9 +159,16 @@ export function resolveField(input: FieldInput): FieldOutcome {
       pips: input.attacker.pips ?? {},
       ground: input.ground,
       ...rested(input.attacker.rest),
+      ...spirited(input.attacker.spirit),
       ...(input.attacker.garrison ? { garrison: input.attacker.garrison } : {}),
     },
-    defender: { ...defender, resolve: input.defender.resolve ?? 0, pips: input.defender.pips ?? {}, ...rested(input.defender.rest) },
+    defender: {
+      ...defender,
+      resolve: input.defender.resolve ?? 0,
+      pips: input.defender.pips ?? {},
+      ...rested(input.defender.rest),
+      ...spirited(input.defender.spirit),
+    },
     ...(input.width !== undefined ? { width: input.width } : {}),
     ...(input.fire !== undefined ? { fire: input.fire } : {}),
     ...(input.widen ? { widen: input.widen } : {}),

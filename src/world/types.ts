@@ -15,7 +15,7 @@ import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { BattlePlace } from '@/game/battle/ground';
-import type { BattleResult, Pips, Side, Stack, UnitKind } from '@/battle';
+import type { BattleResult, Pips, Side, Spirit, Stack, UnitKind } from '@/battle';
 import type { WoodPlan } from './works';
 import type { TowerGun } from './bombard';
 import type { FigurePlace } from './shelter';
@@ -1964,12 +1964,12 @@ export interface PlayerProfile {
    */
   faith?: FaithId | null;
   /**
-   * Прибавка к стойкости дружины: идёт ли обряд перед боем и Воевода совета Ратуши (РТ-1). Мир не спрашивает,
-   * откуда она, и в бой кладёт как есть (`FieldSide.resolve`). Ни веры, ни
-   * храма, ни совета у боевого расчёта нет ни одним полем — потому «моя вера бьёт твою»
-   * и не может случиться.
+   * Дух дружины (ДР-1, `sim/spirit.spiritOf`): мораль и дисциплина 0…100. Мир не спрашивает, откуда он, и в бой кладёт как
+   * есть (`FieldSide.spirit`) — всем нашим сторонам: гарнизону, дружине полководца, вылазке. Стойкость обряда, Воеводы и
+   * сословий — строки морали (прежде ехала отдельной прибавкой `fervour`): ни веры, ни храма, ни совета у боевого расчёта нет
+   * ни одним полем — потому «моя вера бьёт твою» и не может случиться. Нет поля (слепок до ДР-1) — духа нет, множители единица.
    */
-  fervour?: number;
+  spirit?: Spirit;
   /**
    * Сколько еды лежит на складе. То же, что `stock.food`, но отдельным числом:
    * осада считает не добычу, а на сколько дней хватит хлеба, и спрятанное в

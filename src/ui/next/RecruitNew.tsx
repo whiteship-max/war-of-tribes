@@ -2,7 +2,7 @@
 // ниже — число и «Нанять» с ценой и сроком, всё в потоке окна; плавающей полосы нет — она ездила при прокрутке и
 // закрывала виды (во второй конный было не попасть). Очередь — под «Нанять». Где учат вид, решает одна дверь (`army.hiredAt`); цена, снаряжение, срок и
 // причина отказа — `recruitCheck`; закрыт ли вид — `troopBlock` (дверь гейта); мощь — `powerOf`, жалованье —
-// `wageOf` (правило 18).
+// `troopWage` — при нынешнем жалованье дружине (правило 18, ДР-1).
 import { useEffect, useState } from 'react';
 import type { EquipmentId, GameState, TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
@@ -10,7 +10,7 @@ import { RESOURCE_IDS } from '@/game/constants';
 import { TROOPS, TROOP_BY_ID } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { currentStep } from '@/game/data/tutorial';
-import { buildingOfType, idleCount, wageOf } from '@/game/derived';
+import { buildingOfType, idleCount, troopWage } from '@/game/derived';
 import { powerOf } from '@/game/battle/price';
 import { hiredAt, isTraining, orderEta, recruitCheck } from '@/game/sim/army';
 import { cancelRecruit, startRecruit } from '@/game/sim/actions';
@@ -162,7 +162,7 @@ export function HireBody({ s, at, pick, n, onPick, onCount, act, openBuilding, s
           <div>
             <dt>Жалованье</dt>
             <dd>
-              <Icon name="res-gold" /> {dec(wageOf(s, pick), 2)}
+              <Icon name="res-gold" /> {dec(troopWage(s, pick), 2)}
               <small>в день</small>
             </dd>
           </div>

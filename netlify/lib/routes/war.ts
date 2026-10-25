@@ -43,7 +43,7 @@ import { queueNews } from '../outbox.js';
 import { RIVAL_DEED_BY_ID } from '../../../src/world/data/spy.js';
 import { STORES } from '../kv.js';
 import { FROZEN_ORDER, FROZEN_TARGET, frozenNow, isFrozen } from '../admin.js';
-import { addFlags, agentsOf, bookOf, marshalOf, noted, observe, readWatchRecord, townOf, yieldCapOf } from '../watch.js';
+import { addFlags, agentsOf, bookOf, marshalOf, noted, observe, readWatchRecord, spiritCeilOf, townOf, yieldCapOf } from '../watch.js';
 
 /** Все войны лежат одной записью рядом с реестром. */
 const KEY = WARS_KEY;
@@ -124,6 +124,8 @@ export const war: Route = async (req, io) => {
       ...marshalOf(rec, now),
       ...yieldCapOf(rec, now),
       ...agentsOf(rec, now),
+      // Дух дружины (ДР-1) — не выше потолка книги духа сервера (`watch.spiritCeilOf`): жалованье по часам сервера.
+      ...spiritCeilOf(rec, now),
     });
   };
   // Приказ сверх подтверждённого — флаг в описи наблюдения приказавшего (docs/admin.md, «Флаги»). Пишется там, где ответ

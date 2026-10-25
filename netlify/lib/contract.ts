@@ -742,6 +742,11 @@ export interface WarSheet {
   resolve: number;
   pips: Counts;
   rest: number;
+  /**
+   * Дух обороны (ДР-1): мораль и дисциплина дружины, 0…100. Сервер кладёт в бой не выше потолка своей книги духа
+   * (`war.liveSheet` → `book.ruleSpirit`). Нет поля (клиент до ДР-1) — духа нет, стойкость — прежняя `resolve`.
+   */
+  spirit?: WarSpirit;
   /** Хлеб и расход — часы голода той же дверью, что у осады логова (`siege.openSiege`). */
   food: number;
   townPerHour: number;
@@ -838,11 +843,35 @@ export interface SpyWatch {
   home: boolean;
 }
 
+/** Мораль и дисциплина войска, 0…100 (ДР-1; `battle.Spirit`). */
+export interface WarSpirit {
+  morale: number;
+  discipline: number;
+}
+
+/** Дух из тела записи: обе шкалы числами в пределах 0…100, иначе — нет духа. */
+export function readSpirit(v: unknown): WarSpirit | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  const m = num(r.morale);
+  const d = num(r.discipline);
+  if (m === null || d === null) return undefined;
+  return { morale: Math.max(0, Math.min(100, m)), discipline: Math.max(0, Math.min(100, d)) };
+}
+
+/** Поле духа для записи: есть дух — поле, нет — пусто. */
+const spiritOf = (v: unknown): { spirit?: WarSpirit } => {
+  const sp = readSpirit(v);
+  return sp ? { spirit: sp } : {};
+};
+
 /** Войско в походе: дружина полководца и то, что он кладёт в бой. */
 export interface WarArmy {
   troops: Counts;
   resolve: number;
   pips: Counts;
+  /** Дух дружины (ДР-1): сервер кладёт в бой не выше потолка книги духа (`book.ruleSpirit`). Нет — духа нет. */
+  spirit?: WarSpirit;
   /** Мораль между боями (`world/rest.RestPair`). Нет — свежее. */
   rest?: { share: number; at: number; men: number };
   /**
@@ -896,6 +925,7 @@ export interface WarSide {
   resolve?: number;
   pips?: Counts;
   rest?: number;
+  spirit?: WarSpirit;
   garrison?: Counts;
 }
 
@@ -1479,6 +1509,7 @@ export function readSheet(v: unknown): WarSheet | null {
     resolve: real(r.resolve, 100),
     pips: readReals(r.pips),
     rest: Math.min(1, real(r.rest, 1)),
+    ...spiritOf(r.spirit),
     food: real(r.food, 1e12),
     townPerHour: real(r.townPerHour, 1e9),
     perManPerHour: real(r.perManPerHour, 1e9),
@@ -1550,6 +1581,7 @@ export function readArmy(v: unknown, latest = Infinity): WarArmy | null {
     troops,
     resolve: real(r.resolve, 100),
     pips: readReals(r.pips),
+    ...spiritOf(r.spirit),
     ...(rest && num(rest.at) !== null
       ? { rest: { share: Math.min(1, real(rest.share, 1)), at: num(rest.at) as number, men: Math.floor(real(rest.men, WAR_LIMITS.count)) } }
       : {}),
@@ -1965,6 +1997,32 @@ export interface WatchCard {
    * последние сделки — для книги рынка сервера (правило «market»: цена каждой сделки по правилу привоза). Нет поля — опись до РН-1.
    */
   market?: WatchMarket;
+  /**
+   * Дух дружины (ДР-1, docs/siege_v2.md, «Решения ДР-1»): жалованье (полное или минимальное), мораль и дисциплина в минуту
+   * описи и счёт уплаченного дружине — для книги духа сервера (правило «spirit»): режим — по часам сервера, мораль и
+   * дисциплина — не выше потолка книги, жалованье полного — не меньше ведомости сверх терпения. Нет поля — опись до ДР-1.
+   */
+  spirit?: WatchSpirit;
+}
+
+/** Дух дружины в описи (ДР-1). */
+export interface WatchSpirit {
+  wage: 'full' | 'min';
+  morale: number;
+  discipline: number;
+  /** Сколько жалованья дружине уплачено за партию, золотом, целым. */
+  paid: number;
+}
+
+/** Дух описи: режим — из двух слов, шкалы — числами (как есть в пределах ±999: вне 0…100 — флаг, а не поправка); нет — нет. */
+function readWatchSpirit(v: unknown): Pick<WatchCard, 'spirit'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const m = num(r.morale);
+  const d = num(r.discipline);
+  if ((r.wage !== 'full' && r.wage !== 'min') || m === null || d === null) return {};
+  const keep = (x: number): number => Math.round(Math.max(-999, Math.min(999, x)) * 10) / 10;
+  return { spirit: { wage: r.wage, morale: keep(m), discipline: keep(d), paid: whole(r.paid, 1e12) } };
 }
 
 /** Сделка в описи: номер, настоящая минута, товар, штук (покупка — плюс, продажа — минус), золото, нажим перед сделкой. */
@@ -2297,6 +2355,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...(Number.isInteger(r.seed) && (r.seed as number) >= 0 ? { seed: whole(r.seed, 0xffffffff) } : {}),
     ...readMarket(r.market),
     ...readEstates(r.estates),
+    ...readWatchSpirit(r.spirit),
   };
 }
 

@@ -19,6 +19,7 @@ import {
   advisorWage,
   candidateCount,
   councilTier,
+  giftCeil,
   giftOf,
   hirePrice,
   windowOf,
@@ -49,6 +50,8 @@ import { deserialize, serialize } from '../save';
 import { resolveEvent } from './mail';
 import { EVENT_BY_ID } from '../data/events';
 import { playerProfile } from '@/world/bridge';
+import { resolvePoints } from '../spiritrules';
+import { spiritView } from './spirit';
 import { assignWorker } from './workers';
 
 /** Город без случайностей: вера названа, вести не идут, задания закрыты, ратуша уровня `hall`. */
@@ -218,12 +221,21 @@ describe('польза: Староста, Казначей, Воевода', () 
     expect(taxIncomePerDay(s)).toBeCloseTo(tax * (1 + giftOf('treasurer', a.level, a.trait)) + faithGoldPerDay(s), 9);
   });
 
-  it('Воевода прибавляет стойкость дружины к обряду — тем же полем, что едет в мир', () => {
+  it('Воевода поднимает мораль и дисциплину дружины строкой духа — тем полем, что едет в мир (ДР-1)', () => {
     const s = town(3, 7);
-    const before = playerProfile(s).fervour ?? 0;
+    const before = playerProfile(s).spirit!;
+    // Точка внутри области: шкалы не у верха — прибавка не срезана краем.
+    expect(before.morale + resolvePoints(giftCeil('marshal')), 'мораль не у верха').toBeLessThan(100);
     hire(s, 'marshal');
     const a = councilOf(s).seats.marshal!;
-    expect(playerProfile(s).fervour ?? 0).toBeCloseTo(before + giftOf('marshal', a.level, a.trait), 12);
+    const gift = resolvePoints(giftOf('marshal', a.level, a.trait));
+    expect(gift, 'польза Воеводы').toBeGreaterThan(0);
+    expect(spiritView(s).morale.lines.find((l) => l.id === 'marshal')?.value).toBeCloseTo(gift, 9);
+    const after = playerProfile(s).spirit!;
+    expect(after.morale).toBeCloseTo(before.morale + gift, 0);
+    expect(after.discipline).toBeCloseTo(before.discipline + gift, 0);
+    // Своей прибавки стойкости больше нет: стойкость — строка морали.
+    expect((playerProfile(s) as unknown as Record<string, unknown>).fervour).toBeUndefined();
   });
 });
 

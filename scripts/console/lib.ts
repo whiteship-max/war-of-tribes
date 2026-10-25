@@ -33,7 +33,7 @@ export interface Args {
 }
 
 /** Ключи, у которых значения не бывает: следующий довод после них — свободный. */
-const FLAGS = new Set(['help', 'log', 'watch', 'quiet', 'json', 'no-open', 'no-shield', 'bare', 'all', 'live', 'river', 'strike', 'joint', 'camp', 'repair', 'ration', 'gun']);
+const FLAGS = new Set(['help', 'log', 'watch', 'quiet', 'json', 'no-open', 'no-shield', 'bare', 'all', 'live', 'river', 'strike', 'joint', 'camp', 'repair', 'ration', 'gun', 'derive-spirit', 'check']);
 
 export function parseArgs(argv: readonly string[] = process.argv.slice(2)): Args {
   const free: string[] = [];

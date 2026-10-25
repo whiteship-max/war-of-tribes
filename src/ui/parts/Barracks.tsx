@@ -1,10 +1,5 @@
-import { useState } from 'react';
-import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
-import { TROOPS } from '@/game/data/troops';
-import { armyPower, armySize, buildingOfType, upkeepInfo } from '@/game/derived';
-import { dismissCheck } from '@/game/sim/upkeep';
-import { dismissSoldiers } from '@/game/sim/actions';
+import { armySize, buildingOfType, upkeepInfo } from '@/game/derived';
 import { UPKEEP_TEXT } from '@/game/data/upkeep';
 import { Icon } from '@/ui/icons/Icon';
 import { Row } from '@/ui/kit/Row';
@@ -16,12 +11,11 @@ import { Recruit } from './Recruit';
 import { waitDays } from './wait';
 import { count } from './plural';
 import { dec } from '@/game/num';
-import { iconName } from '@/ui/icons/registry';
 import type { IconName } from '@/ui/icons/alias';
 
 /**
- * Казармы: найм пеших (`Recruit`; конницу нанимают в конюшне), жалованье и роспуск — всех видов, конных тоже:
- * распускают войско, а не здание.
+ * Казармы: найм пеших (`Recruit`; конницу нанимают в конюшне). Жалованье, мораль и дисциплина и роспуск — в «Дружине» (ДР-1,
+ * docs/siege_v2.md, «Решения ДР-1»): там уже имеющееся войско, здесь — найм.
  *
  * Дружина и стены — строками-дверями в свои окна (Д8, docs/ui_v2.md, 5.7): прежде здесь стояли мощь, оборона второй раз
  * (после «К обороне города» выше) и свободные руки второй раз (их число — в полосе найма, «👤 N из M»). Оборона целиком —
@@ -30,8 +24,6 @@ import type { IconName } from '@/ui/icons/alias';
 export function Barracks() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
-  const act = useGame((g) => g.act);
-  const [release, setRelease] = useState<Partial<Record<TroopId, number>>>({});
   const palisade = buildingOfType(s, 'palisade');
 
   return (
@@ -43,7 +35,7 @@ export function Barracks() {
       <Row
         icon={'hud-army'}
         label="Дружина"
-        sub={armySize(s) > 0 ? `${count(armySize(s), 'боец', 'бойца', 'бойцов')} · мощь ${fmtInt(Math.round(armyPower(s)))}` : 'бойцов нет'}
+        sub={armySize(s) > 0 ? `${count(armySize(s), 'боец', 'бойца', 'бойцов')} · жалованье, дух, роспуск` : 'бойцов нет'}
         go={() => goTo(WINDOW.army)}
         goLabel={sourceWord(WINDOW.army)}
       />
@@ -59,57 +51,18 @@ export function Barracks() {
         />
       )}
 
-      <Upkeep />
-
-      {armySize(s) > 0 && (
-        <>
-          <h3>Роспуск</h3>
-          <p className="note">Бойцы станут жителями, снаряжение вернётся на склад, плата за найм пропадёт.</p>
-          {TROOPS.filter((def) => (s.army[def.id] ?? 0) > 0).map((def) => {
-            const n = Math.max(1, release[def.id] ?? 1);
-            const check = dismissCheck(s, def.id, n);
-            const set = (v: number): void =>
-              setRelease((c) => ({ ...c, [def.id]: Math.max(1, Math.min(Math.max(1, check.max), v)) }));
-            return (
-              <div className="slot pick" key={def.id}>
-                <span className="ico">
-                  <Icon name={iconName('troop', def.id)} />
-                </span>
-                <span className="who">
-                  {def.name} <i className="talent">гарнизон {check.max} · −{Math.round(check.saves)} золота в день</i>
-                </span>
-                <div className="stepper">
-                  <button disabled={n <= 1} onClick={() => set(n - 1)}>
-                    −
-                  </button>
-                  <span className="n">{n}</span>
-                  <button disabled={n >= check.max} onClick={() => set(n + 1)}>
-                    +
-                  </button>
-                </div>
-                <button
-                  className="mini text"
-                  disabled={check.blocked !== null}
-                  onClick={() => act((st) => dismissSoldiers(st, def.id, n))}
-                >
-                  распустить
-                </button>
-              </div>
-            );
-          })}
-        </>
-      )}
+      {/* Жалованье, мораль и дисциплина, роспуск — в «Дружине» (ДР-1): здесь найм, там — уже имеющееся войско. */}
     </>
   );
 }
 
 /**
- * Жалованье: цена, которой держится войско, — в день против того, что даёт казна, долг и терпение. Один компонент на два
- * показа: в казармах и во вкладке «Армия» меню державы. Таблицей (UI-8, docs/ui_v2.md, 5.7): жалованье — с разбором по
+ * Жалованье: цена, которой держится войско, — в день против того, что даёт казна, долг и терпение. Один компонент: в «Дружине»
+ * под выбором жалованья (`bare` — без своего заголовка, ДР-1). Таблицей (UI-8, docs/ui_v2.md, 5.7): жалованье — с разбором по
  * видам (подсказка дружины верха), доход — разбором золота и дверью в «Указы», терпение — дверью в Статую: его число
  * делает она (Д8). Своей арифметики нет: всё считает `derived.upkeepInfo`.
  */
-export function Upkeep() {
+export function Upkeep({ bare = false }: { bare?: boolean } = {}) {
   const s = useGame((g) => g.s);
   const up = upkeepInfo(s);
   const statue = buildingOfType(s, 'statue');
@@ -160,7 +113,7 @@ export function Upkeep() {
   ];
   return (
     <>
-      <h3>Жалованье</h3>
+      {!bare && <h3>Жалованье</h3>}
       <Table
         label="Жалованье"
         cols={UPKEEP_COLS}

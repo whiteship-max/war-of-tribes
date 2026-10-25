@@ -38,6 +38,7 @@ import {
   type WarFall,
   type WarOrder,
   type WarSheet,
+  type WarSpirit,
   type WarView,
   RIVAL_DEEDS,
   spySeenId,
@@ -158,7 +159,7 @@ import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { machineShare, gateBusyText, playerWood, rebaseWood } from '../../src/world/works.js';
 import { stackCarry, stackEscort } from '../../src/world/data/units.js';
 import { PACT_BREAK_NOTICE, PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
-import { bookLive, least, over, rulePips, ruleResolve, type ArmyBook } from './book.js';
+import { bookLive, least, over, rulePips, ruleResolve, ruleSpirit, type ArmyBook } from './book.js';
 import { capPips, type AgentsAt } from './agentbook.js';
 import { floorAt, townSheet, type TownBook } from './town.js';
 
@@ -675,6 +676,11 @@ export interface SheetAt {
    * подтверждённых жителях, работником в лучших множителях. Слепок, назвавший больше, идёт в осаду с потолком. Нет — как есть.
    */
   yieldCap?: number;
+  /**
+   * Потолок духа дружины (ДР-1, `watch.spiritCeilOf`): книга духа — жалованье по часам сервера — и подтверждённые Воевода,
+   * рыцари и казармы. Дух слепка и приказа идёт в бой не выше него (`book.ruleSpirit`). Нет — названный в пределах шкалы.
+   */
+  spirit?: WarSpirit;
 }
 
 // ------------------------------------------------ счёт по видам ---
@@ -861,8 +867,12 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
     // Отметки — под потолком правил и подтверждённого полководца (АГ-1): у стен — его отметки, а не названные слепком.
     pips: capPips(rulePips(pips), s.agents?.pips),
     resolve: ruleResolve(sheet.resolve, s.marshal ?? 0, s.knights ?? 0),
+    ...spiritField(ruleSpirit(sheet.spirit, s.spirit)),
   };
 }
+
+/** Дух — полем, когда он есть: бой без духа (клиент до ДР-1) идёт по прежним правилам. */
+const spiritField = (v: WarSpirit | undefined): { spirit?: WarSpirit } => (v ? { spirit: v } : {});
 
 /** По видам — не больше, чем в `cap`. */
 function atMost(a: Counts, cap: Counts): Counts {
@@ -885,7 +895,7 @@ const armyRest = (a: WarArmy, at: number): number => restAt(a.rest, at, men(a.tr
 function wear(a: WarArmy, lost: Counts, share: number, at: number): WarArmy {
   const troops = minus(a.troops, lost);
   const rest = restAfter(share, at, men(troops));
-  return { troops, resolve: a.resolve, pips: a.pips, ...(rest ? { rest } : {}), ...(a.energy ? { energy: a.energy } : {}) };
+  return { troops, resolve: a.resolve, pips: a.pips, ...spiritField(a.spirit), ...(rest ? { rest } : {}), ...(a.energy ? { energy: a.energy } : {}) };
 }
 
 /**
@@ -950,12 +960,19 @@ function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly Machin
   const { input, field } = wallFight({
     seed: warSeed(w.id, n),
     // Башня города бьёт по лагерю (docs/siege_v2.md, раздел 5): на штурм идут те, кого обстрел не выбил.
-    attacker: { kinds: thinned(kindsOf(asTroops(w.army.troops)), thinOf(w, at)), resolve: w.army.resolve, pips: w.army.pips as Pips, rest: armyRest(w.army, at) },
+    attacker: {
+      kinds: thinned(kindsOf(asTroops(w.army.troops)), thinOf(w, at)),
+      resolve: w.army.resolve,
+      pips: w.army.pips as Pips,
+      rest: armyRest(w.army, at),
+      ...spiritField(w.army.spirit),
+    },
     defender: {
       kinds: kindsOf(asTroops(sheet.home)),
       militia: wall.militia,
       archers: wall.archers,
       resolve: sheet.resolve,
+      ...spiritField(sheet.spirit),
       pips: sheet.pips as Pips,
       rest: garrisonRest(w, sheet, at),
     },
@@ -1363,6 +1380,7 @@ function burnMachine(w: WarRow, at: number, sheet: WarSheet, id: MachineId, troo
     sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
     resolve: sheet.resolve,
     pips: sheet.pips as Pips,
+    ...spiritField(sheet.spirit),
   });
   const homeLost = field.result ? (troopLosses(asTroops(troops), field.result.sides.attacker.losses) as Counts) : {};
   const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.defender.losses) as Counts) : {};
@@ -1423,6 +1441,7 @@ function breakout(w: WarRow, at: number, sheet: WarSheet, troops: Counts): strin
     sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
     resolve: sheet.resolve,
     pips: sheet.pips as Pips,
+    ...spiritField(sheet.spirit),
   });
   const homeLost = field.result ? (troopLosses(asTroops(troops), field.result.sides.attacker.losses) as Counts) : {};
   const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.defender.losses) as Counts) : {};
@@ -1504,6 +1523,7 @@ const campSide = (w: WarRow, at: number) => ({
   resolve: w.army.resolve,
   pips: w.army.pips as Pips,
   rest: armyRest(w.army, at),
+  ...spiritField(w.army.spirit),
 });
 
 const sightOf = (c: WarCamp) => ({
@@ -1539,6 +1559,8 @@ function hitCamp(
     // Ведёт полководец, если он бьёт с тыла; вылазку — он же, если стоит у ворот (слепок).
     resolve: hit.rear ? hit.rear.resolve : sheet.resolve,
     pips: (hit.rear ? hit.rear.pips : sheet.pips) as Pips,
+    // Дух — чьё войско бьёт: гарнизон и дружина одного города, дух у них один.
+    ...spiritField(hit.rear ? hit.rear.spirit : sheet.spirit),
     // Укрепления лагеря — та же дверь, что у лагеря игрока под логовом (`siegecraft.fortFaces`).
     fort: fortFaces(camp.craft),
   });
@@ -2129,6 +2151,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
 const ruleArmy = (a: WarArmy, s: SheetAt | null): WarArmy => ({
   ...a,
   resolve: ruleResolve(a.resolve, s?.marshal ?? 0, s?.knights ?? 0),
+  // Дух — не выше потолка книги духа сервера (ДР-1, `book.ruleSpirit`); приказ без духа — без духа.
+  ...spiritField(ruleSpirit(a.spirit, s?.spirit)),
   // Отметки полководца — не выше подтверждённого книгой агентов (АГ-1, `agentbook.agentsAt`).
   pips: capPips(rulePips(a.pips), s?.agents?.pips),
 });

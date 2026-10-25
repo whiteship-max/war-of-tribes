@@ -21,6 +21,7 @@ import {
   type AdminGrant,
   type Counts,
   type WarSheet,
+  type WarSpirit,
   type WatchAdvisor,
   type WatchCard,
   type WatchCrownEntry,
@@ -55,7 +56,8 @@ import { statAt } from '../../src/game/train.js';
 import { powerOfCounts } from '../../src/profile/power.js';
 import type { BuildingTypeId, EstateId, ResourceId } from '../../src/game/types.js';
 import { rewrite } from './admin.js';
-import { bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
+import { RESOLVE_MAX, bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
+import { readSpiritBook, spiritBookAfter, spiritCeil, spiritFaults, type SpiritBook } from './spiritbook.js';
 import { builtForged, buildStep, keyOf, eatFloorOf, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
 import { bondedStep, goodsStep, readGoods, sheetShort, type GoodsBook } from './goods.js';
 import { marketFaults } from './market.js';
@@ -138,7 +140,8 @@ export type FlagKind =
   | 'market'
   | 'starve'
   | 'deeds'
-  | 'bonded';
+  | 'bonded'
+  | 'spirit';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -172,6 +175,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   starve: 'сдача голодом при хлебе',
   deeds: 'счёт разовых дел',
   bonded: 'невольники сверх подтверждённых',
+  spirit: 'дух дружины',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -179,7 +183,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'agents' | 'estates' | 'market' | 'starve' | 'deeds' | 'bonded';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'agents' | 'estates' | 'market' | 'starve' | 'deeds' | 'bonded' | 'spirit';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -294,6 +298,13 @@ export const CITY_RULES: readonly CityRule[] = [
     act: 'флаг; сверх скорости дела в допуск не идут',
   },
   {
+    id: 'spirit',
+    rule: 'дух дружины: жалованье — полное или минимальное — по часам сервера (смена — на выгодную игроку минуту); мораль и дисциплина описи в пределах 0…100 и не выше потолка книги (жалованье книги, подтверждённые Воевода, рыцари и казармы, ступень описи, лучшие прочие причины); счёт уплаченного не убывает; полное жалованье дольше терпения без единой монеты — дух на дне',
+    formula: 'spiritrules.spiritOfIn, payShareAt; spiritbook.spiritBookAfter, spiritCeil, spiritFaults',
+    flag: 'spirit',
+    act: 'в войну — не выше потолка книги; флаг',
+  },
+  {
     id: 'bonded',
     rule: 'невольники не больше прихода, который подтверждает сервер: уведённые войной, купленные на рынке, пленные боёв мира по таблице наград (уводимые на бойца); расход — книга за описью вниз; продано не больше книги',
     formula: 'goods.bondedStep, deeds.deedBonded, data/deedgain.fight.led (world/data/units.escort)',
@@ -404,6 +415,11 @@ export interface WatchRecord {
    * заводится первой описью с агентами.
    */
   agents?: AgentBook;
+  /**
+   * Книга духа дружины (ДР-1, `spiritbook.ts`): жалованье — полное или минимальное — по часам сервера и доля восстановления на
+   * минуту смены. Нет — запись до ДР-1 или жалованье всегда было полным.
+   */
+  spirit?: SpiritBook;
 }
 
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -502,6 +518,8 @@ export function readWatchRecord(v: unknown): WatchRecord {
   if (goods) out.goods = goods;
   const agents = readAgentBook(r.agents);
   if (agents) out.agents = agents;
+  const spirit = readSpiritBook(r.spirit);
+  if (spirit) out.spirit = spirit;
   if (Array.isArray(r.wf)) out.wf = r.wf.filter((x): x is string => typeof x === 'string').slice(-WF_KEEP);
   if (Array.isArray(r.journal)) {
     for (const e of r.journal as Record<string, unknown>[]) {
@@ -778,6 +796,26 @@ export function marshalOf(rec: WatchRecord, at: number): { marshal?: number; kni
   const knights = rec.card ? estateCeilOf(rec.card, levels).resolve : 0;
   return { ...(marshal > 0 ? { marshal } : {}), ...(knights > 0 ? { knights } : {}) };
 }
+
+/**
+ * Потолок духа дружины для слепка войны и сверки описи (ДР-1, `war.SheetAt.spirit`): книга духа — жалованье по часам сервера,
+ * подтверждённые Воевода совета и рыцари при ратуше и уровнях книги стройки, казармы книги, ступень описи; обряд — наибольший по
+ * правилам. Описи нет — пусто: правила прежние.
+ */
+export function spiritCeilOf(rec: WatchRecord, at: number): { spirit?: WarSpirit } {
+  if (!rec.card) return {};
+  const levels = townOf(rec, at).levels;
+  const known = {
+    ...(rec.card.stab ? { stab: rec.card.stab.level } : {}),
+    marshal: councilResolve(rec.card, levelIn(levels, 'town_hall')),
+    knights: estateCeilOf(rec.card, levels).resolve,
+    barracks: levelIn(levels, 'barracks'),
+  };
+  return { spirit: spiritCeil(rec.spirit, known, at, { rite: RESOLVE_MAX }) };
+}
+
+/** Бойцов в книге войска: есть ли кому платить. */
+const bookMen = (rec: WatchRecord, at: number): number => Object.values(bookOf(rec, at).bodies).reduce((t, x) => t + Math.max(0, x ?? 0), 0);
 
 /**
  * Потолок валовой добычи хлеба в час мира для слепка войны (ОС-1, `war.SheetAt.yieldCap`): правило «prod» — места дел
@@ -1234,6 +1272,11 @@ export function wrote(rec: WatchRecord, at: number, card: { name: string; power:
       if (watch.games > prev.games) next = noted(next, at, 'game', `Промыслы: ${signed(watch.games - prev.games)}, добыча ${signed(watch.haul - prev.haul)}.`);
     }
     next = { ...next, card: watch, cardAt: at };
+    // Книга духа (ДР-1): режим жалованья — по часам сервера, на самую выгодную игроку минуту; опись сверяется с потолком книги.
+    const spirit = spiritBookAfter(rec.spirit, watch.spirit?.wage, rec.cardAt > 0 ? rec.cardAt : at, at);
+    next = spirit ? { ...next, spirit } : next;
+    const ceil = spiritCeilOf(next, at).spirit;
+    if (ceil) for (const text of spiritFaults(prev, rec.cardAt, watch, at, ceil, bookMen(next, at))) found.push({ kind: 'spirit', text });
     // Флаги одной описи не повторяются в журнале каждую минуту: `addFlags` считает их в прежний.
     next = addFlags(next, at, found);
   }

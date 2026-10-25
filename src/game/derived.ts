@@ -107,6 +107,7 @@ import { BOON_BY_ID, type BoonDef } from './data/boons';
 import { ESTATE_META } from './data/estates';
 import { STAB_STEP, stabClamp, stabOutputMult } from './stabrules';
 import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
+import { WAGE_MIN_SHARE } from './spiritrules';
 import { AGENT_ROLES, recruitWage, recruitAt, traditionAt } from './agentrules';
 import {
   ESTATES,
@@ -751,9 +752,18 @@ export function masterHands(s: GameState, mods: SeasonModifiers = seasonMods(s))
  */
 export const masterWage = (s: GameState): number => wageOf(s, MASTER_PAID_AS) * masterHands(s);
 
+/**
+ * Доля полного жалованья, которую дружине платят сейчас (ДР-1): полное — единица, минимальное — `WAGE_MIN_SHARE`. Пишет режим
+ * одна дверь (`sim/upkeep.setWageMode`); мастеров, совет и агентов он не касается — они не дружина.
+ */
+export const wagePaidShare = (s: GameState): number => (s.pay?.wage?.mode === 'min' ? WAGE_MIN_SHARE : 1);
+
+/** Жалованье бойца этого вида за игровой день при нынешнем жалованье дружине (ДР-1: полное или минимальное). */
+export const troopWage = (s: GameState, troop: TroopId): number => wageOf(s, troop) * wagePaidShare(s);
+
 /** Жалованье войска за игровой день. Новобранцев на учениях оно не касается. */
 export const armyWagesPerDay = (s: GameState): number =>
-  TROOP_IDS.reduce((sum, id) => sum + Math.max(0, s.army?.[id] ?? 0) * wageOf(s, id), 0);
+  TROOP_IDS.reduce((sum, id) => sum + Math.max(0, s.army?.[id] ?? 0) * troopWage(s, id), 0);
 
 /** Жалованье наёмных мастеров за игровой день. */
 export const mastersWagesPerDay = (s: GameState): number => mastersCount(s) * masterWage(s);

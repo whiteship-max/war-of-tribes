@@ -6,7 +6,7 @@
 // раздел — те же компоненты, что стоят у зданий и в справках строки состояния.
 // Экран у решения один, входов к нему может быть несколько (docs/handbook/ui.md,
 // «Диегетический интерфейс»): указы — одни на игру (`RealmTabs.DecreesNew`; вкладка ратуши, их вторая копия, снята
-// в UI-7), состав войска — один `ArmyPanel`, жалованье — один `Upkeep`.
+// в UI-7), состав войска, жалованье, дух и роспуск — один `ArmyPanel` (ДР-1).
 //
 // Правило, что куда: **то, что относится к державе целиком, — здесь; то, что
 // игрок делает, стоя у здания, — у здания.** Заказать улучшение можно и отсюда,
@@ -21,7 +21,6 @@ import { buildingOfType, woundedStacks } from '@/game/derived';
 import { troopTotal } from '@/game/battle/kinds';
 import { TownBuild } from '../parts/TownBuild';
 import { RealmFaith } from '../parts/Temple';
-import { Upkeep } from '../parts/Barracks';
 import { ArmyPanel } from '../panels/ArmyPanel';
 import { ProfilePanel } from '../panels/ProfilePanel';
 import { Mail } from './Mail';
@@ -111,25 +110,19 @@ function Closed({ tab }: { tab: RealmTab }) {
 
 /**
  * Армия: состав и где стоит (та же справка, что по ячейке дружины), жалованье
- * (тот же `Upkeep`, что в казармах), лазарет и двери к найму — нанимают у
+ * (тот же `Upkeep`, что в «Дружине»), лазарет и двери к найму — нанимают у
  * казарм и конюшни, а не здесь.
  */
 function Army() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
-  const stable = buildingOfType(s, 'stable');
   const infirmary = buildingOfType(s, 'infirmary');
   const wounded = troopTotal(woundedStacks(s).lying);
   return (
     <>
+      {/* Жалованье, дух, роспуск и двери к найму — в самой «Дружине» (ДР-1). */}
       <ArmyPanel />
       <div className="panel">
-        {stable && (
-          <button className="btn ghost wide" onClick={() => openBuilding(stable.id)}>
-            В конюшню
-          </button>
-        )}
-        <Upkeep />
         <h3>
           Лазарет <span className="muted">раненых {wounded}</span>
         </h3>
