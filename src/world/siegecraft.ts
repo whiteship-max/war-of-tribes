@@ -14,7 +14,7 @@
 import { FORTIFY_FACES } from './data/siegecraft';
 import { BREACH_MAX, LEGACY_VOLLEY_WALL } from './data/siegeroll';
 import { siegeSince, siegeWear, wearSpan, type SiegeWindow } from './siege';
-import { breachesOf, phaseOf, shakeShare, volleyBlock, volleysOf, type RollWindow } from './siegeroll';
+import { breachesOf, legacyShots, phaseOf, shakeShare, volleyBlock, volleysOf, type RollWindow } from './siegeroll';
 import { num } from '../game/num';
 
 /** Дело в лагере. Имена — строки таблицы энергии: цена дела у него одна. */
@@ -98,7 +98,8 @@ export const craftAt = (w: RollWindow): Craft => ({ ...(w.craft ?? {}), breach: 
  */
 export function garrisonWear(w: SiegeWindow, at: number): number {
   const span = wearSpan(w);
-  const shots = volleysOf(w).filter((d) => d.at <= at).length + (w.log ? 0 : count(w.craft?.shots));
+  // Прежние залпы (без минуты, MAP-7) — уже бывшие к любой минуте осады.
+  const shots = volleysOf(w).filter((d) => d.at <= at).length + legacyShots(w);
   return siegeWear(siegeSince(w) - shakeShare(shots) * span, at, span);
 }
 

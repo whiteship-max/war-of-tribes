@@ -177,10 +177,17 @@ export const rowsOf = (w: Pick<RollWindow, 'phases'>): readonly PhaseRow[] => w.
 /** Минута следующего броска. */
 export const nextRollAt = (w: RollWindow): number => phaseAt(siegeSince(w as SiegeWindow), rowsOf(w).length + 1);
 
+/**
+ * Залпы окна из сохранения до фаз: счётчик залпов за осаду (`Craft.shots`) без залпов журнала. Залп фаз кладёт и счётчик, и
+ * строку журнала (`siegecraft.craftAfter`), а прежний — только счётчик, без минуты. Прежде прежние залпы читались, только
+ * пока журнала нет вовсе, и первое дело с журналом (цель артиллерии, кольцо, починка, новый залп) стирало их проломы (MAP-7).
+ */
+export const legacyShots = (w: Pick<RollWindow, 'craft' | 'log'>): number =>
+  Math.max(0, Math.floor(w.craft?.shots ?? 0) - volleysOf(w).length);
+
 /** Сколько проломов у окна из сохранения до фаз: прежние залпы, доля стены × 3, вниз до целого. */
 function legacyBreaches(w: Pick<RollWindow, 'craft' | 'log'>): number {
-  if (w.log) return 0;
-  const shots = Math.max(0, Math.floor(w.craft?.shots ?? 0));
+  const shots = legacyShots(w);
   const share = LEGACY_VOLLEY_WALL.slice(0, shots).reduce((n, v) => n + v, 0);
   return Math.floor(share * BREACH_MAX + 1e-9);
 }
