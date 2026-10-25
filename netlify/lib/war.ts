@@ -138,8 +138,8 @@ import {
   type OfferKind,
 } from '../../src/world/parley.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
-import { energyAt, energyBlock, onRoad, priceOf, remark, spend } from '../../src/world/energy.js';
-import { ENERGY_MAX } from '../../src/world/data/energy.js';
+import { energyAt, energyBlock, onRoad, priceOf, remark, spend, type EnergyMark } from '../../src/world/energy.js';
+import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { machineShare, gateBusyText, playerWood, rebaseWood } from '../../src/world/works.js';
@@ -183,6 +183,13 @@ export interface WarFile {
    * летопись обеих сторон и вести в Telegram. Лежат `DEALT_KEEP_MS`. Нет поля — ни одного.
    */
   dealt?: DealtRow[];
+  /**
+   * Энергия полководца по делам, которые не ведут свою войну, — удару по лагерю у своих стен и выручке союзника (этап 7
+   * аудита, п. 9): по ключу игрока, отметка минуты приказа за вычетом цены дела, дальше копится, как дома. Потолок для
+   * `generalCap`, а не правда: дорога туда и обратно не копит. Лежит `ENERGY_FILL` — потом запас полон и так. Нет поля —
+   * таких дел не было.
+   */
+  gens?: Record<string, EnergyMark>;
 }
 
 /** Пакт двух игроков: ключи по порядку, имена городов на минуту пакта. Ключи наружу не уходят (`pactsOf`). */
@@ -318,7 +325,39 @@ export function readWars(raw: unknown): WarFile {
     ...(pacts.length ? { pacts } : {}),
     ...(offers.length ? { offers } : {}),
     ...(dealt.length ? { dealt } : {}),
+    ...gensOf(r.gens),
   };
+}
+
+const ENERGY_MODES: readonly EnergyMark['mode'][] = ['drain', 'fill', 'camp', 'hold'];
+
+/** Отметки полководцев из хранилища: только целые (`WarFile.gens`). */
+function gensOf(v: unknown): { gens?: Record<string, EnergyMark> } {
+  if (!v || typeof v !== 'object') return {};
+  const gens: Record<string, EnergyMark> = {};
+  for (const [k, m] of Object.entries(v as Record<string, unknown>)) {
+    const x = (m ?? {}) as Partial<EnergyMark>;
+    if (Number.isFinite(x.value) && Number.isFinite(x.at) && x.mode && ENERGY_MODES.includes(x.mode)) gens[k] = { value: x.value as number, at: x.at as number, mode: x.mode };
+  }
+  return Object.keys(gens).length ? { gens } : {};
+}
+
+/**
+ * Дружина полководца в бою удара или выручки в минуту `at` легла вся — как у войска, не вернувшегося из похода, на его месте
+ * может стоять новый, свежий: потолка нет.
+ */
+function unmarkBeaten(file: WarFile, w: WarRow, key: string, at: number): void {
+  const b = w.battles[w.battles.length - 1];
+  if (!b || b.at !== at || !b.genTroops || !file.gens?.[key]) return;
+  if (troopTotal(asTroops(minus(b.genTroops, b.genLost ?? {}))) > 0) return;
+  const { [key]: _, ...rest } = file.gens;
+  if (Object.keys(rest).length) file.gens = rest;
+  else delete file.gens;
+}
+
+/** Удар или выручка приняты: полководец заплатил цену в минуту `now` из `have` — потолок до его следующего дела. */
+function markGeneral(file: WarFile, key: string, have: number, now: number): void {
+  file.gens = { ...(file.gens ?? {}), [key]: spend({ value: have, at: now, mode: 'fill' }, now, priceOf('strike')) };
 }
 
 /**
@@ -1552,12 +1591,15 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
           const s = w.strike;
           delete w.strike;
           hitCamp(w, s.at, sheet, { rear: s.army, front: s.joint ? sheet.home : undefined, site: s.joint ? 'joint' : 'camp' });
+          unmarkBeaten(file, w, w.def, s.at);
           continue;
         }
         if (strikeAt <= phaseAt && relief) {
           w.reliefs = (w.reliefs ?? []).filter((r) => r !== relief);
           if (!w.reliefs.length) delete w.reliefs;
           hitCamp(w, relief.at, sheet, { rear: relief.army, site: 'camp', ally: relief.castle, city: cityOr(relief.city) });
+          const ally = w.allies?.[relief.castle]?.key;
+          if (ally) unmarkBeaten(file, w, ally, relief.at);
           continue;
         }
         const atk = sheets.get(w.atk);
@@ -1591,6 +1633,11 @@ export function pruneWars(file: WarFile, now: number): void {
   if (file.spies) {
     const keep = file.spies.filter((x) => x.phase !== 'done' || now - (x.endAt ?? x.sentAt) <= WAR_KEEP_MS).slice(-WAR_MAX);
     if (keep.length !== file.spies.length) file.spies = keep;
+  }
+  if (file.gens) {
+    const gens = Object.fromEntries(Object.entries(file.gens).filter(([, m]) => now - m.at <= ENERGY_FILL));
+    if (Object.keys(gens).length) file.gens = gens;
+    else delete file.gens;
   }
   if (file.dealt) {
     const keep = file.dealt.filter((x) => now - x.endAt <= DEALT_KEEP_MS).slice(-WAR_MAX);
@@ -1953,6 +2000,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const at = now + Math.round(walkMs / pace);
       if (at >= (w.starvesAt ?? Infinity)) return 'Не успеть: хлеб в городе кончится раньше.';
       w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army, s) }];
+      markGeneral(file, key, have, now);
       // Ключ союзника — для вестей ему о его выручке (19.2); наружу не уходит.
       w.allies = { ...(w.allies ?? {}), [me]: { key, city: cityOr(ctx.roster.rows[key]?.city) } };
       return null;
@@ -1983,6 +2031,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const tired = energyBlock(have, priceOf('strike'), walkMs);
       if (tired) return tired;
       w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(order.army, s), joint: order.joint };
+      markGeneral(file, key, have, now);
       return null;
     }
   }
@@ -2032,6 +2081,9 @@ export function generalCap(file: WarFile, key: string, now: number): number {
   let last: WarRow | null = null;
   for (const w of file.wars) if (w.atk === key && (!last || w.sentAt >= last.sentAt)) last = w;
   const mark = last?.army.energy;
+  // Удар и выручка своей войны не ведут — их отметка в `gens`; позже похода — она и есть последнее дело (этап 7, п. 9).
+  const field = file.gens?.[key];
+  if (field && (!last || field.at >= last.sentAt)) return energyAt(field, now);
   if (!last || !mark || (last.phase === 'done' && last.backAt === undefined)) return ENERGY_MAX;
   return energyAt(mark, now);
 }
