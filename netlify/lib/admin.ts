@@ -172,6 +172,9 @@ export function readAdminLog(v: unknown): AdminLogFile {
 export async function rewrite<T>(kv: Kv, key: string, reader: (v: unknown) => T, change: (cur: T) => T | null): Promise<T | null> {
   for (let tries = 0; tries < WRITE_TRIES; tries++) {
     const was = await kv.getWithMetadata(key);
+    // Запись есть, а ETag нет — условной записи поверх неё не бывает: прежде шло `onlyIfNew` по занятому ключу, и после
+    // всех попыток — тихий `null`, изменение терялось (OPS-3). Теперь — ошибка.
+    if (was && !was.etag) throw new Error(`«${key}»: запись без ETag, условной записи поверх неё нет`);
     const next = change(reader(was ? parseJson(String(was.data)) : null));
     if (next === null) return null;
     const written = await kv.setJSON(key, next, was?.etag ? { onlyIfMatch: was.etag } : { onlyIfNew: true });

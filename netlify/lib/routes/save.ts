@@ -139,6 +139,10 @@ export const save: Route = async (req, io) => {
   record.rev = (current?.rev ?? 0) + 1;
   record.updatedAt = now;
 
+  // Эпоха — ещё раз, перед самой записью (OPS-3): стирание, начатое после проверки на входе, уже могло пройти по партиям, и
+  // запись старой эпохи легла бы в новую.
+  const late = await eraGate(req, io);
+  if (late) return late;
   const written = await store.setJSON(
     key,
     record,

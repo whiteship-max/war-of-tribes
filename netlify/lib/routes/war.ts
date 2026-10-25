@@ -117,8 +117,16 @@ export const war: Route = async (req, io) => {
     // не выше потолка подтверждённых построек (ОС-1, `watch.yieldCapOf`).
     sheets.set(player, { ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}), ...marshalOf(rec, now), ...yieldCapOf(rec, now) });
   };
-  // Приказ сверх подтверждённого — флаг в описи наблюдения приказавшего (docs/admin.md, «Флаги»).
-  const forged: { text: string | null; kind: 'forged' | 'walk'; told: boolean } = { text: null, kind: 'forged', told: false };
+  // Приказ сверх подтверждённого — флаг в описи наблюдения приказавшего (docs/admin.md, «Флаги»). Пишется там, где ответ
+  // уходит, — без записи войн или после легшей записи (OPS-3): попытка, проигравшая гонку, флага не ставит, а флаг берётся
+  // с той попытки, чей ответ ушёл.
+  const forged: { text: string | null; kind: 'forged' | 'walk' } = { text: null, kind: 'forged' };
+  const flagForged = async (): Promise<void> => {
+    const flag = forged.text;
+    if (!flag) return;
+    const kind = forged.kind;
+    await observe(io.stores, key, (rec) => addFlags(rec, now, [{ kind, text: flag }]));
+  };
 
   const byTarget =
     order?.op === 'march' || order?.op === 'spy' || order?.op === 'pact' || order?.op === 'unpact' ? order.target : spyAsk;
@@ -130,6 +138,9 @@ export const war: Route = async (req, io) => {
   // гонку условной записи четыре раза подряд.
   return inTurn(KEY, async () => {
     for (let tries = 0; tries < WRITE_TRIES; tries++) {
+      // Слепки — заново на каждой попытке (OPS-3): ход прошлой попытки, проигравшей гонку, мог их тронуть, а запись партий
+      // за это время — смениться.
+      sheets.clear();
       const found = await hot.getWithMetadata(KEY);
       const file = readWars(found ? parseJson(String(found.data)) : null);
       const etag = found?.etag ?? null;
@@ -196,15 +207,16 @@ export const war: Route = async (req, io) => {
         ...(pace !== 1 ? { pace } : {}),
         ...(error ? { error } : {}),
       };
-      const flag = forged.text;
-      if (flag && !forged.told) {
-        forged.told = true;
-        const kind = forged.kind;
-        await observe(io.stores, key, (rec) => addFlags(rec, now, [{ kind, text: flag }]));
+      if (!changed) {
+        await flagForged();
+        return json(body);
       }
-      if (!changed) return json(body);
+      // Эпоха — ещё раз, перед самой записью (OPS-3): стирание после проверки на входе не воскрешает войну старой эпохи.
+      const late = await eraGate(req, io);
+      if (late) return late;
       const written = await hot.setJSON(KEY, file, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
       if (written.modified) {
+        await flagForged();
         await queueNews({ notify: io.stores(STORES.notify), due: io.stores(STORES.due) }, newsDiff(told, newsMap(file)), now);
         // Поход на игрока и дело лазутчика — в журнал города нападающего (наблюдение, docs/admin.md).
         if (order?.op === 'spy' && !error && targetKey) {

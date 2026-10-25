@@ -13,7 +13,7 @@ import { REPORT_LIMITS, cityName, cityOr, readReport, type ReportResponse } from
 import { STORES } from '../kv.js';
 import { adminIds } from '../admin.js';
 import { reportId, type StoredReport } from '../reports.js';
-import { observe, reported, reportsInHour, touched } from '../watch.js';
+import { observe, readWatchRecord, reported, reportsInHour, touched } from '../watch.js';
 import { telegram, type Telegram } from '../telegram.js';
 
 /** Запросов в минуту на игрока — грубое сито поверх настоящего предела в час. */
@@ -39,22 +39,29 @@ export const reportWith =
     if (!sent) return deny(400, 'bad-body');
 
     const id = reportId(now, key);
+    const user = auth.user.username ?? '';
+    // Предел часа — до записи (отказ без следа), счёт — после неё (OPS-3): отчёт, который не лёг, квоту не тратит.
+    const seen = await io.stores(STORES.watch).getWithMetadata(key);
+    const before = readWatchRecord(seen ? parseJson(String(seen.data)) : null);
+    if (reportsInHour(before, now) >= REPORT_LIMITS.perHour) return deny(429, 'too-many', { 'retry-after': '600' });
+    const city = cityName(before.card?.city) ?? '';
+    const reports = io.stores(STORES.reports);
+    const stored: StoredReport = { v: 1, id, at: now, player: key, user, city, text: sent.text, ctx: sent.ctx };
+    const put = await reports.setJSON(id, stored, { onlyIfNew: true });
+    if (!put.modified) return deny(429, 'slow-down', { 'retry-after': '5' });
     let over = false;
-    let city = '';
     await observe(io.stores, key, (rec) => {
+      // Два отчёта разом из разных экземпляров: второй, переступивший предел, снимается.
       if (reportsInHour(rec, now) >= REPORT_LIMITS.perHour) {
         over = true;
         return null;
       }
-      city = cityName(rec.card?.city) ?? '';
       return reported(touched(rec, now, auth.user.username), now, id, sent.text);
     });
-    if (over) return deny(429, 'too-many', { 'retry-after': '600' });
-
-    const user = auth.user.username ?? '';
-    const stored: StoredReport = { v: 1, id, at: now, player: key, user, city, text: sent.text, ctx: sent.ctx };
-    const put = await io.stores(STORES.reports).setJSON(id, stored, { onlyIfNew: true });
-    if (!put.modified) return deny(429, 'slow-down', { 'retry-after': '5' });
+    if (over) {
+      await reports.delete(id);
+      return deny(429, 'too-many', { 'retry-after': '600' });
+    }
 
     const api = tg();
     const short = sent.text.length > PREVIEW ? `${sent.text.slice(0, PREVIEW)}…` : sent.text;
