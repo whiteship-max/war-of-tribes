@@ -9,6 +9,9 @@
  *     засчитается ни второму заказу, ни второму игроку, ни в следующей эпохе.
  *  2. Заказ переходит «оплачен → начислено» один раз; начисленный больше не проверяется.
  *  3. Книга алмазов помнит ключ покупки `pay:<номер>` без обрезки (`GemLedger.paid`).
+ *  4. Вечный замок начисления заказа (FIN-6, АУ-8 — решение владельца 26.10.2026): `credit/<номер>` в том же `tribe-paid`,
+ *     которого `/wipeworld` не трогает, берётся до записи книги и помнит эпоху начисления. Одна оплата — одно начисление за все
+ *     эпохи, и тогда, когда чистый старт пришёлся между записью книги и пометкой «начислено» (`creditLock`).
  *
  * Просмотр сети — один на кошелёк проекта, курсором (FIN-1, аудит 25.10.2026): каждая проверка читает транзакции после
  * последней разобранной (`scan/…` в хранилище заказов) и раскладывает найденное по заказам **любого** игрока через указатель
@@ -244,6 +247,81 @@ export async function claimTx(stores: Stores, hash: string, player: string, orde
     return was?.player === player && was?.order === order;
   } catch {
     return null;
+  }
+}
+
+// ------------------------------------------------ вечный замок начисления (FIN-6) ---
+
+/** Ключ вечного замка начисления заказа в `tribe-paid`: рядом с хешами переводов, не стирается чистым стартом. */
+export const creditKey = (order: string): string => `credit/${order}`;
+
+/**
+ * Замок начисления заказа (FIN-6, АУ-8): чей заказ, в какую эпоху начисляют и легло ли (`done`, с номером записи журнала).
+ * Без `done` — начисление начато: в той же эпохе его доводят (ключ покупки в книге начислит один раз), в другой — неизвестно,
+ * легло ли оно в стёртую книгу, и вслепую не начисляют (письмо админам).
+ */
+export interface CreditLock {
+  v: 1;
+  player: string;
+  order: string;
+  era: number;
+  at: number;
+  done?: true;
+  n?: number;
+}
+
+export function readCreditLock(v: unknown): CreditLock | null {
+  const r = v as Record<string, unknown> | null;
+  if (!r || typeof r !== 'object' || typeof r.player !== 'string' || typeof r.order !== 'string') return null;
+  const era = Number(r.era);
+  if (!Number.isInteger(era) || era < 0) return null;
+  return {
+    v: 1,
+    player: r.player,
+    order: r.order,
+    era,
+    at: Number(r.at) || 0,
+    ...(r.done === true ? { done: true as const } : {}),
+    ...(Number.isInteger(r.n) && Number(r.n) > 0 ? { n: Number(r.n) } : {}),
+  };
+}
+
+/**
+ * Взять замок начисления заказа в эпоху `era` — в пустое место; занят — прочесть. `null` — хранилище не ответило или замок
+ * чужой (другой игрок или порча): начислять нельзя.
+ */
+async function creditLock(stores: Stores, player: string, order: string, era: number, at: number): Promise<CreditLock | null> {
+  const kv = stores(STORES.paid, 'strong');
+  const mine: CreditLock = { v: 1, player, order, era, at };
+  try {
+    if ((await kv.setJSON(creditKey(order), mine, { onlyIfNew: true })).modified) return mine;
+    const found = await kv.getWithMetadata(creditKey(order));
+    const was = readCreditLock(found ? parseJson(String(found.data)) : null);
+    return was && was.player === player && was.order === order ? was : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Начисление легло: замок помнит эпоху и номер записи — навсегда. */
+async function creditDone(stores: Stores, lock: CreditLock, n: number | undefined): Promise<boolean> {
+  try {
+    await stores(STORES.paid, 'strong').setJSON(creditKey(lock.order), { ...lock, done: true, ...(n ? { n } : {}) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Книга отказала — покупка не легла: замок отпускается, следующая проверка начислит. Легло (`done`) — не трогается. */
+async function creditFree(stores: Stores, lock: CreditLock): Promise<void> {
+  const kv = stores(STORES.paid, 'strong');
+  try {
+    const found = await kv.getWithMetadata(creditKey(lock.order));
+    const now = readCreditLock(found ? parseJson(String(found.data)) : null);
+    if (now && !now.done && now.era === lock.era) await kv.delete(creditKey(lock.order));
+  } catch {
+    /* замок той же эпохи доведёт следующая проверка */
   }
 }
 
@@ -572,8 +650,45 @@ export async function checkOrders(
   const open = (e: { era: number; wiping?: boolean } | null): e is { era: number } => e !== null && !e.wiping;
   if (!open(era)) return { orders: cur, credited, lines };
   for (const o of cur.filter((x) => x.state === 'paid')) {
+    // Вечный замок заказа (FIN-6, АУ-8): начислен в прошлой эпохе — второй раз не начисляется; начат и не дописан в прошлой —
+    // легло ли, неизвестно, и решает админ.
+    const lock = await creditLock(stores, player, o.id, era.era, now);
+    if (!lock) continue;
+    if (lock.era !== era.era) {
+      if (lock.done) {
+        const marked = await updatePay(stores, player, (f) => {
+          const x = f.orders.find((y) => y.id === o.id);
+          if (!x || x.state !== 'paid') return null;
+          return { v: 1, orders: f.orders.map((y) => (y.id === o.id ? { ...y, state: 'credited' as const, ...(lock.n ? { n: lock.n } : {}) } : y)) };
+        });
+        if (marked) cur = marked.orders;
+        lines.push(`Покупка: заказ ${o.id} уже начислен в эпохе ${lock.era} — второй раз не начисляется.`);
+      } else {
+        await queueRefund(
+          stores,
+          {
+            v: 1,
+            hash: o.tx ?? `order-${o.id}`,
+            at: lock.at,
+            seen: now,
+            units: o.units,
+            usdt: String(o.usdt),
+            player,
+            order: o.id,
+            why: `начисление прервал чистый старт: легло ли оно в эпохе ${lock.era}, неизвестно — решить руками`,
+          },
+          tell,
+        );
+      }
+      continue;
+    }
     const done = await settlePurchase(stores, player, { amount: o.gems, key: `pay:${o.id}`, at: now });
-    if (!done || done.error) continue;
+    if (!done || done.error) {
+      await creditFree(stores, lock);
+      continue;
+    }
+    // Книга приняла: замок помнит эпоху до всякой другой записи — чистый старт после этой минуты второго начисления не даст.
+    await creditDone(stores, lock, done.entry?.n);
     const still = await eraNow(stores).catch(() => null);
     if (!open(still) || still.era !== era.era) break;
     const n = done.entry?.n;

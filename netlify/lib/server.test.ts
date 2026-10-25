@@ -169,7 +169,9 @@ describe('сервер ничего не начисляет, кроме одно
     expect(purchases).toEqual(['lib/pay.ts']);
     // И в `lib/pay.ts` — только после того, как заказ стал «оплачен» (перевод найден и занят).
     const pay = read('lib/pay.ts');
-    expect(pay).toMatch(/for \(const o of cur\.filter\(\(x\) => x\.state === 'paid'\)\) \{\n\s*const done = await settlePurchase\(/);
+    // Между ними — вечный замок заказа (FIN-6, АУ-8): начисленный в прошлой эпохе второй раз не начисляется.
+    expect(pay).toMatch(/for \(const o of cur\.filter\(\(x\) => x\.state === 'paid'\)\) \{\n[^]*?const lock = await creditLock\([^]*?const done = await settlePurchase\(/);
+    expect(pay.match(/settlePurchase\(/g)?.length, 'начисление покупки — одно место').toBe(1);
     // Стартовые кладутся только в пустое место: открытие книги — только когда записи нет.
     const code = codeOnly(readFileSync(join(ROOT, 'lib/gems.ts'), 'utf8'));
     expect(code).toMatch(/const cur = stored \?\? openLedger\(at\);/);
@@ -432,6 +434,8 @@ describe('сервер разбирает ровно названные запи
     }
     expect([...readers].sort()).toEqual([
       'readAdminLog',
+      // оплата алмазов: вечный замок начисления заказа (FIN-6, АУ-8)
+      'readCreditLock',
       // оплата алмазов (docs/payments.md): курсор просмотра кошелька (FIN-1)
       'readCursor',
       'readEraFile',

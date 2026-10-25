@@ -9,7 +9,7 @@ import type { Telegram } from './telegram.js';
 import { FROZEN_KEY } from './admin.js';
 import { ERA_KEY, WIPED, eraNow, wipeWorld } from './era.js';
 import { creditGems, openLedger, readLedger, type GemLedger } from './gems.js';
-import { KEEP, PAY_HARD_MAX, checkOrders, readPaidMark, PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor, readRefund, trimmed, type RefundEntry, type StoredOrder } from './pay.js';
+import { KEEP, PAY_HARD_MAX, checkOrders, creditKey, readCreditLock, readPaidMark, PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor, readRefund, trimmed, type RefundEntry, type StoredOrder } from './pay.js';
 import { CHAIN, FORWARD_TON, MAINNET_USDT, OP_NOTIFY, OP_TRANSFER, PAGES, PAY_ENV, payConfig, readNotice, type Fetch, type PayConfig } from './ton.js';
 import { ERA_HEADER, payComment, type GemsResponse, type PayResponse } from './contract.js';
 import { START_GEMS } from '../../src/game/gemrules.js';
@@ -702,6 +702,8 @@ describe('смена эпохи и платежи: заказ прошлой э�
       };
     }) as Stores;
   const purchases = (s: ReturnType<typeof memoryStores>, p: number): number => s.ledger(p)?.list.filter((e) => e.kind === 'purchase').length ?? 0;
+  const queue = (s: ReturnType<typeof memoryStores>): RefundEntry[] =>
+    [...(s.data.get(STORES.pay)?.entries() ?? [])].filter(([k]) => k.startsWith('refund/')).map(([, v]) => readRefund(JSON.parse(v.value))!);
 
   it('стирание между «оплачен» и начислением: в новой эпохе — одно начисление, повторы ничего не добавляют', async () => {
     const s = memoryStores();
@@ -719,7 +721,10 @@ describe('смена эпохи и платежи: заказ прошлой э�
     expect([purchases(s, p), await balance(s, p, 1)]).toEqual([1, START_GEMS + POUCH.amount]);
   });
 
-  it('стирание началось посреди начисления: «начислено» не ставится, заказ ложится в новой эпохе один раз', async () => {
+  // АУ-8, п. 6 (решение владельца 26.10.2026): одна оплата — одно начисление за все эпохи, и в этом окне тоже. Прежде (АУ-2)
+  // покупка, принятая книгой эпохи, которую тут же стёрли, ложилась ещё раз в новой эпохе; теперь вечный замок заказа
+  // (`credit/<номер>` в `tribe-paid`) помнит: начислено в эпохе 0 — в эпохе 1 второго начисления нет.
+  it('стирание началось посреди начисления: покупка легла в эпоху 0 — в новой эпохе второго начисления нет (вечный замок)', async () => {
     const s = memoryStores();
     const p = player();
     const { order: o } = await order(s, p);
@@ -736,13 +741,59 @@ describe('смена эпохи и платежи: заказ прошлой э�
     );
     const r = await call(s, p, undefined, NOW, 0, wiping);
     expect(fired).toBe(true);
-    // Прежде заказ становился «начислено», стирание сносило книгу — и алмазы пропадали.
-    expect([r.orders.at(-1)?.state, r.credited]).toEqual(['paid', undefined]);
+    // Начисление легло в книгу эпохи 0, замок заказа это помнит — стирание его не трогает.
+    expect(r.orders.at(-1)?.state).toBe('paid');
+    expect(readCreditLock(JSON.parse(s.data.get(STORES.paid)!.get(creditKey(o!.id))!.value))).toMatchObject({ era: 0, done: true });
+    expect(typeof (await wipeWorld(s.stores, ADMIN, NOW + 1000))).toBe('object');
+    expect(WIPED, 'замок — в нестираемом хранилище').not.toContain(STORES.paid);
+    const after = await call(s, p, undefined, NOW + 6000, 1);
+    expect([after.orders.at(-1)?.state, after.credited]).toEqual(['credited', undefined]);
+    expect((await call(s, p, undefined, NOW + 12_000, 1)).credited).toBeUndefined();
+    expect([purchases(s, p), await balance(s, p, 1)]).toEqual([0, START_GEMS]);
+  });
+
+  it('вечный замок: книга записала покупку, «начислено» не легло, потом чистый старт — в новой эпохе второго начисления нет', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id) });
+    // Пометка «начислено» не ложится: хранилище заказов отказывает в записи заказа игрока после начисления.
+    let credited = false;
+    const stuck = hooked(s, (name, key) => {
+      if (name === STORES.gems && key === `tg-${p}`) return () => Promise.resolve(void (credited = true));
+      if (name === STORES.pay && key === `tg-${p}` && credited) return 'refuse';
+      return undefined;
+    });
+    const r = await call(s, p, undefined, NOW, 0, stuck);
+    expect(credited, 'точка внутри области: книга приняла покупку').toBe(true);
+    expect(r.orders.at(-1)?.state, '«начислено» не легло').toBe('paid');
+    expect(purchases(s, p)).toBe(1);
     expect(typeof (await wipeWorld(s.stores, ADMIN, NOW + 1000))).toBe('object');
     const after = await call(s, p, undefined, NOW + 6000, 1);
-    expect([after.orders.at(-1)?.state, after.credited]).toEqual(['credited', POUCH.amount]);
-    expect((await call(s, p, undefined, NOW + 12_000, 1)).credited).toBeUndefined();
-    expect([purchases(s, p), await balance(s, p, 1)]).toEqual([1, START_GEMS + POUCH.amount]);
+    expect([after.orders.at(-1)?.state, after.credited]).toEqual(['credited', undefined]);
+    for (let i = 2; i <= 3; i++) expect((await call(s, p, undefined, NOW + i * 6000, 1)).credited).toBeUndefined();
+    expect([purchases(s, p), await balance(s, p, 1)]).toEqual([0, START_GEMS]);
+  });
+
+  it('замок взят, а начисление прервалось до записи книги и пришёл чистый старт — не начисляем вслепую: письмо админам', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id) });
+    // Книга отказала — замок отпущен; повтор в той же эпохе начисляет как обычно.
+    const busy = hooked(s, (name) => (name === STORES.gems ? 'refuse' : undefined));
+    expect((await call(s, p, undefined, NOW, 0, busy)).orders.at(-1)?.state).toBe('paid');
+    expect(s.data.get(STORES.paid)?.get(creditKey(o!.id)), 'отказ книги — замок отпущен').toBeUndefined();
+    // Замок «берётся» в эпохе 0 и остаётся недописанным (процесс упал до книги), потом чистый старт.
+    await s.stores(STORES.paid).setJSON(creditKey(o!.id), { v: 1, player: `tg-${p}`, order: o!.id, era: 0, at: NOW });
+    expect(typeof (await wipeWorld(s.stores, ADMIN, NOW + 1000))).toBe('object');
+    const after = await call(s, p, undefined, NOW + 6000, 1);
+    expect([after.orders.at(-1)?.state, after.credited]).toEqual(['paid', undefined]);
+    expect(queue(s).map((e) => [e.order, e.why])).toEqual([[o!.id, 'начисление прервал чистый старт: легло ли оно в эпохе 0, неизвестно — решить руками']]);
+    expect(told).toHaveLength(1);
+    await call(s, p, undefined, NOW + 12_000, 1);
+    expect(told, 'письмо одно').toHaveLength(1);
+    expect([purchases(s, p), await balance(s, p, 1)]).toEqual([0, START_GEMS]);
   });
 
   it('пока идёт стирание, не начисляется ничего: «оплачен» ждёт новой эпохи', async () => {
@@ -913,9 +964,14 @@ describe('нагрузка: тысяча транзакций, просроче�
     expect(queue).toHaveLength(count('wrongThenRight') + count('double') + count('lateBeyond') + 5);
     expect(told).toHaveLength(queue.length);
     // Перевод занят одним заказом; занятых — ровно верных платежей.
-    const marks = [...s.data.get(STORES.paid)!.values()].map((v) => readPaidMark(JSON.parse(v.value))!);
+    const paid = [...s.data.get(STORES.paid)!.entries()];
+    const marks = paid.filter(([k]) => !k.startsWith('credit/')).map(([, v]) => readPaidMark(JSON.parse(v.value))!);
     expect(marks).toHaveLength(orders.filter((o) => o.kind !== 'never' && o.kind !== 'lateBeyond').length);
     expect(new Set(marks.map((m) => m.order)).size).toBe(marks.length);
+    // Вечный замок начисления (FIN-6, АУ-8): по одному на каждый начисленный заказ, и каждый — «легло».
+    const locks = paid.filter(([k]) => k.startsWith('credit/')).map(([, v]) => readCreditLock(JSON.parse(v.value))!);
+    expect(locks).toHaveLength(marks.length);
+    expect(locks.every((l) => l.done)).toBe(true);
     expect(real, 'настоящих переводов в плане — меньше тысячи, остальное поток').toBeLessThan(1000);
   });
 });
