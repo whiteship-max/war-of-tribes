@@ -988,6 +988,12 @@ export interface UpkeepInfo {
   leavingPerDay: number;
 }
 
+/** Головы на пайке вне строя — раненые и новобранцы на учениях: их голод уводит поголовно (`sim/upkeep`). */
+const idleHeads = (s: GameState): number => {
+  const m = soldierMouths(s);
+  return troopTotal(m.recruits) + troopTotal(m.wounded);
+};
+
 /** Всё о содержании войска в эту минуту — для казарм, ратуши и тревоги. */
 export function upkeepInfo(s: GameState): UpkeepInfo {
   const wages = wagesPerDay(s);
@@ -1017,11 +1023,11 @@ export function upkeepInfo(s: GameState): UpkeepInfo {
     unpaid,
     unfed,
     why,
-    // Строй и наёмные мастера уходят по большей из двух долей, раненые и новобранцы — только голодом (`sim/upkeep`).
+    // Строй и наёмные мастера уходят по большей из двух долей, раненые и новобранцы — только голодом (`sim/upkeep`), и
+    // уходят головы, а не рты: конь всадника — рот, но не новобранец (BTL-8).
     leavingPerDay:
       why && lateDays >= graceDays
-        ? DESERT_SHARE *
-          (Math.max(unpaid, unfedTroops) * armySize(s) + share * mastersCount(s) + unfedTroops * (mouthCount(s) - armySize(s)))
+        ? DESERT_SHARE * (Math.max(unpaid, unfedTroops) * armySize(s) + share * mastersCount(s) + unfedTroops * idleHeads(s))
         : 0,
   };
 }
