@@ -10,6 +10,7 @@
 import {
   BATTLE_RULES,
   FIRST_RULES,
+  FRONT_WIDTH,
   deploySetup,
   emptyStack,
   simulateBattle,
@@ -111,13 +112,13 @@ export interface FieldOutcome {
  * Сторона по правилу развёртывания (`setup.deploySetup`). Клещи — две расстановки тем же правилом: строй своей полосы и
  * вторая армия в тылу противника; сектора — их сумма, `behind` — вторая.
  */
-function sideSetup(side: FieldSide): ArmySetup {
+function sideSetup(side: FieldSide, rules: number): ArmySetup {
   const back = side.behind && stackTotal(side.behind) > 0 ? side.behind : null;
-  if (!back) return deploySetup(side.kinds);
+  if (!back) return deploySetup(side.kinds, FRONT_WIDTH, rules);
   const own = emptyStack();
   for (const k of UNIT_KINDS) own[k] = Math.max(0, side.kinds[k] - back[k]);
-  const front = deploySetup(own);
-  const rear = deploySetup(back);
+  const front = deploySetup(own, FRONT_WIDTH, rules);
+  const rear = deploySetup(back, FRONT_WIDTH, rules);
   const sectors = {} as ArmySetup['sectors'];
   for (const id of SECTORS) {
     sectors[id] = emptyStack();
@@ -133,14 +134,16 @@ export function resolveField(input: FieldInput): FieldOutcome {
   if (atk <= 0) return { won: false, attackerLoss: 0, defenderLoss: 0, result: null, rest: fresh };
   if (def <= 0) return { won: true, attackerLoss: 0, defenderLoss: 1, result: null, rest: fresh };
 
-  const attacker = sideSetup(input.attacker);
-  const defender = deploySetup(input.defender.kinds);
+  // Версия правил — и раскладке: правило развёртывания менялось (BTL-5), запись старше раскладывается по своим.
+  const rules = input.rules ?? BATTLE_RULES;
+  const attacker = sideSetup(input.attacker, rules);
+  const defender = deploySetup(input.defender.kinds, FRONT_WIDTH, rules);
   // Доля морали кладётся, только если сторона не свежая: бой свежих сторон — тот же, что до морали между боями.
   const rested = (r: number | undefined): { rest?: number } => (r !== undefined && r < 1 ? { rest: r } : {});
 
   const result = simulateBattle({
     seed: input.seed,
-    rules: input.rules ?? BATTLE_RULES,
+    rules,
     attacker: {
       ...attacker,
       resolve: input.attacker.resolve ?? 0,

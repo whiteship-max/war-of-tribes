@@ -2,7 +2,7 @@
 // быстрой атаки — тоже (docs/battle_eu4.md, 14.5): кто куда встанет, решает одно правило на всех, кто
 // входит в бой. Сектора остались полем входа — их заполняет правило, а до поставки 2 и раскладка
 // обороны игрока.
-import { FRONT_WIDTH } from './config';
+import { BATTLE_RULES, FRONT_WIDTH, LONE_RIDER_RULES } from './config';
 import { FRONT, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type Sector, type Stack, type UnitKind } from './types';
 
 export const emptyStack = (): Stack => ({ spear: 0, infantry: 0, archer: 0, cavalry: 0, heavy: 0 });
@@ -191,9 +191,9 @@ export function reinforceInto(army: Stack, room: { front: readonly number[]; rea
  * на полосу). Кладёт армию целиком — сектора плюс резерв равны составу. Ширина бесконечна — пешие и
  * лучники встают в центр целиком, конница — на края, резерва нет: полоса вмещает всех.
  */
-export function deploy(army: Partial<Stack>, width: number): Record<Sector, Stack> {
+export function deploy(army: Partial<Stack>, width: number, rules: number = BATTLE_RULES): Record<Sector, Stack> {
   const cap = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : Infinity;
-  const into = deployInto(stackOf(army), { front: LANES.map(() => cap), rear: LANES.map(() => cap) });
+  const into = deployInto(stackOf(army), { front: LANES.map(() => cap), rear: LANES.map(() => cap) }, rules);
   const sectors = emptySectors();
   LANES.forEach((lane, i) => {
     sectors[lane.front] = into.front[i];
@@ -209,7 +209,11 @@ export function deploy(army: Partial<Stack>, width: number): Record<Sector, Stac
  * другим правилом — без предпочтения рода (`reinforceInto`): так у EU4, фланги за конницей у него — только при
  * начальной расстановке (решение владельца по 14.21). Числа целые.
  */
-export function deployInto(army: Stack, room: { front: readonly number[]; rear: readonly number[] }): { front: Stack[]; rear: Stack[]; rest: Stack } {
+export function deployInto(
+  army: Stack,
+  room: { front: readonly number[]; rear: readonly number[] },
+  rules: number = BATTLE_RULES,
+): { front: Stack[]; rear: Stack[]; rest: Stack } {
   const out = { front: LANES.map(() => emptyStack()), rear: LANES.map(() => emptyStack()), rest: emptyStack() };
   const place = (x: keyof Stack, y: keyof Stack | null, lanes: number[], row: 'front' | 'rear'): void => {
     const placed = lanes.reduce((n, v) => n + v, 0);
@@ -232,6 +236,12 @@ export function deployInto(army: Stack, room: { front: readonly number[]; rear: 
   const flanks = fill(share, [...room.front], 'edges');
   const foot = fill(walkers, room.front.map((r, i) => r - flanks[i]), 'center');
   const more = fill(riders - flanks.reduce((n, v) => n + v, 0), room.front.map((r, i) => r - flanks[i] - foot[i]), 'edges');
+  // Одинокий всадник (BTL-5, с версии правил `LONE_RIDER_RULES`): нечётный остаток ждёт в резерве, пока сторона стоит
+  // линией (14.33), а у стороны, где пеших нет и края не взяли ни одного всадника, резерву встать некуда — она проиграла бы,
+  // не войдя в бой. Такой всадник встаёт в центр.
+  if (rules >= LONE_RIDER_RULES && walkers === 0 && riders > 0 && [...flanks, ...more].every((n) => n === 0)) {
+    more[CENTER] = Math.min(riders, Math.max(0, room.front[CENTER] - flanks[CENTER] - foot[CENTER]));
+  }
   place('spear', 'infantry', foot, 'front');
   place('cavalry', 'heavy', flanks.map((n, i) => n + more[i]), 'front');
   place('archer', null, fill(army.archer, [...room.rear], 'center'), 'rear');
@@ -241,9 +251,12 @@ export function deployInto(army: Stack, room: { front: readonly number[]; rear: 
 /**
  * Сторона, вставшая по правилу развёртывания: так входят в бой все, у кого нет своей раскладки, — удар,
  * перехват, лагерь, вылазка, логова и отряды мира, викторина ежедневки, стенд ролика. `width` — ширина
- * фронта боя; нет — `FRONT_WIDTH`, та же, с которой бой идёт по умолчанию.
+ * фронта боя; нет — `FRONT_WIDTH`, та же, с которой бой идёт по умолчанию. `rules` — версия правил боя (`BATTLE_RULES`,
+ * BTL-0): запись старше версии раскладывается по своим.
  */
-export const deploySetup = (army: Partial<Stack>, width: number = FRONT_WIDTH): ArmySetup => ({ sectors: deploy(army, width) });
+export const deploySetup = (army: Partial<Stack>, width: number = FRONT_WIDTH, rules: number = BATTLE_RULES): ArmySetup => ({
+  sectors: deploy(army, width, rules),
+});
 
 /** Проверка входа: хотя бы один боец, ни одного отрицательного или дробного числа. */
 export function validateSetup(setup: ArmySetup): string | null {

@@ -163,9 +163,12 @@ describe('где стоит боец — одно правило', () => {
     const body = src.slice(src.indexOf('export interface FieldSide {'), src.indexOf('}', src.indexOf('export interface FieldSide {')));
     const fields = [...body.matchAll(/^\s+(\w+)\??\s*:/gm)].map((m) => m[1]);
     expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'rest', 'garrison', 'behind']);
-    expect(src, 'обе стороны — правилом').toMatch(/const attacker = sideSetup\(input\.attacker\);/);
-    expect(src, 'клещи — тем же правилом').toMatch(/if \(!back\) return deploySetup\(side\.kinds\);[\s\S]*deploySetup\(own\);[\s\S]*deploySetup\(back\);/);
-    expect(src, 'обе стороны — правилом').toMatch(/const defender = deploySetup\(input\.defender\.kinds\);/);
+    // Версия правил боя (`rules`, BTL-0) идёт в правило вместе с составом: запись старше версии раскладывается по своим (BTL-5).
+    expect(src, 'обе стороны — правилом').toMatch(/const attacker = sideSetup\(input\.attacker, rules\);/);
+    expect(src, 'клещи — тем же правилом').toMatch(
+      /if \(!back\) return deploySetup\(side\.kinds, FRONT_WIDTH, rules\);[\s\S]*deploySetup\(own, FRONT_WIDTH, rules\);[\s\S]*deploySetup\(back, FRONT_WIDTH, rules\);/,
+    );
+    expect(src, 'обе стороны — правилом').toMatch(/const defender = deploySetup\(input\.defender\.kinds, FRONT_WIDTH, rules\);/);
   });
 });
 
