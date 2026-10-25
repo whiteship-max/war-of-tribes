@@ -185,6 +185,8 @@ export interface BattleInput {
   fire?: number;
   /** Проём посреди боя (`Widen`): с круга `round` ширина и штраф стены другие. Нет поля — весь бой как начался. */
   widen?: Widen;
+  /** Версия правил боя (`config.BATTLE_RULES`, BTL-0): по ней бой и идёт. Нет поля — нынешняя. */
+  rules?: number;
 }
 
 // ---------- Журнал ----------
@@ -389,6 +391,11 @@ export interface GroupMove {
 
 export interface BattleResult {
   seed: number;
+  /**
+   * По какой версии правил посчитан бой (`config.BATTLE_RULES`, BTL-0). Нет поля — запись старше версий (`FIRST_RULES`):
+   * её не пересчитывают, журнал показывают как есть.
+   */
+  rules?: number;
   ticks: number;
   winner: Winner;
   reason: ResultReason;

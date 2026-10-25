@@ -913,6 +913,8 @@ export interface WarInput {
   width?: number;
   fire?: number;
   widen?: { round: number; width: number; wall: number };
+  /** Версия правил боя (`battle/config.BATTLE_RULES`, BTL-0): журнал для ролика пересчитывается по ней. Нет — бой старше версий. */
+  rules?: number;
 }
 
 /** Что полководец сделал в своём лагере (`world/siegecraft.Craft`): сколько раз укрепил, сколько залпов дал. */

@@ -10,6 +10,7 @@
 import {
   ANCHOR,
   ANNIHILATED_AT,
+  BATTLE_RULES,
   BREAK_AFTER,
   DICE,
   DICE_PHASES,
@@ -1556,6 +1557,7 @@ class Battle {
     this.emit({ id: 'result', winner: this.winner, reason: this.reason, pyrrhic });
     return {
       seed: this.input.seed,
+      rules: this.input.rules ?? BATTLE_RULES,
       ticks: this.tick,
       winner: this.winner,
       reason: this.reason,

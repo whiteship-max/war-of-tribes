@@ -8,6 +8,8 @@
 // потерь в старой форме: на них держатся добыча, урон гарнизону и последствия
 // для деревни, и переписывать их из-за нового ядра незачем.
 import {
+  BATTLE_RULES,
+  FIRST_RULES,
   deploySetup,
   emptyStack,
   simulateBattle,
@@ -80,6 +82,11 @@ export interface FieldInput {
   /** Ширина стрельбы (`BattleInput.fire`): у боя у стены — полная, стреляют со всей стены. Нет — ширина боя. */
   fire?: number;
   widen?: Widen;
+  /**
+   * Версия правил боя (`BATTLE_RULES`, BTL-0). Двери боя мира и сервера (`world/fights`) пишут нынешнюю, и она едет во
+   * входе боя войны (`WarInput.rules`); нет поля — нынешняя. Вход, прочитанный из записи, — через `recordedField`.
+   */
+  rules?: number;
 }
 
 export interface FieldOutcome {
@@ -133,6 +140,7 @@ export function resolveField(input: FieldInput): FieldOutcome {
 
   const result = simulateBattle({
     seed: input.seed,
+    rules: input.rules ?? BATTLE_RULES,
     attacker: {
       ...attacker,
       resolve: input.attacker.resolve ?? 0,
@@ -157,3 +165,9 @@ export function resolveField(input: FieldInput): FieldOutcome {
     rest: { attacker: result.sides.attacker.rest ?? 1, defender: result.sides.defender.rest ?? 1 },
   };
 }
+
+/**
+ * Бой из записанного входа — журнал для ролика боя войны, посчитанного сервером (BTL-0, OWNER-DECISIONS п. 7): по версии
+ * правил этого входа, а вход без версии старше версий (`FIRST_RULES`). Исход не пересчитывается — его везёт запись.
+ */
+export const recordedField = (input: FieldInput): FieldOutcome => resolveField({ ...input, rules: input.rules ?? FIRST_RULES });

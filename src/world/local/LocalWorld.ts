@@ -314,7 +314,7 @@ import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garris
 import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId, ResourceId } from '@/game/types';
 import { RESOURCE_META } from '@/game/constants';
-import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from '../battle';
+import { recordedField, resolveField, type FieldInput, type FieldOutcome, type FieldSide } from '../battle';
 import { campFight, campHolds, guardKinds, holdMinute, homeLosses, machineFight, wallFight, type CampPartIn, type HoldIn } from '../fights';
 import { AIM_NAME, GUN_AIM_NAME, aimBlock, artilleryAimOf as artilleryAim, aimWords, artilleryAt, gunAfter, gunAimBlock, gunAimOf, gunAimWords, gunBlock, gunsAt, idleBuildings, lostLevel, shotsApplied, shotsText } from '../shelling';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
@@ -9834,7 +9834,7 @@ export class LocalWorld implements WorldApi {
    * потери. Город союзника своих потерь здесь не несёт: его гарнизон не выходил.
    */
   private allyBattle(w: WarView, b: WarBattle): void {
-    const field = resolveField(b.input as unknown as FieldInput);
+    const field = recordedField(b.input as unknown as FieldInput);
     const won = b.won;
     const ours = (b.genTroops ?? {}) as TroopStack;
     const lost = (b.genLost ?? {}) as TroopStack;
@@ -9886,8 +9886,8 @@ export class LocalWorld implements WorldApi {
     const ours = w.role === 'atk' ? 'atk' : 'def';
     // Выручка союзника (раздел 5): дружина в бою его, а не наша, — городу её не списывать.
     const allied = Boolean(b.ally);
-    // Ядро детерминировано: тот же вход даёт тот же бой до бита, и журнал для ролика берётся отсюда.
-    const field = resolveField(b.input as unknown as FieldInput);
+    // Ядро детерминировано: тот же вход по той же версии правил даёт тот же бой до бита (BTL-0), и журнал для ролика берётся отсюда.
+    const field = recordedField(b.input as unknown as FieldInput);
     const weStruck = b.by === ours;
     const won = b.won === weStruck;
     const town = plusTroops(b.homeTroops as TroopStack, (b.genTroops ?? {}) as TroopStack);

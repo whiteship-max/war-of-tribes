@@ -5,7 +5,7 @@
 //
 // Модуль чистый: ни состояния мира, ни часов, ни случайности — сид приходит снаружи. Его собирает и
 // сервер (`netlify/lib/war.ts`), поэтому DOM и хранилища здесь нет и быть не может.
-import { emptyStack, HORSE_KINDS, UNIT_KINDS, type GroundPenalty, type Pips, type Stack } from '@/battle';
+import { BATTLE_RULES, emptyStack, HORSE_KINDS, UNIT_KINDS, type GroundPenalty, type Pips, type Stack } from '@/battle';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { troopLosses } from '@/game/battle/price';
 import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from './battle';
@@ -73,6 +73,7 @@ export function wallFight(input: WallFightIn): { input: FieldInput; field: Field
   const d = input.defender;
   const fieldIn: FieldInput = {
     seed: input.seed,
+    rules: BATTLE_RULES,
     ...(ground ? { ground } : {}),
     attacker: { ...input.attacker, kinds },
     defender: { kinds: defenceKinds(d.kinds, d.militia, d.archers), resolve: d.resolve, pips: d.pips, rest: d.rest },
@@ -123,6 +124,7 @@ export function guardKinds(camp: Stack, share: number): Stack {
 export function machineFight(input: MachineFightIn): { input: FieldInput; field: FieldOutcome } {
   const fieldIn: FieldInput = {
     seed: input.seed,
+    rules: BATTLE_RULES,
     ...(input.ground ? { ground: input.ground } : {}),
     attacker: { kinds: input.sortie.kinds, resolve: input.resolve, pips: input.pips, rest: input.sortie.rest ?? 1 },
     defender: { kinds: input.guard.kinds, resolve: input.guard.resolve, pips: input.guard.pips, rest: input.guard.rest },
@@ -206,6 +208,7 @@ export function campFight(input: CampFightIn): CampFightOut {
   const ground = fort > 0 ? { ...(input.ground ?? {}), works: fort } : input.ground;
   const fieldIn: FieldInput = {
     seed: input.seed,
+    rules: BATTLE_RULES,
     ...(ground ? { ground } : {}),
     attacker: {
       kinds,
