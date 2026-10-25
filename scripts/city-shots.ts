@@ -29,6 +29,9 @@
 //                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`;
 //                                                `FIGHT=stance|at:…|hit:dx:dy`, `FIGHTSHOT=swing:dx:dy` — бой мечом (Г-11);
 //                                                `BENCH=8` — цена кадра покоев как вошли и после `LIFE` (секунды замера)
+//   GAME=1 MARCH=send npm run city:shots     — режим марша (ДР-2, docs/siege_v2.md, 25): карточка ближнего логова с выбором
+//                                                режима — обычный, налегке, с обозом (кадр на каждый); `MARCH=squad` — окно
+//                                                отряда полководца дома и в пути налегке (смена: стоянка и цена, второе касание)
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
 //                                                (docs/city.md, 16.5); `GAME=1 WXMAP=1 LEGEND=1` — окно в самой игре
 //   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
@@ -294,6 +297,10 @@ async function gameShot(q: Quality): Promise<void> {
       await panelShots(tab);
       return;
     }
+    if (process.env.MARCH) {
+      await marchShots(tab, process.env.MARCH);
+      return;
+    }
     if (process.env.PORTRAITS) {
       await portraitSheet(tab);
       return;
@@ -378,6 +385,92 @@ async function panelShots(tab: Tab): Promise<void> {
     await tab.eval<string>(`(() => { window.__game.getState().closeSheet(); return JSON.stringify('ok'); })()`);
     await sleep(600);
   }
+}
+
+/**
+ * Режим марша (ДР-2, `MARCH=send|squad` к `GAME=1`): войско и отряд полководцу, карта, ближнее живое логово у дома.
+ * `send` — карточка логова: выбор режима таблицей (кадр на обычный, налегке, с обозом) и кнопки похода под ней; `squad` —
+ * окно отряда в «Походах»: дома (смена даром) и в пути налегке к логову (смена — стоянка и энергия, кадр после первого
+ * касания). Это стенд, не партия: войско дано рукой.
+ */
+async function marchShots(tab: Tab, what: string): Promise<void> {
+  await tab.eval<string>(`(() => {
+    const s = window.__game.getState().s;
+    s.inbox = [];
+    s.winterWarning = false;
+    s.nextEventAt = s.time + 1e9;
+    s.army.spearman = (s.army.spearman ?? 0) + 80;
+    s.army.archer = (s.army.archer ?? 0) + 30;
+    s.army.legionary = (s.army.legionary ?? 0) + 16;
+    s.tutorialDone = true;
+    window.__game.setState({ s: { ...s } });
+    return JSON.stringify('ok');
+  })()`);
+  await tab.eval<string>(`(() => { window.__game.getState().openMap(); return JSON.stringify('ok'); })()`);
+  await sleep(12000);
+  const lair = await tab.eval<{ x: number; y: number; id: string } | string>(`(async () => {
+    const w = window.__world.getState();
+    await w.pulse();
+    const err = await w.setGarrison({ spearman: 60, archer: 20, legionary: 16 });
+    if (err) return JSON.stringify(err);
+    const home = w.info && w.info.home;
+    if (!home) return JSON.stringify('нет дома');
+    let best = null;
+    for (let r = 3; r <= 30 && !best; r++) {
+      for (let dx = -r; dx <= r && !best; dx++) for (const dy of [-r, r]) {
+        const v = window.__settlementAt(home.x + dx, home.y + dy) || window.__settlementAt(home.x + dy, home.y + dx);
+        if (v && !v.mine && !v.castle) best = { x: v.x, y: v.y, id: v.id };
+      }
+    }
+    return JSON.stringify(best ?? 'логова рядом нет');
+  })()`);
+  if (typeof lair === 'string') {
+    console.log(`  марш: ${lair}`);
+    return;
+  }
+  const snap = async (name: string): Promise<void> => {
+    const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+    await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
+    console.log(`  марш → .city-shots/${name}`);
+  };
+  const run = (js: string): Promise<string> => tab.eval<string>(`(async () => { ${js}; return JSON.stringify('ok'); })()`);
+  /** Карточку — к таблице режима: шапка и кнопки похода под ней в одном кадре. */
+  const toPick = (): Promise<string> => run(`document.querySelector('.gait-pick')?.scrollIntoView({ block: 'center' })`);
+  if (what === 'send') {
+    await run(`await window.__world.getState().select({ x: ${lair.x}, y: ${lair.y} })`);
+    await sleep(3000);
+    await toPick();
+    await sleep(800);
+    await snap(`${TAG}-send-normal.png`);
+    for (const [i, g] of [[0, 'light'], [2, 'train']] as const) {
+      await run(`document.querySelectorAll('.gait-pick .kit-cells.pick')[${i}]?.click()`);
+      await sleep(2500);
+      await toPick();
+      await sleep(800);
+      await snap(`${TAG}-send-${g}.png`);
+    }
+    return;
+  }
+  // Окно отряда — дома: смена даром.
+  const card = async (name: string, armed = false): Promise<void> => {
+    await run(`window.__game.getState().openMarches()`);
+    await sleep(2000);
+    await run(`[...document.querySelectorAll('button')].find((b) => b.textContent.includes('Полководец'))?.click()`);
+    await sleep(2000);
+    await run(`[...document.querySelectorAll('h3')].find((h) => h.textContent.trim() === 'Режим марша')?.scrollIntoView({ block: 'start' })`);
+    await sleep(800);
+    if (armed) {
+      await run(`document.querySelectorAll('.gait-opt:not(.on)')[0]?.click()`);
+      await sleep(800);
+    }
+    await snap(name);
+  };
+  await card(`${TAG}-squad-home.png`);
+  // В пути налегке: режим дома даром, «Дойти и ударить» по логову — и окно отряда с ценой смены.
+  await run(`const w = window.__world.getState(); await w.setGait('light'); await w.errand({ agent: 'general', target: { kind: 'place', id: '${lair.id}' }, deed: 'storm', fate: 'plunder' })`);
+  await sleep(2500);
+  await card(`${TAG}-squad-light.png`);
+  await card(`${TAG}-squad-armed.png`, true);
 }
 
 /**

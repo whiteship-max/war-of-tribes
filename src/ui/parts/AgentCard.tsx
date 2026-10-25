@@ -45,6 +45,8 @@ import { figurePosition, useWorld, worldNow } from '@/world/store';
 import type { FigureId } from '@/world/types';
 import { deathLine, pipLines, sightLine, stealthLine } from './agentLines';
 import { REST_WHY, restLine } from './restWords';
+import { GaitDesk } from './GaitDesk';
+import { gaitSpeed } from '@/world/gait';
 import { EnergyBar } from './Energy';
 import { count } from './plural';
 import { traitLines } from './traitLines';
@@ -138,10 +140,12 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
   const restAge = retireAgeAt(s, id);
   const toRest = Math.max(0, restAge - ageOf(s, id));
 
+  // Скорость полководца — в его режиме марша (ДР-2, `world/gait`): та же мерка, что у мира.
+  const speed = id === 'general' ? def.speed * gaitSpeed(f?.march?.gait) : def.speed;
   let road: string | null = null;
   if (f && info && f.place === 'map' && !f.atHome) {
     const at = figurePosition(f, worldNow());
-    const seconds = travelTime(distance(at, info.home), terrainFactor(info.seed, at, info.home), def.speed);
+    const seconds = travelTime(distance(at, info.home), terrainFactor(info.seed, at, info.home), speed);
     road = `До дома ${waitLeft(seconds)}.`;
   }
 
@@ -213,9 +217,14 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
               <small>{next === null ? 'Высший уровень' : `До ур. ${level + 1}`}</small>
               <b>{next === null ? progress.xp : `${progress.xp}/${next}`}</b>
             </button>
-            <button className="nx-fact" onClick={tip('Скорость', 'Клеток по равнине в день. От уровня не растёт, время пути решают дорога и местность.')}>
+            <button className="nx-fact" onClick={tip(
+                'Скорость',
+                id === 'general'
+                  ? 'Клеток по равнине в день. От уровня не растёт; время пути решают дорога, местность и режим марша.'
+                  : 'Клеток по равнине в день. От уровня не растёт, время пути решают дорога и местность.',
+              )}>
               <small>Скорость</small>
-              <b>{num(def.speed)}</b>
+              <b>{num(speed, 1)}</b>
             </button>
           </div>
           {next !== null && (
@@ -239,6 +248,9 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
           {id === 'spy' && <p className="nx-tnote">{stealthLine(level)}</p>}
         </>
       )}
+
+      {/* Режим марша (ДР-2): какой сейчас, что значит в пути и смена — окно отряда. */}
+      {id === 'general' && f && !vacant && <GaitDesk f={f} />}
 
       {id === 'general' && f?.rest && (
         // Мораль дружины между боями (docs/battle_eu4.md, 14.31): доля и срок — от мира, слова — одной частью.

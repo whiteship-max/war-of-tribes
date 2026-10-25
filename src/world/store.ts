@@ -1259,11 +1259,14 @@ async function pulseOnce(): Promise<void> {
 if (probe() && typeof window !== 'undefined') {
   const w = window as unknown as {
     __world?: typeof useWorld;
+    __settlementAt?: typeof settlementAt;
     __mapPerf?: () => number[];
     __mapBakes?: () => number[];
     __mapGaps?: () => number[];
   };
   w.__world = useWorld;
+  // Стенд снимков (ДР-2, `city:shots` с `MARCH=`): найти логово у дома без касания полотна.
+  w.__settlementAt = settlementAt;
   w.__mapPerf = takeCosts;
   w.__mapBakes = takeBakes;
   w.__mapGaps = takeGaps;

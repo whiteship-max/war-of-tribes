@@ -35,6 +35,8 @@ import { ArmsArt } from '@/ui/parts/Arms';
 import { placeArms } from '@/ui/map/arms';
 import { anyArms, blazon, type Arms } from '@/heraldry/arms';
 import { FatePick } from '@/ui/parts/FatePick';
+import { GaitPick } from '@/ui/parts/GaitPick';
+import { readGait } from '@/world/gait';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { count } from '@/ui/parts/plural';
 import { EnergyPrice } from '@/ui/parts/Energy';
@@ -129,6 +131,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   const figures = useWorld((g) => g.figures);
   const marches = useWorld((g) => g.marches);
   const errand = useWorld((g) => g.errand);
+  const setGait = useWorld((g) => g.setGait);
   const openMenu = useWorld((g) => g.openMenu);
   const home = useWorld((g) => g.info?.home ?? null);
   const [mission, setMission] = useState<Mission | null>(null);
@@ -343,6 +346,8 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     showToast(err ?? `Отряд вышел на ${card.name}. В пути ${realLeft(war.walkMs / 1000)}.`);
   };
   const raidable = (card.can.raid || card.can.besiege || Boolean(goStrike?.can) || Boolean(war)) && !card.siege?.mine;
+  // Та же дорога в каждом режиме марша (ДР-2) — у похода к цели; полководец у ворот бьёт сразу, выбирать нечего.
+  const gaitRows = goSiege?.gaits ?? goStrike?.gaits ?? war?.gaits;
   // Сколько идти отряду полководца (О8): прежде ячейка «Дорога» показывала путь разведчика, а удар шёл вдвое дольше.
   const armyWalkMs = goStrike?.walkMs ?? goSiege?.walkMs ?? war?.walkMs ?? card.war?.walkMs;
   // Строка владельца — словами меню приказов и только то, что есть (docs/ui_audit.md, 14.1, 17). У своего города
@@ -415,6 +420,23 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           ))}
         {/* «Открыть город» здесь нет: в город ведёт «Город» низа карты, одна дверь (Д15, UI-7). */}
         {raidable && <FatePick options={card.fates} value={fate} onChange={setFate} />}
+        {/* Режим марша (ДР-2): срок, убыль налегке и осада в каждом режиме — до приказа; дома выбор даром касанием. */}
+        {gaitRows && general && (
+          <GaitPick
+            rows={gaitRows}
+            current={readGait(general.march?.gait)}
+            free={Boolean(general.march?.change.free)}
+            busy={busy}
+            onPick={(g) => {
+              void (async () => {
+                setBusy(true);
+                const err = await setGait(g);
+                setBusy(false);
+                if (err) showToast(err);
+              })();
+            }}
+          />
+        )}
         {card.can.raid && !card.siege?.mine && (
           <button className="nx-go nx-cgo" disabled={busy} onClick={() => void strike()}>
             Ударить · {count(generalMen, 'боец', 'бойца', 'бойцов')}

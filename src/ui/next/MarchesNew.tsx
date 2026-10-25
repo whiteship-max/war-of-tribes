@@ -15,6 +15,7 @@ import { postureOf } from '@/world/muster';
 import { formatCoord, secondsLeft } from '@/world/geo';
 import { CHASE_FROM_CAMP } from '@/world/siege';
 import { takingLine } from '@/world/raidwords';
+import { GAIT_META } from '@/world/gait';
 import type { FigureId, FigureView, MarchView, ReportKind } from '@/world/types';
 import { agentLevel, personName, yearsOf, yearsWord } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
@@ -75,8 +76,11 @@ export function whereWords(f: FigureView, now: number, hire: string): string {
   if (f.held && f.busyUntil > now) return `задержан, отпустят через ${realLeft(secondsLeft(f.busyUntil, now))} · ${f.atName ?? 'у чужих ворот'}`;
   if (f.retiring) return 'дожил до покоя: идёт домой';
   if (f.place === 'city') return 'укрылся в городе';
-  if (f.phase === 'moving') return `в пути · ${realLeft(secondsLeft(f.arriveAt, now))}`;
-  return f.atHome ? 'дома' : (f.atName ?? 'в поле');
+  // Режим марша полководца (ДР-2) — словом при пути и в поле: «налегке», «с обозом»; обычный — без слова.
+  const gait = f.march && f.march.gait !== 'normal' && !f.atHome ? ` · ${GAIT_META[f.march.gait].short}` : '';
+  if (f.march && f.march.haltUntil > now) return `стоит, обоз собирают · ${realLeft(secondsLeft(f.march.haltUntil, now))}${gait}`;
+  if (f.phase === 'moving') return `в пути · ${realLeft(secondsLeft(f.arriveAt, now))}${gait}`;
+  return f.atHome ? 'дома' : `${f.atName ?? 'в поле'}${gait}`;
 }
 
 export function MarchesNew() {

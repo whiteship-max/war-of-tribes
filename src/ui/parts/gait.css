@@ -1,0 +1,57 @@
+/* Режим марша полководца (ДР-2): три плитки выбора в окне отряда и таблица выбора в карточке цели. */
+.gait-opts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.gait-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 72px;
+  padding: 8px;
+  border: 1px solid var(--m-leather-rim);
+  border-radius: 10px;
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.gait-opt b {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+}
+.gait-opt b svg,
+.gait-opt b .icon {
+  width: 16px;
+  height: 16px;
+}
+.gait-opt small {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--muted);
+}
+.gait-opt.on {
+  box-shadow: inset 0 0 0 2px var(--accent), var(--m-leather-bevel);
+  cursor: default;
+}
+.gait-opt.armed {
+  box-shadow: inset 0 0 0 2px var(--warn, #d9a441), var(--m-leather-bevel);
+}
+.gait-opt.armed small {
+  color: var(--warn, #d9a441);
+}
+.gait-opt:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.gait-pick {
+  width: 100%;
+}
