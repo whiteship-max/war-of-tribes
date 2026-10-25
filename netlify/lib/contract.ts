@@ -1402,7 +1402,9 @@ export function readCounts(v: unknown): Counts {
   if (!v || typeof v !== 'object') return out;
   let n = 0;
   for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
-    if (n >= WAR_LIMITS.keys || k.length > 32) break;
+    if (n >= WAR_LIMITS.keys) break;
+    // Длинный ключ — мимо, а не конец разбора (AC-8): прежде он обрывал чтение, и всё после него пропадало.
+    if (k.length > 32) continue;
     const x = num(raw);
     if (x === null || x <= 0) continue;
     out[k] = Math.min(WAR_LIMITS.count, Math.floor(x));
@@ -1417,7 +1419,9 @@ const readReals = (v: unknown): Counts => {
   if (!v || typeof v !== 'object') return out;
   let n = 0;
   for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
-    if (n >= WAR_LIMITS.keys || k.length > 32) break;
+    if (n >= WAR_LIMITS.keys) break;
+    // Длинный ключ — мимо, а не конец разбора (AC-8): прежде он обрывал чтение, и всё после него пропадало.
+    if (k.length > 32) continue;
     const x = num(raw);
     if (x === null || x <= 0) continue;
     out[k] = Math.min(WAR_LIMITS.count, x);

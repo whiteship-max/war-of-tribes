@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readRecord, type SaveRecord } from './contract.js';
+import { readArmy, readCounts, readRecord, type SaveRecord } from './contract.js';
 
 const LIMITS = { game: 200, world: 100 };
 
@@ -58,5 +58,15 @@ describe('сервер не верит телу запроса', () => {
 
   it('имя длиннее разумного не проезжает', () => {
     expect(readRecord(sent({ card: { name: 'и'.repeat(200) } }), LIMITS)!.card.name).toBe('');
+  });
+});
+
+describe('AC-8: длинный ключ пропускается, а не обрывает разбор', () => {
+  it('readCounts и отметки полководца: ключ длиннее потолка — мимо, остальные читаются', () => {
+    const long = 'x'.repeat(40);
+    expect(readCounts({ [long]: 5, spearman: 3, archer: 2 })).toEqual({ spearman: 3, archer: 2 });
+    const army = readArmy({ troops: { [long]: 1, spearman: 4 }, pips: { [long]: 0.5, shock: 1.5 } })!;
+    expect(army.troops).toEqual({ spearman: 4 });
+    expect(army.pips).toEqual({ shock: 1.5 });
   });
 });
