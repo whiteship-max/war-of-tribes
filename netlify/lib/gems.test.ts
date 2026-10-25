@@ -500,8 +500,8 @@ describe('ускорение, которое не понадобилось, во
     const rec = JSON.parse(w.value) as { town: { letters: number } };
     w.value = JSON.stringify({ ...rec, town: { ...rec.town, letters: 0 } });
     const before = t.s.ledger(t.p)!.balance;
-    // Через десять секунд «готово» то, на что работы посёлка не хватило бы и с двойным запасом книги (310 работы против
-    // 88), — и игра врёт, что ускорение не понадобилось.
+    // Через десять секунд «готово» то, на что работы посёлка не хватило бы и с двойным запасом книги, — и игра врёт, что
+    // ускорение не понадобилось.
     const r = await t.put(NOW + 10_000, card({ buildings: { houses: 2 }, gemSeen: n, gemUnneeded: [n] }));
     expect(r.status).toBe(200);
     expect([t.s.ledger(t.p)!.balance, t.refunds()]).toEqual([before, 0]);
