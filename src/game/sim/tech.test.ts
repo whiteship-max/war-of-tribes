@@ -23,6 +23,7 @@ import {
   WAR_FATES,
   WAR_GEAR_ORDER,
   WAR_LEVELS,
+  branchPrice,
   diploLevelOf,
   levelPrice,
   levelsOf,
@@ -809,5 +810,16 @@ describe('административная ветвь: места наёмных
 
     const top = adminAt(ADMIN_LEVELS);
     expect(mastersBlock(top, mastersCap(top) + 100), 'на верху ветви отказа от неё нет').toBeNull();
+  });
+});
+
+describe('ECO-7: цена уровня выше потолка ветви', () => {
+  it('выше последнего уровня — ноль, а не бесконечность, и изучать там нечего', () => {
+    for (const b of REALM_BRANCHES) {
+      const n = levelsOf(b);
+      expect(levelPrice(b, n + 1)).toBe(0);
+      expect(levelPrice(b, n + 5)).toBe(0);
+      expect(Number.isFinite(branchPrice(b))).toBe(true);
+    }
   });
 });

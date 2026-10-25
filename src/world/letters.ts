@@ -93,6 +93,23 @@ function spread(total: number, mix: ResourceId[]): Loot {
   return out;
 }
 
+/**
+ * Разложить итог по видам добра так, чтобы виды сложились ровно в итог (ECO-7, правило MAP-5): каждому — целая доля вниз,
+ * остаток — по единице первым видам, нули пропускаются. Одна раздача на дань пакта и цену дара и мира (`LocalWorld`).
+ */
+export function splitLoot(total: number, mix: ResourceId[]): Loot {
+  const out: Loot = {};
+  const n = Math.max(0, Math.round(total));
+  if (mix.length === 0 || n <= 0) return out;
+  const base = Math.floor(n / mix.length);
+  const rest = n - base * mix.length;
+  mix.forEach((r, i) => {
+    const v = base + (i < rest ? 1 : 0);
+    if (v > 0) out[r] = (out[r] ?? 0) + v;
+  });
+  return out;
+}
+
 /** Сколько всего добра в этой просьбе. */
 export const lootTotal = (loot: Loot): number =>
   Object.values(loot).reduce((n, v) => n + Math.max(0, v ?? 0), 0);

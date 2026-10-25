@@ -8,6 +8,7 @@ import type { EventSize, GameState, ResourceId } from '../types';
 import { START_POP } from '../constants';
 import { population } from '../derived';
 import { addStock } from '../sim/stock';
+import { signedWhole } from '../num';
 
 /**
  * Размер посёлка, замороженный вестью (ECO-2): пока он стоит, вести считают от него, а не от нынешнего посёлка. Ставит и
@@ -60,17 +61,15 @@ export const moveFame = (s: GameState, d: number): void => {
   s.prestige = Math.max(0, s.prestige + d);
 };
 
-/** Знак числа: «+4», «−4» (минус длинный). */
-const signed = (d: number): string => `${d > 0 ? '+' : '−'}${Math.abs(d)}`;
 
 /** «мораль −4», «мораль +4»: знак — из самого числа. */
-export const moraleWord = (d: number): string => `мораль ${signed(d)}`;
+export const moraleWord = (d: number): string => `мораль ${signedWhole(d)}`;
 
 /** То же с прописной — в начале подписи. */
 export const MoraleWord = (d: number): string => `М${moraleWord(d).slice(1)}`;
 
 /** «слава +2», «слава −4». */
-export const fameWord = (d: number): string => `слава ${signed(d)}`;
+export const fameWord = (d: number): string => `слава ${signedWhole(d)}`;
 
 /** То же с прописной. */
 export const FameWord = (d: number): string => `С${fameWord(d).slice(1)}`;

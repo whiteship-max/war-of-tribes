@@ -265,6 +265,7 @@ import {
   letterUntil,
   pickLetter,
   resolveLetter,
+  splitLoot,
   type LetterCandidate,
 } from '../letters';
 import { LETTER_KIND_BY_ID, goodsText } from '../data/letters';
@@ -4754,9 +4755,8 @@ export class LocalWorld implements WorldApi {
     const total = Math.round(TRIBUTE_PER_SETTLEMENT * count);
     // Платят тем же, чем богаты сами: список берётся у их поселения.
     const mix = this.gen.settlements.find((s) => s.tribeId === tribeId)?.lootMix ?? ['food'];
-    const resources: Loot = {};
-    const per = Math.max(1, Math.floor(total / mix.length));
-    for (const r of mix) resources[r] = (resources[r] ?? 0) + per;
+    // Виды складываются ровно в итог (`letters.splitLoot`, ECO-7).
+    const resources = splitLoot(total, mix);
     this.addEffect({
       id: `pact-${tribeId}-tribute-${at}`,
       lost: {},
@@ -9116,11 +9116,8 @@ export class LocalWorld implements WorldApi {
     const per = action === 'gift' ? GIFT_PER_POP : action === 'peace' ? PEACE_PER_POP : 0;
     if (per <= 0) return {};
     const total = Math.max(1, Math.round(this.popNow(s, now) * per));
-    const mix = s.lootMix;
-    const out: Loot = {};
-    const share = Math.max(1, Math.round(total / mix.length));
-    for (const r of mix) out[r] = (out[r] ?? 0) + share;
-    return out;
+    // Виды складываются ровно в итог (`letters.splitLoot`, ECO-7): прежде каждый вид округлялся отдельно.
+    return splitLoot(total, s.lootMix);
   }
 
   /**

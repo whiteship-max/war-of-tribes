@@ -4,7 +4,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dec, num } from './num';
+import { dec, num, signedWhole } from './num';
+import { fameWord, moraleWord } from './data/eventKit';
 
 const SRC = join(__dirname, '..');
 
@@ -29,6 +30,26 @@ function sources(dir: string, out: string[] = []): string[] {
 }
 
 const bare = (code: string): string => code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+describe('ECO-7: ноль без знака', () => {
+  it('дробь около нуля — «0», а не «-0»', () => {
+    expect(num(-0.04)).toBe('0');
+    expect(dec(-0.04)).toBe('0,0');
+    expect(dec(-0.004, 2)).toBe('0,00');
+    expect(num(-0.06)).toBe('-0,1');
+  });
+
+  it('целое со знаком: ноль — «0», знак — у округлённого числа', () => {
+    expect(signedWhole(0)).toBe('0');
+    expect(signedWhole(-0.3)).toBe('0');
+    expect(signedWhole(0.4)).toBe('0');
+    expect(signedWhole(4)).toBe('+4');
+    expect(signedWhole(-2)).toBe('−2');
+    expect(signedWhole(2.6)).toBe('+3');
+    expect(moraleWord(0)).toBe('мораль 0');
+    expect(fameWord(-4)).toBe('слава −4');
+  });
+});
 
 describe('дробь запятой — одной дверью', () => {
   it('запись: ровно знаков и без лишних нулей', () => {
