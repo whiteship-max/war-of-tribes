@@ -22,6 +22,7 @@ import {
   grossFoodPerDay,
   mastersFoodPerDay,
   siegeDryIn,
+  storageCap,
   surveyRadius,
   towerSeats,
   townFoodPerDay,
@@ -233,6 +234,7 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     fervour: armyResolve(s),
     stock,
     stash,
+    storeCap: storageCap(s),
     // Казна едет рядом со складом, а не в нём: платят из них разными дверями,
     // а делит их победитель одним правилом (`spoils.fate`) — тайник прячет
     // столько же золота, сколько зерна. Прежде здесь стояло «золото в слепок не

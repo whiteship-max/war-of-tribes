@@ -4899,7 +4899,11 @@ export class LocalWorld implements WorldApi {
 
   private arriveHome(m: StoredMarch, at: number): void {
     this.remove(m);
-    if (!m.own) return;
+    if (!m.own) {
+      // Дошедший с прорыва отряд сажает уведённых в плен у своего двора (MAP-9): дальше — выкуп письмом.
+      if (m.held) this.save.captives[m.fromId] = (this.save.captives[m.fromId] ?? 0) + m.held;
+      return;
+    }
     // Отряд, вышедший до осады, доходит как ни в чём не бывало и вливается в
     // гарнизон — а это меняет число едоков за стеной, и часы голода считаются
     // заново. Один раз, здесь, в самом событии: отряд уже снят со списка, и
@@ -5124,11 +5128,30 @@ export class LocalWorld implements WorldApi {
     return seconds > 0 ? 1 / realMs(seconds) : 0;
   }
 
-  /** Чужой отряд, который можно догонять. null — такого нет. */
+  /**
+   * Чужой отряд, который можно догонять: идущий на цель и идущий домой (MAP-9, OWNER-DECISIONS п. 5 — на обратном пути
+   * его догоняют и отбивают добычу). null — такого нет.
+   */
   private chaseTarget(marchId: string): StoredMarch | null {
     const m = this.save.marches.find((x) => x.id === marchId);
-    if (!m || m.own || m.phase !== 'out') return null;
+    if (!m || m.own || (m.phase !== 'out' && m.phase !== 'back')) return null;
     return m;
+  }
+
+  /** Чей отряд — имя его двора: у идущего домой имена откуда и куда уже переставлены (`turnHome`). */
+  private raider = (m: StoredMarch): string => (m.phase === 'back' ? m.toName : m.fromName);
+
+  /** Сколько из добра не поместится на склад по слепку деревни — для слов донесения (MAP-9); режет склад племя (`addStock`). */
+  private overflow(loot: Loot): number {
+    const p = this.save.profile;
+    const cap = p?.storeCap;
+    if (!p || cap === undefined) return 0;
+    let over = 0;
+    for (const [r, n] of Object.entries(loot) as [keyof Loot, number | undefined][]) {
+      if (r === 'gold' || !((n ?? 0) > 0)) continue;
+      over += Math.max(0, (n ?? 0) - Math.max(0, cap - (p.stock[r] ?? 0)));
+    }
+    return Math.floor(over);
   }
 
   /**
@@ -5195,7 +5218,7 @@ export class LocalWorld implements WorldApi {
       reason,
       at: meet ? { x: Math.round(meet.at.x), y: Math.round(meet.at.y) } : null,
       seconds: meet ? meet.seconds : 0,
-      targetName: m.fromName,
+      targetName: this.raider(m),
       men: stackSize(m.units),
       targetSeconds: secondsLeft(m.arriveAt, now),
       ...(meet ? { energy: this.energyCost('general', 'chase', now, Math.max(0, meet.time - now)) } : {}),
@@ -5256,16 +5279,22 @@ export class LocalWorld implements WorldApi {
     const f = this.save.figures.general;
     if (f.chase?.marchId !== marchId) return;
     const m = this.chaseTarget(marchId);
-    const plan = m ? this.planChase(m, now) : { meet: null, reason: null };
-    if (!m || !plan.meet) {
+    if (!m) {
       this.breakChase(f, now, 'След потерян. Полководец встал в поле.');
+      return;
+    }
+    const plan = this.planChase(m, now);
+    if (!plan.meet) {
+      // Цель повернула домой, и догнать её уже нельзя — дома раньше встречи (MAP-9, OWNER-DECISIONS п. 5): погоня
+      // снимается без штрафа к морали.
+      this.breakChase(f, now, `Не догнали: ${this.raider(m)} дойдут домой раньше. Полководец встал в поле.`, 0);
       return;
     }
     this.setChase(f, plan.meet, now, marchId);
   }
 
   /** Погоня сорвалась: полководец останавливается там, где стоял. */
-  private breakChase(f: StoredFigure, now: number, text: string): void {
+  private breakChase(f: StoredFigure, now: number, text: string, morale = -1): void {
     this.energyOf('general', now);
     const at = this.figureAt(f, now);
     f.from = { ...at };
@@ -5281,7 +5310,7 @@ export class LocalWorld implements WorldApi {
       lost: {},
       resources: {},
       prestige: 0,
-      morale: -1,
+      morale,
       battle: null,
       text,
       good: false,
@@ -5303,9 +5332,11 @@ export class LocalWorld implements WorldApi {
     const here = this.figureAt(f, at);
     const them = marchPosition(m, at);
     if (distance(here, them) > FIGURE_TOUCH) {
-      this.breakChase(f, at, `Перехват сорвался, ${m.fromName} прошли стороной.`);
+      this.breakChase(f, at, `Перехват сорвался, ${this.raider(m)} прошли стороной.`);
       return;
     }
+    const name = this.raider(m);
+    const back = m.phase === 'back';
 
     const spot = { x: Math.round(here.x), y: Math.round(here.y) };
     const troops = f.troops ?? {};
@@ -5346,24 +5377,36 @@ export class LocalWorld implements WorldApi {
         }
       : null;
 
+    // Разбили идущих домой — их добыча и уведённые наши у победителя (MAP-9, OWNER-DECISIONS п. 5). Добро кладёт на склад
+    // дверь племени (`addStock`, не выше вместимости): окна здесь нет — бой в мире, а не по клику; что не поместится,
+    // пропадает, и донесение это называет.
+    const loot = field.won && back && m.loot && Object.keys(m.loot).length > 0 ? { ...m.loot } : null;
+    const freed = field.won && back ? (m.held ?? 0) + (m.led ?? 0) : 0;
+    const over = loot ? this.overflow(loot) : 0;
+    const regained = loot !== null || freed > 0;
+    const wonText = back
+      ? `${name} разбиты в поле на пути домой.${regained ? ' Добычу отбили.' : ''}${freed > 0 ? ` Вернулись свои: ${freed}.` : ''}${over > 0 ? ` Унесли бы ещё ${over}, но склад полон.` : ''}`
+      : `${name} разбиты в поле и до города не дошли.`;
+    const lostText = back
+      ? `${name} отбились и уходят домой${m.loot || m.held || m.led ? ' с добычей' : ''}.`
+      : `${name} пробились дальше.`;
+
     const reportId = `chase${seed}`;
     this.addReport({
       id: reportId,
       at,
       kind: 'raid',
-      title: field.won ? `Перехват удался: ${m.fromName}` : `Перехват не удался: ${m.fromName}`,
-      target: { id: m.fromId, name: m.fromName, x: spot.x, y: spot.y },
+      title: field.won ? `Перехват удался: ${name}` : `Перехват не удался: ${name}`,
+      target: { id: m.fromId, name, x: spot.x, y: spot.y },
       won: field.won,
       sent: { warrior: men },
       lost: lostMen > 0 ? { warrior: lostMen } : {},
       enemyPower: Math.round(m.power),
       enemyLost,
-      loot: null,
+      loot,
       intel: null,
       battle: record,
-      text: field.won
-        ? `${m.fromName} разбиты в поле и до города не дошли.`
-        : `${m.fromName} пробились дальше.${survivors === 0 ? ' Полководец пал.' : ''}`,
+      text: field.won ? wonText : `${lostText}${survivors === 0 ? ' Полководец пал.' : ''}`,
       read: false,
     });
     this.addEffect({
@@ -5372,18 +5415,31 @@ export class LocalWorld implements WorldApi {
       lostTroops,
       // Перехват в поле: раненые лежат при полководце, пока дружина не вернётся.
       field: lostTroops,
-      resources: {},
+      resources: loot ?? {},
+      ...(freed > 0 ? { pop: freed } : {}),
       prestige: field.won ? 4 : 0,
       morale: field.won ? 5 : -5,
       battle: field.won ? 'won' : 'lost',
       ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
       text: field.won
-        ? `Набег ${m.fromName} перехвачен в поле, ${formatCoord(spot)}.`
-        : `Перехват ${m.fromName} не удался.`,
+        ? regained
+          ? `Добычу отбили: ${name} разбиты в поле, ${formatCoord(spot)}.`
+          : back
+            ? `Отряд ${name} разбит в поле, ${formatCoord(spot)}.`
+            : `Набег ${name} перехвачен в поле, ${formatCoord(spot)}.`
+        : `Перехват ${name} не удался.`,
       good: field.won,
     });
 
-    if (field.won) {
+    if (field.won && back) {
+      // Разбитые на пути домой уходят пустыми: добыча и уведённые — у победителя.
+      m.loot = null;
+      m.held = undefined;
+      m.led = undefined;
+      m.power = Math.max(1, m.power * (1 - field.defenderLoss));
+      m.units = stackAfter(m.units, stackLosses(m.units, field.defenderLoss));
+      if (stackSize(m.units) === 0) this.remove(m);
+    } else if (field.won) {
       // Разбитые дальше не идут: набега не будет вовсе.
       this.remove(m);
     } else {
@@ -5394,7 +5450,7 @@ export class LocalWorld implements WorldApi {
 
     if (survivors === 0) {
       f.troops = undefined;
-      this.defeatGeneral(at, `разбит в поле у ${formatCoord(spot)}.`, `в поле у ${formatCoord(spot)}`, { id: m.fromId, name: m.fromName, x: spot.x, y: spot.y }, seed);
+      this.defeatGeneral(at, `разбит в поле у ${formatCoord(spot)}.`, `в поле у ${formatCoord(spot)}`, { id: m.fromId, name, x: spot.x, y: spot.y }, seed);
     } else {
       f.troops = left;
       this.energyOf('general', at);
@@ -5501,7 +5557,6 @@ export class LocalWorld implements WorldApi {
     // марш может стать лагерем, и разбирать его будет уже осада.
     const wall = this.wallField(m, at);
     if (this.beginSiege(m, at, wall.field)) return;
-    this.remove(m);
     const { profile, party, field } = wall;
     const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
     // Набег, не севший в осаду, — штурм стены (ролик TW: лестницы и таран).
@@ -5558,7 +5613,21 @@ export class LocalWorld implements WorldApi {
     // Поэтому выкуп потом только возвращает и ничего не отнимает, а письмо о
     // нём остаётся тем, чем должно быть: потерянной возможностью, если его не
     // открыть.
-    if (held > 0) this.save.captives[m.fromId] = (this.save.captives[m.fromId] ?? 0) + held;
+    //
+    // Прорвавшиеся уходят домой с добычей и уведёнными (MAP-9, OWNER-DECISIONS п. 5): на обратном пути их можно догнать
+    // и отбить своё (`resolveChase`). Пленные садятся в плен у их двора, когда отряд дойдёт (`arriveHome`). Отбитые
+    // у стен не уходят никуда — их больше нет, как и прежде.
+    if (spoils && stackSize(attackerLeft) > 0) {
+      m.units = attackerLeft;
+      m.power = Math.max(1, m.power * (1 - outcome.attackerLoss));
+      const carried = winnerGain(spoils).resources;
+      this.turnHome(m, at, Object.keys(carried).length > 0 ? { ...carried } : null);
+      if (held > 0) m.held = held;
+      if (led > 0) m.led = led;
+    } else {
+      this.remove(m);
+      if (held > 0) this.save.captives[m.fromId] = (this.save.captives[m.fromId] ?? 0) + held;
+    }
 
     this.addEffect({
       id: `${m.id}-defense`,
@@ -6094,11 +6163,10 @@ export class LocalWorld implements WorldApi {
       save.nextAiAt = immune ?? now;
       return;
     }
-    // Час, на который набег был назначен, а не тот, в который его разобрали.
-    // Разница между ними и есть офлайн: пульс приходит когда придёт, а
-    // назначенное время одно и то же на обеих дорогах. Всё, что зависит от
-    // времени, здесь считается от него — иначе догон разошёлся бы с непрерывной
-    // игрой ровно на длину перерыва.
+    // Час, на который набег был назначен (`due`), читает только вес логова по его возрасту. Выход набега и срок
+    // следующего считаются от `now` — от минуты, когда мир разобрали, обычно от возвращения игрока: за отлучку
+    // набеги не копятся и не выходят задним числом, вернувшийся видит набег с полным запасом времени на ответ. Так
+    // мягче для игры урывками — решение владельца (docs/audit/OWNER-DECISIONS.md, п. 6), а не расхождение догона.
     const due = save.nextAiAt;
     const rng = seeded(marchSeed(save.seed, save.nextMarch + 7919));
 
@@ -6120,8 +6188,9 @@ export class LocalWorld implements WorldApi {
     // Чужой отряд на деревню в мире один. Именно **на деревню**: соседи, идущие
     // друг на друга или на выручку осаждённому, к очереди набегов отношения не
     // имеют, и заслонять ими набег значило бы поставить набеги на игрока в
-    // зависимость от того, повздорили ли два двора на краю карты.
-    if (save.marches.some((m) => !m.own && m.targetId === HOME_ID)) return;
+    // зависимость от того, повздорили ли два двора на краю карты. Прорвавшиеся,
+    // уходящие домой с добычей (MAP-9), — уже не на деревню: очередь не держат.
+    if (save.marches.some((m) => !m.own && m.targetId === HOME_ID && m.phase !== 'back')) return;
 
     // Откуда выйдет набег, решает отношение: пакт — ноль, война — заметно
     // больше нейтралитета, а характер владельца входит множителем. Племя, с
