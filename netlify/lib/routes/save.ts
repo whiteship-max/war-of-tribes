@@ -34,7 +34,7 @@ import { allow, botToken, deny, json, parseJson, readBody, type Route } from '..
 import { GEM_SEEN_PARAM, readGemSeen, readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
 import { STORES } from '../kv.js';
 import { frozenNow, grantsOf, isFrozen, noteOf } from '../admin.js';
-import { booked, invitedBy, noted, observe, readWatchRecord, tooFast, touched, wrote } from '../watch.js';
+import { booked, invitedBy, noted, observe, readWatchRecord, tooFast, touched, windfallKnown, wrote } from '../watch.js';
 import { readWars, WARS_KEY, type WarFile } from '../war.js';
 import { gemNoteOf, rushesOf, settleGems, settleRefunds } from '../gems.js';
 import { gemLine } from '../../../src/game/gemrules.js';
@@ -173,13 +173,23 @@ export const save: Route = async (req, io) => {
   const ledger = await settleGems(io.stores, key, now);
   const paid = rushesOf(ledger?.ledger ?? null);
   // Книга запасов (docs/security.md, ЗЩ-2) сверяет убыль склада между прежней описью и этой и слепок обороны с описью.
-  await observe(io.stores, key, (rec) =>
-    booked(wrote(touched(rec, now, user, ref), now, card, record.watch, rev, { grants: grants.list }), now, record.watch, seen, grants.list, wars, key, paid, {
+  await observe(io.stores, key, (rec) => {
+    // Добро без дела по книгам (АУ-8, п. 8): дань войны и кража у соседа — записью войн, по разу; выручка невольников — не
+    // больше книги невольников до записи (п. 2).
+    const wf = wars ? windfallKnown(wars, key, seen ?? [], rec.wf ?? []) : null;
+    const bonds = rec.goods?.bonds;
+    const known = {
+      grants: grants.list,
+      ...(wf ? { windfall: wf.known } : {}),
+      ...(bonds ? { bonded: bonds.n + bonds.due.reduce((t, x) => t + x.n, 0) } : {}),
+    };
+    const next = booked(wrote(touched(rec, now, user, ref), now, card, record.watch, rev, known), now, record.watch, seen, grants.list, wars, key, paid, {
       card: rec.card,
       at: rec.cardAt,
       sheet: record.war,
-    }),
-  );
+    });
+    return wf ? { ...next, wf: wf.ids } : next;
+  });
   // Ускорения «не понадобилось» (FIN-5): возврат — только по книге стройки, которую эта запись только что двинула.
   const back = await refundsOf(io, key, record.watch?.gemUnneeded ?? [], now);
   const book = back?.ledger ?? ledger?.ledger;

@@ -32,6 +32,12 @@ export interface DeedTable {
   shop: number;
   /** Караван: наибольший привоз вида. */
   caravan: Record<string, number>;
+  /**
+   * Добро без дела мира, которого сервер не видит своими книгами (АУ-8, п. 8): падение логова голодом и выкуп осады логова —
+   * груз на бойца (`carry`), выплата торговли по договору — золото (`gold`). Продажа, дань войны и кража у соседа — книгами
+   * сервера, не таблицей.
+   */
+  windfall: { carry: number; gold: number };
 }
 
 export const DEED_TABLE: DeedTable = {
@@ -42,4 +48,5 @@ export const DEED_TABLE: DeedTable = {
   game: { wood: 0, stone: 0, food: 1.2, hides: 0.23, charcoal: 0, copper: 0, iron: 0, gold: 0 },
   shop: 120,
   caravan: { wood: 8024, stone: 6419, food: 1544, hides: 2442, charcoal: 2442, copper: 1605, iron: 1535, gold: 0 },
+  windfall: { carry: 900, gold: 3 },
 };

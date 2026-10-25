@@ -31,6 +31,8 @@ import { eventId, raiseEvent, resolveEvent } from '@/game/sim/mail';
 import { minigameShares } from '@/game/sim/minigames';
 import { addBonded } from '@/game/sim/population';
 import { UNITS } from '@/world/data/units';
+import { TRADE_GOLD_PER_SETTLEMENT } from '@/world/data/tuning';
+import { generateWorld } from '@/world/gen';
 import { DEED_MARGIN, type DeedTable, type Row } from '@/game/data/deedgain';
 
 /** Виды склада и казна — ключи таблицы. */
@@ -161,6 +163,22 @@ export function caravanMax(): Record<string, number> {
   return out;
 }
 
+/**
+ * Выплата торговли по договору с державой — наибольшее золото добра без дела мира, которое не груз бойцов (АУ-8, п. 8):
+ * `TRADE_GOLD_PER_SETTLEMENT` на поселение державы, держава — самая большая на пробных мирах, не меньше одного двора, как
+ * считает выплата. Генерация ставит одни логова (держав нет) — один двор; появятся державы — их размер войдёт в таблицу сам.
+ */
+export function pactGoldMax(): number {
+  let most = 0;
+  for (const seed of SEEDS) {
+    const size = new Map<string, number>();
+    for (const s of generateWorld(seed).settlements) if (s.tribeId) size.set(s.tribeId, (size.get(s.tribeId) ?? 0) + 1);
+    for (const n of size.values()) most = Math.max(most, n);
+  }
+  // Выплата считает державу не меньше чем в один двор (`LocalWorld.payPact`).
+  return Math.round(TRADE_GOLD_PER_SETTLEMENT * Math.max(1, most));
+}
+
 /** С запасом: ×`DEED_MARGIN`, вверх до целого (доли — до сотых). */
 const up = (n: number, frac = false): number => (frac ? Math.ceil(n * DEED_MARGIN * 100) / 100 : Math.ceil(n * DEED_MARGIN));
 
@@ -188,6 +206,7 @@ export function deriveDeedTable(): DeedTable {
     game: Object.fromEntries(KEYS.map((k) => [k, up(gameShare()[k] ?? 0, true)])),
     shop: up(SHOP_LOT),
     caravan: Object.fromEntries(KEYS.map((k) => [k, up(caravanMax()[k] ?? 0)])),
+    windfall: { carry: up(Math.max(...UNITS.map((u) => u.carry))), gold: up(pactGoldMax()) },
   };
 }
 
@@ -229,6 +248,12 @@ export interface DeedTable {
   shop: number;
   /** Караван: наибольший привоз вида. */
   caravan: Record<string, number>;
+  /**
+   * Добро без дела мира, которого сервер не видит своими книгами (АУ-8, п. 8): падение логова голодом и выкуп осады логова —
+   * груз на бойца (\`carry\`), выплата торговли по договору — золото (\`gold\`). Продажа, дань войны и кража у соседа — книгами
+   * сервера, не таблицей.
+   */
+  windfall: { carry: number; gold: number };
 }
 
 export const DEED_TABLE: DeedTable = {
@@ -239,6 +264,7 @@ export const DEED_TABLE: DeedTable = {
   game: ${counts(t.game)},
   shop: ${t.shop},
   caravan: ${counts(t.caravan)},
+  windfall: { carry: ${t.windfall.carry}, gold: ${t.windfall.gold} },
 };
 `;
 }

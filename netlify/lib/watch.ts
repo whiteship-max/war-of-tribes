@@ -11,7 +11,20 @@
  * (указ, заморозка). Запись наблюдения — попутная: не легла — партия всё равно сохранена, а ответ игроку тот же.
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
-import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchAdvisor, type WatchCard, type WatchCrownEntry } from './contract.js';
+import {
+  SAVE_HURRY_MS,
+  SAVE_PUSH_MS,
+  STOCK_KEYS,
+  readWatch,
+  spySeenId,
+  warTributeId,
+  type AdminGrant,
+  type Counts,
+  type WarSheet,
+  type WatchAdvisor,
+  type WatchCard,
+  type WatchCrownEntry,
+} from './contract.js';
 import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, leadGrowth, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
 import { DEED_TABLE } from '../../src/game/data/deedgain.js';
@@ -370,6 +383,11 @@ export interface WatchRecord {
    * админа, наград за это нет. Нет — пришёл сам или запись старше поля.
    */
   ref?: string;
+  /**
+   * Добро без дела из записи войн, которое сервер уже засчитал (АУ-8, п. 8; `windfallKnown`): отметки `seen` дани войны и
+   * кражи лазутчика у соседа. Нет — запись старше поля: принятое клиентом засчитывается первой же записью.
+   */
+  wf?: string[];
 }
 
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -397,6 +415,42 @@ export const blankWatch = (): WatchRecord => ({
 
 const FLAG_KINDS = Object.keys(FLAG_WORD) as FlagKind[];
 const ENTRY_KINDS: readonly EntryKind[] = ['visit', 'save', 'deed', 'game', 'war', 'report', 'grant', 'freeze', 'flag'];
+
+/** Сколько отметок засчитанного добра без дела войны помнит запись — с запасом над тем, что лежит в записи войн. */
+const WF_KEEP = 256;
+
+/**
+ * Добро без дела, которое сервер знает по записи войн (АУ-8, п. 8): дань, принятая нашим лагерём (`WarRow.tribute`), и кража
+ * нашего лазутчика у соседа (`SpyOut.stolen`), которые клиент уже принял (`seen` — отметки слепка той же записи) и которых
+ * книга ещё не засчитывала (`done`). Склад и казна — точно; `ids` — засчитанные с этой записью, не старше лежащих у сервера.
+ */
+export function windfallKnown(
+  file: WarFile | null,
+  key: string,
+  seen: readonly string[],
+  done: readonly string[],
+): { known: { stock: Counts; gold: number; items: number }; ids: string[] } {
+  const stock: Counts = {};
+  let gold = 0;
+  let items = 0;
+  const had = new Set(done);
+  const now = new Set(seen);
+  const lying: string[] = [];
+  const take = (id: string, got: Counts | undefined): void => {
+    lying.push(id);
+    if (!now.has(id) || had.has(id)) return;
+    items++;
+    for (const [k, v] of Object.entries(got ?? {})) {
+      const n = Math.max(0, Number(v) || 0);
+      if (k === 'gold') gold += n;
+      else if (n > 0) stock[k] = (stock[k] ?? 0) + n;
+    }
+  };
+  for (const w of file?.wars ?? []) if (w.atk === key && w.tribute) take(warTributeId(w.id), w.tribute.taken);
+  for (const x of file?.spies ?? []) if (x.atk === key && x.out?.stolen) take(spySeenId(x.id), x.out.stolen);
+  const ids = [...new Set([...done, ...lying.filter((id) => now.has(id))])].filter((id) => lying.includes(id)).slice(-WF_KEEP);
+  return { known: { stock, gold, items }, ids };
+}
 
 export function readWatchRecord(v: unknown): WatchRecord {
   const out = blankWatch();
@@ -430,6 +484,7 @@ export function readWatchRecord(v: unknown): WatchRecord {
   if (town) out.town = town;
   const goods = readGoods(r.goods);
   if (goods) out.goods = goods;
+  if (Array.isArray(r.wf)) out.wf = r.wf.filter((x): x is string => typeof x === 'string').slice(-WF_KEEP);
   if (Array.isArray(r.journal)) {
     for (const e of r.journal as Record<string, unknown>[]) {
       if (e && ENTRY_KINDS.includes(e.kind as EntryKind)) out.journal.push({ at: n0(e.at), kind: e.kind as EntryKind, text: s0(e.text, 400) });

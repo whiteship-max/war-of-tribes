@@ -7,7 +7,8 @@
  *
  *  · Дела делятся по счётчикам описи: бои (победы, логова, набеги — груз отряда и трофеи у ворот), поражения, промыслы
  *    (доля дневной выработки), указы (по книге указов, если она дана, иначе потолок указа), дела лавки (лот), добро без дела
- *    (`windfalls`: возврат отменённого заказа, дань, кража, продажа — до вместимости склада, золото без потолка) и «прочее»
+ *    (`windfalls`, АУ-8 п. 8: продажа — книгой рынка, дань войны и кража у соседа — записью войн; прочее — склад до вместимости,
+ *    казна — грузом бойцов и выплатой договора по таблице) и «прочее»
  *    (вести и вести державы, задания, ежедневка, охота, покупка, разведка) — таблицей.
  *  · Опись без счётчика добра без дела (старый клиент) — прочее без потолка: как было до AC-1, ложных флагов нет.
  *  · Счёт дел быстрее `DEEDS_PER_MIN_MAX` в минуту — флаг «дела» (`deedsFlag`), и в допуск идёт не больше этого счёта.
@@ -17,6 +18,7 @@
 import { RESOURCE_IDS, START_POP } from '../../src/game/constants.js';
 import { storageOf } from '../../src/game/build.js';
 import { DEED_TABLE, type Row } from '../../src/game/data/deedgain.js';
+import { BONDED_GOOD } from '../../src/game/data/market.js';
 import { GRANT_MAX, STOCK_KEYS, type AdminGrant, type Counts, type WatchCard } from './contract.js';
 
 /** Сколько разовых дел в минуту может набрать честная партия, прежде чем это флаг (решение владельца, п. 2). */
@@ -24,9 +26,52 @@ export const DEEDS_PER_MIN_MAX = 30;
 
 const RESOURCES = new Set<string>(RESOURCE_IDS);
 
-/** Что сервер знает о делах промежутка сам: указы админа из книги указов. */
+/** Что сервер знает о делах промежутка сам: указы админа из книги указов, добро без дела по записи войн, книга невольников. */
 export interface DeedKnown {
   grants?: readonly (Pick<AdminGrant, 'n' | 'troops'> & { stock?: AdminGrant['stock'] })[];
+  /**
+   * Добро без дела, которое сервер знает по записи войн (АУ-8, п. 8; `watch.windfallKnown`): дань войны и кража лазутчика у
+   * соседа, принятые клиентом между описями, — точно, по разу. Нет — их в промежутке нет.
+   */
+  windfall?: WindfallKnown;
+  /** Невольники книги невольников до записи (АУ-8, п. 2): выручка продажи невольников — не больше их. Нет — без потолка. */
+  bonded?: number;
+}
+
+/** Добро без дела из записи войн: склад, казна и сколько это дел. */
+export interface WindfallKnown {
+  stock: Counts;
+  gold: number;
+  items: number;
+}
+
+/**
+ * Выручка продаж промежутка — книгой рынка (АУ-8, п. 8): золото новых сделок описи с `n < 0` (цену каждой сверяет правило
+ * «market»). Невольники — не больше книги невольников и купленных за промежуток: продажу сверх книги сервер не принимает
+ * (п. 2), и её золото не подтверждается.
+ */
+function salesOf(a: WatchCard, b: WatchCard, bonded: number | undefined): { gold: number; deals: number } {
+  const from = a.market?.seq ?? 0;
+  let gold = 0;
+  let deals = 0;
+  let bondedSold = 0;
+  let bondedGold = 0;
+  let bondedBought = 0;
+  for (const d of b.market?.deals ?? []) {
+    if (d.seq <= from) continue;
+    if (d.good === BONDED_GOOD.id && d.n > 0) bondedBought += d.n;
+    if (d.n >= 0) continue;
+    deals++;
+    if (d.good === BONDED_GOOD.id) {
+      bondedSold += -d.n;
+      bondedGold += Math.max(0, d.gold);
+    } else gold += Math.max(0, d.gold);
+  }
+  if (bondedSold > 0) {
+    const ok = bonded === undefined ? bondedSold : Math.min(bondedSold, Math.max(0, bonded) + bondedBought + 1);
+    gold += (bondedGold * ok) / bondedSold;
+  }
+  return { gold, deals };
 }
 
 /** Сколько дел каждого вида между двумя описями. `windfalls` — `null`, если опись старая и счётчика не везёт. */
@@ -115,6 +160,13 @@ export function deedGain(a: WatchCard, b: WatchCard, realMs: number, prod: Count
   const soldiers = Math.max(...[a, b].map((c) => Object.values(c.troops).reduce((t, n) => t + n, 0) + c.wounded));
   const grants = grantsIn(a, b, known);
   const T = DEED_TABLE;
+  // Добро без дела по книгам (АУ-8, п. 8): продажи — книгой рынка, дань войны и кража у соседа — записью войн; что осталось
+  // от счётчика — добро мира, которого сервер не видит: склад — до вместимости, казна — грузом бойцов (с ушедшими) и выплатой
+  // договора из таблицы. Прежде казна добра без дела была без потолка.
+  const sales = d.windfalls ? salesOf(a, b, known?.bonded) : { gold: 0, deals: 0 };
+  const wk = known?.windfall ?? { stock: {}, gold: 0, items: 0 };
+  const rest = Math.max(0, (d.windfalls ?? 0) - sales.deals - wk.items);
+  const carriers = Math.max(...[a, b].map((c) => Object.values(c.troops).reduce((t, n) => t + n, 0) + c.wounded + c.away));
   const out: Counts = {};
   for (const k of STOCK_KEYS) {
     const res = RESOURCES.has(k);
@@ -126,7 +178,8 @@ export function deedGain(a: WatchCard, b: WatchCard, realMs: number, prod: Count
       (grants ? (grants.plus[k] ?? 0) : d.grants * GRANT_MAX) +
       d.arrived * (T.caravan[k] ?? 0);
     if (d.windfalls === null && d.other > 0) n = Infinity;
-    else if (d.windfalls) n += res ? d.windfalls * cap : Infinity;
+    else if (d.windfalls)
+      n += res ? (wk.stock[k] ?? 0) + rest * cap : sales.gold + wk.gold + rest * (T.windfall.carry * carriers + T.windfall.gold);
     out[k] = n;
   }
   return out;
