@@ -104,11 +104,16 @@ const SKINS = [0xd6a68a, 0xcc9a7e, 0xdcac90, 0xc08a6c, 0xe2b89e] as const;
 /** Волосы молодости: тёмно-русые, каштан, рыжина, чернь, пшеница; седина — к цвету облика ЛЦ-5. */
 const YOUNG_HAIR = [0x5a4232, 0x6e4a30, 0x8a4e2c, 0x2e2622, 0xa88a5c] as const;
 const GREY = [0xd2cdc4, 0xb8b4ae, 0xe6e3dc] as const;
-/** Мантия по должности: Староста — зелень, Казначей — вино и пурпур, Воевода — червлень и сталь. */
+/** Мантия по должности: Староста — зелень, Казначей — вино и пурпур, Воевода — червлень и сталь; агенты — своим сукном (АГ-1). */
 const ROBES: Readonly<Record<string, readonly number[]>> = {
   steward: [0x1e3a32, 0x2c4a28, 0x1e2648],
   treasurer: [0x4c1a26, 0x3e1e44, 0x5a2a1a],
   marshal: [0x6a1c18, 0x3a3c44, 0x4a2a1e],
+  // Агенты Ратуши (АГ-1): полководец — червлень и сталь, разведчик — зелень и бурый, лазутчик — чернь, дипломат — лазурь.
+  general: [0x6a1c18, 0x3a3c44, 0x5a2a1a],
+  scout: [0x2c4a28, 0x4a3a24, 0x3a4a2c],
+  spy: [0x24242a, 0x2e2a26, 0x1e2228],
+  diplomat: [0x1e2a4a, 0x2a3a5a, 0x3e1e44],
 };
 const FURS = [0x5e3e28, 0x847c72, 0xe8e2d4, 0x3a2c22] as const;
 const GEMS = [0x9a1424, 0x2a4a8a, 0x1a6a4a, 0x6a2a8a] as const;

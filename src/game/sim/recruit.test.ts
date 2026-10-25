@@ -183,8 +183,8 @@ describe('найм, смена и увольнение — каждой роли
       const before = { ...s.agents[role] };
       const gold = s.gold;
       const away = hireRecruit(s, role, c.n, FIELD);
-      expect(away, `${role}: в поле — отказ`).toMatch(/не дома/);
-      expect(hireRecruit(s, role, c.n, { phase: 'down', departAt: 0 }), `${role}: вне строя — отказ`).toMatch(/вне строя/);
+      expect(away, `${role}: в поле — отказ`).toBe('В поле — менять дома.');
+      expect(hireRecruit(s, role, c.n, { phase: 'down', departAt: 0 }), `${role}: вне строя — отказ`).toBe('Вне строя — менять дома.');
       expect(s.gold, 'плата не ушла').toBe(gold);
       expect(s.agents[role]).toEqual(before);
       expect(hireRecruit(s, role, c.n, HOME), `${role}: дома — меняют`).toBeNull();
@@ -198,7 +198,7 @@ describe('найм, смена и увольнение — каждой роли
       const s = town(33, 7);
       hire(s, role);
       const gold = s.gold;
-      expect(dismissAgent(s, role, FIELD), `${role}: в поле не увольняют`).toMatch(/не дома/);
+      expect(dismissAgent(s, role, FIELD), `${role}: в поле не увольняют`).toBe('В поле — менять дома.');
       expect(s.agents[role].vacant).toBe(false);
       expect(dismissAgent(s, role, HOME)).toBeNull();
       expect(s.agents[role].vacant).toBe(true);

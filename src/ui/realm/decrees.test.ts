@@ -80,8 +80,9 @@ describe('указы — одна копия: правят только в де�
       expect(code(f), f).toContain('goTo(WINDOW.gold)');
     }
     for (const f of walk(join(SRC, 'ui'))) expect(code(relative(SRC, f)), relative(SRC, f)).not.toContain("openTownHall('manage')");
-    // Вопрос 6.22 (решение владельца 16.10.2026): мёртвой вкладки нет и в типе ядра. С РТ-1 у ратуши — совет и сословия.
-    expect(code('game/store.ts'), 'game/store.ts: TownTab').toMatch(/export type TownTab = 'council' \| 'estates';/);
+    // Вопрос 6.22 (решение владельца 16.10.2026): мёртвой вкладки нет и в типе ядра. С РТ-1 у ратуши — совет и сословия, с АГ-1 —
+    // и агенты.
+    expect(code('game/store.ts'), 'game/store.ts: TownTab').toMatch(/export type TownTab = 'council' \| 'agents' \| 'estates';/);
   });
 
   it('ратуша говорит, что даёт городу: скорость стройки, мораль, жильё — «с ур. N», пока его нет', () => {

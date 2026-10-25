@@ -28,6 +28,21 @@ export const ALIAS = {
   'evt-council_steward': 'post-steward',
   'evt-council_treasurer': 'post-treasurer',
   'evt-council_marshal': 'post-marshal',
+  // Весть о пустом месте агента (АГ-1) — знаком своего места.
+  'evt-agent_general': 'fig-general',
+  'evt-agent_scout': 'fig-scout',
+  'evt-agent_spy': 'fig-spy',
+  'evt-agent_diplomat': 'fig-diplomat',
+  // Характеристики агентов (АГ-1, docs/icons.md, «АГ-1»): отметки — знаки фаз боя, зоркость — труба, скрытность — сомкнутый
+  // глаз, диверсия — огонь, красноречие — речь.
+  'stat-fire': 'bat-volley',
+  'stat-shock': 'troop-knight',
+  'stat-melee': 'hud-army',
+  'stat-maneuver': 'troop-horse',
+  'stat-sight': 'ui-spyglass',
+  'stat-stealth': 'ui-eye-off',
+  'stat-sabotage': 'ui-flame',
+  'stat-eloquence': 'soc-chat',
   'alert-starving': 'ui-bowl',
   'alert-freezing': 'season-winter',
   'alert-food': 'res-food',

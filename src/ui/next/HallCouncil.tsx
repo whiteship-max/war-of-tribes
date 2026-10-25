@@ -1,5 +1,5 @@
-// Ратуша — своё здание со своими разделами (РТ-1, docs/city_v3.md, «Решения РТ-1»): «Советники» и «Сословия» (РТ-2,
-// `HallEstates`). Стройка ушла в «Здания» низа.
+// Ратуша — своё здание со своими разделами (РТ-1, docs/city_v3.md, «Решения РТ-1»): «Советники», «Агенты» (АГ-1, `HallAgents`,
+// своим куском) и «Сословия» (РТ-2, `HallEstates`). Стройка ушла в «Здания» низа.
 //
 // Совет — три должности карточками: портрет (набор персонажа, `Portrait`), должность и уровень, имя и возраст, черта, польза
 // числом, очки правителя своего вида и жалованье; «Сменить» и «Уволить» — у сидящего, «Назначить» — у пустого места. Касание
@@ -8,7 +8,7 @@
 // Своих чисел нет (правило 18): польза, жалованье, плата и очки — `councilrules`, просители и найм — дверь `sim/council`, ставка
 // очков — `sim/points.branchRate` (совет не обгоняет лучшего правителя, и окно говорит, сколько из очков советника легло).
 import './council.css';
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import type { AdvisorPost, AdvisorTrait } from '@/game/types';
 import { useGame } from '@/game/store';
 import { ADVISOR_POSTS, MAX_ADVISOR_LEVEL, POST_BRANCH, advisorPoints, advisorWage, giftOf, rateWithCouncil } from '@/game/councilrules';
@@ -32,11 +32,15 @@ import { tipAt } from './tip';
 import { NoPortrait, Portrait } from './Portrait';
 import { HallEstates } from './HallEstates';
 
-type Part = 'council' | 'estates';
+type Part = 'council' | 'agents' | 'estates';
 const PARTS: readonly TabDef<Part>[] = [
   { id: 'council', label: 'Советники', icon: 'post-steward' },
+  // Агенты (АГ-1): найм, смена и увольнение всех четверых — здесь; раздел едет своим куском, когда его открыли.
+  { id: 'agents', label: 'Агенты', icon: 'hall-agents' },
   { id: 'estates', label: 'Сословия', icon: 'ui-scales' },
 ];
+
+const HallAgents = lazy(() => import('./HallAgents').then((m) => ({ default: m.HallAgents })));
 
 /** Разделы ратуши: вкладка живёт в сторе — к совету ведут и двери других окон (`openTownHall`). */
 export function HallCouncil() {
@@ -45,7 +49,15 @@ export function HallCouncil() {
   return (
     <section className="cn">
       <Tabs tabs={PARTS} value={tab} onChange={setTab} />
-      {tab === 'council' ? <Council /> : <HallEstates />}
+      {tab === 'council' ? (
+        <Council />
+      ) : tab === 'agents' ? (
+        <Suspense fallback={null}>
+          <HallAgents />
+        </Suspense>
+      ) : (
+        <HallEstates />
+      )}
     </section>
   );
 }

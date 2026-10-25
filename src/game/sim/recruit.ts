@@ -74,11 +74,11 @@ export function seatRecruit(s: GameState, role: FigureId, c: Hireable): void {
  */
 export function replaceBlock(s: GameState, role: FigureId, where: Placed | null | undefined): string | null {
   if (!seated(s, role)) return null;
-  const name = FIGURE_BY_ID[role].name;
-  if (!where) return `${name} в мире ещё не встал на место.`;
+  // Слова — под кнопкой (не длиннее 32 знаков, docs/ui_audit.md, 3.7): та же строка и в отказе действия.
+  if (!where) return 'Ещё не встал на место.';
   if (canRegear(where)) return null;
-  if (where.phase === 'down') return `${name} вне строя — сменить можно, когда вернётся домой.`;
-  return `${name} не дома — сменить можно, когда он у своих ворот или в городе.`;
+  if (where.phase === 'down') return 'Вне строя — менять дома.';
+  return where.phase === 'moving' ? 'В пути — менять дома.' : 'В поле — менять дома.';
 }
 
 /** Почему нельзя уволить; `null` — можно. */
