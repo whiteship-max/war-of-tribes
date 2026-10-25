@@ -47,7 +47,8 @@ function town(seed: number, hall: number, statue = 1): GameState {
 
 /** Агенты и сид из описи партии — той же функцией, что собирает опись (`sim/recruit.agentsWatch`); чтение описи держит
  * `security.test.ts` (блок «АГ-1») через обработчик записи. */
-const card = (s: GameState): WatchCard => JSON.parse(JSON.stringify({ agents: agentsWatch(s), seed: s.seed >>> 0 })) as WatchCard;
+const card = (s: GameState): WatchCard =>
+  JSON.parse(JSON.stringify({ agents: agentsWatch(s), seed: s.seed >>> 0, time: Math.floor(s.time) })) as WatchCard;
 
 /** Нанять на место кандидата с условием — в первом окне, где он есть. */
 function hireWhere(s: GameState, role: FigureId, ok: (c: ReturnType<typeof recruitsOf>[number]) => boolean): void {
@@ -96,6 +97,24 @@ describe('книга агентов: честная партия', () => {
     expect(book.seed).toBeUndefined();
     expect(agentsAt(book, 10)).toEqual({});
     expect(capPips({ fire: 3 }, undefined), 'нет потолка — как есть').toEqual({ fire: 3 });
+  });
+});
+
+describe('книга агентов: первая опись', () => {
+  it('ветеран прежней партии — без флага: потолок опыта по часам партии; новая партия с опытом вершины — флаг', () => {
+    const vet = town(110, 4);
+    vet.time = 400 * 1800;
+    vet.agents.scout.xp = 40;
+    const c = card(vet);
+    c.time = vet.time;
+    const first = agentsStep(undefined, c, T0, 4);
+    expect(first.found, 'точка внутри области: книга видит человека впервые, партия долгая').toEqual([]);
+    expect(first.book.seats.scout?.xp).toBe(40);
+    const fresh = town(111, 4);
+    fresh.agents.scout.xp = XP_CAP;
+    const d = card(fresh);
+    d.time = 60;
+    expect(agentsStep(undefined, d, T0, 4).found.join(' '), 'партия минуту назад — опыт вершины не объяснить').toMatch(/опыт/);
   });
 });
 

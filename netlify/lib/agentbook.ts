@@ -123,8 +123,12 @@ export function agentsStep(prev: AgentBook | undefined, card: WatchCard, at: num
     }
     const seat0: AgentSeat = { person: a.person, ...mark, xp: 0 };
     const traits = recruitOfSeat(book, seat0)?.traits ?? [];
-    const cap = Math.min(XP_CAP, (same ? old.xp : 0) + xpGain(span, traits));
-    if (a.xp > cap + 1e-9) found.push(`${role}: опыт ${a.xp}, а за ${Math.round(span / 60000)} мин дела дают не больше ${cap}`);
+    // Человека на этом месте книга видит впервые (первая опись после АГ-1 или запись до книги): прошлого у неё нет, и служил он
+    // самое большее всю партию — потолок по часам партии (`card.time`), а не по промежутку между описями. Иначе первая же
+    // опись ветерана легла бы флагом.
+    const served = old === undefined ? Math.max(span, realMs(Math.max(0, card.time ?? 0))) : span;
+    const cap = Math.min(XP_CAP, (same ? old.xp : 0) + xpGain(served, traits));
+    if (a.xp > cap + 1e-9) found.push(`${role}: опыт ${a.xp}, а за ${Math.round(served / 60000)} мин дела дают не больше ${cap}`);
     book.seats[role] = { ...seat0, xp: Math.min(a.xp, cap), ...(a.vacant ? { vacant: true as const } : {}) };
   }
   return { book, found };
