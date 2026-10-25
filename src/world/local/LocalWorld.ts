@@ -6925,11 +6925,14 @@ export class LocalWorld implements WorldApi {
     const named = order.troops ? pickTroops(order.troops, held.all) : {};
     if (!named) return { error: 'Столько бойцов дома нет.', march: null };
     const troops = troopTotal(named) > 0 ? named : undefined;
+    // Разведку ведут разведчики: состав бойцов ушёл бы из гарнизона, а в отряде его не было бы (BTL-7).
+    if (troops && order.mission === 'scout') return { error: 'В разведку бойцов не берут: её ведут разведчики.', march: null };
     const units: UnitStack = {};
     let size = 0;
     // По видам отряда, а не по ключам приказа; NaN и бесконечность — не люди (SETUP-3, SETUP-4).
     for (const id of UNIT_IDS) {
-      const count = Math.floor(own(order.units ?? {}, id) ?? 0);
+      // Названный состав — это и есть воины отряда: из дома уходят они, а не число приказа (BTL-7).
+      const count = id === 'warrior' && troops ? troopTotal(troops) : Math.floor(own(order.units ?? {}, id) ?? 0);
       if (!wholeNonNeg(count, Number.MAX_SAFE_INTEGER) || count === 0) continue;
       // Воины уходят из гарнизона — того, что стоит дома в эту минуту. Разведчики —
       // свободные руки деревни, и сколько их, знает только слепок.
