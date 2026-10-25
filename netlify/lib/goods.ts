@@ -7,9 +7,10 @@
  *  · **Источник** — опись наблюдения (`WatchCard.stock`), а не слепок обороны (`WarSheet`): опись сервер сверяет каждую
  *    минуту — рост не выше выработки, склад не выше вместимости подтверждённых построек, цена стройки списана (`watch.ts`).
  *    Слепок обороны ниже описи той же записи — флаг «склад меньше подтверждённого», в войну идёт книга.
- *  · **«Не меньше»**: между двумя описями без разовых дел и разовых трат (`WatchCard.outlays`) склад убывает только
- *    расходом — хлебом, дровами и жалованьем, — и не быстрее потолка расхода (`drainCeil`) за прошедшее время с запасом
- *    `GOODS_SLACK`. Убыло больше — книга держит своё и пишет флаг; дело или трата между описями объясняет любую убыль.
+ *  · **«Не меньше»**: между двумя описями без разовых трат (`WatchCard.outlays`) склад убывает только расходом — хлебом,
+ *    дровами и жалованьем, — и не быстрее потолка расхода (`drainCeil`) за прошедшее время с запасом `GOODS_SLACK`, плюс
+ *    то, что могли снять разовые дела промежутка по таблице наград (`deeds.deedLoss`, AC-1). Убыло больше — книга держит
+ *    своё и пишет флаг; трата, бой, добро без дела (продажа) или уход и возвращение отряда объясняют любую убыль.
  *
  * Пишет книгу одна дверь — запись партии (`routes/save.ts` → `watch.booked`); читает война (`routes/war.ts` →
  * `war.liveSheet`). Лежит в записи наблюдения игрока (`WatchRecord.goods`). Чистая: без хранилища и без часов.
@@ -21,6 +22,7 @@ import { baseWage } from '../../src/game/battle/price.js';
 import { HORSE_MOUTHS, MASTER_PAID_AS } from '../../src/game/data/upkeep.js';
 import { TROOP_IDS } from '../../src/game/data/troops.js';
 import { fitStock } from '../../src/game/stockrules.js';
+import { deedLoss, type DeedKnown } from './deeds.js';
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { STOCK_KEYS, readCounts, type Counts, type WarSheet, type WatchCard } from './contract.js';
 
@@ -68,6 +70,8 @@ export function drainCeil(levels: Levels, pop: number, bonded: number, soldiers:
 
 /** Что сервер подтверждает у игрока к записи — уровни, жители и бойцы книг стройки и войска. */
 export interface GoodsCtx {
+  /** Указы админа из книги указов: их убыль сервер знает точно (`deeds.deedLoss`). Нет — указ до потолка указа. */
+  grants?: DeedKnown['grants'];
   levels: Levels;
   pop: number;
   soldiers: number;
@@ -84,18 +88,16 @@ export interface GoodsStep {
 }
 
 /**
- * Промежуток «без дела»: между описями не было ни разового дела, ни разовой траты, ни указа, ни промысла, никто не ушёл
- * и не вернулся, караван не пришёл. Опись без счётчика трат (старый клиент) — промежуток с тратой: книга не держит.
+ * Книга держит нижнюю границу промежутка: между описями не было разовой траты, никто не ушёл и не вернулся, и разовые дела
+ * промежутка снимают не больше таблицы наград (`deeds.deedLoss` конечна по каждому виду; AC-1 — прежде любое дело выключало
+ * границу). Опись без счётчика трат (старый клиент) — промежуток с тратой: книга не держит.
  */
-export const quietBetween = (a: WatchCard, b: WatchCard): boolean =>
+export const holdsBetween = (a: WatchCard, b: WatchCard, realMs: number, known?: DeedKnown): boolean =>
   a.outlays !== undefined &&
   b.outlays !== undefined &&
   a.outlays === b.outlays &&
-  a.deeds === b.deeds &&
-  a.seen === b.seen &&
-  a.games === b.games &&
   a.away === b.away &&
-  a.caravans === b.caravans;
+  Object.values(deedLoss(a, b, realMs, known)).every(Number.isFinite);
 
 /**
  * Склад описи, приведённый к вместимости подтверждённых построек правилом игры (`stockrules.fitStock`: не выше
@@ -120,14 +122,17 @@ export function goodsStep(prev: GoodsBook | null, a: WatchCard | undefined, aAt:
   const cap = storageOf(ctx.levels);
   const claimed = claimedOf(b, cap);
   const bonded = Math.max(0, b.bonded ?? 0);
-  if (!prev || !a || !quietBetween(a, b)) return { book: { at: bAt, have: claimed, bonded }, hidden: [] };
   const realMs = Math.max(0, bAt - aAt);
+  const known = { grants: ctx.grants };
+  if (!prev || !a || !holdsBetween(a, b, realMs, known)) return { book: { at: bAt, have: claimed, bonded }, hidden: [] };
   const days = gameDaysOfMs(realMs + Math.max(0, b.lead - a.lead) + CLOCK_SKEW_SECONDS * 1000);
   const drain = drainCeil(ctx.levels, ctx.pop, bonded, ctx.soldiers, ctx.council, ctx.estates);
+  // Разовые дела промежутка (вести, ответы державы, указы) снимают не больше таблицы наград (AC-1).
+  const deeds = deedLoss(a, b, realMs, known);
   const have: Counts = {};
   const hidden: GoodsStep['hidden'] = [];
   for (const k of STOCK_KEYS) {
-    const could = (drain[k] ?? 0) * days * GOODS_SLACK + 1;
+    const could = (drain[k] ?? 0) * days * GOODS_SLACK + 1 + (deeds[k] ?? 0);
     const was = prev.have[k] ?? 0;
     const held = Math.max(0, was - could);
     const now = claimed[k] ?? 0;

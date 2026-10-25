@@ -126,11 +126,36 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'estates', 'market']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'estates', 'market', 'deeds']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
     }
+  });
+
+  // Разовые дела (правило «deeds», AC-1): счётчик дел больше не выключает сверку роста склада — дело даёт допуск по таблице
+  // наград; счёт быстрее 30 в минуту — флаг. Область правила: опись новой сборки (счётчик добра без дела есть), между записями
+  // — минута.
+  it('разовые дела: счётчик +1 и склад из ничего — «рост склада»; 60 дел за минуту — «счёт разовых дел»; честная весть — без флага', async () => {
+    const later = NOW + 60_000;
+    const forged = player(5281);
+    expect(await forged.push(card({ windfalls: 0 }), NOW)).toBe(200);
+    expect(await forged.push(card({ clock: later, time: 1002, windfalls: 0, deeds: 1, stock: { wood: 900_000, stone: 1000, gold: 10 } }), later)).toBe(200);
+    expect(kinds(await forged.watch())).toContain('stock');
+
+    const fast = player(5282);
+    expect(await fast.push(card({ windfalls: 0 }), NOW)).toBe(200);
+    expect(await fast.push(card({ clock: later, time: 1002, windfalls: 0, deeds: 60 }), later)).toBe(200);
+    const rec = await fast.watch();
+    expect(kinds(rec)).toContain('deeds');
+    expect(warnings(rec).some((x) => /Разовых дел \+60 за 1 мин/.test(x)), 'строка «внимание:»').toBe(true);
+
+    const honest = player(5283);
+    expect(await honest.push(card({ windfalls: 0 }), NOW)).toBe(200);
+    expect(await honest.push(card({ clock: later, time: 1002, windfalls: 0, deeds: 1, stock: { wood: 1000, stone: 1000, food: 50, gold: 10 } }), later)).toBe(200);
+    const fair = kinds(await honest.watch());
+    expect(fair).not.toContain('stock');
+    expect(fair).not.toContain('deeds');
   });
 
   // Книга стабильности (docs/stability.md, 2.7): опись везёт ступень и счёт; сервер сверяет их формулами игры (`game/stabrules`).

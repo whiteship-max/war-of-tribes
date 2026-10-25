@@ -45,6 +45,7 @@ import { bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
 import { builtForged, buildStep, keyOf, eatFloorOf, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
 import { goodsStep, readGoods, sheetShort, type GoodsBook } from './goods.js';
 import { marketFaults } from './market.js';
+import { DEEDS_PER_MIN_MAX, deedGain, deedTroops, deedsFlag, type DeedKnown } from './deeds.js';
 import { BOOST_MAX } from '../../src/game/marketrules.js';
 import { troopPower } from '../../src/game/battle/price.js';
 import type { TroopStack } from '../../src/game/battle/kinds.js';
@@ -118,7 +119,8 @@ export type FlagKind =
   | 'council'
   | 'estates'
   | 'market'
-  | 'starve';
+  | 'starve'
+  | 'deeds';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -149,6 +151,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   council: 'совет Ратуши',
   market: 'сделки рынка',
   starve: 'сдача голодом при хлебе',
+  deeds: 'счёт разовых дел',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -156,7 +159,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'estates' | 'market' | 'starve';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'estates' | 'market' | 'starve' | 'deeds';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -255,6 +258,13 @@ export const CITY_RULES: readonly CityRule[] = [
     formula: 'marketrules.lotOf, pressAt, supplyOf, purseOf, shiftOffer; market.marketFaults',
     flag: 'market',
     act: 'флаг',
+  },
+  {
+    id: 'deeds',
+    rule: 'рост склада и войска между описями — не выше выработки, обучения и того, что могли дать разовые дела промежутка по таблице наград (из данных игры, запас ×1.2); разовых дел не больше 30 в минуту',
+    formula: 'deeds.deedGain, deedLoss, deedTroops; data/deedgain (scripts/deeds/derive.ts)',
+    flag: 'deeds',
+    act: 'флаг; сверх скорости дела в допуск не идут',
   },
 ];
 
@@ -485,12 +495,13 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
 /**
  * Флаги промежутка между двумя описями: что выросло сильнее, чем позволяют правила игры за прошедшее время.
  *
- * Рост склада и войска сверяется, только если между описями не было ни одного разового дела (событие, бой, логово,
- * набег, покупка, ежедневка, промысел, указ админа), никто не ушёл и не вернулся из похода и не пришёл караван: дело
- * может разом принести добро, и тогда рост объяснён. Без дел склад растёт только выработкой, а войско — обучением в
- * казармах и конюшне.
+ * Рост склада и войска сверяется всегда (AC-1): склад растёт выработкой, войско — обучением в казармах и конюшне, а разовые
+ * дела промежутка (событие и весть державы, бой, логово, набег, покупка, ежедневка, промысел, указ, лавка, добро без дела)
+ * прибавляют к допуску столько, сколько они могут дать по данным игры (`deeds.deedGain`, таблица наград `data/deedgain`).
+ * Прежде любое дело выключало сверку целиком, и прибавка счётчика на каждой записи давала любой склад без флага. `known` —
+ * что сервер знает сам: указы админа из книги указов (без неё указ — до потолка указа).
  */
-export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: number): { kind: FlagKind; text: string }[] {
+export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: number, known?: DeedKnown): { kind: FlagKind; text: string }[] {
   const out: { kind: FlagKind; text: string }[] = [];
   const realMs = Math.max(0, bAt - aAt);
   const leadMs = Math.max(0, b.lead - a.lead);
@@ -503,6 +514,12 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   if (b.deeds < a.deeds) {
     out.push({ kind: 'rollback', text: `Партия откатилась назад: разовых дел было ${big(a.deeds)}, стало ${big(b.deeds)} (другое устройство, восстановленная копия или правка сохранения).` });
   }
+  // Счётчик дел (правило «deeds», AC-1): честная партия не набирает больше `DEEDS_PER_MIN_MAX` дел в минуту; сверх — в допуск не
+  // идёт (`deeds.deedSplit`).
+  const fast = deedsFlag(a, b, realMs);
+  if (fast) {
+    out.push({ kind: 'deeds', text: `Разовых дел ${signed(fast.counted)} за ${span(realMs)} — честная партия набирает не больше ${big(fast.allowed)} (${DEEDS_PER_MIN_MAX} в минуту); сверх них дела в допуск не идут.` });
+  }
   // Сдача голодом (правило «starve», ОС-1): голодом сдаёт только склад, не оплативший прокорм в шаге осады. Город сдан, а склад
   // кормил — ложная сдача (судья осады — мир или сервер войны — разошёлся со складом), и это не может быть честной игрой.
   const fed = (b.starve ?? 0) - (a.starve ?? 0);
@@ -511,52 +528,56 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   }
   // Рост сверяют за верхний край истинного промежутка: часы описи — целые игровые секунды (`CARD_TICK_DAYS`).
   const days = Math.max(0, Math.min(wentDays + CARD_TICK_DAYS, canDays));
-  const quiet = a.deeds === b.deeds && a.seen === b.seen && a.games === b.games && a.away === b.away && a.caravans === b.caravans;
-  if (quiet) {
-    // Возврат отменённой стройки (правило «refund», СТ-1): разовым делом он не считается — положенное сервер выводит сам из
-    // очередей двух описей (`cancelledRefund`), и рост склада сверх выработки и положенного возврата — флаг.
-    const back = cancelledRefund(a, b);
-    // Выработка обеих описей — не выше потолка их мест (правило «prod»): заявленное сверх него рост не объясняет.
-    const pa = prodOf(a);
-    const pb = prodOf(b);
-    for (const k of STOCK_KEYS) {
+  // Возврат отменённой стройки (правило «refund», СТ-1): разовым делом он не считается — положенное сервер выводит сам из
+  // очередей двух описей (`cancelledRefund`), и рост склада сверх выработки, дел и положенного возврата — флаг.
+  const back = cancelledRefund(a, b);
+  // Выработка обеих описей — не выше потолка их мест (правило «prod»): заявленное сверх него рост не объясняет.
+  const pa = prodOf(a);
+  const pb = prodOf(b);
+  const prod = maxCounts(pa, pb);
+  const deedsIn = Math.max(0, b.deeds - a.deeds);
+  const gain = deedGain(a, b, realMs, prod, known);
+  const said = deedsIn > 0 ? `разовых дел ${big(deedsIn)}` : 'без разовых дел';
+  for (const k of STOCK_KEYS) {
+    const could = (prod[k] ?? 0) * days * GROWTH_SLACK + 1 + (gain[k] ?? 0);
+    if (!Number.isFinite(could)) continue;
+    const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
+    const due = back.refund[k as ResourceId] ?? 0;
+    if (grew > could + due) {
+      out.push(
+        back.count > 0
+          ? {
+              kind: 'refund',
+              text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)}: отменено стройки ${big(back.count)}, возврат положен не больше ${big(due)}, выработка и дела — ${big(could)}.`,
+            }
+          : { kind: 'stock', text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)}, ${said}; выработка и дела позволяли не больше ${big(could)}.` },
+      );
+    }
+  }
+  const troopsCould = Math.max(a.train, b.train) * days * GROWTH_SLACK + 1 + deedTroops(a, b, realMs, known);
+  const troopsGrew = total(b.troops) + b.wounded - (total(a.troops) + a.wounded);
+  if (Number.isFinite(troopsCould) && troopsGrew > troopsCould) {
+    out.push({ kind: 'army', text: `Войско ${signed(troopsGrew)} за ${span(realMs)}, ${said}; казармы, конюшня и дела дали бы не больше ${big(troopsCould)}.` });
+  }
+  // Цена списана (правило «paid», `CITY_RULES`): стройка, начатая между описями, унесла со склада цену уровня — ею платит
+  // `sim/actions.startUpgrade`, и другой двери, заводящей стройку, у игры нет. «Начатая» — только если на первой описи
+  // стройки не было вовсе: иначе в очереди могли стоять оплаченные раньше, а опись видит одну первую (`derived.currentSite`).
+  // С очередью в обеих описях оплаченное известно точно (СТ-1): места первой описи уже оплачены, остальное — нет. Дела
+  // промежутка входят в допуск (AC-1): весть могла положить на склад столько же, сколько ушло на цену.
+  const started = a.site && !(a.queue && b.queue) ? null : startedCost(a, b);
+  if (started) {
+    for (const k of RESOURCE_IDS) {
+      const need = started.cost[k] ?? 0;
+      if (need <= 0) continue;
+      const could = (prod[k] ?? 0) * days * GROWTH_SLACK + 1 + (back.refund[k] ?? 0) + (gain[k] ?? 0);
+      if (!Number.isFinite(could)) continue;
       const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
-      const could = Math.max(pa[k] ?? 0, pb[k] ?? 0) * days * GROWTH_SLACK + 1;
-      const due = back.refund[k as ResourceId] ?? 0;
-      if (grew > could + due) {
-        out.push(
-          back.count > 0
-            ? {
-                kind: 'refund',
-                text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)}: отменено стройки ${big(back.count)}, возврат положен не больше ${big(due)}, выработка — ${big(could)}.`,
-              }
-            : { kind: 'stock', text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)} без разовых дел; выработка позволяла не больше ${big(could)}.` },
-        );
-      }
-    }
-    const grew = total(b.troops) + b.wounded - (total(a.troops) + a.wounded);
-    const could = Math.max(a.train, b.train) * days * GROWTH_SLACK + 1;
-    if (grew > could) {
-      out.push({ kind: 'army', text: `Войско ${signed(grew)} за ${span(realMs)} без разовых дел; казармы и конюшня выучили бы не больше ${big(could)}.` });
-    }
-    // Цена списана (правило «paid», `CITY_RULES`): стройка, начатая между описями, унесла со склада цену уровня — ею платит
-    // `sim/actions.startUpgrade`, и другой двери, заводящей стройку, у игры нет. «Начатая» — только если на первой описи
-    // стройки не было вовсе: иначе в очереди могли стоять оплаченные раньше, а опись видит одну первую (`derived.currentSite`).
-    // С очередью в обеих описях оплаченное известно точно (СТ-1): места первой описи уже оплачены, остальное — нет.
-    const started = a.site && !(a.queue && b.queue) ? null : startedCost(a, b);
-    if (started) {
-      for (const k of RESOURCE_IDS) {
-        const need = started.cost[k] ?? 0;
-        if (need <= 0) continue;
-        const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
-        const could = Math.max(pa[k] ?? 0, pb[k] ?? 0) * days * GROWTH_SLACK + 1 + (back.refund[k] ?? 0);
-        // Рост сверх выработки уже сказан флагом «рост склада» — второй раз о том же не говорим.
-        if (grew > could || grew + need <= could) continue;
-        out.push({
-          kind: 'unpaid',
-          text: `Заложено ${big(started.levels)} ур. стройки: ${stockWord(k)} на ${big(need)}, а ${stockWord(k)} ${signed(grew)} за ${span(realMs)} без разовых дел — выработка позволяла не больше ${big(could)}, цена со склада не ушла.`,
-        });
-      }
+      // Рост сверх выработки уже сказан флагом «рост склада» — второй раз о том же не говорим.
+      if (grew > could || grew + need <= could) continue;
+      out.push({
+        kind: 'unpaid',
+        text: `Заложено ${big(started.levels)} ур. стройки: ${stockWord(k)} на ${big(need)}, а ${stockWord(k)} ${signed(grew)} за ${span(realMs)}, ${said} — выработка и дела позволяли не больше ${big(could)}, цена со склада не ушла.`,
+      });
     }
   }
   out.push(...stabFlags(a, b, days, realMs));
@@ -1039,7 +1060,7 @@ function deedsText(a: WatchCard, b: WatchCard): string {
  * Принятая запись партии: опись, флаги и журнал. Журнал не пишет строку на каждую запись — их сотни за вечер:
  * записи одного захода сводятся в одну строку, отдельно — разовые дела и промыслы.
  */
-export function wrote(rec: WatchRecord, at: number, card: { name: string; power: number; day: number }, raw: WatchCard | undefined, rev: number): WatchRecord {
+export function wrote(rec: WatchRecord, at: number, card: { name: string; power: number; day: number }, raw: WatchCard | undefined, rev: number, known?: DeedKnown): WatchRecord {
   let next: WatchRecord = { ...rec, writes: rec.writes + 1, name: card.name, power: card.power, day: card.day };
   if (raw) {
     // Флаги одной описи — по присланной как есть (правило «merge» смотрит, что назвала сборка); сверка двух описей и запись —
@@ -1048,7 +1069,7 @@ export function wrote(rec: WatchRecord, at: number, card: { name: string; power:
     const watch = foldCard(raw);
     const prev = rec.card;
     if (prev) {
-      found.push(...flagsBetween(prev, rec.cardAt, watch, at));
+      found.push(...flagsBetween(prev, rec.cardAt, watch, at, known));
       const deeds = deedsText(prev, watch);
       if (deeds) next = noted(next, at, 'deed', `Дела: ${deeds}.`);
       if (watch.games > prev.games) next = noted(next, at, 'game', `Промыслы: ${signed(watch.games - prev.games)}, добыча ${signed(watch.haul - prev.haul)}.`);
@@ -1088,7 +1109,7 @@ export function booked(
   at: number,
   raw: WatchCard | undefined,
   seen: readonly string[] | undefined,
-  grants: readonly Pick<AdminGrant, 'n' | 'troops'>[],
+  grants: DeedKnown['grants'] & readonly Pick<AdminGrant, 'n' | 'troops'>[],
   wars: WarFile | null,
   key: string,
   gems: readonly PaidLevel[] = [],
@@ -1132,6 +1153,7 @@ export function booked(
   // Книга запасов (docs/security.md, ЗЩ-2): склад и казна — из описи, «не меньше» объяснимой убыли; бойцы — тела книги
   // войска и ученики книги жителей.
   const goods = goodsStep(rec.goods ?? null, prior.card, prior.at, watch, at, {
+    grants,
     levels: people.book.levels,
     pop: people.book.pop,
     soldiers: army.after + people.book.queued,

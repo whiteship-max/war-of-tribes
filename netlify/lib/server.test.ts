@@ -206,8 +206,9 @@ describe('сервер ничего не начисляет, кроме одно
     // Четвёртый — книга запасов (docs/security.md, ЗЩ-2): склад и казну защитника она держит для войны «не меньше» и не
     // начисляет ничего — читает опись и отдаёт слепку обороны (`goods.goodsSheet`).
     // Пятый — книга рынка (РН-1, docs/city_v3.md, «Решения РН-1»): сверяет золото сделок с правилом привоза и не начисляет
-    // ничего — только флаг.
-    expect(guilty).toEqual(['lib/commands.ts', 'lib/contract.ts', 'lib/goods.ts', 'lib/market.ts', 'lib/war.ts']);
+    // ничего — только флаг. Шестой — допуск разовых дел (AC-1, docs/audit/AU-3.md): сколько дела могли положить на склад и в
+    // казну по таблице наград игры, — сверка и флаг, начислять ему нечего.
+    expect(guilty).toEqual(['lib/commands.ts', 'lib/contract.ts', 'lib/deeds.ts', 'lib/goods.ts', 'lib/market.ts', 'lib/war.ts']);
     for (const f of files()) expect(strip(readFileSync(f, 'utf8')), rel(f)).not.toMatch(/\breward/i);
   });
 });

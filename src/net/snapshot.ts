@@ -138,7 +138,9 @@ export function watchOf(s: GameState): WatchCard {
     deeds:
       st.hunts + st.battlesWon + st.battlesLost + st.eventsResolved + st.scouted + st.raids + st.castles + st.lairs + st.purchases + st.dailyWins + games + seen + gemmed +
       s.completedQuests.length + (st.windfalls ?? 0),
-    // Разовые траты (`sim/pay.outlay`): между описями без дел и трат книга запасов сервера держит склад «не меньше»
+    // Добро без дела отдельно (AC-1): таблица наград его не держит, и сервер отличает его от прочих дел.
+    windfalls: st.windfalls ?? 0,
+    // Разовые траты (`sim/pay.outlay`): между описями без трат книга запасов сервера держит склад «не меньше»
     // (docs/security.md, ЗЩ-2).
     outlays: st.outlays ?? 0,
     // Ложные сдачи голодом (ОС-1): сдан голодом при складе, оплачивавшем прокорм, — сервер пишет «внимание:» (правило «starve»).

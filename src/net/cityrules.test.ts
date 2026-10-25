@@ -115,10 +115,10 @@ describe('рост склада: часы описи — целые игровы
  * не считается — свой тест ниже.
  */
 describe('рост склада: добро без дела', () => {
-  /** Флаги записи и её подделки: те же числа, а разовых дел — сколько было на первой описи. */
+  /** Флаги записи и её подделки: те же числа, а разовых дел (и добра без дела среди них, AC-1) — сколько было на первой описи. */
   const judge = (a: WatchCard, aAt: number, b: WatchCard, bAt: number): { honest: string[]; forged: string[] } => ({
     honest: flagsBetween(a, aAt, b, bAt).map((f) => f.kind),
-    forged: flagsBetween(a, aAt, { ...b, deeds: a.deeds }, bAt).map((f) => f.kind),
+    forged: flagsBetween(a, aAt, { ...b, deeds: a.deeds, windfalls: a.windfalls }, bAt).map((f) => f.kind),
   });
 
   /**

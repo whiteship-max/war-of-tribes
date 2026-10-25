@@ -33,7 +33,7 @@ import type { GameState } from '@/game/types';
 import { gameDaysOfMs, gameDaysPerHour, gameSeconds } from '@/game/pace';
 import { playerProfile } from '@/world/bridge';
 import type { WatchCard } from '../../netlify/lib/contract';
-import { GOODS_SLACK, drainCeil, goodsStep, quietBetween, type GoodsBook, type GoodsCtx } from '../../netlify/lib/goods';
+import { GOODS_SLACK, drainCeil, goodsStep, holdsBetween, type GoodsBook, type GoodsCtx } from '../../netlify/lib/goods';
 import { CLOCK_SKEW_SECONDS } from '../../netlify/lib/initdata';
 import { eatFloorOf } from '../../netlify/lib/town';
 import { watchOf } from './snapshot';
@@ -155,7 +155,7 @@ describe('честная партия тратит всем, чем может: 
       expect(step.hidden, `минута ${m}`).toEqual([]);
       // Точка внутри правила: промежуток тихий и склад убыл расходом — правило спрошено. Подделка той же минуты прячет
       // казну и хлеб целиком.
-      if (quietBetween(a, b) && RESOURCE_IDS.concat().some((r) => (b.stock[r] ?? 0) < (a.stock[r] ?? 0))) {
+      if (holdsBetween(a, b, 60_000) && RESOURCE_IDS.concat().some((r) => (b.stock[r] ?? 0) < (a.stock[r] ?? 0))) {
         asked++;
         const forged = { ...b, stock: { ...b.stock, gold: 0, food: 0 } };
         if (goodsStep(book, a, (m - 1) * 60_000, forged, m * 60_000, ctxOf(b)).hidden.length > 0) caught++;

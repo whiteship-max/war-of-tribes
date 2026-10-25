@@ -397,9 +397,11 @@ describe('флаги выводятся из правил игры', () => {
     expect(flagsBetween(a, NOW, cheat, NOW + MIN).map((f) => f.kind)).toEqual(['stock']);
     const deed = card({ time: a.time + 2, stock: { wood: 5100, gold: 10 }, deeds: 6 });
     expect(flagsBetween(a, NOW, deed, NOW + MIN)).toEqual([]);
-    // Вернулись из похода или пришёл караван — добыча и товар легли разом.
-    expect(flagsBetween(a, NOW, card({ time: a.time + 2, stock: { wood: 900, gold: 10 }, away: 3 }), NOW + MIN)).toEqual([]);
+    // Вернулись из похода с добычей (победа — дело, груз отряда) или пришёл караван — добыча и товар легли разом.
+    expect(flagsBetween(card({ away: 3 }), NOW, card({ time: a.time + 2, stock: { wood: 900, gold: 10 }, won: 2, deeds: 6 }), NOW + MIN)).toEqual([]);
     expect(flagsBetween(card({ caravans: 1 }), NOW, card({ time: a.time + 2, stock: { wood: 900, gold: 10 } }), NOW + MIN)).toEqual([]);
+    // Отряд вернулся без дела (AC-1): уход и возвращение склад не пополняют — дела нет, и рост без выработки — флаг.
+    expect(flagsBetween(card({ away: 3 }), NOW, card({ time: a.time + 2, stock: { wood: 900, gold: 10 } }), NOW + MIN).map((f) => f.kind)).toEqual(['stock']);
   });
 
   it('войско без дел растёт не быстрее обучения', () => {

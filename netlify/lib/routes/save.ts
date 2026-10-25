@@ -170,7 +170,7 @@ export const save: Route = async (req, io) => {
   const paid = rushesOf(ledger?.ledger ?? null);
   // Книга запасов (docs/security.md, ЗЩ-2) сверяет убыль склада между прежней описью и этой и слепок обороны с описью.
   await observe(io.stores, key, (rec) =>
-    booked(wrote(touched(rec, now, user, ref), now, card, record.watch, rev), now, record.watch, seen, grants.list, wars, key, paid, {
+    booked(wrote(touched(rec, now, user, ref), now, card, record.watch, rev, { grants: grants.list }), now, record.watch, seen, grants.list, wars, key, paid, {
       card: rec.card,
       at: rec.cardAt,
       sheet: record.war,
