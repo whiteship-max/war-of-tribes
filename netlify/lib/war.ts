@@ -871,8 +871,11 @@ function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly Machin
  * дани (`fairOf`): справедливая дань считается от той же добычи, что увезёт падение.
  */
 function fateOfWar(w: WarRow, at: number, sheet: WarSheet, fated: WarRow['fate']) {
-  // Обоз и конвой — уцелевшие похода, той же меркой, что у полководца против логова (`LocalWorld.haul`).
-  const survivors = troopTotal(asTroops(w.army.troops));
+  // Обоз и конвой — уцелевшие похода, той же меркой, что у полководца против логова (`LocalWorld.haul`). Выбитые башней
+  // списываются с войска, когда лагерь снят (`turnBack`), — позже падения; добычу они не несут (у мира — `homeFalls` после
+  // `liftSiege`).
+  const thin = thinOf(w, at);
+  const survivors = troopTotal(asTroops(thin > 0 ? wasted(w.army.troops, thin) : w.army.troops));
   return fate({
     fate: fated,
     stock: sheet.stock,
