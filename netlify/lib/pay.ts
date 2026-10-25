@@ -28,6 +28,7 @@ import { parseJson, WRITE_TRIES } from './http.js';
 import { STORES, type Kv, type Stores } from './kv.js';
 import { PAY_ID, payComment, readPayOrder, type PayOrderView, type PayTx } from './contract.js';
 import { settlePurchase } from './gems.js';
+import { eraNow } from './era.js';
 import {
   CHAIN,
   TRANSFER_GAS,
@@ -53,6 +54,8 @@ export interface StoredOrder extends PayOrderView {
   tx?: string;
   /** Номер записи журнала алмазов, когда начислено. */
   n?: number;
+  /** Эпоха мира, в которой заказ сделан (FIN-6): оплата после чистого старта ложится в текущую эпоху, один раз. */
+  era?: number;
 }
 
 export interface PayFile {
@@ -98,6 +101,7 @@ export function readPayFile(v: unknown): PayFile {
       const s: StoredOrder = { ...o, units };
       if (typeof r.tx === 'string' && /^[0-9a-f]{64}$/.test(r.tx)) s.tx = r.tx;
       if (typeof r.n === 'number' && Number.isInteger(r.n) && r.n > 0) s.n = r.n;
+      if (typeof r.era === 'number' && Number.isSafeInteger(r.era) && r.era >= 0) s.era = r.era;
       orders.push(s);
     }
   }
@@ -106,10 +110,11 @@ export function readPayFile(v: unknown): PayFile {
 
 /** Заказ глазами игрока. */
 export const viewOf = (o: StoredOrder): PayOrderView => {
-  const { units, tx, n, ...view } = o;
+  const { units, tx, n, era, ...view } = o;
   void units;
   void tx;
   void n;
+  void era;
   return view;
 };
 
@@ -190,9 +195,15 @@ export async function createOrder(
   } catch {
     return 'Сеть TON не ответила. Попробуй ещё раз.';
   }
+  let era: number;
+  try {
+    era = (await eraNow(stores)).era;
+  } catch {
+    return 'Сокровищница не ответила. Попробуй ещё раз.';
+  }
   const id = newOrderId(rand);
   const units = unitsOf(pack.usdt, cfg.decimals);
-  const order: StoredOrder = { id, pack: pack.id, gems: pack.amount, usdt: pack.usdt, at: now, until: now + PAY_TTL_MS, state: 'created', units: units.toString() };
+  const order: StoredOrder = { id, pack: pack.id, gems: pack.amount, usdt: pack.usdt, at: now, until: now + PAY_TTL_MS, state: 'created', units: units.toString(), era };
   // Указатель «номер → игрок» — раньше, чем номер уйдёт в перевод: перевод, найденный чужой проверкой, ляжет этому заказу.
   if (!(await indexOrder(stores, id, player))) return 'Сокровищница не ответила. Попробуй ещё раз.';
   const body = transferBody({ units, to: cfg.wallet, back: owner, comment: payComment(id), queryId: BigInt(now) });
@@ -551,12 +562,20 @@ export async function checkOrders(
     return changed ? { v: 1, orders: next } : null;
   });
   if (!after) return { orders, credited: 0, lines };
-  // 3. Начислить оплаченное — дверью книги алмазов, ключом заказа.
+  // 3. Начислить оплаченное — дверью книги алмазов, ключом заказа. В эпоху, открытую сейчас (FIN-6, решение владельца
+  // п. 3): идёт чистый старт — не начисляем ничего, книгу сейчас сотрут; эпоха сменилась или закрылась, пока начисляли, —
+  // «начислено» не ставим: книга, куда легло, стёрта или стирается, и заказ ляжет в новой эпохе ровно один раз (книга
+  // новой эпохи помнит ключ покупки, если запись пережила стирание). Начисленный в прошлой эпохе остаётся «начислено».
   let credited = 0;
   let cur = after.orders;
+  const era = cur.some((x) => x.state === 'paid') ? await eraNow(stores).catch(() => null) : null;
+  const open = (e: { era: number; wiping?: boolean } | null): e is { era: number } => e !== null && !e.wiping;
+  if (!open(era)) return { orders: cur, credited, lines };
   for (const o of cur.filter((x) => x.state === 'paid')) {
     const done = await settlePurchase(stores, player, { amount: o.gems, key: `pay:${o.id}`, at: now });
     if (!done || done.error) continue;
+    const still = await eraNow(stores).catch(() => null);
+    if (!open(still) || still.era !== era.era) break;
     const n = done.entry?.n;
     const fresh = done.entry !== undefined && done.entry.at === now;
     const marked = await updatePay(stores, player, (f) => {
@@ -567,7 +586,8 @@ export async function checkOrders(
     if (marked) cur = marked.orders;
     if (fresh) {
       credited += o.gems;
-      lines.push(`Покупка: +${o.gems} алмазов (${o.usdt} USDT, заказ ${o.id}).`);
+      const past = o.era !== undefined && o.era !== still.era ? `, заказ эпохи ${o.era} — в эпоху ${still.era}` : '';
+      lines.push(`Покупка: +${o.gems} алмазов (${o.usdt} USDT, заказ ${o.id}${past}).`);
     }
   }
   return { orders: cur, credited, lines };

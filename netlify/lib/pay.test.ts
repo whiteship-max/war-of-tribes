@@ -4,14 +4,14 @@ import { Address, Cell, beginCell } from '@ton/core';
 import { payWith, useFetch } from './routes/pay.js';
 import { gems } from './routes/gems.js';
 import { botWith } from './routes/bot.js';
-import { STORES, type Kv, type Stores } from './kv.js';
+import { STORES, type Kv, type StoreName, type Stores } from './kv.js';
 import type { Telegram } from './telegram.js';
 import { FROZEN_KEY } from './admin.js';
-import { WIPED } from './era.js';
+import { ERA_KEY, WIPED, eraNow, wipeWorld } from './era.js';
 import { creditGems, openLedger, readLedger, type GemLedger } from './gems.js';
-import { KEEP, PAY_HARD_MAX, PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor, readRefund, trimmed, type RefundEntry, type StoredOrder } from './pay.js';
+import { KEEP, PAY_HARD_MAX, checkOrders, PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor, readRefund, trimmed, type RefundEntry, type StoredOrder } from './pay.js';
 import { CHAIN, FORWARD_TON, MAINNET_USDT, OP_NOTIFY, OP_TRANSFER, PAGES, PAY_ENV, payConfig, readNotice, type Fetch, type PayConfig } from './ton.js';
-import { payComment, type GemsResponse, type PayResponse } from './contract.js';
+import { ERA_HEADER, payComment, type GemsResponse, type PayResponse } from './contract.js';
 import { START_GEMS } from '../../src/game/gemrules.js';
 import { GEM_PACKS } from '../../src/game/data/gems.js';
 
@@ -184,13 +184,13 @@ function signInit(id: number, now = NOW): string {
   return p.toString();
 }
 
-async function call(s: ReturnType<typeof memoryStores>, p: number, body?: unknown, now = NOW): Promise<PayResponse> {
+async function call(s: ReturnType<typeof memoryStores>, p: number, body?: unknown, now = NOW, era = 0, stores: Stores = s.stores): Promise<PayResponse> {
   const req = new Request('https://x/api/pay', {
     method: body ? 'POST' : 'GET',
-    headers: { 'x-telegram-init-data': signInit(p, now), ...(body ? { 'content-type': 'application/json' } : {}) },
+    headers: { 'x-telegram-init-data': signInit(p, now), [ERA_HEADER]: String(era), ...(body ? { 'content-type': 'application/json' } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  const res = await pay(req, { stores: s.stores, now, ip: null });
+  const res = await pay(req, { stores, now, ip: null });
   expect(res.status).toBe(200);
   return (await res.json()) as PayResponse;
 }
@@ -198,8 +198,8 @@ async function call(s: ReturnType<typeof memoryStores>, p: number, body?: unknow
 const order = (s: ReturnType<typeof memoryStores>, p: number, pack = 'pouch', now = NOW, chain = CHAIN.testnet) =>
   call(s, p, { op: 'order', pack, wallet: PLAYER_WALLET.toString({ testOnly: true }), chain }, now);
 
-const balance = async (s: ReturnType<typeof memoryStores>, p: number): Promise<number> => {
-  const req = new Request('https://x/api/gems', { headers: { 'x-telegram-init-data': signInit(p) } });
+const balance = async (s: ReturnType<typeof memoryStores>, p: number, era = 0): Promise<number> => {
+  const req = new Request('https://x/api/gems', { headers: { 'x-telegram-init-data': signInit(p), [ERA_HEADER]: String(era) } });
   return ((await (await gems(req, { stores: s.stores, now: NOW, ip: null })).json()) as GemsResponse).balance;
 };
 
@@ -682,6 +682,106 @@ describe('перевод, который не начисляется, — в о�
     chain.notify({ units: units(POUCH.usdt) + 1n, comment: payComment(o!.id), source: walletOf(FAKE_MASTER, PROJECT) });
     await call(s, p);
     expect([queue(s).length, told.length]).toEqual([0, 0]);
+  });
+});
+
+describe('смена эпохи и платежи: заказ прошлой эпохи начисляется в текущую ровно один раз (FIN-6)', () => {
+  /** Хранилища с крючком на запись: `hook` видит имя хранилища и ключ и может отказать или сделать что-то после. */
+  const hooked = (s: ReturnType<typeof memoryStores>, hook: (name: string, key: string) => 'refuse' | (() => Promise<void>) | void): Stores =>
+    ((name: StoreName, c?: 'strong' | 'eventual') => {
+      const kv = s.stores(name, c);
+      return {
+        ...kv,
+        async setJSON(key: string, value: unknown, opts?: { onlyIfNew?: boolean; onlyIfMatch?: string }) {
+          const h = hook(name, key);
+          if (h === 'refuse') return { modified: false };
+          const w = await kv.setJSON(key, value, opts);
+          if (typeof h === 'function' && w.modified) await h();
+          return w;
+        },
+      };
+    }) as Stores;
+  const purchases = (s: ReturnType<typeof memoryStores>, p: number): number => s.ledger(p)?.list.filter((e) => e.kind === 'purchase').length ?? 0;
+
+  it('стирание между «оплачен» и начислением: в новой эпохе — одно начисление, повторы ничего не добавляют', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id) });
+    // Книга алмазов не принимает запись: перевод найден, заказ «оплачен», алмазы не легли.
+    const busy = hooked(s, (name) => (name === STORES.gems ? 'refuse' : undefined));
+    expect((await call(s, p, undefined, NOW, 0, busy)).orders.at(-1)?.state).toBe('paid');
+    expect(typeof (await wipeWorld(s.stores, ADMIN, NOW + 1000))).toBe('object');
+    expect((await eraNow(s.stores)).era).toBe(1);
+    const r = await call(s, p, undefined, NOW + 6000, 1);
+    expect([r.orders.at(-1)?.state, r.credited]).toEqual(['credited', POUCH.amount]);
+    for (let i = 2; i <= 4; i++) expect((await call(s, p, undefined, NOW + i * 6000, 1)).credited).toBeUndefined();
+    expect([purchases(s, p), await balance(s, p, 1)]).toEqual([1, START_GEMS + POUCH.amount]);
+  });
+
+  it('стирание началось посреди начисления: «начислено» не ставится, заказ ложится в новой эпохе один раз', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id) });
+    // Книга алмазов приняла покупку — и тут админ начал чистый старт: эпоха закрыта на стирание.
+    let fired = false;
+    const wiping = hooked(s, (name, key) =>
+      name === STORES.gems && key === `tg-${p}` && !fired
+        ? async () => {
+            fired = true;
+            await s.stores(STORES.world).setJSON(ERA_KEY, { v: 1, era: 0, wiping: true, at: NOW });
+          }
+        : undefined,
+    );
+    const r = await call(s, p, undefined, NOW, 0, wiping);
+    expect(fired).toBe(true);
+    // Прежде заказ становился «начислено», стирание сносило книгу — и алмазы пропадали.
+    expect([r.orders.at(-1)?.state, r.credited]).toEqual(['paid', undefined]);
+    expect(typeof (await wipeWorld(s.stores, ADMIN, NOW + 1000))).toBe('object');
+    const after = await call(s, p, undefined, NOW + 6000, 1);
+    expect([after.orders.at(-1)?.state, after.credited]).toEqual(['credited', POUCH.amount]);
+    expect((await call(s, p, undefined, NOW + 12_000, 1)).credited).toBeUndefined();
+    expect([purchases(s, p), await balance(s, p, 1)]).toEqual([1, START_GEMS + POUCH.amount]);
+  });
+
+  it('пока идёт стирание, не начисляется ничего: «оплачен» ждёт новой эпохи', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id) });
+    const busy = hooked(s, (name) => (name === STORES.gems ? 'refuse' : undefined));
+    expect((await call(s, p, undefined, NOW, 0, busy)).orders.at(-1)?.state).toBe('paid');
+    await s.stores(STORES.world).setJSON(ERA_KEY, { v: 1, era: 0, wiping: true, at: NOW });
+    // Обработчик в это время отвечает 503 (`eraGate`); проверка, начатая до закрытия, — тоже ничего не начисляет.
+    const r = await checkOrders(s.stores, payConfig() as PayConfig, chain.fetcher, `tg-${p}`, NOW + 6000);
+    expect([r?.orders.at(-1)?.state, r?.credited, purchases(s, p)]).toEqual(['paid', 0, 0]);
+  });
+
+  it('заказ, начисленный в прошлой эпохе, в новой не начисляется', async () => {
+    const s = memoryStores();
+    const p = player();
+    const a = (await order(s, p)).order!;
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(a.id) });
+    expect((await call(s, p)).credited).toBe(POUCH.amount);
+    expect(typeof (await wipeWorld(s.stores, ADMIN, NOW + 1000))).toBe('object');
+    const again = await call(s, p, undefined, NOW + 6000, 1);
+    expect([again.orders.find((o) => o.id === a.id)?.state, again.credited]).toEqual(['credited', undefined]);
+    expect(await balance(s, p, 1)).toBe(START_GEMS);
+  });
+
+  it('заказ прошлой эпохи, перевод — после стирания: начислен в текущую один раз, эпоха заказа записана', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p, 'handful');
+    expect(typeof (await wipeWorld(s.stores, ADMIN, NOW + 1000))).toBe('object');
+    chain.notify({ units: units(1), comment: payComment(o!.id), at: NOW + 2000 });
+    const r = await call(s, p, undefined, NOW + 6000, 1);
+    expect([r.orders.at(-1)?.state, r.credited]).toEqual(['credited', 100]);
+    const stored = JSON.parse(s.data.get(STORES.pay)!.get(`tg-${p}`)!.value) as { orders: { id: string; era?: number }[] };
+    expect(stored.orders.find((x) => x.id === o!.id)?.era).toBe(0);
+    expect((await call(s, p, undefined, NOW + 12_000, 1)).credited).toBeUndefined();
+    expect([purchases(s, p), await balance(s, p, 1)]).toEqual([1, START_GEMS + 100]);
   });
 });
 
