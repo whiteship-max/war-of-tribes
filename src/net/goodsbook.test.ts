@@ -6,6 +6,7 @@ import {
   currentSite,
   foodConsumptionPerDay,
   heatingWoodPerDay,
+  housingCapacity,
   maxLevelFor,
   recruitsQueued,
   storageCap,
@@ -121,6 +122,9 @@ describe('честная партия тратит всем, чем может: 
     s.army.spearman = 60;
     s.army.rider = 20;
     addBonded(s, 30);
+    // Лишние рты — свободные руки до потолка жилья: хлеб в тихую минуту убывает расходом, и правило спрашивается (точки внутри
+    // области, правило 11). Прежде убыль давал сам посёлок, вымиравший от двойного ухода рабочих (ECO-4).
+    s.pop = housingCapacity(s);
     let a = watchOf(s);
     let book = bookOf(a, 0);
     let asked = 0;
