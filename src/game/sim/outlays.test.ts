@@ -22,7 +22,6 @@ type Why = 'outlay' | 'drain' | 'deed';
 const DOORS: Record<string, { why: Why[]; what: string }> = {
   'sim/pay.ts': { why: ['outlay'], what: 'плата за заказ: стройка, ковка, найм, разведка округи, обряд' },
   'sim/actions.ts': { why: ['outlay'], what: 'пир' },
-  'sim/hire.ts': { why: ['outlay'], what: 'наём агента' },
   'sim/market.ts': { why: ['outlay', 'deed'], what: 'покупка на рынке; продажа торговцам — выручка разовым делом (`stats.windfalls`, РН-1)' },
   'sim/caravan.ts': { why: ['drain'], what: 'закят налогом ниже нуля (шаг рынка, РН-1)' },
   'sim/faith.ts': { why: ['outlay'], what: 'обряд и крещение' },
@@ -36,6 +35,7 @@ const DOORS: Record<string, { why: Why[]; what: string }> = {
   'data/eventKit.ts': { why: ['deed'], what: 'весть отнимает добро' },
   'sim/crown.ts': { why: ['deed'], what: 'ответ на весть державы отнимает золото (СБ-2)' },
   'sim/candidates.ts': { why: ['outlay'], what: 'плата за найм советника за сезон вперёд (РТ-1)' },
+  'sim/recruits.ts': { why: ['outlay'], what: 'найм агента в Ратуше: плата по ртам и жалованье вперёд (АГ-1)' },
   'sim/estates.ts': { why: ['outlay'], what: 'дар сословию золотом (РТ-2)' },
   'sim/stock.ts': { why: ['outlay', 'drain', 'deed'], what: 'дверь склада (ECO-1): убавку объясняет тот, кто зовёт; излишек сверх вместимости сгорает тратой' },
 };

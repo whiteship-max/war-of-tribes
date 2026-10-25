@@ -89,20 +89,25 @@ describe('навык не читает чисел, которыми владее
     const agents = read('game/sim/agents.ts');
     expect(agents.match(/\btradition\(/g) ?? [], 'традицию навык зовёт один раз').toHaveLength(1);
     expect(bodyOf(agents, 'pipLevel'), 'и только в уровне отметок').toMatch(/\btradition\(s\)/);
-    expect(bodyOf(agents, 'pipsOf'), 'отметки на месте — с этого уровня').toMatch(/pipLevel\(s, agentLevel\(s, 'general'\)\)/);
+    // Отметки на месте — с этого уровня: уровень человека и его врождённое (АГ-1, фора на той же лестнице), одной дверью.
+    expect(bodyOf(agents, 'pipsOf'), 'отметки на месте — с этого уровня').toMatch(/generalCircles\(s\)/);
+    expect(bodyOf(agents, 'generalCircles'), 'уровень отметок — через `pipLevel`').toMatch(/pipLevel\(s, skillCircles\(level, headOf\(s, 'general'\)\.pips/);
   });
 
   it('владельцы этих чисел не читают ничего от навыка', () => {
     const whole = ['game/derived.ts', 'world/spy.ts', 'world/intel.ts', 'world/muster.ts', 'world/sight.ts'];
     // Воинская традиция — лестница Статуи к лестнице кружков полководца (П4): длину второй Статуя берёт у навыка, одним
     // импортом `MAX_AGENT_LEVEL` и только в `tradition`. Кроме этой длины, владелец чисел от навыка не читает ничего.
-    const LADDER = "import { MAX_AGENT_LEVEL } from './data/agents';";
+    // С АГ-1 традиция считается одной формулой на игру и сервер (`agentrules.traditionAt`), и импорт у неё общий с жалованьем
+    // агентов. Жалованье — ведомость, а не число здания: оно читает метку найма (`cand`), но не уровень, не кружки и не опыт.
+    const LADDER = "import { AGENT_ROLES, recruitWage, recruitAt, traditionAt } from './agentrules';";
     const derived = read('game/derived.ts');
-    expect(derived.split(LADDER), 'длина лестницы кружков — одним импортом').toHaveLength(2);
-    const outside = derived.replace(LADDER, '').replace(bodyOf(derived, 'tradition'), '');
-    expect(outside, 'длину лестницы кружков читает только традиция').not.toMatch(/MAX_AGENT_LEVEL/);
+    expect(derived.split(LADDER), 'лестница кружков — одним импортом').toHaveLength(2);
+    expect(bodyOf(derived, 'agentWagesPerDay'), 'жалованье агентов не читает навыка').not.toMatch(/\b(?:pips?\w*|sightBonus\w*|stealth\w*|circles\w*|agentLevel|levelOf|xp)\b/);
+    const outside = derived.replace(LADDER, '').replace(bodyOf(derived, 'agentWagesPerDay'), '');
+    expect(outside, 'традицию читает только `tradition`').not.toMatch(/MAX_AGENT_LEVEL/);
     for (const f of whole) {
-      const src = f === 'game/derived.ts' ? derived.replace(LADDER, '') : read(f);
+      const src = f === 'game/derived.ts' ? outside : read(f);
       const hit = src.split('\n').findIndex((line) => SKILL.test(line));
       expect(hit, `${f}:${hit + 1} ${src.split('\n')[hit] ?? ''}`).toBe(-1);
     }
@@ -156,8 +161,8 @@ describe('агенты пятого уровня не сдвигают ни од
     const changed = [...new Set([...Object.keys(pa), ...Object.keys(pb)])].filter(
       (k) => JSON.stringify(pa[k]) !== JSON.stringify(pb[k]),
     );
-    // Четыре поля и все — навык: отметки, зоркость и скрытность дважды — в провале и в гибели.
-    expect(changed.sort()).toEqual(['pips', 'sightBonus', 'stealth', 'veil']);
+    // Пять полей и все — навык: отметки, зоркость, скрытность дважды — в провале и в гибели, и красноречие дипломата (АГ-1).
+    expect(changed.sort()).toEqual(['eloquence', 'pips', 'sightBonus', 'stealth', 'veil']);
   });
 
   it('в мире: шанс лазутчика, предупреждение и живой обзор те же', async () => {

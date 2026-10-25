@@ -130,8 +130,9 @@ describe('раздел «Агенты» в Ратуше', () => {
     for (const c of list) expect(html).toContain(c.name);
     expect(html).toContain('Нанятый займёт его место');
     expect((html.match(/>Сменить</g) ?? []).length).toBe(list.length);
-    // Кандидат с врождённой скрытностью — на кружок выше нынешнего лазутчика первого уровня: разница зелёным.
-    if (list.some((c) => (c.head.stealth ?? 0) > 0 || (c.head.sabotage ?? 0) > 0)) expect(html).toMatch(/class="pos">\+\d/);
+    // Кандидат с врождённым — на кружок выше нынешнего лазутчика первого уровня: разница зелёным.
+    expect(list.some((c) => (c.head.stealth ?? 0) > 0 || (c.head.sabotage ?? 0) > 0), 'точка внутри области: есть кандидат с врождённым').toBe(true);
+    expect(html).toMatch(/class="pos">\+\d/);
   });
 });
 
