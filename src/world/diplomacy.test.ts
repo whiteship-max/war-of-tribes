@@ -100,7 +100,7 @@ describe('война и мир', () => {
     expect(a.attitude).toBeLessThan(0);
   });
 
-  it('разрыв пакта не мгновенный: сутки предупреждения', () => {
+  it('разрыв пакта не мгновенный: двенадцать настоящих часов предупреждения', () => {
     const a = respond(ctx({ action: 'war', standing: 'pact' }));
     expect(a.standing).toBe('war');
     expect(a.breakIn).toBe(PACT_BREAK_NOTICE);
