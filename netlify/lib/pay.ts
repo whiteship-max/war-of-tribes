@@ -16,6 +16,10 @@
  * обрывалась на пятистах транзакциях: неоплаченный заказ недельной давности или поток чужих транзакций прятал новые
  * платежи. Курсор не перешагивает транзакцию, ещё не записанную в мастерчейн.
  *
+ * Перевод, который не начисляется, не пропадает молча (FIN-7): сумма не та, повторная оплата оплаченного заказа, поздний
+ * перевод, неизвестный заказ — запись в очередь возвратов (`refund/<хеш>`) и одно письмо админам в бот. Автоматически
+ * ничего не начисляется и не возвращается (решение владельца, п. 4): возврат — переводом из кошелька проекта, руками.
+ *
  * Клиенту здесь не верят ни в чём: он называет набор и адрес своего кошелька, а сумму, комментарий, получателя и
  * кошелёк жетона считает сервер; «я заплатил» (`sent`) только переводит заказ в «ждёт перевода» — начисляет только
  * перевод, найденный в сети. Админ начислить не может: `/payments` только читает (`peekPayments`).
@@ -333,15 +337,19 @@ async function moveCursor(kv: Kv, key: string, next: ScanCursor): Promise<void> 
  * указателем у любого игрока. Сумма та и заказ ищется — перевод занимается вечно и заказ «оплачен»; сумма не та — причина
  * словами. `false` — хранилище не ответило: курсор встаёт перед этой транзакцией, следующая проверка разберёт её снова.
  */
-async function settleTx(stores: Stores, cfg: PayConfig, ours: TonTx['source'], tx: TonTx, now: number): Promise<boolean> {
+async function settleTx(stores: Stores, cfg: PayConfig, ours: TonTx['source'], tx: TonTx, now: number, tell?: Tell): Promise<boolean> {
   if (!tx.source || !ours || !tx.source.equals(ours)) return true;
   const notice = readNotice(tx.body);
   const m = notice ? /^TRIBE-([A-Z0-9]{10})$/.exec(notice.comment.trim()) : null;
   if (!notice || !m || !PAY_ID.test(m[1])) return true;
   const id = m[1];
+  const usdt = usdtText(notice.units, cfg.decimals);
+  // Деньги пришли, а начислять не за что, — в очередь возвратов (FIN-7).
+  const refund = (why: string, player?: string): Promise<boolean> =>
+    queueRefund(stores, { v: 1, hash: tx.hash, at: tx.at, seen: now, units: notice.units.toString(), usdt, order: id, ...(player ? { player } : {}), why }, tell);
   const player = await ownerOf(stores(STORES.pay, 'strong'), id);
   if (player === null) return false;
-  if (!player) return true;
+  if (!player) return refund('заказа с таким номером сервер не выдавал');
   let orders: StoredOrder[];
   try {
     orders = await readOrders(stores, player);
@@ -349,9 +357,12 @@ async function settleTx(stores: Stores, cfg: PayConfig, ours: TonTx['source'], t
     return false;
   }
   const o = orders.find((x) => x.id === id);
-  if (!o || !hunted(o, now)) return true;
+  if (!o) return refund('заказа уже нет в списке игрока', player);
+  if (o.state === 'paid' || o.state === 'credited') return o.tx === tx.hash ? true : refund(`повторная оплата: заказ уже оплачен (${o.usdt} USDT)`, player);
+  if (!hunted(o, now)) return refund('поздний перевод: заказ истёк больше недели назад', player);
   if (notice.units !== BigInt(o.units)) {
-    const note = `Пришло ${usdtText(notice.units, cfg.decimals)} USDT вместо ${o.usdt}, алмазы не начислены. Напиши мастерам игры.`;
+    const note = `Пришло ${usdt} USDT вместо ${o.usdt}, алмазы не начислены. Напиши мастерам игры.`;
+    if (!(await refund(`сумма не та: ждали ${o.usdt} USDT`, player))) return false;
     return (await noteOrder(stores, player, id, note)) !== null;
   }
   const mine = await claimTx(stores, tx.hash, player, id, now);
@@ -373,6 +384,84 @@ async function settleTx(stores: Stores, cfg: PayConfig, ours: TonTx['source'], t
   return done !== null;
 }
 
+// ------------------------------------------------ очередь возвратов (FIN-7) ---
+
+/** Перевод USDT, который не начислен и ждёт возврата руками. */
+export interface RefundEntry {
+  v: 1;
+  /** Хеш транзакции — ключ записи: один перевод — одна запись и одно письмо. */
+  hash: string;
+  /** Минута перевода в сети и минута, когда просмотр его разобрал. */
+  at: number;
+  seen: number;
+  /** Сколько пришло — в наименьших единицах жетона и словами. */
+  units: string;
+  usdt: string;
+  /** Чей заказ и какой — если указатель нашёл. */
+  player?: string;
+  order?: string;
+  /** Почему не начислено — словами для админа. */
+  why: string;
+}
+
+/** Ключ записи очереди возвратов. */
+export const refundKey = (hash: string): string => `refund/${hash}`;
+
+export function readRefund(v: unknown): RefundEntry | null {
+  const r = v as Record<string, unknown> | null;
+  if (!r || typeof r !== 'object' || typeof r.hash !== 'string' || typeof r.why !== 'string') return null;
+  const num = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) ? x : 0);
+  return {
+    v: 1,
+    hash: r.hash,
+    at: num(r.at),
+    seen: num(r.seen),
+    units: typeof r.units === 'string' && /^\d{1,30}$/.test(r.units) ? r.units : '0',
+    usdt: typeof r.usdt === 'string' ? r.usdt : '?',
+    ...(typeof r.player === 'string' ? { player: r.player } : {}),
+    ...(typeof r.order === 'string' ? { order: r.order } : {}),
+    why: r.why,
+  };
+}
+
+/** Чем сказать админам: письмо в бот (обработчик даёт адаптер Telegram, тесты — подмену). */
+export type Tell = (text: string) => Promise<void>;
+
+/**
+ * Положить перевод в очередь возвратов — в пустое место: запись по хешу одна, и письмо админам уходит один раз, сколько бы
+ * проверок ни разобрали этот перевод. `false` — хранилище не ответило: курсор встанет перед переводом.
+ */
+async function queueRefund(stores: Stores, entry: RefundEntry, tell?: Tell): Promise<boolean> {
+  let fresh: boolean;
+  try {
+    fresh = (await stores(STORES.pay, 'strong').setJSON(refundKey(entry.hash), entry, { onlyIfNew: true })).modified;
+  } catch {
+    return false;
+  }
+  if (fresh && tell) {
+    const who = entry.player ? `${entry.player}, заказ ${entry.order}` : entry.order ? `заказ ${entry.order} (чей — неизвестно)` : 'без заказа';
+    try {
+      await tell(`Возврат USDT: ${entry.usdt} USDT — ${entry.why}. ${who}. Перевод ${entry.hash.slice(0, 12)}…\nНичего не начислено; вернуть руками из кошелька проекта. Очередь — /payments.`);
+    } catch {
+      /* письмо попутное: запись лежит в очереди, её видно в /payments */
+    }
+  }
+  return true;
+}
+
+/** Очередь возвратов — команде админа `/payments`, свежие первыми. Только чтение. */
+export async function peekRefunds(stores: Stores, limit: number): Promise<{ total: number; list: RefundEntry[] }> {
+  const kv = stores(STORES.pay, 'strong');
+  const { blobs } = await kv.list({ prefix: 'refund/' });
+  const all: RefundEntry[] = [];
+  for (const { key } of blobs) {
+    const found = await kv.getWithMetadata(key);
+    const e = readRefund(found ? parseJson(String(found.data)) : null);
+    if (e) all.push(e);
+  }
+  return { total: all.length, list: all.sort((a, b) => b.seen - a.seen || b.at - a.at).slice(0, limit) };
+}
+
 /** Причина словами на неоплаченном заказе. `null` — хранилище не ответило. */
 function noteOrder(stores: Stores, player: string, id: string, note: string): Promise<PayFile | null> {
   return updatePay(stores, player, (f) => {
@@ -388,7 +477,7 @@ function noteOrder(stores: Stores, player: string, id: string, note: string): Pr
  * не перешагивает — следующая проверка посмотрит её снова; зависшая дольше `STUCK_MS` пропускается. Первый просмотр
  * (курсора нет) заводит указатели лежащим заказам и начинает с минуты, раньше которой искомых заказов нет. Возвращает, дочитана ли история до конца. Сеть не ответила — исключение, курсор не тронут.
  */
-export async function scanWallet(stores: Stores, cfg: PayConfig, fetcher: Fetch, now: number, pages?: number): Promise<boolean> {
+export async function scanWallet(stores: Stores, cfg: PayConfig, fetcher: Fetch, now: number, pages?: number, tell?: Tell): Promise<boolean> {
   const kv = stores(STORES.pay, 'strong');
   const key = cursorKey(cfg);
   const found = await kv.getWithMetadata(key);
@@ -410,7 +499,7 @@ export async function scanWallet(stores: Stores, cfg: PayConfig, fetcher: Fetch,
       whole = false;
       continue;
     }
-    if (tx.final && !(await settleTx(stores, cfg, ours, tx, now))) {
+    if (tx.final && !(await settleTx(stores, cfg, ours, tx, now, tell))) {
       whole = false;
       break;
     }
@@ -432,6 +521,7 @@ export async function checkOrders(
   player: string,
   now: number,
   chain = true,
+  tell?: Tell,
 ): Promise<{ orders: StoredOrder[]; credited: number; lines: string[] } | null> {
   let orders: StoredOrder[];
   try {
@@ -443,7 +533,7 @@ export async function checkOrders(
   // 1. Сеть: что пришло — заказам всех игроков.
   if (cfg && chain && orders.some((o) => hunted(o, now))) {
     try {
-      await scanWallet(stores, cfg, fetcher, now);
+      await scanWallet(stores, cfg, fetcher, now, undefined, tell);
     } catch {
       /* сеть TON не ответила — проверим в следующий раз */
     }
@@ -483,7 +573,7 @@ export async function checkOrders(
   return { orders: cur, credited, lines };
 }
 
-/** Последние заказы всех игроков — команде админа `/payments`. Только чтение; курсор и указатели — не заказы. */
+/** Последние заказы всех игроков — команде админа `/payments`. Только чтение; курсор, указатели и возвраты — не заказы. */
 export async function peekPayments(stores: Stores, limit: number): Promise<{ player: string; order: StoredOrder }[]> {
   const kv = stores(STORES.pay, 'strong');
   const { blobs } = await kv.list({});

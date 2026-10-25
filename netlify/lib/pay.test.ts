@@ -1,7 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Address, Cell, beginCell } from '@ton/core';
-import { pay, useFetch } from './routes/pay.js';
+import { payWith, useFetch } from './routes/pay.js';
 import { gems } from './routes/gems.js';
 import { botWith } from './routes/bot.js';
 import { STORES, type Kv, type Stores } from './kv.js';
@@ -9,7 +9,7 @@ import type { Telegram } from './telegram.js';
 import { FROZEN_KEY } from './admin.js';
 import { WIPED } from './era.js';
 import { creditGems, openLedger, readLedger, type GemLedger } from './gems.js';
-import { KEEP, PAY_HARD_MAX, PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor, trimmed, type StoredOrder } from './pay.js';
+import { KEEP, PAY_HARD_MAX, PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor, readRefund, trimmed, type RefundEntry, type StoredOrder } from './pay.js';
 import { CHAIN, FORWARD_TON, MAINNET_USDT, OP_NOTIFY, OP_TRANSFER, PAGES, PAY_ENV, payConfig, readNotice, type Fetch, type PayConfig } from './ton.js';
 import { payComment, type GemsResponse, type PayResponse } from './contract.js';
 import { START_GEMS } from '../../src/game/gemrules.js';
@@ -150,6 +150,28 @@ function fakeChain() {
   };
 }
 
+/** Telegram в памяти: что сказано админам. Настоящий адаптер ушёл бы в сеть. */
+function fakeTg(said: string[]): Telegram {
+  return {
+    letter: async () => ({ result: 'ok' }),
+    edit: async () => ({ result: 'ok' }),
+    panel: async () => 'ok',
+    repanel: async () => 'ok',
+    answer: async () => 'ok',
+    button: async () => 'ok',
+    async say(_c, t) {
+      said.push(t);
+      return 'ok';
+    },
+    file: async () => 'ok',
+    greet: async () => 'ok',
+    checkout: async () => 'ok',
+  };
+}
+/** Письма админам из обработчика оплаты — за тест. */
+let told: string[] = [];
+const pay = payWith(() => fakeTg(told));
+
 function signInit(id: number, now = NOW): string {
   const fields: Record<string, string> = { auth_date: String(Math.floor(now / 1000) - 60), user: JSON.stringify({ id, username: `p${id}` }) };
   const check = Object.entries(fields)
@@ -201,6 +223,7 @@ beforeEach(() => {
   process.env.TON_USDT_MASTER = MASTER.toString({ testOnly: true });
   chain = fakeChain();
   useFetch(chain.fetcher);
+  told = [];
 });
 afterEach(() => {
   useFetch(null);
@@ -587,24 +610,85 @@ describe('обрезка заказов не выкидывает заказ, п
   });
 });
 
+describe('перевод, который не начисляется, — в очередь возвратов и письмо админу, ничего не начислено (FIN-7)', () => {
+  const queue = (s: ReturnType<typeof memoryStores>): RefundEntry[] =>
+    [...(s.data.get(STORES.pay)?.entries() ?? [])].filter(([k]) => k.startsWith('refund/')).map(([, v]) => readRefund(JSON.parse(v.value))!);
+
+  it('сумма не та: запись в очереди, одно письмо, сколько бы проверок ни разобрали; верный перевод потом — начислен', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.notify({ units: units(POUCH.usdt) + 500_000n, comment: payComment(o!.id) });
+    // Пять проверок разом читают один курсор и разбирают перевод все — запись в очередь и письмо одни.
+    const all = await Promise.all(Array.from({ length: 5 }, (_, i) => call(s, p, undefined, NOW + i)));
+    expect(all.every((r) => r.credited === undefined)).toBe(true);
+    for (let i = 1; i <= 3; i++) await call(s, p, undefined, NOW + i * 6000);
+    const q = queue(s);
+    expect(q.map((e) => [e.usdt, e.player, e.order, e.why])).toEqual([['5.5', `tg-${p}`, o!.id, 'сумма не та: ждали 5 USDT']]);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatch(/^Возврат USDT: 5\.5 USDT — сумма не та/);
+    expect(await balance(s, p)).toBe(START_GEMS);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id), at: NOW + 30_000 });
+    expect((await call(s, p, undefined, NOW + 40_000)).credited).toBe(POUCH.amount);
+    expect(queue(s)).toHaveLength(1);
+  });
+
+  it('повторная оплата начисленного заказа — в очередь; алмазы легли один раз', async () => {
+    const s = memoryStores();
+    const p = player();
+    const a = (await order(s, p)).order!;
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(a.id) });
+    expect((await call(s, p)).credited).toBe(POUCH.amount);
+    // Второй перевод с тем же комментарием; проверку запускает новый заказ игрока (просмотр идёт, пока что-то ищется).
+    await order(s, p, 'handful', NOW + 1000);
+    chain.notify({ units: units(POUCH.usdt), comment: payComment(a.id), at: NOW + 2000 });
+    expect((await call(s, p, undefined, NOW + 6000)).credited).toBeUndefined();
+    expect(queue(s).map((e) => [e.order, e.why])).toEqual([[a.id, 'повторная оплата: заказ уже оплачен (5 USDT)']]);
+    expect(told).toHaveLength(1);
+    expect(await balance(s, p)).toBe(START_GEMS + POUCH.amount);
+  });
+
+  it('поздний перевод (заказ истёк больше недели назад), неизвестный заказ и заказ, ушедший из списка, — в очередь', async () => {
+    const s = memoryStores();
+    const p = player();
+    const old = (await order(s, p, 'handful')).order!;
+    const gone = (await order(s, p, 'handful', NOW + 1)).order!;
+    // Заказ ушёл из списка игрока (вытеснен), указатель на него остался.
+    const file = s.data.get(STORES.pay)!.get(`tg-${p}`)!;
+    const parsed = JSON.parse(file.value) as { orders: { id: string }[] };
+    file.value = JSON.stringify({ ...parsed, orders: parsed.orders.filter((o) => o.id !== gone.id) });
+    const later = NOW + PAY_LATE_MS + 3600_000;
+    const fresh = (await order(s, p, 'handful', later)).order!;
+    chain.notify({ units: units(1), comment: payComment(old.id), at: later + 1000 });
+    chain.notify({ units: units(1), comment: payComment('ABCDEFGHJK'), at: later + 1000 });
+    chain.notify({ units: units(1), comment: payComment(gone.id), at: later + 1000 });
+    chain.notify({ units: units(1), comment: payComment(fresh.id), at: later + 1000 });
+    expect((await call(s, p, undefined, later + 2000)).credited).toBe(100);
+    expect(queue(s).map((e) => [e.order, e.player ?? null, e.why]).sort()).toEqual(
+      [
+        [old.id, `tg-${p}`, 'поздний перевод: заказ истёк больше недели назад'],
+        ['ABCDEFGHJK', null, 'заказа с таким номером сервер не выдавал'],
+        [gone.id, `tg-${p}`, 'заказа уже нет в списке игрока'],
+      ].sort(),
+    );
+    expect(told).toHaveLength(3);
+    expect(await balance(s, p)).toBe(START_GEMS + 100);
+  });
+
+  it('поддельный жетон с нашим комментарием — не наши деньги: ни очереди, ни письма', async () => {
+    const s = memoryStores();
+    const p = player();
+    const { order: o } = await order(s, p);
+    chain.notify({ units: units(POUCH.usdt) + 1n, comment: payComment(o!.id), source: walletOf(FAKE_MASTER, PROJECT) });
+    await call(s, p);
+    expect([queue(s).length, told.length]).toEqual([0, 0]);
+  });
+});
+
 describe('админ: /payments только читает', () => {
   async function command(s: ReturnType<typeof memoryStores>, text: string): Promise<string> {
     const said: string[] = [];
-    const tg: Telegram = {
-      letter: async () => ({ result: 'ok' }),
-      edit: async () => ({ result: 'ok' }),
-      panel: async () => 'ok',
-      repanel: async () => 'ok',
-      answer: async () => 'ok',
-      button: async () => 'ok',
-      async say(_c, t) {
-        said.push(t);
-        return 'ok';
-      },
-      file: async () => 'ok',
-      greet: async () => 'ok',
-      checkout: async () => 'ok',
-    };
+    const tg = fakeTg(said);
     const req = new Request('https://x/api/bot', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': SECRET },
@@ -626,6 +710,13 @@ describe('админ: /payments только читает', () => {
     expect(text).toMatch(/Оплата: сеть testnet/);
     expect(text).toContain(`tg-${p} · ${a.id} · ${POUCH.amount} за ${POUCH.usdt} USDT · начислено`);
     expect(text).toContain(`tg-${p} · ${b.id} · 100 за 1 USDT · создан`);
+    expect(text).not.toMatch(/Очередь возвратов/);
     expect(JSON.stringify([...s.data.get(STORES.pay)!.entries(), ...s.data.get(STORES.gems)!.entries()])).toBe(before);
+    // Перевод не на ту сумму — в очереди возвратов, и /payments её показывает (FIN-7).
+    chain.notify({ units: units(1) + 1n, comment: payComment(b.id), at: NOW + 3000 });
+    await call(s, p, undefined, NOW + 9000);
+    const again = await command(s, '/payments');
+    expect(again).toMatch(/Очередь возвратов — вернуть вручную: 1/);
+    expect(again).toContain(`1.000001 USDT · tg-${p} · ${b.id} · сумма не та: ждали 1 USDT`);
   });
 });

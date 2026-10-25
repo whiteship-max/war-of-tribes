@@ -434,6 +434,8 @@ describe('сервер разбирает ровно названные запи
       'readPayFile',
       // замеры с телефонов (docs/telemetry.md): сутки устройства замка
       'readPerfDay',
+      // оплата алмазов: очередь возвратов — перевод, который не начислен (FIN-7)
+      'readRefund',
       'readRoster',
       'readStoredReport',
       'readStoredSheet',

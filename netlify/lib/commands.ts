@@ -40,7 +40,7 @@ import { TROOPS } from '../../src/game/data/troops.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { SHOP_DAILY, gemLine } from '../../src/game/gemrules.js';
 import { peekGems, shopToday } from './gems.js';
-import { peekPayments } from './pay.js';
+import { peekPayments, peekRefunds } from './pay.js';
 import { payConfig } from './ton.js';
 import { grantNotice, outboxOf, queueNews } from './outbox.js';
 import { castleIdOf } from './roster.js';
@@ -306,6 +306,8 @@ async function gemsOf(io: Io, q: string): Promise<Reply> {
 
 /** Сколько заказов показывает `/payments`. */
 export const PAYMENTS_LINES = 20;
+/** Сколько последних записей очереди возвратов показывает `/payments`. */
+export const REFUND_LINES = 10;
 
 /** Статус заказа словами — для админа. */
 export const PAY_WORD: Record<string, string> = {
@@ -324,12 +326,17 @@ async function payments(io: Io): Promise<Reply> {
   const cfg = payConfig();
   const head = typeof cfg === 'string' ? `Оплата выключена: ${cfg}` : `Оплата: сеть ${cfg.net}, кошелёк ${cfg.wallet.toString({ testOnly: cfg.net === 'testnet' })}`;
   const rows = await peekPayments(io.stores, PAYMENTS_LINES);
-  if (!rows.length) return say(`${head}\nЗаказов нет.`);
+  // Очередь возвратов (FIN-7): переводы, которые не начислены, — вернуть руками из кошелька проекта.
+  const back = await peekRefunds(io.stores, REFUND_LINES);
+  const refunds = back.total
+    ? ['', `Очередь возвратов — вернуть вручную: ${back.total}`, ...back.list.map((e) => `${when(e.seen)} ${e.usdt} USDT · ${e.player ?? '—'} · ${e.order ?? '—'} · ${e.why} · tx ${e.hash.slice(0, 12)}…`)]
+    : [];
+  if (!rows.length) return say([`${head}\nЗаказов нет.`, ...refunds].join('\n'));
   const lines = [head, '', `Последние ${rows.length}:`];
   for (const { player: who, order: o } of rows) {
     lines.push(`${when(o.at)} ${who} · ${o.id} · ${o.gems} за ${o.usdt} USDT · ${PAY_WORD[o.state] ?? o.state}${o.tx ? ` · tx ${o.tx.slice(0, 12)}…` : ''}${o.note ? ` · ${o.note}` : ''}`);
   }
-  return say(lines.join('\n'));
+  return say([...lines, ...refunds].join('\n'));
 }
 
 async function player(io: Io, q: string): Promise<Reply> {
