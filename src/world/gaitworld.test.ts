@@ -207,6 +207,45 @@ describe('режим марша в мире: смена в пути', () => {
   });
 });
 
+describe('режим марша в мире: погоня (MAP-9)', () => {
+  it('уходящий набег налегке догоняется, обычным маршем и с обозом — нет: темп погони — скорость режима', async () => {
+    const plans: Record<string, { can: boolean; seconds: number }> = {};
+    for (const g of ['light', 'normal', 'train'] as const) {
+      const r = await ready();
+      expect(await r.world.setGait(g)).toBeNull();
+      const home = r.inner.save.home;
+      // Набег уходит от наших ворот на восток, к себе домой, скоростью воина — ровно скоростью полководца.
+      const to = { x: home.x + 40, y: home.y };
+      const walk = (await r.world.leadPlan('general', to)).seconds;
+      const speedWalk = realMs(walk) * (g === 'light' ? 1.5 : g === 'train' ? 0.5 : 1);
+      r.inner.save.marches.push({
+        id: 'raid-away',
+        seed: 5,
+        mission: 'raid',
+        units: { warrior: 5 },
+        own: false,
+        fromId: 'x',
+        targetId: r.lair.id,
+        from: { x: home.x + 3, y: home.y },
+        to,
+        fromName: 'Набег',
+        toName: 'логово',
+        departAt: r.now(),
+        arriveAt: r.now() + Math.round(speedWalk),
+        phase: 'back',
+        power: 15,
+        loot: null,
+      });
+      const plan = await r.world.interceptPlan('raid-away');
+      plans[g] = { can: plan.can, seconds: plan.seconds };
+    }
+    // Точка внутри области: набег вышел в трёх клетках от ворот и идёт сорок клеток — налегке встреча в пути.
+    expect(plans.light.can, 'налегке догоняет').toBe(true);
+    expect(plans.normal.can, 'обычный не догоняет').toBe(false);
+    expect(plans.train.can, 'обоз не догоняет').toBe(false);
+  });
+});
+
 describe('режим марша в мире: обоз — второй склад лагеря', () => {
   /** Лагерь в режиме `g` под логовом при пустом амбаре дома; истощение первой фазы «без перемен». */
   async function firstWaste(g: 'normal' | 'train') {
