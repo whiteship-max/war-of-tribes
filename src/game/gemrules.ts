@@ -9,6 +9,7 @@
 //    (`yardHourly`), — та же кривая, тот же курс времени.
 import type { BuildingTypeId, ResourceId } from './types';
 import { BUILDING_BY_ID } from './data/buildings';
+import { own } from './guard';
 import { YARDS } from './data/yards';
 import { MAX_BUILDING_LEVEL, SLOTS_PER_LEVEL } from './constants';
 import { gameDaysPerHour, gameRate, gameSeconds, realSec, realSeconds } from './pace';
@@ -72,7 +73,8 @@ export const rushPriceOfWork = (work: number): number => gemsForWait(rushSeconds
 
 /** Может ли постройка этого типа строиться до этого уровня — то, что сервер знает о стройке без книги стройки. */
 export function rushLevelOk(type: string, level: number): type is BuildingTypeId {
-  const def = (BUILDING_BY_ID as Record<string, (typeof BUILDING_BY_ID)[BuildingTypeId] | undefined>)[type];
+  // Своим полем (SETUP-3): постройка из приказа — чужая строка, и «constructor» таблицей не является.
+  const def = own(BUILDING_BY_ID as Record<string, (typeof BUILDING_BY_ID)[BuildingTypeId]>, type);
   if (!def) return false;
   const top = Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
   return Number.isInteger(level) && level >= 2 && level <= top;

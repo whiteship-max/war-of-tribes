@@ -3,6 +3,7 @@
 // в очереди и в идущей стройке книги. Каждая точка — ключ, которого в таблице нет, хотя `in` его видит.
 import { describe, expect, it } from 'vitest';
 import { crownFlags } from './watch.js';
+import { applyGemOrder, type GemLedger } from './gems.js';
 import { queueFaults, readTown, seedTown } from './town.js';
 import type { WatchCard } from './contract.js';
 import { CROWN_RULES } from '../../src/game/crownrules.js';
@@ -40,5 +41,17 @@ describe('ключи прототипа на границе сервера', () 
       const t = readTown({ ...seedTown(T0), site: { type, level: 1, done: 5 } });
       expect(t?.site ?? null, type).toBeNull();
     }
+  });
+
+  it('ускорение за алмазы: постройка «constructor» — отказ, ни одного алмаза не списано (архив round2/prove-6-1)', () => {
+    // Точка внутри области: у книги есть алмазы, и уровень ускорения законный (2), — отказать может только ключ постройки.
+    const ledger: GemLedger = { v: 1, balance: 1000, seq: 0, list: [], shop: { day: 0, used: 0 }, rushed: {}, paid: [] };
+    for (const building of PROTO) {
+      const step = applyGemOrder(ledger, { op: 'rush', key: `k-${building}`, building, level: 2, work: 1e6, price: 1e6 }, T0, 3600);
+      expect(step.ledger, building).toBeNull();
+      expect(step.entry, building).toBeUndefined();
+      expect(step.error, building).toBe('Такой стройки нет.');
+    }
+    expect(ledger.balance).toBe(1000);
   });
 });
