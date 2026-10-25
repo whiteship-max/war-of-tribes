@@ -83,7 +83,19 @@ import {
   rivalRolls,
 } from '../../src/world/rivalspy.js';
 import { gameDaysOfMs, gameSecondsOfMs } from '../../src/game/pace.js';
-import { breadAt, breadStock, FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import {
+  breadAt,
+  breadStock,
+  FATE_SAME,
+  GENERAL_MARCHES,
+  GENERAL_RELIEVES,
+  GENERAL_STRIKES,
+  openSiege,
+  SIEGE_BLOCK,
+  siegeSince,
+  starvesAt,
+  type SiegeWindow,
+} from '../../src/world/siege.js';
 import { siegeCutOf, starves } from '../../src/world/siegefood.js';
 import { BREAD_SLACK, BREAD_SLACK_MIN } from '../../src/world/data/siegefood.js';
 import { aimBlock as artilleryAimBlock, gunAfter, gunAimBlock, gunBlock, shotsApplied } from '../../src/world/shelling.js';
@@ -1919,8 +1931,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (!pacted(file, key, w.def)) return 'На выручку идут только к союзнику по пакту.';
       const me = castleIdOf(key);
       if (w.reliefs?.some((r) => r.castle === me)) return 'Наша дружина уже идёт на выручку.';
-      if (file.wars.some((x) => x.atk === key && active(x))) return 'Полководец в походе на соседа.';
-      if (file.wars.some((x) => x.reliefs?.some((r) => r.castle === me))) return 'Полководец уже идёт на выручку.';
+      const busy = generalBusy(file, key);
+      if (busy) return busy;
       const s = ctx.sheet(key);
       if (!s) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
       if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет отряда.';
@@ -1947,9 +1959,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
     case 'strike': {
       const w = theirs(file, order.id, key, 'def');
       if (!w || w.phase !== 'camp') return 'Лагеря под стенами уже нет.';
-      if (w.strike) return 'Полководец уже идёт на лагерь.';
-      // Полководец один: ведёт свой поход — по лагерю у своих стен он не ударит (у клиента — `WAR_BUSY`).
-      if (file.wars.some((x) => x.atk === key && active(x))) return 'Полководец в походе на соседа.';
+      // Полководец один: ведёт свой поход, идёт на выручку или уже бьёт этот лагерь — второго дела нет (BTL-2).
+      const busy = generalBusy(file, key);
+      if (busy) return busy;
       const s = ctx.sheet(key);
       if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
       if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет отряда.';
@@ -2017,6 +2029,19 @@ export function generalCap(file: WarFile, key: string, now: number): number {
   return energyAt(mark, now);
 }
 
+/**
+ * Занят ли полководец (BTL-2, OWNER-DECISIONS п. 9: один полководец — одно действие): ведёт свой поход, его выручка союзнику в
+ * пути или его удар по лагерю у своих стен ждёт минуты прихода. Одна проверка у похода, выручки и удара; у мира — та же,
+ * `LocalWorld.warGeneralBusy`. Выручка и удар снимаются с записи боем или уходом лагеря — с ними полководец и свободен.
+ */
+export function generalBusy(file: WarFile, key: string): string | null {
+  if (file.wars.some((w) => w.atk === key && active(w))) return GENERAL_MARCHES;
+  const me = castleIdOf(key);
+  if (file.wars.some((w) => w.reliefs?.some((r) => r.castle === me))) return GENERAL_RELIEVES;
+  if (file.wars.some((w) => w.def === key && w.strike)) return GENERAL_STRIKES;
+  return null;
+}
+
 function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march' }>, now: number, ctx: OrderCtx): string | null {
   const own = ctx.roster.rows[key];
   if (!own) return 'Твой город ещё не стоит на карте.';
@@ -2028,7 +2053,8 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (pacted(file, key, def)) return 'С этим городом у нас пакт. Сначала разорви его.';
   // Регион игрока — правило мира (`theatre.inHomeTheatre`): походы за край не уходят.
   if (!inHomeTheatre(own, row)) return 'Город за пределами твоего края. Походы туда не ходят.';
-  if (file.wars.some((w) => w.atk === key && active(w))) return 'Полководец уже в походе.';
+  const busy = generalBusy(file, key);
+  if (busy) return busy;
   if (besieged(file, key)) return SIEGE_BLOCK;
   if (file.wars.some((w) => w.def === def && active(w))) return 'На этот город уже идёт другой отряд.';
   // Павший город неприкосновенен, как и у логова (`siege.SIEGE_IMMUNE`): цепочки падений нет.

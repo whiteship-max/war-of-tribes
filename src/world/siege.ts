@@ -387,6 +387,15 @@ export const siegeImmune = (until: number | undefined, now: number): boolean =>
 export const SIEGE_BLOCK = 'Город в осаде. Выйти можно только вылазкой.';
 
 /**
+ * Полководец один — одно действие (BTL-2, docs/audit/OWNER-DECISIONS.md, п. 9): свой поход на соседа, выручка союзника в пути
+ * и удар по лагерю у своих стен исключают друг друга. Одни слова на сервер войны (`war.generalBusy`) и мир
+ * (`LocalWorld.warGeneralBusy`).
+ */
+export const GENERAL_MARCHES = 'Полководец в походе на соседа.';
+export const GENERAL_RELIEVES = 'Полководец уже идёт на выручку.';
+export const GENERAL_STRIKES = 'Полководец уже идёт на лагерь.';
+
+/**
  * Лагерь игрока. У чужой осады под стенами стоит отряд, и `campId` — номер его
  * марша; у нашей под стенами стоит полководец, и марша за ним нет. Имя лагеря
  * поэтому одно и постоянное: фигура в мире одна, второго полководца не бывает.

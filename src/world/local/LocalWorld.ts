@@ -203,6 +203,8 @@ import {
   PLAYER_CAMP,
   SIEGE_BLOCK,
   STRIKE_FROM_TOWN,
+  GENERAL_RELIEVES,
+  GENERAL_STRIKES,
   WOOD_FIXED,
   breadAt,
   breadStock,
@@ -5205,7 +5207,8 @@ export class LocalWorld implements WorldApi {
    */
   private chaseBlock(now: number): string | null {
     if (this.ourSiege(now)) return CHASE_FROM_CAMP;
-    if (this.save.figures.general.war) return WAR_BUSY;
+    const busy = this.warGeneralBusy();
+    if (busy) return busy;
     if (this.touching(this.figureAt(this.save.figures.general, now))?.home) return this.siegeBlock(now);
     return null;
   }
@@ -6217,7 +6220,8 @@ export class LocalWorld implements WorldApi {
     if (off) return { error: off };
     this.settleHandover(f, now);
     if (f.handover) return { error: `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.` };
-    if (f.war) return { error: WAR_BUSY };
+    const busy = this.warGeneralBusy();
+    if (busy) return { error: busy };
     if (troopTotal(f.troops ?? {}) === 0) return { error: 'При полководце нет отряда.' };
     // Дело из «Походов» по чужому лагерю (`out`, Р-4): полководец выходит из своих ворот с отрядом — та же дверь выхода,
     // что у похода и «дойти и ударить». Лагерь под своим городом из города бьют вылазкой, а не делом.
@@ -7246,7 +7250,8 @@ export class LocalWorld implements WorldApi {
     const def = FIGURE_BY_ID[id];
     const off = this.offDuty(id, now);
     if (off) return off;
-    if (id === 'general' && f.war) return WAR_BUSY;
+    const warBusy = id === 'general' ? this.warGeneralBusy() : null;
+    if (warBusy) return warBusy;
     // Дожившему до покоя дорога одна — домой.
     if (this.isRetiring(id) && !this.touching(clampToWorld(to))?.home) return this.retiringBlock(id);
     // Занятая фигура с места не сходит. Для лазутчика это и есть цена провала:
@@ -7490,7 +7495,8 @@ export class LocalWorld implements WorldApi {
     this.settleHandover(f, now);
     const off = this.offDuty('general', now);
     if (off) return off;
-    if (f.war) return WAR_BUSY;
+    const busy = this.warGeneralBusy();
+    if (busy) return busy;
     if (f.phase === 'moving') return 'Полководец в пути, отряд к нему не подойдёт.';
     if (f.handover) return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
     if (!this.touching(this.figureAt(f, now))?.home) return 'Отряд собирают только у своего города.';
@@ -8103,7 +8109,8 @@ export class LocalWorld implements WorldApi {
     const f = this.save.figures.general;
     const off = this.offDuty('general', now) ?? this.retiringBlock('general');
     if (off) return off;
-    if (f.war) return WAR_BUSY;
+    const warBusy = this.warGeneralBusy();
+    if (warBusy) return warBusy;
     // Из осаждённого своего города не выходят: та же дверь выхода, что у похода и фигуры.
     if (!here && this.touching(this.figureAt(f, now))?.home) {
       const blocked = this.siegeBlock(now);
@@ -8235,7 +8242,8 @@ export class LocalWorld implements WorldApi {
     const f = this.save.figures[id];
     const off = this.offDuty(id, now) ?? (home ? null : this.retiringBlock(id));
     if (off) return off;
-    if (id === 'general' && f.war) return home ? null : WAR_BUSY;
+    const warBusy = id === 'general' ? this.warGeneralBusy() : null;
+    if (warBusy) return home ? null : warBusy;
     const busy = Math.max(0, (f.busyUntil ?? 0) - now);
     if (busy > 0) return `${this.busyNote(id)}: ${formatLeft(busy / 1000)}.`;
     if (home) return null;
@@ -10577,6 +10585,19 @@ export class LocalWorld implements WorldApi {
     return { pact: p.state, ...(relief ? { relief } : {}) };
   }
 
+  /**
+   * Чем занят полководец у сервера войны (BTL-2, OWNER-DECISIONS п. 9: один полководец — одно действие): ведёт поход на соседа
+   * (`WAR_BUSY`), его выручка союзнику в пути или его удар по лагерю у своих стен ждёт минуты прихода — то же правило, что у
+   * сервера (`war.generalBusy`). Выручка и удар лежат в войнах с сервера, пока не сошлись в бою.
+   */
+  private warGeneralBusy(): string | null {
+    if (this.save.figures.general.war) return WAR_BUSY;
+    const wars = this.warList();
+    if (wars.some((w) => w.role === 'ally' && w.reliefs?.some((r) => r.castle === w.me))) return GENERAL_RELIEVES;
+    if (wars.some((w) => w.role === 'def' && w.strike)) return GENERAL_STRIKES;
+    return null;
+  }
+
   /** Осада союзника, на которую можно прийти на выручку. */
   private allySiege(c: PlayerCastle): WarView | null {
     return this.warList().find((w) => w.role === 'ally' && w.defCastle === c.id && w.phase === 'camp' && w.camp) ?? null;
@@ -10598,7 +10619,8 @@ export class LocalWorld implements WorldApi {
     if (going) return { ...no('Наша дружина уже идёт на выручку.'), going: going.at };
     const off = this.offDuty('general', now) ?? this.retiringBlock('general');
     if (off) return no(off);
-    if (f.war) return no(WAR_BUSY);
+    const busy = this.warGeneralBusy();
+    if (busy) return no(busy);
     this.settleHandover(f, now);
     if (f.handover) return no(`Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`);
     if (troopTotal(f.troops ?? {}) === 0) return no('При полководце нет отряда.');
@@ -10731,6 +10753,8 @@ export class LocalWorld implements WorldApi {
     const off = this.offDuty('general', now) ?? this.retiringBlock('general');
     if (off) return off;
     if (f.war) return 'Полководец уже в походе.';
+    const busy = this.warGeneralBusy();
+    if (busy) return busy;
     if (this.ourSiege(now)) return `${CAMP_BUSY} ${CAMP_LEAVE}`;
     const sieged = this.siegeBlock(now);
     if (sieged) return sieged;
@@ -10911,13 +10935,14 @@ export class LocalWorld implements WorldApi {
     const f = this.save.figures.general;
     const off = this.offDuty('general', now) ?? this.retiringBlock('general');
     if (off) return no(off);
-    if (f.war) return no(WAR_BUSY);
+    // Удар по этому лагерю уже идёт — та же проверка: полководец бьёт лагерь у своих стен (BTL-2).
+    const busy = this.warGeneralBusy();
+    if (busy) return no(busy);
     this.settleHandover(f, now);
     if (f.handover) return no(`Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`);
     if (troopTotal(f.troops ?? {}) === 0) return no('При полководце нет отряда.');
     const force = fieldTroops(f, now);
     if (troopTotal(force) === 0) return no(STRIKE_FROM_TOWN);
-    if (w.strike) return no('Полководец уже идёт на лагерь.');
     const c = this.warWindow(w);
     if (!c) return no('Под этими стенами лагеря нет.');
     const from = this.figureAt(f, now);
