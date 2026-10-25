@@ -372,6 +372,44 @@ export function dieOf(seed: string, k: number): number {
   return 1 + Math.floor(r * SIEGE_DIE);
 }
 
+/** Доля [0, 1) из сида осады, номера фазы и метки — тот же хеш, что у кости фазы. */
+function unitOf(seed: string, k: number, tag: string): number {
+  let h = 0x811c9dc5;
+  const s = `${seed}#${k}#${tag}`;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  let t = (h + 0x6d2b79f5) >>> 0;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+/**
+ * Кто уходит с лагеря за фазу (раздел 3; АУ-8, п. 3, OWNER-DECISIONS п. 15 — решение владельца 26.10.2026): доля `share`
+ * каждого вида, целая часть — всегда, дробь — бойцом с вероятностью, равной дроби, по кости от сида осады, номера фазы и
+ * вида. Так в среднем лагерь теряет ровно свою долю (прогноз окна лагеря, `siegefood.phasesToEven`, тот же), а малый род и
+ * войско, раздробленное на мелкие роды, тают так же, как большое: прежде дробь рода шла к ближнему (`price.shareLosses`), и
+ * 20 латных всадников при 2,1 % не теряли никого. Одна дверь у мира (`LocalWorld.wearCamp`) и сервера войны (`phaseStep`):
+ * тот же сид — тот же уход. Подмена кости фаз (`setPhaseDie`) эту кость не трогает.
+ */
+export function wasteLosses<T extends Partial<Record<string, number>>>(troops: T, share: number, seed: string, k: number): T {
+  const out: Partial<Record<string, number>> = {};
+  const p = Math.min(1, Math.max(0, share));
+  if (p <= 0) return out as T;
+  for (const id of Object.keys(troops).sort()) {
+    const n = Math.max(0, Math.floor(troops[id] ?? 0));
+    if (n <= 0) continue;
+    const x = n * p;
+    const whole = Math.floor(x + 1e-9);
+    const frac = x - whole;
+    const lost = Math.min(n, whole + (frac > 1e-9 && unitOf(seed, k, `waste:${id}`) < frac ? 1 : 0));
+    if (lost > 0) out[id] = lost;
+  }
+  return out as T;
+}
+
 let dieOverride: ((seed: string, k: number) => number) | null = null;
 
 /**

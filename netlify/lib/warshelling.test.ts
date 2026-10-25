@@ -256,14 +256,18 @@ describe('BTL-4: залп фазы, в которой кольцо разомк�
     // Гарнизон подбирается так, чтобы кольцо замкнулось при постановке, а истощение первой фазы его разомкнуло (`ringCheck`
     // после броска): прежде шаг фазы писал залп в прежний объект лагеря, который `ringCheck` уже заменил, — энергия
     // списана, залпа нет.
+    // Истощение фазы — доля вида, дробь костью сида осады (АУ-8, п. 3): сколько уйдёт в первой фазе, решает сид лагеря, поэтому
+    // ищется и минута выхода похода (сид), а не только гарнизон.
     let found: ReturnType<typeof camped> | null = null;
-    for (let n = 1; n <= 40 && !found; n++) {
-      const c = camped({ home: { spearman: n } }, true);
-      if (!blockadeAt(camp(c.w), c.since)) break;
-      expect(applyOrder(c.file, A, { op: 'orders', id: c.w.id, orders: { volley: true } }, c.since + 1, c.ctx)).toBeNull();
-      advance(c.file, phaseAt(c.since, 1) + 1, c.sheets);
-      const broke = blockadeDeeds(camp(c.w)).at(-1);
-      if (c.w.phase === 'camp' && broke?.why === 'ratio' && broke.at === phaseAt(c.since, 1)) found = c;
+    for (let t = 0; t < 40 && !found; t++) {
+      for (let n = 1; n <= 40 && !found; n++) {
+        const c = camped({ home: { spearman: n } }, true, T0 + t * 60_000);
+        if (!blockadeAt(camp(c.w), c.since)) break;
+        expect(applyOrder(c.file, A, { op: 'orders', id: c.w.id, orders: { volley: true } }, c.since + 1, c.ctx)).toBeNull();
+        advance(c.file, phaseAt(c.since, 1) + 1, c.sheets);
+        const broke = blockadeDeeds(camp(c.w)).at(-1);
+        if (c.w.phase === 'camp' && broke?.why === 'ratio' && broke.at === phaseAt(c.since, 1)) found = c;
+      }
     }
     expect(found, 'точка внутри области: кольцо разомкнуто истощением в минуту первой фазы').not.toBeNull();
     const { file, ctx, w, since } = found!;

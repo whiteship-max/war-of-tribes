@@ -127,9 +127,11 @@ import {
   repairBlock,
   repairsOf,
   rollPhase,
+  rollSeed,
   rowsOf,
   hungerStepAt,
   softerFate,
+  wasteLosses,
   type PhaseRow,
 } from '../../src/world/siegeroll.js';
 import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
@@ -1200,7 +1202,10 @@ function shotsStep(w: WarRow, row: PhaseRow, at: number): void {
   if (after.guns !== camp.guns) camp.guns = after.guns;
 }
 
-/** Войско после истощения фазы: доля `share` с каждого рода, остаток рода — к ближнему (`price.shareLosses`, BTL-1). */
+/**
+ * Войско после доли `share` (выбитое башней): доля с каждого рода, остаток рода — к ближнему (`price.shareLosses`, BTL-1).
+ * Истощение фазы — не здесь, а костью сида осады (`siegeroll.wasteLosses`, АУ-8, п. 3).
+ */
 function wasted(troops: Counts, share: number): Counts {
   return minus(troops, shareLosses(asTroops(troops), share) as Counts);
 }
@@ -1224,7 +1229,8 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
   const row = rollPhase(camp, k, atkHungry);
   camp.phases = [...rowsOf(camp), row];
   shotsStep(w, row, at);
-  if (row.waste > 0) w.army = { ...w.army, troops: wasted(w.army.troops, row.waste) };
+  // Истощение фазы — доля вида, дробь костью сида осады (АУ-8, п. 3): та же дверь, что у мира.
+  if (row.waste > 0) w.army = { ...w.army, troops: minus(w.army.troops, wasteLosses(w.army.troops, row.waste, rollSeed(camp), k)) };
   if (troopTotal(asTroops(w.army.troops)) <= 0) {
     turnBack(w, at, w.to, 'lifted');
     return;

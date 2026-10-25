@@ -240,10 +240,12 @@ import {
   repairPending,
   repairsOf,
   rollPhase,
+  rollSeed,
   rowsOf,
   hungerStepAt,
   phaseAt,
   softerFate,
+  wasteLosses,
   wasteOf,
   type PhaseRow,
   type SiegeOrders,
@@ -2280,14 +2282,20 @@ export class LocalWorld implements WorldApi {
     atLeastOne = true,
     /** Писать ли строку летописи об убыли (истощение чужого лагеря у чужого города — не наше дело). */
     note = true,
+    /** Истощение фазы `k` (АУ-8, п. 3): доля вида, дробь — костью сида осады (`siegeroll.wasteLosses`), как у сервера войны. */
+    phase?: number,
   ): number {
     if (ourCamp(w)) {
       const f = this.save.figures.general;
       const troops = f.troops ?? {};
       // Доля потерь ложится на каждый род ровно так же, как её считает бой:
       // «убыло 30%» — это 30% в каждой полосе, а не тридцать первых попавшихся.
-      // Бой у рогаток — потери боя, остаток рода одним бойцом; истощение фазы — доля лагеря, остаток к ближнему (BTL-1).
-      const lost = troopLosses(troops, shareOfKinds(troops, loss), atLeastOne ? 'loss' : 'share');
+      // Бой у рогаток — потери боя, остаток рода одним бойцом (BTL-1); истощение фазы — доля вида, дробь костью (АУ-8, п. 3);
+      // прочая доля лагеря — остаток к ближнему.
+      const lost =
+        phase !== undefined
+          ? wasteLosses(troops, loss, rollSeed(w), phase)
+          : troopLosses(troops, shareOfKinds(troops, loss), atLeastOne ? 'loss' : 'share');
       const left: TroopStack = {};
       for (const [key, n] of Object.entries(troops) as [keyof TroopStack, number][]) {
         const rest = (n ?? 0) - (lost[key] ?? 0);
@@ -2840,7 +2848,7 @@ export class LocalWorld implements WorldApi {
     // Истощение — каждую фазу, а строка летописи — только о море: обычная убыль видна в журнале фаз окна осады.
     if (row.waste > 0) {
       const plague = involved && row.out === 'plague';
-      this.wearCamp(w, row.waste, at, `Осада ${town}, фаза ${k}: ${OUT_NAMES[row.out]}.`, 'Лагерь тает: болезни, бегство, фураж.', false, plague && ourCamp(w));
+      this.wearCamp(w, row.waste, at, `Осада ${town}, фаза ${k}: ${OUT_NAMES[row.out]}.`, 'Лагерь тает: болезни, бегство, фураж.', false, plague && ourCamp(w), k);
     }
     if (this.save.sieges[id] !== w) return;
     // Кольцо блокады в минуту фазы (Р-5): держит ли мощь лагеря; лагерь логова замыкает его сам, когда может.
