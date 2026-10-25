@@ -79,7 +79,11 @@ export function finish(b: Building): void {
  */
 export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number {
   const fresh = deeds.filter((e) => e.n > gemSeen(s)).sort((a, b) => a.n - b.n);
+  let laid = 0;
   for (const e of fresh) {
+    // Номер — сверкой в шаге, а не один раз до него: тот же номер дважды в одной порции ложится один раз.
+    if (e.n <= gemSeen(s)) continue;
+    laid++;
     s.gemSeen = e.n;
     if (e.kind === 'buy' && e.res && (RESOURCE_META as Record<string, unknown>)[e.res]) {
       const moved = Math.round(layStock(s, e.res, e.amount ?? SHOP_LOT));
@@ -101,5 +105,5 @@ export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number 
     }
     log(s, `Алмазы: ${gemLine(e)}.`, 'info');
   }
-  return fresh.length;
+  return laid;
 }

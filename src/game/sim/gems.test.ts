@@ -30,7 +30,7 @@ import {
 } from './gems';
 import { gemsForWait, rushPriceOfWork } from '../gemrules';
 import { gameSeconds, realSeconds, setTimeScale, timeScale } from '../pace';
-import type { GemEntry } from '../../../netlify/lib/contract';
+import { readGemNote, type GemEntry } from '../../../netlify/lib/contract';
 import { DAILY_GAMES } from '../data/daily';
 import { SOCIAL_LINKS } from '../data/social';
 import { dailyReward } from './daily';
@@ -158,6 +158,18 @@ describe('дела с сервера ложатся ровно один раз',
     expect(applyGemDeeds(s, [deed(2, { res: 'stone', amount: SHOP_LOT })])).toBe(0);
     expect(applyGemDeeds(s, [deed(5, { res: 'stone', amount: SHOP_LOT }), d1])).toBe(1);
     expect(s.resources.stone).toBe(2 * SHOP_LOT);
+  });
+
+  it('одна порция, тот же номер дважды (записка сервера через readGemNote) — припас один раз (аудит, этап 7, п. 6)', () => {
+    // Наш сервер номеров не повторяет (`gems.ts`: номер — `seq + 1`), и записка их не сводит: дверь в партию держит
+    // «один номер — одно дело» сама, как держит его между порциями.
+    const s = createInitialState();
+    s.resources.stone = 0;
+    const d = deed(3, { res: 'stone', amount: SHOP_LOT });
+    const note = readGemNote({ balance: 10, deeds: [d, { ...d }] });
+    expect(note?.deeds.length, 'точка внутри области: в порции оба дела').toBe(2);
+    expect(applyGemDeeds(s, note!.deeds)).toBe(1);
+    expect(s.resources.stone).toBe(SHOP_LOT);
   });
 
   it('склад не переполняется: сверх вместимости лавка не кладёт', () => {
