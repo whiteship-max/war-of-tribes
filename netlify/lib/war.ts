@@ -1580,7 +1580,9 @@ export function pruneWars(file: WarFile, now: number): void {
   file.wars = file.wars.filter((w) => active(w) || now - (w.endAt ?? w.sentAt) <= WAR_KEEP_MS);
   if (file.wars.length > WAR_MAX) {
     const keep = file.wars.filter(active);
-    const done = file.wars.filter((w) => !active(w)).slice(-(Math.max(0, WAR_MAX - keep.length)));
+    // Мест под закончившиеся нет — не остаётся ни одной: `slice(-0)` — это весь список (BTL-8).
+    const room = Math.max(0, WAR_MAX - keep.length);
+    const done = room > 0 ? file.wars.filter((w) => !active(w)).slice(-room) : [];
     file.wars = file.wars.filter((w) => keep.includes(w) || done.includes(w));
   }
   if (file.spies) {
