@@ -321,7 +321,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
       }
     }
   }
-  if (soldiersLost === 0) soldiersLost = removeSoldiers(s, o.warriorsLost);
+  // «Слабые первыми» — только у похода без состава: бой, назвавший павших, других не убивает, даже если названных в войске
+  // уже нет (BTL-6; прежде их ноль снимал дубинщиков, которых в бою не было).
+  if (!o.troopsLost) soldiersLost = removeSoldiers(s, o.warriorsLost);
   const lost: TroopStack = {};
   for (const id of TROOP_IDS) if ((before[id] ?? 0) > (s.army[id] ?? 0)) lost[id] = (before[id] ?? 0) - (s.army[id] ?? 0);
   const fallen = takeFallenScouts(s, o.scoutsLost);
