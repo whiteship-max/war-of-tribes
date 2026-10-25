@@ -3,6 +3,8 @@
 // Область правила — любой запас любого вида при любой вместимости: прибавка не кладёт сверх вместимости, убавка — ниже
 // нуля, и то, что оказалось сверх вместимости (склад потерял уровень, старое сохранение), сгорает строкой летописи, а не
 // молча. Клиент и книга запасов сервера считают склад одним правилом (`stockrules.fitStock`).
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import { deserialize, enter, serialize } from '../save';
@@ -213,5 +215,78 @@ describe('клиент и книга запасов сервера считаю�
     }
     // Точки внутри правила: склад у края вместимости, где срез и решает.
     expect(asked, 'склад у вместимости в сценариях').toBeGreaterThanOrEqual(50);
+  });
+});
+
+// ------------------------------------------------ SETUP-2 ---
+//
+// Склад не срезают мимо двери (SETUP-2 аудита): своей арифметики «не выше вместимости» нет нигде в игре, кроме правила
+// (`stockrules.fitStock`) и двери (`sim/stock`). Восемь копий среза уже расходились — две из них держали лишнее, остальные
+// резали его молча. Тест читает исходники `src/game` как текст.
+
+const GAME = join(__dirname, '..');
+
+function sources(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) out.push(...sources(p));
+    else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(p);
+  }
+  return out;
+}
+
+const strip = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const rel = (p: string): string => relative(GAME, p).split(sep).join('/');
+
+/** Где правило склада живёт по праву: само правило, дверь и предпросмотр окна. */
+const DOOR = new Set(['stockrules.ts', 'sim/stock.ts', 'sim/stockview.ts']);
+
+/**
+ * Срез склада мимо двери, по строкам: запись в склад со срезом (`Math.min`, вместимость, правило) справа, прибавка
+ * `+=` к складу, `Math.min` с вместимостью склада — по имени `storageCap(` или по переменной, в которую файл её положил.
+ */
+function clamps(code: string): string[] {
+  const out: string[] = [];
+  const capVars = [...code.matchAll(/\b(?:const|let)\s+(\w+)\s*=\s*storageCap\(/g)].map((m) => m[1]);
+  const capMin = capVars.length > 0 ? new RegExp(`Math\\.min\\(\\s*(?:${capVars.join('|')})\\b|Math\\.min\\([^;]*,\\s*(?:${capVars.join('|')})\\s*\\)`) : null;
+  for (const line of code.split('\n')) {
+    const t = line.trim();
+    if (/\.resources(?:\[[^\]]+\]|\.[a-z]+)\s*=(?!=)[^;]*(?:Math\.min\(|storageCap\(|fitStock\()/.test(t)) out.push(`запись в склад со срезом: ${t}`);
+    else if (/\.resources(?:\[[^\]]+\]|\.[a-z]+)\s*\+=/.test(t)) out.push(`прибавка к складу мимо двери: ${t}`);
+    else if (/Math\.min\([^;]*storageCap\(/.test(t) || (capMin && capMin.test(t))) out.push(`срез вместимостью склада: ${t}`);
+  }
+  return out;
+}
+
+describe('SETUP-2: склад срезает одна дверь', () => {
+  it('образцы ловят срез, прибавку и вместимость в переменной, а убавку и чужой потолок — нет', () => {
+    const bad = [
+      's.resources[r] = Math.min(cap, before + n);',
+      's.resources.food = Math.max(0, Math.min(storageCap(s), s.resources.food + n));',
+      's.resources[r] += put;',
+      'const cap = storageCap(s);\nconst room = Math.min(cap, have + n);',
+      'const cap = storageCap(s);\nfood = Math.min(food + net, cap);',
+    ];
+    for (const b of bad) expect(clamps(b), b).not.toEqual([]);
+    const good = [
+      's.resources[r] -= n;',
+      's.resources.food = 0;',
+      'const whole = Math.min(cap, Math.floor(due));',
+      'addStock(s, r, n);',
+      'const room = Math.max(0, Math.floor(storageCap(s) - s.resources[r]));',
+      // Потолок награды — доля вместимости, а не срез склада (`sim/daily.DAILY_CAP_SHARE`).
+      'const cap = Math.floor(storageCap(s) * 0.15);\nout[r] = Math.max(1, Math.min(Math.round(base * k), cap));',
+    ];
+    for (const g of good) expect(clamps(g), g).toEqual([]);
+  });
+
+  it('в `src/game` мимо двери склад не срезает и не прибавляет никто', () => {
+    const files = sources(GAME).filter((p) => !DOOR.has(rel(p)));
+    // Точка внутри правила: файлы, которые пишут в склад, в выборке есть — иначе тест зелёный даром.
+    const writers = files.filter((p) => /\.resources(?:\[[^\]]+\]|\.[a-z]+)\s*(?:=|-=)/.test(strip(readFileSync(p, 'utf8'))));
+    expect(writers.length, 'файлы, пишущие в склад').toBeGreaterThanOrEqual(5);
+    const found = files.flatMap((p) => clamps(strip(readFileSync(p, 'utf8'))).map((c) => `${rel(p)}: ${c}`));
+    expect(found).toEqual([]);
   });
 });

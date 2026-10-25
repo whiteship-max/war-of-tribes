@@ -78,6 +78,7 @@ import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } 
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { YARD_BY_JOB } from './data/yards';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
+import { fitStock } from './stockrules';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
 import { DESERT_SHARE, MASTER_PAID_AS, UPKEEP_TEXT } from './data/upkeep';
 import { BATTLE_MAN, troopTotal, troopsAfter, type TroopStack } from './battle/kinds';
@@ -1601,7 +1602,7 @@ export function siegeDryIn(s: GameState): number {
     const net = netAt(t);
     const span = end - t;
     if (net < 0 && food + net * span < 0) return t + food / -net - s.time;
-    food = Math.min(cap, food + net * span);
+    food = fitStock(food, net * span, cap);
     t = end;
     if ((i + 1) % SEASONS.length === 0) {
       if (food >= yearFood && yearOf(t) > 1) return Infinity;
