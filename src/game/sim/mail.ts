@@ -19,8 +19,9 @@
 //
 // Часов модуль не читает: «сейчас» приходит числом (`mailStep(s, now)`), как
 // день ежедневки. Шаг симуляции (`tick`) про настоящие часы не знает вовсе.
-import type { ActiveEvent, GameState } from '../types';
+import type { ActiveEvent, EventSize, GameState } from '../types';
 import { EVENT_BY_ID, eventBlock, payEventCost, pickEvent, type EventDef } from '../data/events';
+import { atSize } from '../data/eventKit';
 import { LETTER_PAUSE_MAX, LETTER_PAUSE_MIN, LETTER_TTL } from '@/world/data/tuning';
 import { hashId } from '@/world/diplomacy';
 import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
@@ -53,11 +54,16 @@ const ownSlot = (ev: ActiveEvent): boolean => ev.defId === MUTINY_EVENT || STAB_
 const pick = (s: GameState, id?: string): ActiveEvent | null =>
   (id === undefined ? s.inbox[0] : s.inbox.find((e) => eventId(e) === id)) ?? null;
 
-/** Единственная дверь, закрывающая событие: применить вариант и убрать со стола. */
+/**
+ * Единственная дверь, закрывающая событие: применить вариант и убрать со стола. Цена и исход считаются от размера посёлка,
+ * который весть помнит (`ActiveEvent.size`, ECO-2), — не от нынешнего.
+ */
 function closeEvent(s: GameState, ev: ActiveEvent, def: EventDef, optionIndex: number, silent: boolean): string {
   const opt = def.options[optionIndex];
-  payEventCost(opt, s);
-  const result = opt.apply(s);
+  const result = atSize(ev.size, () => {
+    payEventCost(opt, s);
+    return opt.apply(s);
+  });
   s.inbox = s.inbox.filter((e) => e !== ev);
   s.stats.eventsResolved++;
   const said = silent ? `${SILENCE_PREFIX} — «${opt.label}».` : def.named ? `«${opt.label}».` : '';
@@ -78,7 +84,7 @@ export function resolveEvent(
   if (!opt) return { error: 'Неверный выбор.', result: null };
   // Цена списывается в двери, до `apply`, и отказ приходит отсюда же: цена одна
   // на показ, на запрет и на списание.
-  const block = eventBlock(opt, s);
+  const block = atSize(ev.size, () => eventBlock(opt, s));
   if (block) return { error: block, result: null };
   return { error: null, result: closeEvent(s, ev, def, optionIndex, false) };
 }
@@ -101,9 +107,9 @@ export function lapseEvent(s: GameState, id?: string): string | null {
  * срок ближе всех (ещё без срока — позже всех), своим молчанием. Возвращает, легло
  * ли событие.
  */
-export function raiseEvent(s: GameState, defId: string): boolean {
+export function raiseEvent(s: GameState, defId: string, size?: EventSize): boolean {
   if (s.inbox.some((e) => e.defId === defId)) return false;
-  const ev: ActiveEvent = { defId, at: s.time };
+  const ev: ActiveEvent = { defId, at: s.time, ...(size ? { size } : {}) };
   if (!ownSlot(ev)) {
     const kick = kickFrom(
       s.inbox.filter((e) => !ownSlot(e)).map((e) => ({ e, until: e.until ?? Infinity, at: e.at })),
@@ -215,7 +221,7 @@ export function mailArrive(s: GameState, from: number, now: number): number {
  * раз не кладут — тогда следствие ждёт следующего окна, а не пропадает. Срок ответа — сутки от минуты, когда следствие
  * созрело, если она лежит в окне; созревшее раньше окна (долгая отлучка) приходит с минутой входа: это следствие
  * ответа самого игрока, и решиться молча, не показавшись, оно не должно. Вид, которого в игре больше нет, уходит
- * из партии молча. Возвращает, сколько легло.
+ * из партии молча. Размер посёлка звена (`PendingChain.size`) весть берёт с собой (ECO-2). Возвращает, сколько легло.
  */
 function chainsArrive(s: GameState, start: number, now: number): number {
   if (!s.chains?.length) return 0;
@@ -226,7 +232,7 @@ function chainsArrive(s: GameState, start: number, now: number): number {
       s.chains = s.chains.filter((x) => x !== c);
       continue;
     }
-    if (!raiseEvent(s, c.defId)) continue;
+    if (!raiseEvent(s, c.defId, c.size)) continue;
     s.chains = s.chains.filter((x) => x !== c);
     const due = now - realMs(s.time - c.at);
     s.inbox[s.inbox.length - 1].until = (due > start ? due : now) + EVENT_TTL;

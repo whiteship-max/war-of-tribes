@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { EVENTS, EVENT_BY_ID } from '../data/events';
+import { EVENTS, EVENT_BY_ID, optionHint } from '../data/events';
 import { CHAIN_SEASONS, TIDINGS } from '../data/tidings';
 import { BOONS, BOON_BY_ID, boonWords } from '../data/boons';
 import { SEASON_SECONDS } from '../data/seasons';
@@ -176,6 +176,36 @@ describe('цепочка: следствие приходит после сро�
     expect(paid).toBeGreaterThan(0);
     expect(resolveEvent(s, 0, id).error).not.toBeNull();
     expect(gold - s.gold).toBe(paid);
+  });
+
+  it('ECO-2: долг считается от посёлка в минуту займа, а не в минуту взыскания', () => {
+    // Архив аудита prove-5-1: заняли при трёхстах жителях, к приходу купца стало тридцать — взыскивалось как с тридцати.
+    for (const [lent, owes] of [
+      [300, 30],
+      [30, 300],
+    ]) {
+      const s = rich();
+      s.pop = lent;
+      s.gold = 100_000;
+      // Подпись займа называет, сколько придут взыскать, — взыскано будет столько же.
+      const hint = optionHint(EVENT_BY_ID.merchant_loan.options[0], s)!;
+      const promised = Number(hint.match(/взыскать (\d+)/)![1]);
+      expect(answer(s, 'merchant_loan', 0).error).toBeNull();
+      const got = s.gold - 100_000;
+      expect(got).toBeGreaterThan(0);
+      s.pop = owes;
+      s.time = s.chains[0].at;
+      s.unrest = 0;
+      mailArrive(s, T0 - 1000, T0);
+      const ev = s.inbox.find((e) => e.defId === 'merchant_due')!;
+      expect(ev).toBeDefined();
+      const back = deserialize(serialize(s))!;
+      const gold = back.gold;
+      expect(resolveEvent(back, 0, eventId(ev)).error).toBeNull();
+      const paid = gold - back.gold;
+      expect(paid, `занято ${got} при ${lent} жителях, взыскано при ${owes}`).toBeGreaterThanOrEqual(got);
+      expect(paid).toBe(promised);
+    }
   });
 
   it('следствие, созревшее в долгой отлучке, приходит со входом и ждёт полные сутки', () => {

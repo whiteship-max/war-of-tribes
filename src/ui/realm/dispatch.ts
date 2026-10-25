@@ -15,6 +15,7 @@
 // (`EventDef.silence`). Своего правила «что будет без ответа» у почты нет.
 import type { GameState } from '@/game/types';
 import { EVENT_BY_ID, eventBlock, eventCost, eventFrom, eventText, optionHint } from '@/game/data/events';
+import { atSize } from '@/game/data/eventKit';
 import { eventId, eventLeft } from '@/game/sim/mail';
 import type { ActiveEvent } from '@/game/types';
 import type { LetterView, RivalMail, RivalMarch } from '@/world/types';
@@ -106,8 +107,15 @@ export interface Dispatch {
   council?: true;
 }
 
-/** Событие племени, ждущее ответа, — донесением. null — вид события неизвестен. */
+/**
+ * Событие племени, ждущее ответа, — донесением. null — вид события неизвестен. Числа — от размера посёлка, который весть
+ * помнит (`ActiveEvent.size`, ECO-2): окно показывает то, что спишет и даст ответ.
+ */
 export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispatch | null {
+  return atSize(ev.size, () => eventView(s, ev, now));
+}
+
+function eventView(s: GameState, ev: ActiveEvent, now: number): Dispatch | null {
   const def = EVENT_BY_ID[ev.defId];
   if (!def) return null;
   const quiet = def.options[def.silence];

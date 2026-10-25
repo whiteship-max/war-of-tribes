@@ -4,17 +4,38 @@
 // `data/tidings.ts` — сезонные, случайные и цепочки), и считать «сколько это для нашего
 // посёлка» им положено одним кодом. Второй копии `amount` рядом быть не должно: две правды о
 // размере награды разошлись бы при первой правке.
-import type { GameState, ResourceId } from '../types';
+import type { EventSize, GameState, ResourceId } from '../types';
 import { START_POP } from '../constants';
 import { population } from '../derived';
 import { addStock } from '../sim/stock';
+
+/**
+ * Размер посёлка, замороженный вестью (ECO-2): пока он стоит, вести считают от него, а не от нынешнего посёлка. Ставит и
+ * снимает `atSize`; вне него — `null`, и размер — нынешний.
+ */
+export const FROZEN: { on: EventSize | null } = { on: null };
+
+/** Размер посёлка, от которого весть считает сейчас: замороженный или нынешний. */
+export const sizeOf = (s: GameState): EventSize => FROZEN.on ?? { pop: population(s), folk: s.pop };
+
+/** Посчитать `fn` от замороженного размера; размера нет — от нынешнего. */
+export function atSize<T>(size: EventSize | undefined, fn: () => T): T {
+  if (!size) return fn();
+  const prev = FROZEN.on;
+  FROZEN.on = size;
+  try {
+    return fn();
+  } finally {
+    FROZEN.on = prev;
+  }
+}
 
 /**
  * Всё, что событие даёт или отнимает, умножается на то, во сколько раз нынешнее
  * племя больше стартового (`START_POP` — под него числа событий и писались), —
  * иначе к концу партии награда события тонет в дневной выработке.
  */
-export const scale = (s: GameState): number => Math.max(1, population(s) / START_POP);
+export const scale = (s: GameState): number => Math.max(1, sizeOf(s).pop / START_POP);
 
 /** Число под нынешний размер посёлка. */
 export const amount = (s: GameState, n: number): number => Math.max(1, Math.round(n * scale(s)));
@@ -24,7 +45,7 @@ export const amount = (s: GameState, n: number): number => Math.max(1, Math.roun
  * первые минуты партии событие про беженцев не про что.
  */
 export const crowd = (s: GameState, share: number, min: number): number =>
-  Math.max(min, Math.round(population(s) * share));
+  Math.max(min, Math.round(sizeOf(s).pop * share));
 
 /** Положить на склад (или снять) дверью склада (`sim/stock.addStock`); возвращает, сколько легло на самом деле, целым. */
 export const addRes = (s: GameState, r: ResourceId, n: number): number => Math.round(addStock(s, r, n));

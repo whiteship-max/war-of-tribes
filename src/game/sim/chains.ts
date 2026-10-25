@@ -7,14 +7,18 @@
 //
 // Одна и та же цепочка дважды не откладывается: пока одно следствие ждёт, второе того же вида не
 // ложится — иначе один долг пришёл бы взыскивать дважды (тест).
+//
+// Звено помнит размер посёлка в минуту ответа (ECO-2): следствие считает свои числа от него — купец взыскивает долг с
+// того посёлка, которому давал, а не с нынешнего (`data/eventKit.atSize`).
 import type { GameState } from '../types';
 import { SEASON_SECONDS } from '../data/seasons';
+import { sizeOf } from '../data/eventKit';
 
 /** Отложить весть `defId` на `seasons` игровых сезонов. Возвращает, легла ли она. */
 export function scheduleChain(s: GameState, defId: string, seasons: number): boolean {
   s.chains ??= [];
   if (s.chains.some((c) => c.defId === defId) || s.inbox.some((e) => e.defId === defId)) return false;
-  s.chains.push({ defId, at: s.time + seasons * SEASON_SECONDS });
+  s.chains.push({ defId, at: s.time + seasons * SEASON_SECONDS, size: { ...sizeOf(s) } });
   return true;
 }
 

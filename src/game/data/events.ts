@@ -55,7 +55,7 @@ import { chance, roll } from '../sim/roll';
 import { log } from '../sim/log';
 import { MUTINY_EVENT, ORDER_TEXT } from './order';
 import { daysSpan } from '../span';
-import { addRes, amount, crowd, FameWord, fameWord, moraleWord, MoraleWord, moveFame, moveMorale, people } from './eventKit';
+import { addRes, amount, crowd, FameWord, sizeOf, fameWord, moraleWord, MoraleWord, moveFame, moveMorale, people } from './eventKit';
 import { CHAIN_SEASONS, TIDING, TIDINGS } from './tidings';
 import { ADVISOR_POSTS } from '../councilrules';
 import { vacancyDef } from '../sim/council';
@@ -188,7 +188,7 @@ export const GATE_POP: readonly number[] = [50, 104, 158, 212, 266, 356, 437, 51
  */
 export const gatePower = (s: GameState, foe: EventFoe): number => {
   const row = GATE_POWER[foe];
-  const pop = s.pop;
+  const pop = sizeOf(s).folk;
   if (pop <= GATE_POP[0]) return row[0];
   const hi = GATE_POP.findIndex((p) => p >= pop);
   if (hi < 0) return row[row.length - 1];
