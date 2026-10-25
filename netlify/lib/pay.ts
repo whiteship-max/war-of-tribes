@@ -64,8 +64,14 @@ export const PAY_LATE_MS = 7 * 24 * 3600_000;
 export const SIGN_S = 10 * 60;
 /** Заказов, ждущих перевода, разом. */
 export const OPEN_MAX = 3;
-/** Сколько заказов игрока лежит. Открытые и оплаченные не вытесняются. */
+/** Сколько заказов игрока лежит. Открытые, оплаченные и те, чей перевод ещё ищется, сверх этого не вытесняются. */
 export const KEEP = 20;
+/**
+ * Жёсткий потолок заказов игрока (FIN-3): искомые сверх него вытесняются старейшими, оплаченный — никогда. Шесть заказов в
+ * минуту и три открытых разом дают за неделю поиска до тысячи истёкших; перевод на вытесненный не теряется молча —
+ * просмотр кошелька его видит (FIN-7).
+ */
+export const PAY_HARD_MAX = 200;
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -108,13 +114,20 @@ const open = (o: StoredOrder, now: number): boolean => (o.state === 'created' ||
 const hunted = (o: StoredOrder, now: number): boolean =>
   (o.state === 'created' || o.state === 'waiting' || o.state === 'expired') && now - o.at <= PAY_LATE_MS;
 
-/** Обрезка: открытые и оплаченные-неначисленные остаются, вытесняются старые закрытые. */
-function trimmed(orders: StoredOrder[], now: number): StoredOrder[] {
+/**
+ * Обрезка до `KEEP`: вытесняются старые закрытые, а открытые, оплаченные-неначисленные и те, чей перевод ещё ищется
+ * (истёкшие в пределах `PAY_LATE_MS` тоже), остаются. Прежде истёкший, но искомый заказ вытеснялся, и поздний перевод на
+ * него не находился (FIN-3). Сверх `PAY_HARD_MAX` — старейшие из искомых; оплаченный не вытесняется никогда.
+ */
+export function trimmed(orders: StoredOrder[], now: number): StoredOrder[] {
   if (orders.length <= KEEP) return orders;
-  const keep = new Set(orders.filter((o) => open(o, now) || o.state === 'paid' || (hunted(o, now) && o.state !== 'expired')).map((o) => o.id));
+  const keep = new Set(orders.filter((o) => open(o, now) || o.state === 'paid' || hunted(o, now)).map((o) => o.id));
   const rest = orders.filter((o) => !keep.has(o.id));
   const drop = new Set(rest.slice(0, orders.length - KEEP).map((o) => o.id));
-  return orders.filter((o) => !drop.has(o.id));
+  const left = orders.filter((o) => !drop.has(o.id));
+  if (left.length <= PAY_HARD_MAX) return left;
+  const cut = new Set(left.filter((o) => o.state !== 'paid').slice(0, left.length - PAY_HARD_MAX).map((o) => o.id));
+  return left.filter((o) => !cut.has(o.id));
 }
 
 /**

@@ -9,7 +9,7 @@ import type { Telegram } from './telegram.js';
 import { FROZEN_KEY } from './admin.js';
 import { WIPED } from './era.js';
 import { creditGems, openLedger, readLedger, type GemLedger } from './gems.js';
-import { PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor } from './pay.js';
+import { KEEP, PAY_HARD_MAX, PAY_LATE_MS, PAY_TTL_MS, STUCK_MS, cursorKey, newOrderId, orderKey, peekPayments, readCursor, trimmed, type StoredOrder } from './pay.js';
 import { CHAIN, FORWARD_TON, MAINNET_USDT, OP_NOTIFY, OP_TRANSFER, PAGES, PAY_ENV, payConfig, readNotice, type Fetch, type PayConfig } from './ton.js';
 import { payComment, type GemsResponse, type PayResponse } from './contract.js';
 import { START_GEMS } from '../../src/game/gemrules.js';
@@ -549,6 +549,41 @@ describe('просмотр кошелька курсором: поток тра�
     expect([...s.data.get(STORES.pay)!.keys()].some((k) => k.startsWith('scan/'))).toBe(true);
     const rows = await peekPayments(s.stores, 20);
     expect(rows.map((r) => r.player)).toEqual([`tg-${p}`]);
+  });
+});
+
+describe('обрезка заказов не выкидывает заказ, перевод которого ещё ищется (FIN-3)', () => {
+  it('двадцать истёкших за сутки и новый — старейший истёкший остаётся, и поздний перевод на него начисляется', async () => {
+    const s = memoryStores();
+    const p = player();
+    const step = PAY_TTL_MS + 60_000;
+    const first = (await order(s, p, 'handful')).order!;
+    for (let i = 1; i <= KEEP; i++) await order(s, p, 'handful', NOW + i * step);
+    const late = NOW + (KEEP + 1) * step;
+    chain.notify({ units: units(1), comment: payComment(first.id), at: late });
+    const r = await call(s, p, undefined, late + 1000);
+    // Прежде обрезка вытесняла истёкший заказ, хотя его перевод ещё неделю ищется: перевод пропадал молча.
+    expect(r.orders.find((o) => o.id === first.id)?.state).toBe('credited');
+    expect(r.credited).toBe(100);
+  });
+
+  it('жёсткий потолок: искомых сверх него — вытесняются старейшие, оплаченный не вытесняется никогда', () => {
+    const base = { pack: 'handful', gems: 100, usdt: 1, units: '1000000' };
+    const mk = (i: number, state: StoredOrder['state'], at = NOW + i): StoredOrder => ({ ...base, id: `ID${String(i).padStart(8, '0')}`, at, until: at + PAY_TTL_MS, state });
+    const now = NOW + 3600_000;
+    const paid = mk(0, 'paid');
+    const closed = [mk(1, 'credited'), mk(2, 'expired', NOW - PAY_LATE_MS - 3600_000)];
+    const sought = Array.from({ length: PAY_HARD_MAX + 30 }, (_, i) => mk(10 + i, 'expired'));
+    const out = trimmed([paid, ...closed, ...sought], now);
+    expect(out).toHaveLength(PAY_HARD_MAX);
+    expect(out[0]).toBe(paid);
+    // Закрытые ушли первыми, потом — старейшие из искомых.
+    expect(out.some((o) => closed.includes(o))).toBe(false);
+    expect(out[1]).toBe(sought[31]);
+    expect(out.at(-1)).toBe(sought.at(-1));
+    // До потолка искомые не трогаются, закрытые — до двадцати.
+    const few = trimmed([...closed, ...sought.slice(0, KEEP)], now);
+    expect(few).toEqual(sought.slice(0, KEEP));
   });
 });
 
