@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readArmy, readCounts, readEnergy, readRecord, type SaveRecord } from './contract.js';
+import { readArmy, readCounts, readEnergy, readPrefs, readRecord, type SaveRecord } from './contract.js';
 import { energyAt } from '../../src/world/energy.js';
 
 const LIMITS = { game: 200, world: 100 };
@@ -87,5 +87,15 @@ describe('AC-8: минуты отметки энергии — к часам с�
     expect(fair).toEqual({ value: 70, at: NOW - 1000, mode: 'drain', homeAt: NOW + 3_600_000 });
     // Тем же правилом — армия приказа.
     expect(readArmy({ troops: { spearman: 1 }, energy: { value: 100, at: NOW + 1e12, mode: 'drain' } }, LATEST)!.energy!.at).toBe(LATEST);
+  });
+});
+
+describe('AC-8: пояс игрока — только настоящий', () => {
+  it('выдуманный пояс и мусор — умолчание; настоящий и синоним — как прислан', () => {
+    expect(readPrefs({ tz: 'Mars/Olympus' }).tz).toBe('');
+    expect(readPrefs({ tz: '<b>x</b>' }).tz).toBe('');
+    expect(readPrefs({ tz: 'Europe/Berlin' }).tz).toBe('Europe/Berlin');
+    expect(readPrefs({ tz: 'UTC' }).tz).toBe('UTC');
+    expect(readPrefs({ tz: '' }).tz).toBe('');
   });
 });

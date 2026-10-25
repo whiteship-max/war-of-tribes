@@ -684,12 +684,26 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
   return out;
 }
 
+/**
+ * Пояс, который знают часы (AC-8): его принимает `Intl.DateTimeFormat`. Проверка — конструктором, а не списком
+ * `Intl.supportedValuesOf`: список даёт только канонические имена, а устройство присылает и синонимы (`UTC`, `Europe/Kiev`).
+ */
+const realZone = (tz: string): boolean => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** Разбор настроек игры: неизвестное и кривое — умолчание, а не отказ. Настройки бота — `notify.readBotPrefs`. */
 export function readPrefs(v: unknown): NotifyPrefs {
   const r = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+  const tz = str(r.tz, 64);
   return {
     on: typeof r.on === 'boolean' ? r.on : DEFAULT_PREFS.on,
-    tz: str(r.tz, 64) ?? DEFAULT_PREFS.tz,
+    tz: tz && realZone(tz) ? tz : DEFAULT_PREFS.tz,
   };
 }
 
