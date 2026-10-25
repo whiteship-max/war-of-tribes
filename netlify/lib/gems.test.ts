@@ -137,7 +137,7 @@ describe('начисление: стартовые один раз, больше
   it('начисление без источника, пустое или дробное — отказ', () => {
     const l = openLedger(NOW);
     // @ts-expect-error — источника «приказ игрока» нет, и подставить его нельзя.
-    expect(creditGems(l, { source: 'buy', amount: 10, key: 'k1', at: NOW })).toBe('Алмазы начисляют только стартовые и покупка.');
+    expect(creditGems(l, { source: 'buy', amount: 10, key: 'k1', at: NOW })).toBe('Алмазы начисляют только стартовые, покупка и возврат.');
     expect(creditGems(l, { source: 'purchase', amount: 0, key: 'k2', at: NOW })).toBe('Пустое начисление.');
     expect(creditGems(l, { source: 'purchase', amount: 2.5, key: 'k3', at: NOW })).toBe('Пустое начисление.');
   });
