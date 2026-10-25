@@ -10,7 +10,7 @@ export const LINE_WORD: Readonly<Record<SpiritLineId, { name: string; icon: Icon
   glory: { name: 'Победы и поражения', icon: 'ui-trophy' },
   hunger: { name: 'Голод', icon: 'ui-loaf' },
   rite: { name: 'Обряд', icon: 'ui-prayer' },
-  marshal: { name: 'Воевода', icon: 'ui-banner' },
+  marshal: { name: 'Воевода', icon: 'ui-medal' },
   knights: { name: 'Рыцари', icon: 'troop-knight' },
   merchants: { name: 'Купцы', icon: 'ui-scales' },
   general: { name: 'Полководец', icon: 'ui-star' },

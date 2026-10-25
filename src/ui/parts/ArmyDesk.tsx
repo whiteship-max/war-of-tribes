@@ -46,7 +46,7 @@ export function SpiritCard() {
   const share = payShare(s);
   return (
     <section className="dr-spirit" aria-label="Дух дружины">
-      <Scale icon="bat-morale" name="Мораль" axis={v.morale} help={SPIRIT_HELP.morale} />
+      <Scale icon="ui-banner" name="Мораль" axis={v.morale} help={SPIRIT_HELP.morale} />
       <Scale icon="bat-spears-held" name="Дисциплина" axis={v.discipline} help={SPIRIT_HELP.discipline} />
       <p className={`dr-wage-line${mode === 'min' ? ' bad' : ''}`}>{wageLine(mode, share, realLeft(payLeftMs(mode, share)))}</p>
       <p className="dr-battle">
@@ -88,8 +88,11 @@ const LINE_COLS: readonly Col[] = [
 /** Строки обеих шкал одной таблицей: имя строки — и её доля в морали и в дисциплине. */
 function SpiritLines({ morale, discipline }: { morale: SpiritAxis; discipline: SpiritAxis }) {
   const ids: SpiritLineId[] = [];
-  for (const l of [...morale.lines, ...discipline.lines]) if (!ids.includes(l.id)) ids.push(l.id);
   const of = (a: SpiritAxis, id: SpiritLineId): number | null => a.lines.find((l) => l.id === id)?.value ?? null;
+  // Строка, что по обеим шкалам меньше половины очка, — не причина на экране: «0» красным только путает (сразу после смены
+  // жалованья доля ещё не сдвинулась). Основа — всегда.
+  const shown = (id: SpiritLineId): boolean => id === 'base' || [of(morale, id), of(discipline, id)].some((v) => v !== null && Math.abs(v) >= 0.5);
+  for (const l of [...morale.lines, ...discipline.lines]) if (!ids.includes(l.id) && shown(l.id)) ids.push(l.id);
   const cell = (v: number | null, base: boolean) =>
     v === null ? <span className="muted">—</span> : <span className={base ? '' : v < 0 ? 'neg' : 'pos'}>{base ? fmtInt(Math.round(v)) : signed(v, 0)}</span>;
   const rows = ids.map((id) => ({
