@@ -6,6 +6,7 @@
 // «Вести»: кнопка гаснет по той же проверке, по которой сервер откажет. Без `@/`-импортов: файл читает и сервер. Имя города
 // в словах — через `cityOr` договора, как всякое чтение поля `city` (`ui/cityname.test.ts`).
 import { cityOr } from '../../netlify/lib/contract';
+import { realSpan } from '../game/span';
 
 /** Что предлагают. Сейчас — союз; таблица — задел (раздел 17.3). */
 export const PROPOSAL_KINDS = ['pact'] as const;
@@ -124,11 +125,18 @@ export function proposalText(p: Pick<ProposalView, 'kind' | 'side' | 'city'>): s
  * Итог словами стороны — строка «Вестей» и летописи. Свои слова у каждой стороны: тот, кто отклонил, и тот, кому отказали,
  * читают разное.
  */
-export function endWords(p: Pick<ProposalView, 'kind' | 'side' | 'city' | 'end' | 'endBy'>): string {
+export function endWords(p: Pick<ProposalView, 'kind' | 'side' | 'city' | 'end' | 'endBy'> & Partial<Pick<ProposalView, 'until' | 'endAt'>>): string {
   const def = PROPOSALS[p.kind];
   const name = def.name.toLowerCase();
   const city = `«${cityOr(p.city)}»`;
   const us = p.endBy === 'us';
+  // Разрыв с отсрочкой (АУ-8, п. 1): итог лёг в минуту объявления, `until` — минута конца союза. Запись старше отсрочки
+  // несёт `until` = `endAt` — прежние слова.
+  const notice = p.end === 'broken' && p.until !== undefined && p.endAt !== undefined && p.until > p.endAt ? realSpan((p.until - p.endAt) / 1000) : null;
+  if (notice)
+    return us
+      ? `Мы объявили разрыв ${def.of} с ${city}. ${def.name} держится ещё ${notice}: потом ни выручки, ни запрета на поход.`
+      : `${city} объявил разрыв ${def.of} с нами. ${def.name} держится ещё ${notice}: потом он сможет пойти на нас походом, а на выручку не придёт.`;
   switch (p.end) {
     case 'yes':
       return `${def.name} с ${city} ${def.made}. ${def.gives}`;
@@ -145,4 +153,32 @@ export function endWords(p: Pick<ProposalView, 'kind' | 'side' | 'city' | 'end' 
     default:
       return proposalText(p);
   }
+}
+
+/** Пакт глазами стороны: заключён (с минутой конца, если разрыв объявлен), предложен нами или нам. */
+export interface PactState {
+  state: 'pact' | 'offered' | 'asked';
+  /** Разрыв объявлен (АУ-8, п. 1): до этой минуты пакт ещё держит обе стороны. Нет — разрыва нет. */
+  breakAt?: number;
+}
+
+/** Пакт ещё держит: заключён, и разрыв не объявлен или его срок не вышел. */
+export const pactHolds = (p: PactState | null | undefined, now: number): boolean =>
+  p?.state === 'pact' && !(p.breakAt !== undefined && p.breakAt <= now);
+
+/**
+ * Поход на город по пакту — отказ словами или `null` (АУ-8, п. 1; OWNER-DECISIONS п. 11): на союзника походом не ходят, а
+ * разрыв, объявленный любой стороной, держит пакт ещё `PACT_BREAK_NOTICE` — как у соседей-ботов в мире. Одна проверка у
+ * сервера войны (`war.march`) и у кнопки похода (`LocalWorld.warBlock`).
+ */
+export function pactWarBlock(p: PactState | null | undefined, now: number): string | null {
+  if (!pactHolds(p, now)) return null;
+  if (p?.breakAt !== undefined) return `Разрыв пакта объявлен: походом можно будет через ${realSpan((p.breakAt - now) / 1000)}.`;
+  return 'С этим городом у нас пакт. Сначала разорви его.';
+}
+
+/** Разрыв уже объявлен — второй раз рвать нечего: отказ словами или `null`. */
+export function pactBreakingBlock(p: PactState | null | undefined, now: number): string | null {
+  if (!pactHolds(p, now) || p?.breakAt === undefined) return null;
+  return `Разрыв уже объявлен: пакт кончится через ${realSpan((p.breakAt - now) / 1000)}.`;
 }

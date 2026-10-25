@@ -137,7 +137,7 @@ export function noticeText(item: NoticeItem, tz: string): string {
     // Пакт между игроками (docs/siege_v2.md, 19.2; ДП-1): предложили — ответ в «Вестях», кнопка ведёт к предложению; итог —
     // той стороне, что не действовала сама. Что даёт союз — одной строкой с «Вестями» (`world/proposals`).
     case 'war-pact':
-      return pactText(item);
+      return pactText(item, tz);
     case 'war-relief':
       return reliefText(item, at);
     case 'build':
@@ -161,7 +161,7 @@ const GROUP_WORD: Record<NonNullable<NoticeItem['p']['group']>, { who: string; r
 };
 
 /** Весть о союзе словами получателя (ДП-1). */
-function pactText(item: NoticeItem): string {
+function pactText(item: NoticeItem, tz: string): string {
   const { from, pact, role } = item.p;
   const def = PROPOSALS.pact;
   switch (pact) {
@@ -172,6 +172,9 @@ function pactText(item: NoticeItem): string {
     case 'withdrawn':
       return `«${from}» отозвал предложение ${def.of}.`;
     case 'broken':
+      // Разрыв с отсрочкой (АУ-8, п. 1): союз держится до `about`. Весть старше отсрочки — разрыв сразу.
+      if (item.p.about > item.fireAt)
+        return `«${from}» объявил разрыв союза с нами. Союз держится до ${clock(item.p.about, tz)}: до тех пор походом на нас не пойти и выручка в силе, потом — ни того, ни другого.`;
       return `«${from}» разорвал союз с нами. Теперь он может пойти на нас походом, и на выручку не придёт.`;
     case 'expired':
       return role === 'atk' ? `«${from}» не ответил на предложение ${def.of}: срок вышел.` : `Предложение ${def.of} от «${from}» осталось без ответа: срок вышел.`;

@@ -103,6 +103,11 @@ export function WarCard({ card }: { card: SettlementCard }) {
       {war.pact === 'pact' ? (
         <>
           <p className="nx-tnote">Пакт заключён. Если город осадят, наш полководец может ударить по лагерю с тыла. Походом на союзника не пойти.</p>
+          {war.pactBreakAt !== undefined && (
+            <p className="nx-tnote bad">
+              Разрыв объявлен: пакт держится ещё {left(war.pactBreakAt, now)}. Потом ни выручки, ни запрета на поход.
+            </p>
+          )}
           {war.relief && (
             <>
               {war.relief.going !== undefined ? (
@@ -116,9 +121,11 @@ export function WarCard({ card }: { card: SettlementCard }) {
               {!war.relief.can && war.relief.going === undefined && war.relief.reason && <p className="nx-tnote bad">{war.relief.reason}</p>}
             </>
           )}
-          <button className="nx-cact" disabled={busy} onClick={() => void pactAct(false)}>
-            Разорвать пакт
-          </button>
+          {war.pactBreakAt === undefined && (
+            <button className="nx-cact" disabled={busy} onClick={() => void pactAct(false)}>
+              Разорвать пакт
+            </button>
+          )}
         </>
       ) : war.pact === 'offered' ? (
         <>

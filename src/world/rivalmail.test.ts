@@ -4,7 +4,8 @@ import type { HomeEffect, PlayerCastle, PlayerProfile } from './types';
 import { advance, applyOrder, emptyWars, pacted, pactsOf, proposalsOf, warsOf, type SheetAt } from '../../netlify/lib/war';
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
-import { PROPOSALS } from './proposals';
+import { PROPOSALS, pactWarBlock } from './proposals';
+import { PACT_BREAK_NOTICE } from './data/tuning';
 import { proposalDispatch, mailGroups, rivalDispatches } from '@/ui/realm/dispatch';
 import { dealFrom } from '@/ui/realm/golink';
 import { refTopic } from '@/ui/realm/annals';
@@ -166,5 +167,32 @@ describe('ДП-1: предложение соседа в «Вестях» и л�
     expect(dealFrom(`?go=deal-${encodeURIComponent(p.id)}`)).toBe(p.id);
     expect(dealFrom('?go=deal-')).toBeNull();
     expect(dealFrom('?fpscap=30')).toBeNull();
+  });
+
+  it('АУ-8 п. 1: разрыв союза — отсчёт на карточке у обеих сторон; поход в отсчёте гаснет тем же словом, что откажет сервер', async () => {
+    const g = game();
+    await g.a.pact(castleIdOf(B), true);
+    const [p] = (await g.b.rivals()).proposals;
+    expect(await g.b.answerProposal(p.id, 'yes')).toBeNull();
+    g.step(60_000);
+    expect(await g.a.pact(castleIdOf(B), false)).toBeNull();
+    const breakAt = g.now() + PACT_BREAK_NOTICE;
+    g.step(60_000);
+    expect(g.now(), 'точка внутри отсчёта').toBeLessThan(breakAt);
+    const ca = (await g.a.settlement(castleIdOf(B)))?.war;
+    const cb = (await g.b.settlement(castleIdOf(A)))?.war;
+    expect(ca).toMatchObject({ pact: 'pact', pactBreakAt: breakAt });
+    expect(cb).toMatchObject({ pact: 'pact', pactBreakAt: breakAt });
+    const block = pactWarBlock({ state: 'pact', breakAt }, g.now());
+    expect(cb?.can).toBe(false);
+    expect(cb?.reason).toBe(block);
+    // Летопись: обеим — строка с отсрочкой, один раз.
+    const { pa, pb } = await g.pulse();
+    expect(lines(pa.effects).some((t) => t.startsWith('Мы объявили разрыв союза с «Бета».'))).toBe(true);
+    expect(lines(pb.effects).some((t) => t.startsWith('«Альфа» объявил разрыв союза с нами.'))).toBe(true);
+    // Срок вышел — пакта нет ни на сервере, ни на карточке.
+    g.step(PACT_BREAK_NOTICE);
+    expect((await g.b.settlement(castleIdOf(A)))?.war?.pact).toBeUndefined();
+    expect(pacted(g.file, A, B)).toBe(false);
   });
 });

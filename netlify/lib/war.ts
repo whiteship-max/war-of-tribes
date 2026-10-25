@@ -54,7 +54,17 @@ import { statAt } from '../../src/game/train.js';
 import { ENGINES } from '../../src/game/data/engines.js';
 import { campFight, guardKinds, homeLosses, machineFight, wallFight } from '../../src/world/fights.js';
 import { SCALING, wallFront } from '../../src/world/wall.js';
-import { PROPOSALS, answerBlock, type ProposalAct, type ProposalEnd, type ProposalKind, type ProposalView } from '../../src/world/proposals.js';
+import {
+  PROPOSALS,
+  answerBlock,
+  pactBreakingBlock,
+  pactHolds,
+  pactWarBlock,
+  type ProposalAct,
+  type ProposalEnd,
+  type ProposalKind,
+  type ProposalView,
+} from '../../src/world/proposals.js';
 import { has, own } from '../../src/game/guard.js';
 import {
   GUARD_SHARE,
@@ -144,7 +154,7 @@ import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { machineShare, gateBusyText, playerWood, rebaseWood } from '../../src/world/works.js';
 import { stackCarry, stackEscort } from '../../src/world/data/units.js';
-import { PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
+import { PACT_BREAK_NOTICE, PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
 import { bookLive, least, over, rulePips, ruleResolve, type ArmyBook } from './book.js';
 import { floorAt, townSheet, type TownBook } from './town.js';
 
@@ -200,6 +210,13 @@ export interface PactRow {
   cities: Record<string, string>;
   /** Кто принял предложение (ключ): весть «пакт заключён» уходит другому — предложившему (19.2). Нет — пакт старше поля. */
   by?: string;
+  /**
+   * Разрыв объявлен (АУ-8, п. 1; OWNER-DECISIONS п. 11): до этой минуты пакт держит обе стороны, потом уходит из записи
+   * (`endPacts`). Нет — разрыва нет; пакт записи старше отсрочки — тоже.
+   */
+  breakAt?: number;
+  /** Кто объявил разрыв (ключ). */
+  breakBy?: string;
 }
 
 /**
@@ -293,7 +310,15 @@ export function readWars(raw: unknown): WarFile {
   const pacts = Array.isArray(r.pacts)
     ? r.pacts
         .filter((x): x is PactRow => Boolean(x) && typeof x.a === 'string' && typeof x.b === 'string')
-        .map((x) => ({ a: x.a, b: x.b, at: Number(x.at) || 0, cities: names(x.cities), ...(typeof x.by === 'string' ? { by: x.by } : {}) }))
+        .map((x) => ({
+          a: x.a,
+          b: x.b,
+          at: Number(x.at) || 0,
+          cities: names(x.cities),
+          ...(typeof x.by === 'string' ? { by: x.by } : {}),
+          ...(Number.isFinite(x.breakAt) ? { breakAt: Number(x.breakAt) } : {}),
+          ...(typeof x.breakBy === 'string' ? { breakBy: x.breakBy } : {}),
+        }))
     : [];
   const offer = (x: Partial<PactOffer>): PactOffer => {
     const at = Number(x.at) || 0;
@@ -421,9 +446,24 @@ export const warsOf = (file: WarFile, key: string): WarView[] =>
 
 // ------------------------------------------------ пакты между игроками ---
 
-/** Пакт двух игроков есть. */
-export const pacted = (file: WarFile, a: string, b: string): boolean =>
-  (file.pacts ?? []).some((p) => (p.a === a && p.b === b) || (p.a === b && p.b === a));
+/** Пакт двух игроков в записи (и в отсчёте разрыва — тоже). */
+const pactRow = (file: WarFile, a: string, b: string): PactRow | undefined =>
+  (file.pacts ?? []).find((p) => (p.a === a && p.b === b) || (p.a === b && p.b === a));
+
+/** Пакт двух игроков есть. В отсчёте разрыва — есть: он держит обе стороны до `breakAt` (АУ-8, п. 1). */
+export const pacted = (file: WarFile, a: string, b: string, now = -Infinity): boolean => {
+  const p = pactRow(file, a, b);
+  return Boolean(p) && pactHolds({ state: 'pact', breakAt: p?.breakAt }, now);
+};
+
+/** Отсчёт разрыва кончился — пакт уходит из записи (ход записи, `advance`). */
+export function endPacts(file: WarFile, now: number): boolean {
+  const was = file.pacts ?? [];
+  const kept = was.filter((p) => p.breakAt === undefined || p.breakAt > now);
+  if (kept.length === was.length) return false;
+  file.pacts = kept;
+  return true;
+}
 
 /** Сколько предложений пакта игрок держит сразу — потолок записи, не правило игры. */
 export const PACT_OFFERS_MAX = 20;
@@ -434,7 +474,7 @@ export function pactsOf(file: WarFile, key: string): WarPact[] {
   for (const p of file.pacts ?? []) {
     if (p.a !== key && p.b !== key) continue;
     const other = p.a === key ? p.b : p.a;
-    out.push({ castle: castleIdOf(other), city: cityOr(p.cities[other]), state: 'pact', at: p.at });
+    out.push({ castle: castleIdOf(other), city: cityOr(p.cities[other]), state: 'pact', at: p.at, ...(p.breakAt !== undefined ? { breakAt: p.breakAt } : {}) });
   }
   for (const o of file.offers ?? []) {
     if (o.from === key) out.push({ castle: castleIdOf(o.to), city: cityOr(o.cities[o.to]), state: 'offered', at: o.at });
@@ -535,7 +575,8 @@ function pactOrder(file: WarFile, key: string, target: string, now: number, ctx:
   const other = Object.keys(ctx.roster.rows).find((k) => castleIdOf(k) === target) ?? null;
   if (!other) return 'Такого города нет на карте.';
   if (other === key) return 'Пакт с самим собой не заключают.';
-  if (pacted(file, key, other)) return 'Пакт уже заключён.';
+  const held = pactRow(file, key, other);
+  if (held) return pactBreakingBlock({ state: 'pact', breakAt: held.breakAt }, now) ?? 'Пакт уже заключён.';
   if (warBetween(file, key, other)) return 'Между нами идёт война. Пакта не будет, пока она не кончится.';
   const cities = { [key]: cityOr(ctx.roster.rows[key]?.city), [other]: cityOr(ctx.roster.rows[other]?.city) };
   const offers = file.offers ?? [];
@@ -554,17 +595,26 @@ function pactOrder(file: WarFile, key: string, target: string, now: number, ctx:
 /**
  * Разорвать пакт, отозвать своё предложение или отклонить чужое. Каждое — итогом в закрытые (ДП-1): разрыв — строкой
  * «разорван» от разорвавшего, отозванное и отклонённое — своим итогом.
+ *
+ * Разрыв — не сразу (АУ-8, п. 1; OWNER-DECISIONS п. 11): пакт держит обе стороны ещё `PACT_BREAK_NOTICE` (`breakAt`), как
+ * у соседей-ботов в мире (`world/diplomacy`), — та сторона, что заходит раз в несколько часов, узнаёт о разрыве до похода.
+ * Итог «разорван» ложится в минуту объявления — весть уходит сразу, — и несёт минуту конца союза в `until`.
  */
 function unpactOrder(file: WarFile, key: string, target: string, now: number): string | null {
   const pacts = file.pacts ?? [];
   const mine = (k: string): boolean => castleIdOf(k) === target;
-  const broken = pacts.filter((p) => (p.a === key && mine(p.b)) || (p.b === key && mine(p.a)));
+  const held = pacts.filter((p) => (p.a === key && mine(p.b)) || (p.b === key && mine(p.a)));
   const offers = (file.offers ?? []).filter((o) => (o.from === key && mine(o.to)) || (o.to === key && mine(o.from)));
-  if (broken.length === 0 && offers.length === 0) return 'Пакта нет.';
-  file.pacts = pacts.filter((p) => !broken.includes(p));
+  if (held.length === 0 && offers.length === 0) return 'Пакта нет.';
+  const breaking = held.map((p) => pactBreakingBlock({ state: 'pact', breakAt: p.breakAt }, now)).find((x) => x);
+  if (breaking && offers.length === 0) return breaking;
+  const broken = held.filter((p) => p.breakAt === undefined);
+  const breakAt = now + PACT_BREAK_NOTICE;
   for (const p of broken) {
+    p.breakAt = breakAt;
+    p.breakBy = key;
     const other = p.a === key ? p.b : p.a;
-    const row: DealtRow = { id: proposalId(key, now), kind: 'pact', from: key, to: other, at: now, until: now, cities: { ...p.cities }, end: 'broken', endAt: now, endBy: key };
+    const row: DealtRow = { id: proposalId(key, now), kind: 'pact', from: key, to: other, at: now, until: breakAt, cities: { ...p.cities }, end: 'broken', endAt: now, endBy: key };
     file.dealt = [...(file.dealt ?? []), row];
   }
   for (const o of offers) closeOffer(file, o, o.from === key ? 'withdrawn' : 'no', now, key);
@@ -1616,6 +1666,7 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
   }
   if (advanceSpies(file, now, sheets)) changed = true;
   if (expireOffers(file, now)) changed = true;
+  if (endPacts(file, now)) changed = true;
   return changed;
 }
 
@@ -1982,7 +2033,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря под стенами уже нет.';
       if (w.atk === key) return 'Это наш лагерь.';
       if (w.def === key) return 'По лагерю у своих стен бьют ударом полководца.';
-      if (!pacted(file, key, w.def)) return 'На выручку идут только к союзнику по пакту.';
+      if (!pacted(file, key, w.def, now)) return 'На выручку идут только к союзнику по пакту.';
       const me = castleIdOf(key);
       if (w.reliefs?.some((r) => r.castle === me)) return 'Наша дружина уже идёт на выручку.';
       const busy = generalBusy(file, key);
@@ -2108,8 +2159,11 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (!entry) return 'Этого города больше нет в игре.';
   const [def, row] = entry;
   if (def === key) return 'Это твой город.';
-  // Пакт (docs/siege_v2.md, раздел 5): на союзника походом не ходят — сначала разорвать.
-  if (pacted(file, key, def)) return 'С этим городом у нас пакт. Сначала разорви его.';
+  // Пакт (docs/siege_v2.md, раздел 5): на союзника походом не ходят — сначала разорвать; разрыв держит пакт ещё
+  // `PACT_BREAK_NOTICE` (АУ-8, п. 1) — одна проверка с кнопкой похода (`proposals.pactWarBlock`).
+  const pact = pactRow(file, key, def);
+  const pactNo = pact ? pactWarBlock({ state: 'pact', breakAt: pact.breakAt }, now) : null;
+  if (pactNo) return pactNo;
   // Регион игрока — правило мира (`theatre.inHomeTheatre`): походы за край не уходят.
   if (!inHomeTheatre(own, row)) return 'Город за пределами твоего края. Походы туда не ходят.';
   const busy = generalBusy(file, key);
@@ -2430,7 +2484,8 @@ export function pactNewsOf(file: WarFile): WarNews[] {
           kind: 'war-pact',
           fireAt: d.endAt,
           until: d.endAt + RESULT_KEEP,
-          p: { from: plainName(cityOr(d.cities[other])), fate: 'plunder', about: d.endAt, pact: end, ...(role ? { role } : {}) },
+          // Разрыв с отсрочкой (АУ-8, п. 1): `about` — минута конца союза, «держится до 14:40».
+          p: { from: plainName(cityOr(d.cities[other])), fate: 'plunder', about: end === 'broken' ? Math.max(d.endAt, d.until) : d.endAt, pact: end, ...(role ? { role } : {}) },
         },
       });
     };

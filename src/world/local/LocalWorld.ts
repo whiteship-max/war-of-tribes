@@ -171,7 +171,7 @@ import {
   type WarView,
 } from '../../../netlify/lib/contract';
 import { fieldWalkSeconds, foodLeft, spyWalkMs, warWalkMs } from '../pvp';
-import { endWords, type ProposalAct, type ProposalView } from '../proposals';
+import { endWords, pactWarBlock, type ProposalAct, type ProposalView } from '../proposals';
 import { WATCHER, homeSight, liveSight, standing } from '../sight';
 import { islandNeighbours } from '../spawn';
 import { canShelter, placeOf } from '../shelter';
@@ -10690,11 +10690,11 @@ export class LocalWorld implements WorldApi {
   // ---------- Пакт и выручка союзника (docs/siege_v2.md, раздел 5; этап 2г) ----------
 
   /** Пакт с городом и выручка союзника в осаде — поля карточки. */
-  private pactOf(c: PlayerCastle): Pick<CardWar, 'pact' | 'relief'> {
+  private pactOf(c: PlayerCastle): Pick<CardWar, 'pact' | 'pactBreakAt' | 'relief'> {
     const p = this.pactsFrom?.().find((x) => x.castle === c.id);
     if (!p) return {};
     const relief = p.state === 'pact' ? this.reliefPlan(c, this.clock()) : null;
-    return { pact: p.state, ...(relief ? { relief } : {}) };
+    return { pact: p.state, ...(p.breakAt !== undefined ? { pactBreakAt: p.breakAt } : {}), ...(relief ? { relief } : {}) };
   }
 
   /**
@@ -10870,6 +10870,9 @@ export class LocalWorld implements WorldApi {
     if (this.ourSiege(now)) return `${CAMP_BUSY} ${CAMP_LEAVE}`;
     const sieged = this.siegeBlock(now);
     if (sieged) return sieged;
+    // Пакт и отсчёт его разрыва (АУ-8, п. 1) — та же проверка, по которой откажет сервер войны (`war.march`).
+    const pact = pactWarBlock(this.pactsFrom?.().find((x) => x.castle === c.id), now);
+    if (pact) return pact;
     if (!this.inRealm(c)) return this.beyond();
     this.settleHandover(f, now);
     if (f.handover) return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
