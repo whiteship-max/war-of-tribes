@@ -78,7 +78,7 @@ import {
   type MachineId,
 } from '../../src/world/machines.js';
 import { aimOf, firePlan, reaim, thinAt, thinKinds, type Aim, type Fire, type TowerGun } from '../../src/world/bombard.js';
-import { fieldReach, fieldWalkFloorMs, foodLeft, spyWalkMs, warAt, warWalkMs } from '../../src/world/pvp.js';
+import { fieldReach, fieldWalkFloorMs, foodLeft, reliefCredit, spyWalkMs, warAt, warWalkMs } from '../../src/world/pvp.js';
 import { distance } from '../../src/world/geo.js';
 import { goodsSheet, type GoodsBook } from './goods.js';
 import {
@@ -389,9 +389,14 @@ function markGeneral(file: WarFile, key: string, have: number, now: number): voi
 
 /**
  * Кто выиграл бой войны. `won` — победил ли тот, кто в этом бою нападал: при штурме это поход (`atk`), при вылазке и
- * ударе по лагерю — город (`def`).
+ * ударе по лагерю — город (`def`). Выручка (АУ-8, п. 4): лагерь разбил союзник — победа его, а не города, чей гарнизон не
+ * выходил (`pvp.reliefCredit`, с версии правил `RELIEF_WIN_RULES`); союзник отбит — победа осаждающего, как прежде.
  */
-export const battleWinner = (w: WarRow, b: WarBattle): string => ((b.by === 'atk') === b.won ? w.atk : w.def);
+export const battleWinner = (w: WarRow, b: WarBattle): string => {
+  const side = (b.by === 'atk') === b.won ? w.atk : w.def;
+  if (side !== w.def || !reliefCredit(b)) return side;
+  return (w.allies && b.ally ? own(w.allies, b.ally)?.key : undefined) ?? side;
+};
 
 /** Прибавить к счёту итоги одной войны: победы в её боях и взятый город. */
 function tallyWar(out: Record<string, WarTally>, w: WarRow): void {

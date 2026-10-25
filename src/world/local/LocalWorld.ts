@@ -170,7 +170,7 @@ import {
   type WarSheet,
   type WarView,
 } from '../../../netlify/lib/contract';
-import { fieldWalkSeconds, foodLeft, spyWalkMs, warWalkMs } from '../pvp';
+import { fieldWalkSeconds, foodLeft, reliefCredit, spyWalkMs, warWalkMs } from '../pvp';
 import { endWords, pactWarBlock, type ProposalAct, type ProposalView } from '../proposals';
 import { WATCHER, homeSight, liveSight, standing } from '../sight';
 import { islandNeighbours } from '../spawn';
@@ -10012,6 +10012,9 @@ export class LocalWorld implements WorldApi {
     const ours = w.role === 'atk' ? 'atk' : 'def';
     // Выручка союзника (раздел 5): дружина в бою его, а не наша, — городу её не списывать.
     const allied = Boolean(b.ally);
+    // Победа выручки — союзника, который дрался (АУ-8, п. 4, `pvp.reliefCredit`): осаждённому — «осада снята», без победы
+    // и славы. Бой старше версии правила — как был.
+    const lifted = ours === 'def' && reliefCredit(b);
     // Ядро детерминировано: тот же вход по той же версии правил даёт тот же бой до бита (BTL-0), и журнал для ролика берётся отсюда.
     const field = recordedField(b.input as unknown as FieldInput);
     const weStruck = b.by === ours;
@@ -10052,7 +10055,9 @@ export class LocalWorld implements WorldApi {
           : `${site} из ${other}: ${hit ? (b.won ? 'машину сожгли' : 'отбита') : won ? 'лагерь устоял' : 'лагерь разбит'}`
         : b.by === 'atk'
           ? `${won ? 'Штурм отбит' : 'Город взят штурмом'}: ${other}`
-          : `${site}: ${hit ?? (won ? 'лагерь разбит' : 'лагерь устоял')}`;
+          : lifted
+            ? `${site}: ${won ? 'осада снята' : 'лагерь устоял'}`
+            : `${site}: ${hit ?? (won ? 'лагерь разбит' : 'лагерь устоял')}`;
     const lostText = lostMen > 0 ? ` Наших пало ${lostMen}.` : ' Наши все целы.';
     // Бой, разбивший лагерь или оставивший его без людей, кончил осаду: донесение о нём несёт запись осады (ролик осады).
     const ended = w.endAt === b.at && (w.end === 'lifted' || w.end === 'beaten');
@@ -10076,7 +10081,11 @@ export class LocalWorld implements WorldApi {
       ...through,
       ...rear,
       ...(siege ? { siege } : {}),
-      text: `Бой с отрядом города ${other}: ${won ? 'победа' : 'поражение'}.${lostText}${b.craft ? ` ${craftNote(b.craft)}` : ''}`,
+      text: lifted
+        ? won
+          ? `Союзник «${cityOr(helper?.city)}» пришёл на выручку и с тыла разбил лагерь города ${other}. Осада снята. Наш гарнизон в бой не выходил.`
+          : `Выручку из «${cityOr(helper?.city)}» лагерь города ${other} отбил. Осада идёт.`
+        : `Бой с отрядом города ${other}: ${won ? 'победа' : 'поражение'}.${lostText}${b.craft ? ` ${craftNote(b.craft)}` : ''}`,
       read: false,
     });
     // Наш полководец дрался: в походе — всегда, дома — если ударил из поля (выручка союзника — не наш полководец).
@@ -10099,9 +10108,10 @@ export class LocalWorld implements WorldApi {
       ...(ours === 'atk' ? { field: ourLost } : b.genLost && !allied ? { field: b.genLost as TroopStack } : {}),
       ...(troopTotal(standing) > 0 ? { standing } : {}),
       resources: {},
-      prestige: won ? 4 : 0,
-      morale: won ? 4 : -6,
-      battle: won ? 'won' : 'lost',
+      // Выручка по новым правилам — не наш бой: ни славы, ни победы в счёте; облегчение осаждённого — мораль.
+      prestige: won && !lifted ? 4 : 0,
+      morale: won ? 4 : lifted ? 0 : -6,
+      battle: lifted ? null : won ? 'won' : 'lost',
       ...(general && field.result ? { deed: { agent: 'general' as const, ok: won, at: b.at } } : {}),
       text: title,
       good: won,

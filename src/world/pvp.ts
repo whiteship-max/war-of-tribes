@@ -7,6 +7,7 @@ import { distance, terrainFactor, travelTime } from './geo';
 import { CELL_COST_MIN } from './geography';
 import { FIGURE_BY_ID } from './data/figures';
 import { asGame, gameSecondsOfMs, realMs, type GameSec } from '../game/pace';
+import { FIRST_RULES, RELIEF_WIN_RULES } from '../battle/config';
 
 /**
  * Сид земли для пути между замками. Переправы и броды выводятся из сида мира, а сид у каждого игрока свой;
@@ -68,3 +69,12 @@ export function warAt(from: Coord, to: Coord, departAt: number, arriveAt: number
 
 /** Сколько хлеба осталось у осаждённого — дверь окна осады (`siege.foodLeft`); здесь она под прежним именем модуля войны. */
 export { foodLeft } from './siege';
+
+/**
+ * Бой выручки засчитывается союзнику (АУ-8, п. 4; OWNER-DECISIONS п. 17): по лагерю бил союзник осаждённого, и бой посчитан
+ * версией правил не младше `RELIEF_WIN_RULES` (BTL-0: старые бои не пересчитываются). Тогда победа, слава и бой — союзника
+ * (`war.battleWinner`, его партия), а осаждённому — «осада снята» без победы (`LocalWorld.warBattle`). Одна проверка на
+ * сервер и мир.
+ */
+export const reliefCredit = (b: { ally?: string; input?: { rules?: number } }): boolean =>
+  Boolean(b.ally) && (b.input?.rules ?? FIRST_RULES) >= RELIEF_WIN_RULES;
