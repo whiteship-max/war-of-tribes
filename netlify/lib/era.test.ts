@@ -165,6 +165,11 @@ describe('после стирания старая партия не воскр�
     expect(await keys(STORES.world)).toEqual([ERA_KEY]);
     // Порча заголовка — тоже чужая эпоха, а не «нулевая».
     expect(readEra('abc')).toBe(-1);
+    // Только цифры (AC-8): шестнадцатеричное, степень, знак и дробь — порча, а не эпоха 1.
+    for (const bad of ['0x1', '1e0', '+1', '1.0', '-0', '1 2']) expect(readEra(bad), bad).toBe(-1);
+    expect(readEra(' 7 ')).toBe(7);
+    expect(readEra('')).toBe(0);
+    expect(readEra(null)).toBe(0);
     expect((await call('/api/save', A, { era: -5 })).status).toBe(410);
   });
 

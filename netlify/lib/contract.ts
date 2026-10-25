@@ -1726,10 +1726,15 @@ export interface AdminNote {
  */
 export const ERA_HEADER = 'x-tribe-era';
 
-/** Эпоха из заголовка: целое не меньше нуля; нет заголовка — 0; порча — −1, она не совпадёт ни с какой эпохой. */
+/**
+ * Эпоха из заголовка: только цифры (AC-8 — `Number` принял бы и «0x1», «1e0», «+1»); нет заголовка — 0; порча — −1, она не
+ * совпадёт ни с какой эпохой.
+ */
 export function readEra(v: string | null | undefined): number {
-  const n = Number((v ?? '').trim() || '0');
-  return Number.isSafeInteger(n) && n >= 0 ? n : -1;
+  const s = (v ?? '').trim() || '0';
+  if (!/^\d+$/.test(s)) return -1;
+  const n = Number(s);
+  return Number.isSafeInteger(n) ? n : -1;
 }
 
 /** Ответ 410: мир начат заново, у сервера эпоха `era`. Старая партия не принимается и не отдаётся. */
