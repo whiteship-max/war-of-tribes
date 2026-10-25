@@ -162,7 +162,9 @@ describe('где стоит боец — одно правило', () => {
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
     const body = src.slice(src.indexOf('export interface FieldSide {'), src.indexOf('}', src.indexOf('export interface FieldSide {')));
     const fields = [...body.matchAll(/^\s+(\w+)\??\s*:/gm)].map((m) => m[1]);
-    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'rest', 'garrison', 'behind']);
+    // Дух войска (ДР-1, docs/siege_v2.md, 24) дописал `spirit` — мораль и дисциплина: свойство войска, как стойкость, а не
+    // раскладка; ядро кладёт его поверх развёртывания множителями (`SPIRIT`).
+    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'rest', 'spirit', 'garrison', 'behind']);
     // Версия правил боя (`rules`, BTL-0) идёт в правило вместе с составом: запись старше версии раскладывается по своим (BTL-5).
     expect(src, 'обе стороны — правилом').toMatch(/const attacker = sideSetup\(input\.attacker, rules\);/);
     expect(src, 'клещи — тем же правилом').toMatch(

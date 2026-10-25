@@ -114,7 +114,7 @@ describe('навык не читает чисел, которыми владее
     const world = read('world/local/LocalWorld.ts');
     // Шанс лазутчика, предупреждение, земля у дома, живой обзор, снимок разведки
     // (keen), стойкость гарнизона и снаряжение.
-    for (const name of ['spyOptions', 'warningMs', 'homeReveal', 'sightDiscs', 'snapshot', 'ownResolve', 'ownGear']) {
+    for (const name of ['spyOptions', 'warningMs', 'homeReveal', 'sightDiscs', 'snapshot', 'ownSpirit', 'ownGear']) {
       expect(bodyOf(world, name), `LocalWorld.${name}`).not.toMatch(SKILL);
     }
     // Оборону деревни и вылазку полководец ведёт, только пока он в городе — с отрядом и без (решение
@@ -161,8 +161,9 @@ describe('агенты пятого уровня не сдвигают ни од
     const changed = [...new Set([...Object.keys(pa), ...Object.keys(pb)])].filter(
       (k) => JSON.stringify(pa[k]) !== JSON.stringify(pb[k]),
     );
-    // Пять полей и все — навык: отметки, зоркость, скрытность дважды — в провале и в гибели, и красноречие дипломата (АГ-1).
-    expect(changed.sort()).toEqual(['eloquence', 'pips', 'sightBonus', 'stealth', 'veil']);
+    // Пять полей навыка: отметки, зоркость, скрытность дважды — в провале и в гибели, и красноречие дипломата (АГ-1). Шестое —
+    // дух дружины (ДР-1, docs/siege_v2.md, 24.1, Д5): полководец учит строй, его уровень — строка дисциплины; это не число здания.
+    expect(changed.sort()).toEqual(['eloquence', 'pips', 'sightBonus', 'spirit', 'stealth', 'veil']);
   });
 
   it('в мире: шанс лазутчика, предупреждение и живой обзор те же', async () => {

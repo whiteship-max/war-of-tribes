@@ -150,6 +150,8 @@ describe('роспуск: показанное — ровно то, что сл�
     expect(dismissSoldiers(s, 'spearman', n)).toBeNull();
     expect(s.pop - pop).toBe(back.people);
     for (const [id, k] of Object.entries(back.gear)) expect((s.equipment[id as keyof typeof s.equipment] ?? 0) - (gear[id as keyof typeof gear] ?? 0), id).toBe(k);
+    // И само число — снаряжение вида на каждого из трёх (данные вида), а не только «показ равен делу».
+    for (const [id, per] of Object.entries(TROOP_BY_ID.spearman.gear)) expect(back.gear[id as keyof typeof back.gear], id).toBe((per ?? 0) * n);
     expect(s.army.spearman).toBe(30 - n);
   });
 });
