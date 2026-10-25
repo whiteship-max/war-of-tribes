@@ -254,7 +254,9 @@ export function readClaim(v: unknown): CastleClaim | null {
   if (arms === null) return null;
   const cap = (raw: unknown, max: number): number => Math.min(max, Math.max(0, Math.floor(num(raw) ?? 0)));
   return {
-    name: str(r.name, CASTLE_LIMITS.name) ?? '',
+    // Имя вождя тоже читают соседи и бот: правило очистки — имени города, потолок — свой (AC-8). Прежде резалась только длина,
+    // и разметка с невидимыми знаками уезжала к соседям.
+    name: (str(r.name, CASTLE_LIMITS.name) !== null ? plainText(r.name, CASTLE_LIMITS.name) : null) ?? '',
     // Имя города читают все соседи, поэтому сервер чистит его сам тем же правилом, что
     // и клиент: присланное поддельным клиентом дальше реестра сырым не уедет.
     city: cityName(r.city) ?? '',
@@ -303,12 +305,19 @@ const CITY_SPACE = /[\s\p{Zs}]+/gu;
  * этом целыми знаками, а не по половинке суррогатной пары: последний знак не бывает
  * половиной буквы.
  */
-export function cityName(raw: unknown): string | null {
+export const cityName = (raw: unknown): string | null => plainText(raw, CITY_MAX);
+
+/**
+ * Строка игрока, которую видят другие, по правилу имени города — без управляющих, невидимых и знаков разметки, пробелы сведены,
+ * не длиннее `max` (целыми знаками); `null` — ничего не осталось. Имя города (`cityName`) и имя вождя в реестре (`readClaim`,
+ * AC-8) — одно правило с разными потолками.
+ */
+export function plainText(raw: unknown, max: number): string | null {
   if (typeof raw !== 'string') return null;
   const flat = raw.replace(CITY_CUT, '').replace(CITY_SPACE, ' ').trim();
   let cut = '';
   for (const ch of flat) {
-    if (cut.length + ch.length > CITY_MAX) break;
+    if (cut.length + ch.length > max) break;
     cut += ch;
   }
   cut = cut.trim();
