@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { agentsAt, agentsStep, capPips, xpGain, type AgentBook } from './agentbook.js';
 import { agentFlags } from './watch.js';
-import { readWatch, type CastleClaim, type WarArmy, type WarSheet, type WatchCard } from './contract.js';
+import { type CastleClaim, type WarArmy, type WarSheet, type WatchCard } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { advance, applyOrder, emptyWars, fairOf, liveSheet, type SheetAt, type WarFile, type WarRow } from './war.js';
 import { phaseAt, setPhaseDie } from '../../src/world/siegeroll.js';
@@ -21,7 +21,7 @@ import { buildingOfType } from '../../src/game/derived.js';
 import { creditTech } from '../../src/game/sim/tech.js';
 import { eloquenceOf, pipsOf, sabotageOf, stealthOf, veilOf } from '../../src/game/sim/agents.js';
 import { bestRecruit, hireRecruit, recruitsOf } from '../../src/game/sim/recruits.js';
-import { watchOf } from '../../src/net/snapshot.js';
+import { agentsWatch } from '../../src/game/sim/recruit.js';
 import type { GameState } from '../../src/game/types.js';
 import type { FigureId } from '../../src/world/types.js';
 
@@ -45,8 +45,9 @@ function town(seed: number, hall: number, statue = 1): GameState {
   return s;
 }
 
-/** Опись партии так, как её прочтёт сервер (`contract.readWatch`). */
-const card = (s: GameState): WatchCard => readWatch(JSON.parse(JSON.stringify(watchOf(s))))!;
+/** Агенты и сид из описи партии — той же функцией, что собирает опись (`sim/recruit.agentsWatch`); чтение описи держит
+ * `security.test.ts` (блок «АГ-1») через обработчик записи. */
+const card = (s: GameState): WatchCard => JSON.parse(JSON.stringify({ agents: agentsWatch(s), seed: s.seed >>> 0 })) as WatchCard;
 
 /** Нанять на место кандидата с условием — в первом окне, где он есть. */
 function hireWhere(s: GameState, role: FigureId, ok: (c: ReturnType<typeof recruitsOf>[number]) => boolean): void {

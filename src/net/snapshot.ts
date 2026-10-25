@@ -9,7 +9,7 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchAgents, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchMarket, type WatchStab } from '../../netlify/lib/contract';
+import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchMarket, type WatchStab } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { SAVE_VERSION } from '@/game/state';
 import {
@@ -42,8 +42,7 @@ import { gemSeen, gemUnneeded } from '@/game/sim/gems';
 import { stabLevel, stabOf } from '@/game/sim/stability';
 import { crownOf } from '@/game/sim/crown';
 import { councilOf } from '@/game/sim/council';
-import { recruitBook } from '@/game/sim/recruit';
-import { AGENT_ROLES } from '@/game/agentrules';
+import { agentsWatch } from '@/game/sim/recruit';
 import { ADVISOR_POSTS } from '@/game/councilrules';
 import { estatesOf, privList } from '@/game/sim/estates';
 import { ESTATES } from '@/game/estaterules';
@@ -167,7 +166,7 @@ export function watchOf(s: GameState): WatchCard {
     // Книга совета Ратуши (РТ-1): кто сидит и счёт наймов, платы и жалованья. Совета не было — поля нет.
     ...(s.council ? { council: councilCard(s) } : {}),
     // Книга агентов (АГ-1): кто на местах, из какого кандидата, опыт; и сид партии — из него сервер выводит кандидатов сам.
-    agents: agentsCard(s),
+    agents: agentsWatch(s),
     seed: s.seed >>> 0,
     // Книга сословий (РТ-2): привилегии, указ сословия, влияние и счёт — у каждой партии (влияние есть и без привилегий).
     estates: estatesCard(s),
@@ -205,25 +204,6 @@ function estatesCard(s: GameState): WatchEstates {
     revokes: st.revokes,
     gifts: st.gifts,
   };
-}
-
-/**
- * Агенты для описи (АГ-1): место, номер человека, метка кандидата (номер, ступень, минута) и опыт — чтением одной двери
- * (`sim/agents`, книга найма — `sim/recruit.recruitBook`). Характеристик здесь нет: сервер выводит их из сида сам.
- */
-function agentsCard(s: GameState): WatchAgents {
-  const seats = AGENT_ROLES.map((role) => {
-    const p = s.agents[role];
-    return {
-      role,
-      person: p.person,
-      ...(p.cand ? { n: p.cand.n, tier: p.cand.tier, at: Math.floor(p.cand.at) } : {}),
-      xp: Math.floor(p.xp),
-      ...(p.vacant ? { vacant: true as const } : {}),
-    };
-  });
-  const b = recruitBook(s);
-  return { seats, hired: b.hired, fees: Math.round(b.fees), paid: Math.floor(b.paid) };
 }
 
 /** Совет для описи — чтением одной двери (`sim/council.councilOf`): место — должность, номер, уровень, черта, минута найма. */

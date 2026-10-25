@@ -20,7 +20,7 @@ import { RECRUIT_EVENT, RECRUIT_LOG } from '../data/recruit';
 import { agentWagesPerDay, unpaidShare } from '../derived';
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import { canRegear, type Placed } from '@/world/shelter';
-import { cityName } from '../../../netlify/lib/contract';
+import { cityName, type WatchAgents } from '../../../netlify/lib/contract';
 import { release, seat, seated, titled, yearsWord } from './agents';
 import { log } from './log';
 
@@ -136,6 +136,28 @@ export function agentVacancyDef(role: FigureId) {
     weight: (): number => 0,
     options: [{ label: RECRUIT_EVENT.later, apply: (): string => RECRUIT_EVENT.laterSaid }],
   };
+}
+
+// ---------- Опись для сервера ----------
+
+/**
+ * Агенты для описи (АГ-1, `WatchCard.agents`): место, номер человека, метка кандидата (номер, ступень, минута) и опыт, и книга
+ * найма. Характеристик здесь нет: сервер выводит их из сида сам (`agentbook`). Модуль без DOM — опись собирает `net/snapshot`,
+ * а тест сервера читает её отсюда же.
+ */
+export function agentsWatch(s: GameState): WatchAgents {
+  const seats = AGENT_ROLES.map((role) => {
+    const p = s.agents[role];
+    return {
+      role,
+      person: p.person,
+      ...(p.cand ? { n: p.cand.n, tier: p.cand.tier, at: Math.floor(p.cand.at) } : {}),
+      xp: Math.floor(p.xp),
+      ...(p.vacant ? { vacant: true as const } : {}),
+    };
+  });
+  const b = recruitBook(s);
+  return { seats, hired: b.hired, fees: Math.round(b.fees), paid: Math.floor(b.paid) };
 }
 
 // ---------- Чтение из сохранения ----------
