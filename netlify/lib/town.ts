@@ -518,7 +518,7 @@ export function townSheet(sheet: WarSheet, book: TownBook, homePower: number): W
   const stock: Counts = {};
   for (const [k, v] of Object.entries(sheet.stock)) if (v > 0) stock[k] = Math.min(v, cap);
   const pop = Math.min(sheet.pop, book.pop);
-  const ceil = militiaOf(defenseOf(book.levels, book.pop, homePower, STEADFAST_MAX), homePower);
+  const ceil = militiaOf(defenseOf(book.levels, book.pop, homePower, STEADFAST_MAX), homePower, STEADFAST_MAX);
   const militia = Math.min(sheet.militia, ceil);
   const eat = eatFloorOf(pop, sheet.bonded);
   const tower = ruleTower(sheet.tower, levelIn(book.levels, 'tower'));

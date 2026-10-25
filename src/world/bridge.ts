@@ -15,6 +15,7 @@ import {
   hiddenStash,
   homeArmyPower,
   faithOf,
+  faithTilt,
   armyResolve,
   intelKeen,
   besiegedSoldierFood,
@@ -69,7 +70,7 @@ const daysPerHour = gameDaysPerHour;
  * жители. В поле оно выходит пехотой без снаряжения — иначе набеги ИИ, чей
  * потолок считается от `defense()`, били бы по пустому месту.
  */
-export const militiaMen = (s: GameState): number => militiaOf(defense(s), homeArmyPower(s));
+export const militiaMen = (s: GameState): number => militiaOf(defense(s), homeArmyPower(s), faithTilt(s).steadfast);
 
 /**
  * Сколько ополченцев выходит стрелками, а не пехотой. Это и есть работа башни:
