@@ -20,7 +20,7 @@
  * Этого хватает ровно на то, ради чего заведено: заметить вторую вкладку и
  * спросить игрока. На злоумышленника это не рассчитано, и рассчитывать не надо.
  */
-import { serverNow } from './clock';
+import { deviceNow } from './clock';
 
 const DEVICE_KEY = 'tribe.device.v1';
 const LEASE_KEY = 'tribe.tab.v1';
@@ -85,12 +85,16 @@ export function leaseHolder(): LeaseHolder {
   const l = lease();
   if (!l) return 'free';
   if (l.tab === tab) return 'mine';
-  return serverNow() - l.at > LEASE_STALE_MS ? 'free' : 'other';
+  return deviceNow() - l.at > LEASE_STALE_MS ? 'free' : 'other';
 }
 
-/** Объявить ведущей эту вкладку и подновить отметку. */
+/**
+ * Объявить ведущей эту вкладку и подновить отметку. Часы — устройства, а не сервера (OPS-2): отметку читают вкладки того же
+ * устройства, а поправку к часам сервера каждая узнаёт сама и в своё время — сверившая часы прочла бы свежую отметку
+ * соседки как давнюю и забрала бы ведение у живой вкладки.
+ */
 export function claimLease(): void {
-  write(LEASE_KEY, JSON.stringify({ tab, at: serverNow() } satisfies Lease));
+  write(LEASE_KEY, JSON.stringify({ tab, at: deviceNow() } satisfies Lease));
 }
 
 /**
