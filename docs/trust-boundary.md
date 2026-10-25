@@ -1,0 +1,153 @@
+# Граница доверия: что присылает клиент и чему из этого верит сервер
+
+Документ этапа 8 аудита (docs/audit/WORKPLAN.md; чат АУ-7). Снят с кода ветки `game/au-7` (25.10.2026) чтением договора
+`netlify/lib/contract.ts` (все `read…`) и тех, кто читает прочитанное: `watch.ts`, `town.ts`, `book.ts`, `goods.ts`,
+`market.ts`, `deeds.ts`, `war.ts`, `gems.ts`, `pay.ts`, `routes/`. Таблица правил города с формулами — docs/security.md,
+раздел 1; что осталось открытым и почему — там же, 9.5 и 10. Здесь — по полю: **верит ли сервер** и **чем это проверено**.
+
+Общий закон (CLAUDE.md, «Двери и запреты»): **сервер хранит, а не судит**. Партию и мир игрока он принимает и отдаёт как есть;
+в войну, рейтинг, реестр замков, вести края и `/player` идёт **подтверждённое** (`watch.confirmedOf`, `war.liveSheet`) — то,
+что сервер выводит своими книгами (стройки `town.ts`, войска `book.ts`, запасов `goods.ts`, рынка `market.ts`) из описей
+партии и своих записей. Невозможное — флаг и строка «внимание:» в журнале города (`watch.warned`), а не отказ в записи.
+
+Слова столбца «Верит»:
+
+- **нет** — сервер выводит величину сам, слово клиента не читается или читается только для сравнения;
+- **потолок** — берёт названное, но не выше того, что выводит сам (или не ниже — у убыли); сверх — срезано и/или флаг;
+- **флаг** — берёт как есть, но сверяет с правилом и пишет флаг; в чужие дела идёт подтверждённое;
+- **да** — берёт как есть: величина касается только самого игрока или сервер проверить её не может (причина — в строке).
+
+## 1. Личность, эпоха, запись
+
+| Вход | Верит | Чем проверено |
+| --- | --- | --- |
+| `initData` Telegram (кто игрок) | нет: личность — только из подписи | `initdata.ts` (HMAC ключом бота, срок жизни строки — сутки, docs/security.md 9.5); `initdata.test.ts` |
+| вебхук бота | нет: личность — из обновления Telegram с секретом вебхука | `routes/bot`, `bot.test.ts` |
+| заголовок `x-tribe-era` | нет: сверяет с номером эпохи сервера, чужая — 410 | `era.eraGate` (цифры, иначе порча, AC-8 п. 5); `era.test.ts`, `ops3.test.ts` (эпоха ещё раз перед записью, OPS-3) |
+| `If-Match` / ETag записи | нет: условная запись хранилища, пустой ETag — тоже условие | `kv.ts`, `blobs.ts`, `vps/sqlite.ts` (OPS-3); `ops3.test.ts`, `vps/routes.test.ts` |
+| встреча двух копий (вкладка, отметка ведения) | решает клиент (`net/sync.decide`), сервер даёт 409 на чужой ETag | `src/net/sync.test.ts`, `leaseskew.test.ts` (OPS-2: отметка — часами устройства) |
+
+## 2. Запись партии (`/api/save`, `readRecord`)
+
+| Поле | Верит | Чем проверено |
+| --- | --- | --- |
+| `game`, `world` (сохранения целиком) | да — хранит, не разбирает; потолок размера | `readRecord(limits)`; судить партию — не дело сервера (решение 1, docs/security.md, 3) |
+| `watch` — опись (раздел 3) | флаг и книги | `watch.wrote`, `watch.booked`, `flagsOf`, `flagsBetween` |
+| `sheet` — слепок обороны (раздел 4) | потолок книгами | `war.liveSheet` → `claimedSheet`, `bookedSheet`, `goods.goodsSheet`, `town.townSheet` |
+| `claim` — карточка в реестре замков (раздел 5) | потолок | `roster.ts`, `watch.confirmedOf` |
+| `gemSeen`, `gemUnneeded` (номера дел алмазов) | потолок: номер не выше книги; возврат — только по книге стройки, один раз | `deeds.ts`, `gems.settleUnneeded` (FIN-4, FIN-5); `gems.test.ts`, `town.test.ts` |
+
+## 3. Опись (`WatchCard`, `readWatch`)
+
+| Поле | Верит | Чем проверено |
+| --- | --- | --- |
+| `build` (сборка) | да — номер сборки для журнала; по нему только «опись до объединения дворов» | `saveOf(build)`, правило «merged» (`yardmerge.foldTown`) |
+| `city` | потолок: чистый текст, длина | `contract.cityName` / `plainText` (AC-8 п. 1); `arms.test.ts` |
+| `clock` (часы устройства) | флаг сверх `CLOCK_SKEW_SECONDS` | `watch.flagsOf` («часы»); `security.test.ts`, AC-8 п. 7 |
+| `time` (часы партии) | флаг: игровых дней не больше настоящего времени, опережения и допуска | `flagsBetween` («время»), `pace.leadGrowth` |
+| `lead` (опережение под скоростью проверки) | флаг сверх высшей ступени скорости | `flagsBetween` («haste»), AC-8 п. 7; `security.test.ts` |
+| `cheated` (коды проверки) | да — метка; партию не отвергает (решение OWNER-DECISIONS п. 14) | `flagsOf` («cheat») |
+| `level`, `buildings` (уровни) | нет: уровень — книга стройки (работа, потолок скорости, цена, вести, алмазы) | `town.buildStep`, `build.buildCeil`, `labour.upgradeWork` / `upgradeCost`; AC-7 — вести только на подтверждённый уровень; `town.test.ts`, `security.test.ts` |
+| `site` (идущая стройка, сделано) | потолок: работа — не выше потолка скорости за серверное время | `town.buildStep`, `rushFloor`; ключ постройки — своим полем (SETUP-3); `protokeys.test.ts` |
+| `queue` (очередь стройки) | флаг: длина, порядок, одна на постройку, начатая не сдвигается | `town.queueFaults`; ключ — своим полем; `sim/queue.test.ts`, `protokeys.test.ts` |
+| возврат отмены (выводится из двух `queue` и `site`) | нет: положенное сервер выводит сам | `watch.cancelledRefund` + `labour.cancelRefund` (AC-6); тест-свойство `src/net/refundprop.test.ts` (АУ-7), `cancelrefund.test.ts` |
+| `pop` (жители) | потолок: прирост, жильё, вести, вернувшиеся | `build.popGrowthCeil`, `housingOf`; в войну — `town.townSheet` |
+| `stock` (склад, казна `gold`) | потолок и книга запасов | вместимость подтверждённых построек `build.storageOf` (опись — по правилу `stockrules.fitStock`, ECO-1; тест-свойство `sim/stockprop.test.ts`); рост — выработка + допуск дел (AC-1, `deeds.deedGain`); убыль — «не меньше» книги запасов (`goods.ts`); `goodsbook.test.ts`, `deeds.test.ts`, `stock.test.ts` |
+| `prod` (выработка в сутки) | потолок: места дел подтверждённых построек × лучшие множители | правило «prod» `build.prodCeil` (ЗД-1); прежде читалась как есть (docs/security.md 9.5, закрыто) |
+| `cap` (вместимость) | нет: сверка всегда с вместимостью книги | AC-4; `security.test.ts` «AC-4: опись назвала вместимость нулём» |
+| `troops`, `wounded`, `hurt` | потолок: обучение, указы, потери войны | книга войска `book.bookAfter`, `train.trainRateAt`; указы — только применённые (AC-2, AC-3); `book.test.ts`, `admin.test.ts` |
+| `train` (скорость обучения) | флаг-допуск: рост войска в описи сверяется с ней; в бой идёт книга войска со своей формулой | `flagsBetween` (рост войска), `book.ts` (`train.trainRateAt` — одна на игру и сервер) |
+| `queued`, `away`, `caravans` | да — объяснение для допуска роста (найм в очереди, ушедшие, караваны) | `deeds.ts`, `goods.ts`; подделка даёт только допуск в пределах таблицы дел |
+| `bonded` (невольники) | частично: книга запасов держит убыль; рост — не проверяется | `goods.ts`; отдельная задача — OWNER-DECISIONS п. 12 (AC-4 без `bonded`) |
+| `deeds`, `windfalls`, `outlays` (счётчики дел, находок, трат) | флаг: дел не больше 30 в минуту, допуск — по таблице наград; счётчик трат — да | `deeds.deedsFlag`, `deedGain`, `deedLoss` (AC-1); трата объясняет убыль — открыто (docs/security.md 9.5); `deeds.test.ts`, `deedsfair.test.ts` |
+| `won`, `lost`, `lairs`, `raids`, `games`, `seen` (счётчики дел по видам) | допуск: каждое дело даёт не больше своей строки таблицы | `deeds.deedGain`; победы войны — запись войн сервера |
+| `haul` (добыча промысла) | флаг | `flagsBetween` (рост добычи против сыгранных игр) |
+| `haulCap` (потолок промысла) | нет: сервер считает сам по выработке | AC-4; `security.test.ts` «AC-4: огромный haulCap» |
+| `starve` (ложные сдачи голодом) | флаг «сдача голодом при хлебе» | правило «starve» (ОС-1); `security.test.ts`, `os1.test.ts` |
+| `stab` (стабильность) | флаг: шкала, очки, купленное | правило «stab» `stabrules`; `stability.test.ts`, `security.test.ts` |
+| `crown` (вести державы) | флаг: вид и ответ — из таблицы (своим полем), частота | правило «crown» `crownrules`; `crown.test.ts`, `protokeys.test.ts` |
+| `council` (совет Ратуши) | флаг; польза — только подтверждённого | правило «council» `councilrules`; `council.test.ts`, `rt1.test.ts` |
+| `estates` (сословия) | флаг; польза — по подтверждённому | правило «estates» `estaterules`; `estates.test.ts` |
+| `market` (сделки рынка) | флаг: цена каждой сделки — формулой игры, номер не убывает, двойная сделка | правило «market» `market.marketFaults` (РН-1, AC-5); `rn1.test.ts` |
+
+## 4. Слепок обороны (`WarSheet`, `readSheet`) — его читает война
+
+В бой и в падение идёт не слепок, а `war.liveSheet`: слепок, сведённый с записью войн (`claimedSheet`) и книгами войска,
+стройки, запасов (`bookedSheet`), и хлеб окна осады (`siegeBread`).
+
+| Поле | Верит | Чем проверено |
+| --- | --- | --- |
+| `army`, `home` | потолок книгой войска; потери войны — сервер вычитает сам | `book.ts`, `claimedSheet`; `pvp.test.ts`, `server.test.ts` |
+| `retinue`, `out` (отряд полководца, ушедшие походы) | потолок: не больше дома; поход в пути — сервер правит сам по записи войн | `claimedSheet` (`least`, `atMost`) |
+| `militia`, `archers` | потолок: ополчение и башня подтверждённых уровней | `town.townSheet` (`towerArchersAt`) |
+| `tower` (требушет на стене) | потолок уровнем башни книги | `town.ruleTower` |
+| `watch` (дозор от чужих лазутчиков) | потолок уровнем дозора книги | `town.ruleWatch` |
+| `resolve`, `pips` | потолок правил: стойкость — обряд, подтверждённые Воевода и рыцари; отметки — `PIPS_MAX` | `book.ruleResolve`, `rulePips`; отметки после похода — по самой свежей войне (АУ-7, `warpips.test.ts`) |
+| `rest` (мораль обороны) | да, в пределах 0…1: усталость от боёв с логовами живёт в мире клиента | docs/security.md 9.5 — открыто |
+| `stock`, `gold`, `stash`, `bonded`, `food` | потолок книгой запасов; тайник — уровнем тайника | `goods.goodsSheet`, `town.townSheet` (`stashAt`); хлеб осады — окно (`siegeBread`); `goodsbook.test.ts`, `warstarve.test.ts` |
+| `townPerHour`, `perManPerHour` (расход хлеба) | потолок снизу: не меньше расхода игры | `town.townSheet` (`Math.max` с расходом книги), флаг в `watch.ts`; `goodsbook.test.ts` «потолок расхода» |
+| `yieldPerHour` (добыча хлеба в осаде) | потолок: правило «prod» подтверждённых построек | `watch.yieldCapOf`, `war.bookedSheet` (ОС-1) |
+| `levels` | потолок книгой стройки; сгоревшее при падении — сервер сам | `town.townSheet`, `claimedSheet` |
+| `pop`, `power` | потолок: «наибольшее» книги стройки за вычетом объяснимого | `town.floorAt`, `war.shielded` (защита слабого) |
+| `locks` (замки гейта на участь) | да: технологии державы живут в партии | docs/security.md 9.5 — открыто |
+| `seen` (что город уже применил) | да — номера; неприменённое сервер вычитает сам | `claimedSheet` |
+| `time` (час и сезон города) | да, для гибели чужого лазутчика | docs/security.md 9.5 — открыто |
+| `gen` (где полководец) | потолок непрерывности: от места слепка не дальше, чем мог дойти | `war.walkOf` (`pvp.fieldReach`, `fieldWalkFloorMs`); `war.test.ts` «срок пути удара» |
+
+## 5. Реестр замков (`CastleClaim`, `readClaim`)
+
+| Поле | Верит | Чем проверено |
+| --- | --- | --- |
+| имя, город, герб | потолок: чистый текст, герб — только из набора | `contract.cityName`, `plainText`, `heraldry/arms.readArms`; `arms.test.ts` |
+| место (клетка) | нет: назначает реестр (`world/settle`, `world/spawn`) | `roster.test.ts`, `spawn.test.ts` |
+| `power`, `pop` (видят соседи) | потолок: подтверждённое | `watch.confirmedOf` |
+
+## 6. Приказы войны (`/api/war`, `readWarOrder`)
+
+Исхода в приказе нет: бой, часы голода, падение и добычу считает сервер (`netlify/lib/war.ts`) дверью `world/fights`.
+
+| Приказ / поле | Верит | Чем проверено |
+| --- | --- | --- |
+| `march`: цель, участь | нет: цель — из реестра; регион, пакт, неприкосновенность, замки гейта | `inHomeTheatre`, `pacted`, `fellAt`, `fateWhy`; `war.test.ts` |
+| `march`/`strike`/`relief`: войско `army.troops` | потолок книгой войска, NaN и дроби не проходят | `enough` (заявленное → подтверждённое, флаг), `readCounts`, `wholeNonNeg` (SETUP-4); `ordernums.test.ts`, `server.test.ts` |
+| `army.resolve`, `army.pips` | потолок правил | `ruleArmy` → `book.ruleResolve`, `rulePips` |
+| `army.energy` (энергия полководца) | потолок: не выше своей отметки сервера — последний поход, **удар и выручка** (АУ-7, п. 9) | `war.generalCap`, `WarFile.gens`; `war.test.ts` «энергия полководца», `warstrikecap.test.ts`; отметка — к часам сервера (AC-8 п. 3) |
+| полководец занят | нет: один полководец — одно дело | `war.generalBusy` (BTL-2); `warbusy.test.ts` |
+| `strike`/`relief`: `walkMs`, `from` | потолок: срок — не короче пути, место — не дальше, чем дошёл | `war.walkOf` (ЗЩ-2); `war.test.ts` «срок пути удара» |
+| `sortie`, `breakout`, `sally`: состав | потолок гарнизоном слепка | `readCounts`, сверка с `liveSheet` |
+| `storm` (машины), `machine`, `wood`, `craft`, `aim`, `blockade`, `ration`, `repair`, `orders` | нет: готовность, цена, энергия, кольцо — сервер своими дверями | `world/machines`, `siegecraft`, `shelling`, `blockade`; `warmachines.test.ts`, `warshelling.test.ts` |
+| `offer`, `answer` (дань, условия) | нет: цена — `parley.fairTribute` от участи сервера | `warparley.test.ts` |
+| `pact`, `unpact`, `deal` | нет: адресат, срок, кто отвечает | `war.dealOrder`, `world/proposals.answerBlock`; `warproposals.test.ts` |
+| `spy`: дело, `shown` (шанс и гибель в меню) | нет: исход — сервер своей костью; `shown` — только сверка с меню | `world/rivalspy`; `spy.test.ts`, `spyhome.test.ts` (минута — сервера, BTL-8 п. 6) |
+
+## 7. Алмазы и оплата
+
+| Вход | Верит | Чем проверено |
+| --- | --- | --- |
+| `/api/gems` `buy` | нет: товар из списка, лимит суток, цена — сервера | `gems.applyGemOrder`; `gems.test.ts` |
+| `/api/gems` `rush`: постройка, уровень, `work`, `price` | потолок: постройка своим полем, уровень 2…потолок, остаток — книга стройки (`rushFloor`), цена не выше показанной | `gemrules.rushLevelOk` (`guard.own`, АУ-7), `town.rushFloor`; `protokeys.test.ts` (архив prove-6-1), `gemorder.test.ts` |
+| ключ повтора приказа | да — повтор с тем же ключом не списывает дважды | `gems.byKey` |
+| `/api/pay` заказ: набор, кошелёк | нет: сумма — из таблицы наборов; начисление — только по переводу, найденному сервером в сети TON | `pay.ts`, `ton.ts` (FIN-1…FIN-7, нагрузка); `pay.test.ts`, `ton.test.ts` |
+| платёж Telegram (`successful_payment`) | нет: не начисляет ничего | `tgpay.ts`; `security.test.ts` |
+| номера применённых дел алмазов (`gemSeen`) | потолок: порция самых старых после номера | FIN-4; на клиенте — один номер — одно дело (`sim/gems.applyGemDeeds`, АУ-7) |
+
+## 8. Прочие входы
+
+| Вход | Верит | Чем проверено |
+| --- | --- | --- |
+| уведомления: настройки (`readPrefs`), черновики (`readNotices`) | потолок: только известные рода и поля; игра шлёт лишь рычаг и пояс, остальное правит вебхук бота | `contract.readNotices`, `notify.plan`; `netlify/lib/notify.test.ts`, `src/net/notify.test.ts` |
+| отчёт об ошибке (`readReport`) | да — текст для админа; потолок размера и квота после записи | OPS-3 |
+| замеры с телефонов (`readPerf`) | потолок: известные поля, разумные числа | `contract.readPerf`; `perf.test.ts` |
+| указ админа (`readGrant`) | нет: только от админа; в книгу — только применённый партией | AC-2, AC-3; `admin.test.ts`, `book.test.ts` |
+
+## 9. Что сервер не проверяет и почему
+
+Сведено из docs/security.md 9.5 и 10 и аудита; каждое — осознанное, а не забытое:
+
+- **счётчик трат** (`outlays`) объясняет любую убыль — закрыть может только сервер, ведущий хозяйство партии сам;
+- **потери войны применяет клиент** — нападающий своё получает: добычу считает сервер;
+- **мораль** (`rest`), **замки гейта** (`locks`), **час города** (`time`) — живут в партии и мире клиента;
+- **рост невольников** (`bonded`) — отдельная задача, OWNER-DECISIONS п. 12;
+- **добро без дела** — до вместимости, **золото** — без потолка (docs/security.md, 10);
+- **энергия полководца** — потолок, а не правда: походов на логова сервер не видит;
+- **строка `initData`** живёт сутки.
