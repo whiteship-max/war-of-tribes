@@ -31,7 +31,7 @@
 // должно.
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
-import { own } from '@/game/guard';
+import { own, wholeNonNeg } from '@/game/guard';
 import { realMs } from '@/game/pace';
 import { AI_WARNING_BASE, HANDOVER_BASE, HANDOVER_MAX, HANDOVER_PER_MAN } from './data/tuning';
 import type { FigurePhase } from './types';
@@ -189,10 +189,11 @@ export function weakest(t: TroopStack, n: number): TroopStack {
  */
 export function pickTroops(troops: TroopStack | null | undefined, home: TroopStack): TroopStack | null {
   const going: TroopStack = {};
-  // По видам бойцов, а не по ключам приказа: «constructor» из приказа — не вид (SETUP-3).
+  // По видам бойцов, а не по ключам приказа: «constructor» из приказа — не вид (SETUP-3). NaN и бесконечность — не число
+  // бойцов (SETUP-4); дробь — вниз.
   for (const id of TROOP_IDS) {
-    const n = Math.max(0, Math.floor(own(troops ?? {}, id) ?? 0));
-    if (n <= 0) continue;
+    const n = Math.floor(own(troops ?? {}, id) ?? 0);
+    if (!wholeNonNeg(n, Number.MAX_SAFE_INTEGER) || n === 0) continue;
     if (n > (home[id] ?? 0)) return null;
     going[id] = n;
   }

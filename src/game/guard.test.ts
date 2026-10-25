@@ -1,7 +1,8 @@
-// SETUP-3 (docs/audit/WORKPLAN.md): поиск по таблице — своим полем, а не прототипом. Ключ из приказа, описи или
-// сохранения — чужая строка; точки — ключи прототипа, которые `in` видит, а таблица не знает.
+// SETUP-3 и SETUP-4 (docs/audit/WORKPLAN.md): поиск по таблице — своим полем, а не прототипом, число — целым от нуля.
+// Ключ из приказа, описи или сохранения — чужая строка; точки — ключи прототипа, которые `in` видит, а таблица не знает,
+// и числа, мимо которых NaN проходил сам.
 import { describe, expect, it } from 'vitest';
-import { has, own } from './guard';
+import { has, own, wholeNonNeg } from './guard';
 import { CROWN_RULES, isCrown } from './crownrules';
 import { crownText } from './data/crownWords';
 import { createInitialState } from './state';
@@ -40,5 +41,20 @@ describe('пояс границы: ключи прототипа', () => {
       expect(pickTroops(order, home), k).toEqual({ clubman: 2 });
     }
     expect(pickTroops({ clubman: 6 }, home), 'больше, чем дома').toBeNull();
+  });
+});
+
+describe('пояс границы: числа', () => {
+  it('wholeNonNeg: целое от нуля до потолка — да; NaN, бесконечность, минус, дробь, строка, выше потолка — нет', () => {
+    for (const v of [0, 1, 7, 10]) expect(wholeNonNeg(v, 10), String(v)).toBe(true);
+    for (const v of [NaN, Infinity, -Infinity, -1, 1.5, '3', null, undefined, 11]) expect(wholeNonNeg(v, 10), String(v)).toBe(false);
+  });
+
+  it('состав из приказа: NaN, бесконечность и минус — не бойцы', () => {
+    const home = { clubman: 5, spearman: 5 };
+    for (const n of [NaN, Infinity, -Infinity, -2]) {
+      expect(pickTroops({ clubman: n, spearman: 2 }, home), String(n)).toEqual({ spearman: 2 });
+    }
+    expect(pickTroops({ clubman: 2.7 }, home), 'дробь — вниз, как прежде').toEqual({ clubman: 2 });
   });
 });

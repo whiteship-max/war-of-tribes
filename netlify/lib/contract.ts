@@ -14,6 +14,7 @@
  * знать про день и население — и знает это клиент, который опись и складывает.
  */
 import { readArms } from '../../src/heraldry/arms.js';
+import { wholeNonNeg } from '../../src/game/guard.js';
 import type { ProposalAct, ProposalView } from '../../src/world/proposals.js';
 
 /** Краткая опись партии — на случай, когда игрок выбирает между двумя. */
@@ -2077,11 +2078,18 @@ function readSite(v: unknown): Pick<WatchCard, 'site'> {
   if (!v || typeof v !== 'object') return {};
   const r = v as Record<string, unknown>;
   const type = str(r.type, 32);
-  const level = num(r.level);
+  const level = r.level;
   const done = num(r.done);
-  if (!type || level === null || !Number.isInteger(level) || level < 2 || level > 100 || done === null || done < 0) return {};
+  if (!type || !isSiteLevel(level) || done === null || done < 0) return {};
   return { site: { type, level, done: Math.min(done, 1e12) } };
 }
+
+/**
+ * Уровень стройки из описи или приказа (SETUP-4): следующий за построенным — от второго (первый стоит с начала партии)
+ * до потолка чтения. Одно правило на идущую стройку и очередь описи и на ускорение за алмазы (`readGemOrder`).
+ */
+const SITE_LEVEL_MAX = 100;
+const isSiteLevel = (v: unknown): v is number => wholeNonNeg(v, SITE_LEVEL_MAX) && v >= 2;
 
 /** Сколько мест очереди стройки читает сервер: больше — подделка, и лишнее ему не нужно, чтобы сказать флаг. */
 export const QUEUE_READ_MAX = 32;
@@ -2094,8 +2102,8 @@ function readQueue(v: unknown): Pick<WatchCard, 'queue'> {
     if (!x || typeof x !== 'object') continue;
     const r = x as Record<string, unknown>;
     const type = str(r.type, 32);
-    const level = num(r.level);
-    if (type && level !== null && Number.isInteger(level) && level >= 2 && level <= 100) queue.push({ type, level });
+    const level = r.level;
+    if (type && isSiteLevel(level)) queue.push({ type, level });
   }
   return { queue };
 }
@@ -2388,11 +2396,9 @@ export function readGemOrder(v: unknown): GemOrder | null {
   if (r.op === 'buy') return isGood(r.res) ? { op: 'buy', key, res: r.res } : null;
   if (r.op === 'rush') {
     const building = str(r.building, GEM_LIMITS.building);
-    const level = num(r.level);
+    const { level, price } = r;
     const work = num(r.work);
-    const price = num(r.price);
-    if (!building || level === null || work === null || price === null) return null;
-    if (!Number.isInteger(level) || work < 0 || price < 0 || !Number.isInteger(price)) return null;
+    if (!building || !isSiteLevel(level) || work === null || work < 0 || !wholeNonNeg(price, Number.MAX_SAFE_INTEGER)) return null;
     return { op: 'rush', key, building, level, work, price };
   }
   return null;

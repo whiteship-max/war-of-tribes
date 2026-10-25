@@ -15,7 +15,7 @@ import {
 import { TROOPS_OF_KIND, troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { kindsOf, troopLosses, troopPower } from '@/game/battle/price';
 import { TROOP_IDS } from '@/game/data/troops';
-import { has } from '@/game/guard';
+import { has, own, wholeNonNeg } from '@/game/guard';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { BattlePlace } from '@/game/battle/ground';
 import type { WorldApi } from '../api';
@@ -269,7 +269,7 @@ import {
 } from '../letters';
 import { LETTER_KIND_BY_ID, goodsText } from '../data/letters';
 import { BARBARIAN_NAMES, RELATION_META, stageOf } from '../data/meta';
-import { stackCarry, stackEscort, stackSize } from '../data/units';
+import { UNIT_IDS, stackCarry, stackEscort, stackSize } from '../data/units';
 import {
   FATES,
   FATE_DEFAULT,
@@ -6920,12 +6920,15 @@ export class LocalWorld implements WorldApi {
     // ушедших своей долей (`standingLost`), как у частокола. Без состава отряд
     // уходит числом и снимается со слабых из тех, кто не при полководце
     // (`world/muster.homeOf`), — поэтому и считается он от них.
-    const troops = order.troops && troopTotal(order.troops) > 0 ? { ...order.troops } : undefined;
+    const named = order.troops ? pickTroops(order.troops, held.all) : {};
+    if (!named) return { error: 'Столько бойцов дома нет.', march: null };
+    const troops = troopTotal(named) > 0 ? named : undefined;
     const units: UnitStack = {};
     let size = 0;
-    for (const [id, n] of Object.entries(order.units) as [keyof UnitStack, number][]) {
-      const count = Math.max(0, Math.floor(n ?? 0));
-      if (count <= 0) continue;
+    // По видам отряда, а не по ключам приказа; NaN и бесконечность — не люди (SETUP-3, SETUP-4).
+    for (const id of UNIT_IDS) {
+      const count = Math.floor(own(order.units ?? {}, id) ?? 0);
+      if (!wholeNonNeg(count, Number.MAX_SAFE_INTEGER) || count === 0) continue;
       // Воины уходят из гарнизона — того, что стоит дома в эту минуту. Разведчики —
       // свободные руки деревни, и сколько их, знает только слепок.
       const have = id === 'warrior' ? troopTotal(troops ? held.all : held.own) : (profile.units[id] ?? 0);
@@ -6934,9 +6937,6 @@ export class LocalWorld implements WorldApi {
       size += count;
     }
     if (size === 0) return { error: 'Отряд пустой.', march: null };
-    if (troops && TROOP_IDS.some((t) => (troops[t] ?? 0) > (held.all[t] ?? 0))) {
-      return { error: 'Столько бойцов дома нет.', march: null };
-    }
     if (order.mission === 'raid') {
       // Единственный способ ударить — полководец у цели. Оставлять рядом второй
       // путь значило бы, что правило «армия ходит только с ним» держится на
