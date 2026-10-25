@@ -850,15 +850,23 @@ export interface WarEnergy {
 }
 
 /** Отметка энергии из приказа: новый объект; запас не выше полного, мусор — нет отметки. */
-export function readEnergy(v: unknown): WarEnergy | undefined {
+export function readEnergy(v: unknown, latest = Infinity): WarEnergy | undefined {
   if (!v || typeof v !== 'object') return undefined;
   const r = v as Record<string, unknown>;
   const value = num(r.value);
-  const at = num(r.at);
+  const raw = num(r.at);
   const mode = r.mode === 'drain' || r.mode === 'fill' || r.mode === 'camp' || r.mode === 'hold' ? r.mode : null;
-  if (value === null || at === null || mode === null) return undefined;
-  const homeAt = num(r.homeAt);
-  const stopAt = num(r.stopAt);
+  if (value === null || raw === null || mode === null) return undefined;
+  // Минуты отметки зажаты к часам сервера (AC-8): отметка не позже `latest` (сервер передаёт свои часы с допуском) — до
+  // минуты отметки запас не убывает, и отметка из будущего держала бы армию свежей весь поход; поворот домой и остановка — не
+  // раньше отметки — иначе путь с первой минуты копил бы, а не тратил.
+  const at = Math.min(raw, latest);
+  const turn = (x: unknown): number | null => {
+    const n = num(x);
+    return n === null ? null : Math.max(at, n);
+  };
+  const homeAt = turn(r.homeAt);
+  const stopAt = turn(r.stopAt);
   return {
     value: Math.max(0, Math.min(100, value)),
     at,
@@ -1511,12 +1519,12 @@ export const WAR_OUT_MAX = 4;
 export const WAR_SEEN_MAX = 2000;
 
 /** Войско из приказа: новый объект. */
-export function readArmy(v: unknown): WarArmy | null {
+export function readArmy(v: unknown, latest = Infinity): WarArmy | null {
   if (!v || typeof v !== 'object') return null;
   const r = v as Record<string, unknown>;
   const troops = readCounts(r.troops);
   const rest = r.rest && typeof r.rest === 'object' ? (r.rest as Record<string, unknown>) : null;
-  const energy = readEnergy(r.energy);
+  const energy = readEnergy(r.energy, latest);
   return {
     troops,
     resolve: real(r.resolve, 100),
@@ -1529,7 +1537,8 @@ export function readArmy(v: unknown): WarArmy | null {
 }
 
 /** Приказ войны из тела запроса: новый объект, лишние поля (и всякий «исход») отбрасываются. */
-export function readWarOrder(v: unknown): WarOrder | null {
+/** Приказ войны из тела запроса. `latest` — часы сервера с допуском: позже них отметки энергии не бывает (AC-8). */
+export function readWarOrder(v: unknown, latest = Infinity): WarOrder | null {
   if (!v || typeof v !== 'object') return null;
   const r = v as Record<string, unknown>;
   const id = str(r.id, 64);
@@ -1538,7 +1547,7 @@ export function readWarOrder(v: unknown): WarOrder | null {
       const target = str(r.target, 64);
       const mode = WAR_MODES.find((m) => m === r.mode);
       const fate = NOTICE_FATES.find((f) => f === r.fate);
-      const army = readArmy(r.army);
+      const army = readArmy(r.army, latest);
       // Кольцо — только у осады: штурм с ходу кольца не замыкает.
       const ring = mode === 'siege' && r.blockade === true ? { blockade: true as const } : {};
       return target && mode && fate && army ? { op: 'march', target, mode, fate, army, ...ring } : null;
@@ -1581,7 +1590,7 @@ export function readWarOrder(v: unknown): WarOrder | null {
     case 'orders':
       return id ? { op: 'orders', id, orders: readOrders(r.orders) } : null;
     case 'strike': {
-      const army = readArmy(r.army);
+      const army = readArmy(r.army, latest);
       const walk = num(r.walkMs);
       const from = readSpot(r.from);
       return id && army && walk !== null && from
@@ -1609,7 +1618,7 @@ export function readWarOrder(v: unknown): WarOrder | null {
       return id && machine ? { op: 'sally', id, machine, troops: readCounts(r.troops) } : null;
     }
     case 'relief': {
-      const army = readArmy(r.army);
+      const army = readArmy(r.army, latest);
       const walk = num(r.walkMs);
       const from = readSpot(r.from);
       return id && army && walk !== null && from ? { op: 'relief', id, army, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)), from } : null;
@@ -1632,7 +1641,7 @@ export function readWarOrder(v: unknown): WarOrder | null {
       const chance = num(shown.chance);
       const peril = num(shown.peril);
       const at = num(r.at);
-      const energy = readEnergy(r.energy);
+      const energy = readEnergy(r.energy, latest);
       return target && deed && chance !== null && peril !== null && at !== null
         ? { op: 'spy', target, deed, shown: { chance, peril }, at, ...(energy ? { energy } : {}) }
         : null;

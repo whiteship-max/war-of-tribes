@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readArmy, readCounts, readRecord, type SaveRecord } from './contract.js';
+import { readArmy, readCounts, readEnergy, readRecord, type SaveRecord } from './contract.js';
+import { energyAt } from '../../src/world/energy.js';
 
 const LIMITS = { game: 200, world: 100 };
 
@@ -68,5 +69,23 @@ describe('AC-8: длинный ключ пропускается, а не обр
     const army = readArmy({ troops: { [long]: 1, spearman: 4 }, pips: { [long]: 0.5, shock: 1.5 } })!;
     expect(army.troops).toEqual({ spearman: 4 });
     expect(army.pips).toEqual({ shock: 1.5 });
+  });
+});
+
+describe('AC-8: минуты отметки энергии — к часам сервера', () => {
+  const NOW = 1_900_000_000_000;
+  const LATEST = NOW + 5 * 60_000;
+  it('отметка из будущего — не позже часов сервера с допуском; поворот домой и остановка — не раньше отметки', () => {
+    const e = readEnergy({ value: 100, at: NOW + 365 * 86_400_000, mode: 'drain', stopAt: NOW + 400 * 86_400_000 }, LATEST)!;
+    expect(e.at).toBe(LATEST);
+    expect(energyAt(e, NOW + 3_600_000)).toBeLessThan(100);
+    const back = readEnergy({ value: 40, at: NOW, mode: 'drain', homeAt: 0, stopAt: 5 }, LATEST)!;
+    expect(back.homeAt).toBe(NOW);
+    expect(back.stopAt).toBe(NOW);
+    // Честная отметка — как прислана.
+    const fair = readEnergy({ value: 70, at: NOW - 1000, mode: 'drain', homeAt: NOW + 3_600_000 }, LATEST)!;
+    expect(fair).toEqual({ value: 70, at: NOW - 1000, mode: 'drain', homeAt: NOW + 3_600_000 });
+    // Тем же правилом — армия приказа.
+    expect(readArmy({ troops: { spearman: 1 }, energy: { value: 100, at: NOW + 1e12, mode: 'drain' } }, LATEST)!.energy!.at).toBe(LATEST);
   });
 });

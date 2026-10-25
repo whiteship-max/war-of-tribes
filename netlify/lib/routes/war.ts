@@ -16,7 +16,7 @@
  * Заморозка (docs/admin.md): приказ замороженного не принимается, на замороженный город поход не уходит, а войско,
  * пришедшее к нему, поворачивает домой — слепка его обороны для войны нет, как у города, ушедшего из игры.
  */
-import { readInitData, saveKeyOf } from '../initdata.js';
+import { CLOCK_SKEW_SECONDS, readInitData, saveKeyOf } from '../initdata.js';
 import { eraGate } from '../era.js';
 import { WRITE_TRIES, allow, botToken, deny, inTurn, json, parseJson, readBody, spawnMode, warPace, type Route } from '../http.js';
 import { cityOr, readWarOrder, type WarOrder, type WarResponse } from '../contract.js';
@@ -78,7 +78,7 @@ export const war: Route = async (req, io) => {
   if (req.method === 'POST') {
     const text = await readBody(req);
     if (text === null) return deny(413, 'too-big');
-    order = readWarOrder(parseJson<unknown>(text));
+    order = readWarOrder(parseJson<unknown>(text), now + CLOCK_SKEW_SECONDS * 1000);
     if (!order) return deny(400, 'bad-body');
   } else if (req.method !== 'GET') {
     return deny(405, 'method');
