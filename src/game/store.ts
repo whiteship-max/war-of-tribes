@@ -21,8 +21,8 @@ import { bootPaint, bootStage } from '@/boot/stage';
 import { mayWrite, provideGame, syncBoot } from '@/net/sync';
 import { provideGrants } from '@/net/admin';
 import { applyGrants } from './sim/admin';
-import { provideGemDeeds } from '@/net/gems';
-import { applyGemDeeds } from './sim/gems';
+import { provideGemDeeds, provideGemSeen } from '@/net/gems';
+import { applyGemDeeds, gemSeen } from './sim/gems';
 import { provideClaim, rosterBoot } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyBoot } from '@/net/notify';
@@ -309,6 +309,8 @@ export const useGame = create<GameStore>((set, get) => ({
       set({ s: { ...st } });
       get().save();
     });
+    // Номер применённого — серверу с чтением и приказом: дела приедут самые старые первыми, порциями (FIN-4).
+    provideGemSeen(() => gemSeen(get().s));
     // Присутствие — первым сетевым вызовом, раньше партии и реестра: вернувшийся игрок не
     // должен ни секунды числиться ушедшим (docs/NOTIFY.md, раздел 4). Выключено — ни запроса.
     if (NOTIFY_ON) notifyBoot();

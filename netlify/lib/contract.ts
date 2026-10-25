@@ -2360,8 +2360,22 @@ export interface GemShop {
 export interface GemNote {
   balance: number;
   shop: GemShop;
-  /** Записи с делом для партии, номер старше присланного в описи (`WatchCard.gemSeen`). */
+  /**
+   * Записи с делом для партии, номер старше присланного партией (`gemSeen`: опись, строка запроса, приказ) — самые старые,
+   * по порядку, не больше `GEM_LIMITS.deeds` (FIN-4). Номера не прислали (игра до FIN-4) — последние, как прежде.
+   */
   deeds: GemEntry[];
+  /** Неприменённых дел больше порции: игра, применив эти, сразу спрашивает следующие. */
+  more?: true;
+}
+
+/** Строка запроса, в которой игра называет номер последнего применённого дела алмазов (`GameState.gemSeen`, FIN-4). */
+export const GEM_SEEN_PARAM = 'gemSeen';
+
+/** Номер применённого дела из строки запроса или приказа: целое от нуля; нет или кривой — `undefined` (игра до FIN-4). */
+export function readGemSeen(v: unknown): number | undefined {
+  const n = typeof v === 'string' && /^\d{1,15}$/.test(v) ? Number(v) : v;
+  return wholeNonNeg(n, 1e12) ? (n as number) : undefined;
 }
 
 /** Ответ `/api/gems`: записка, журнал для «Истории» и, на приказ, — его запись или отказ словами. */
@@ -2380,9 +2394,13 @@ export interface GemsResponse extends GemNote {
  * возвращает прежнюю запись. Ускорение называет постройку, уровень, остаток работы и цену, которую видел игрок: сервер
  * считает свою по остатку не больше полного труда уровня и не берёт больше показанной.
  */
-export type GemOrder =
+export type GemOrder = (
   | { op: 'buy'; key: string; res: GemGood }
-  | { op: 'rush'; key: string; building: string; level: number; work: number; price: number };
+  | { op: 'rush'; key: string; building: string; level: number; work: number; price: number }
+) & {
+  /** Номер последнего применённого партией дела (FIN-4): ответ везёт дела после него. Нет — игра до FIN-4. */
+  seen?: number;
+};
 
 const gemKey = (v: unknown): string | null => (typeof v === 'string' && /^[\w.:-]{6,64}$/.test(v) ? v : null);
 const isGood = (v: unknown): v is GemGood => typeof v === 'string' && (GEM_GOODS as readonly string[]).includes(v);
@@ -2393,13 +2411,15 @@ export function readGemOrder(v: unknown): GemOrder | null {
   const r = v as Record<string, unknown>;
   const key = gemKey(r.key);
   if (!key) return null;
-  if (r.op === 'buy') return isGood(r.res) ? { op: 'buy', key, res: r.res } : null;
+  const n = readGemSeen(r.seen);
+  const seen = n === undefined ? {} : { seen: n };
+  if (r.op === 'buy') return isGood(r.res) ? { op: 'buy', key, res: r.res, ...seen } : null;
   if (r.op === 'rush') {
     const building = str(r.building, GEM_LIMITS.building);
     const { level, price } = r;
     const work = num(r.work);
     if (!building || !isSiteLevel(level) || work === null || work < 0 || !wholeNonNeg(price, Number.MAX_SAFE_INTEGER)) return null;
-    return { op: 'rush', key, building, level, work, price };
+    return { op: 'rush', key, building, level, work, price, ...seen };
   }
   return null;
 }
@@ -2441,7 +2461,8 @@ export function readGemNote(v: unknown): GemNote | null {
   return {
     balance: Math.max(0, Math.floor(bal)),
     shop: { day: Math.max(0, Math.floor(num(shop.day) ?? 0)), used: Math.max(0, Math.floor(num(shop.used) ?? 0)) },
-    deeds: deeds.slice(-GEM_LIMITS.deeds),
+    deeds: deeds.slice(0, GEM_LIMITS.deeds),
+    ...(r.more === true ? { more: true as const } : {}),
   };
 }
 

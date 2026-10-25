@@ -217,12 +217,22 @@ export const shown = (stored: StoredGem): GemEntry => {
   return e;
 };
 
-/** Записка для ответа: баланс, лавка сегодня и дела старше `seen`, которые партия ещё не применила. */
-export const gemNoteOf = (ledger: GemLedger, seen: number, at: number): GemNote => ({
-  balance: ledger.balance,
-  shop: shopToday(ledger, at),
-  deeds: ledger.list.filter((e) => e.n > seen && gemDeed(e)).slice(-GEM_LIMITS.deeds).map(shown),
-});
+/**
+ * Записка для ответа: баланс, лавка сегодня и дела старше `seen`, которые партия ещё не применила, — **самые старые**,
+ * не больше порции, и «ещё», если их больше (FIN-4). Прежде уходили последние пятьдесят: партия на шестьдесят дел позади
+ * ставила номер на последнее и десять старших покупок теряла навсегда. `seen` нет — игра до FIN-4 номера не шлёт: ей
+ * по-старому последние пятьдесят (она их отсеет своим номером сама).
+ */
+export function gemNoteOf(ledger: GemLedger, seen: number | undefined, at: number): GemNote {
+  const fresh = ledger.list.filter((e) => e.n > (seen ?? 0) && gemDeed(e));
+  const deeds = seen === undefined ? fresh.slice(-GEM_LIMITS.deeds) : fresh.slice(0, GEM_LIMITS.deeds);
+  return {
+    balance: ledger.balance,
+    shop: shopToday(ledger, at),
+    deeds: deeds.map(shown),
+    ...(seen !== undefined && fresh.length > GEM_LIMITS.deeds ? { more: true as const } : {}),
+  };
+}
 
 /** Журнал для окна «История» — последние записи без ключей повтора. */
 export const listOf = (ledger: GemLedger): GemEntry[] => ledger.list.slice(-GEM_LIMITS.view).map(shown);

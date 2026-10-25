@@ -31,7 +31,7 @@
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { eraGate } from '../era.js';
 import { allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
-import { readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
+import { GEM_SEEN_PARAM, readGemSeen, readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
 import { STORES } from '../kv.js';
 import { frozenNow, grantsOf, isFrozen, noteOf } from '../admin.js';
 import { booked, invitedBy, observe, tooFast, touched, wrote } from '../watch.js';
@@ -81,14 +81,15 @@ export const save: Route = async (req, io) => {
     const found = await store.getWithMetadata(key);
     // Книга алмазов (docs/gems.md): первый вход в эпоху мира открывает её со стартовыми. Не ответила — без записки.
     const ledger = await settleGems(io.stores, key, now);
-    // Партия на устройстве может быть впереди серверной записи: указы и дела алмазов — все, что лежат; лишние клиент
-    // отсеет номером.
+    // Партия на устройстве может быть впереди серверной записи: указы — все, что лежат, лишние клиент отсеет номером;
+    // дела алмазов — после номера партии на устройстве из строки запроса (FIN-4), без него — по-старому.
+    const seen = readGemSeen(new URL(req.url, 'http://local').searchParams.get(GEM_SEEN_PARAM));
     const body: PullResponse = {
       now,
       etag: found?.etag ?? null,
       record: found ? parseJson(String(found.data)) : null,
       admin: noteOf(frozen, grants, 0),
-      ...(ledger ? { gems: gemNoteOf(ledger.ledger, 0, now) } : {}),
+      ...(ledger ? { gems: gemNoteOf(ledger.ledger, seen, now) } : {}),
     };
     await observe(io.stores, key, (rec) => touched(rec, now, user, ref));
     return json(body);
@@ -179,7 +180,7 @@ export const save: Route = async (req, io) => {
     etag: written.etag,
     rev: record.rev,
     admin,
-    ...(ledger ? { gems: gemNoteOf(ledger.ledger, record.watch?.gemSeen ?? 0, now) } : {}),
+    ...(ledger ? { gems: gemNoteOf(ledger.ledger, record.watch?.gemSeen, now) } : {}),
   };
   return json(body);
 };

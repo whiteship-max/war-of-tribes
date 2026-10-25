@@ -25,6 +25,8 @@ import {
 } from '../../src/game/gemrules.js';
 import { gameSeconds } from '../../src/game/pace.js';
 import { DAY_MS } from '../../src/game/time.js';
+import { createInitialState } from '../../src/game/state.js';
+import { applyGemDeeds, gemSeen } from '../../src/game/sim/gems.js';
 
 /**
  * Книга алмазов на сервере (docs/gems.md). Тесты там, где без них можно начислить из ничего, списать дважды, обойти лимит
@@ -513,6 +515,71 @@ describe('записка партии', () => {
     expect(gemNoteOf(l, 3, NOW).deeds).toEqual([]);
     // Ключи повтора наружу не уходят.
     expect(JSON.stringify(gemNoteOf(l, 0, NOW))).not.toContain('k-note');
+  });
+});
+
+describe('дела по номеру: самые старые неприменённые, порциями, а не последние 50 (FIN-4)', () => {
+  /** Книга с `n` покупками лавки: по десять в сутки, как пускает лавка. */
+  const ledgerWith = (n: number, base = NOW): GemLedger => {
+    let l: GemLedger = { ...openLedger(base), balance: 1e7 };
+    for (let i = 0; i < n; i++) l = applyGemOrder(l, buy(`k-many-${i}`, 'wood'), base + Math.floor(i / SHOP_DAILY) * DAY_MS + i).ledger!;
+    return l;
+  };
+  const deeds = (l: GemLedger): number[] => l.list.filter((e) => e.kind === 'buy').map((e) => e.n);
+
+  it('устройство на 60 дел позади получает все 60 — двумя порциями, вторая по флагу «ещё»', () => {
+    const l = ledgerWith(60);
+    const s = createInitialState(1);
+    let applied = 0;
+    const rounds: boolean[] = [];
+    for (let k = 0; k < 5; k++) {
+      const note = gemNoteOf(l, gemSeen(s), NOW);
+      rounds.push(note.more === true);
+      applied += applyGemDeeds(s, note.deeds);
+      if (!note.more) break;
+    }
+    // Прежде — последние пятьдесят: партия ставила номер на 61-й и десять старших покупок теряла навсегда.
+    expect(applied).toBe(60);
+    expect(gemSeen(s)).toBe(deeds(l).at(-1));
+    expect(rounds).toEqual([true, false]);
+  });
+
+  it('порция — первые 50 после присланного номера, по порядку; старый клиент без номера — по-старому, последние 50', () => {
+    const l = ledgerWith(60);
+    const all = deeds(l);
+    const first = gemNoteOf(l, 0, NOW);
+    expect([first.deeds.length, first.deeds[0].n, first.deeds.at(-1)!.n, first.more]).toEqual([50, all[0], all[49], true]);
+    const rest = gemNoteOf(l, all[49], NOW);
+    expect([rest.deeds.map((e) => e.n), rest.more]).toEqual([all.slice(50), undefined]);
+    const old = gemNoteOf(l, undefined, NOW);
+    expect([old.deeds.map((e) => e.n), old.more]).toEqual([all.slice(-50), undefined]);
+  });
+
+  it('ответ на приказ с номером партии — ровно только что сделанная покупка', async () => {
+    const s = memoryStores();
+    const p = player();
+    // Покупки прошлых суток: сегодня лавка открыта.
+    await s.stores(STORES.gems).setJSON(`tg-${p}`, ledgerWith(55, NOW - 7 * DAY_MS));
+    const seen = deeds(s.ledger(p)!).at(-1)!;
+    const r = await call(s, p, { ...buy('k-fresh-1', 'stone'), seen });
+    expect(r.body.entry?.kind).toBe('buy');
+    expect([r.body.deeds.map((e) => e.n), r.body.more]).toEqual([[r.body.entry!.n], undefined]);
+  });
+
+  it('чтение алмазов и сохранения с номером партии (`?gemSeen=`) — порция после него и «ещё»', async () => {
+    const s = memoryStores();
+    const p = player();
+    await s.stores(STORES.gems).setJSON(`tg-${p}`, ledgerWith(60));
+    const all = deeds(s.ledger(p)!);
+    const g = await gems(new Request(`https://x/api/gems?gemSeen=${all[4]}`, { headers: { 'x-telegram-init-data': signInit(p) } }), { stores: s.stores, now: NOW, ip: null });
+    const gb = (await g.json()) as GemsResponse;
+    expect([gb.deeds[0].n, gb.deeds.length, gb.more]).toEqual([all[5], 50, true]);
+    const sv = await save(new Request(`https://x/api/save?gemSeen=${all[49]}`, { headers: { 'x-telegram-init-data': signInit(p) } }), { stores: s.stores, now: NOW, ip: null });
+    const sb = (await sv.json()) as { gems?: GemsResponse };
+    expect([sb.gems?.deeds.map((e) => e.n), sb.gems?.more]).toEqual([all.slice(50), undefined]);
+    // Без номера — по-старому: последние пятьдесят.
+    const legacy = (await call(s, p)).body;
+    expect([legacy.deeds[0].n, legacy.more]).toEqual([all[10], undefined]);
   });
 });
 

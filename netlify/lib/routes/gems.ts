@@ -11,7 +11,7 @@
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { eraGate } from '../era.js';
 import { allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
-import { readGemOrder, type GemOrder, type GemsResponse } from '../contract.js';
+import { GEM_SEEN_PARAM, readGemOrder, readGemSeen, type GemOrder, type GemsResponse } from '../contract.js';
 import { FROZEN_ORDER, frozenNow, isFrozen } from '../admin.js';
 import { gemNoteOf, listOf, settleGems, shown } from '../gems.js';
 import { buildMult, noted, observe, readWatchRecord, townOf, warned } from '../watch.js';
@@ -54,10 +54,11 @@ export const gems: Route = async (req, io) => {
   if (!done) return deny(503, 'busy', { 'retry-after': '3' });
 
   const error = frozen ? FROZEN_ORDER : done.error;
-  // Партия применит дела сама, по номеру: все, что лежат, — лишние она отсеет.
+  // Партия применит дела сама, по номеру: самые старые после её номера — из приказа или строки запроса (FIN-4).
+  const seen = order ? order.seen : readGemSeen(new URL(req.url, 'http://local').searchParams.get(GEM_SEEN_PARAM));
   const body: GemsResponse = {
     now,
-    ...gemNoteOf(done.ledger, 0, now),
+    ...gemNoteOf(done.ledger, seen, now),
     list: listOf(done.ledger),
     ...(done.entry ? { entry: shown(done.entry) } : {}),
     ...(error ? { error } : {}),
