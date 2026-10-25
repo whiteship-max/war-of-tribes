@@ -1,12 +1,6 @@
-// Найм агентов в Ратуше (АГ-1): летопись и весть о пустом месте — то, что нужно шагу партии. Слова окна (характеристики, черты,
+// Найм агентов в Ратуше (АГ-1): весть о пустом месте — то, что нужно шагу партии; летопись найма — с окном (`agentWords`). Слова окна (характеристики, черты,
 // что они делают) — `data/agentWords.ts`, едут с окном Ратуши. Числа — `game/agentrules.ts`, дверь — `sim/recruit.ts`.
 import type { FigureId } from '@/world/types';
-
-/** Строки летописи найма. */
-export const RECRUIT_LOG = {
-  hired: (who: string, years: string): string => `${who} нанят в Ратуше, ${years}.`,
-  dismissed: (who: string): string => `${who} уволен.`,
-};
 
 /** Весть о пустом месте агента (`sim/recruit.agentVacancyDef`): выбор нового — в Ратуше, туда ведёт дверь вести. */
 export const RECRUIT_EVENT = {

@@ -1,7 +1,7 @@
 // Найм агентов в Ратуше (АГ-1, docs/city_v3.md, «Решения АГ-1») — единственная дверь записи `GameState.recruit`: кого из окна
-// уже взяли, книга найма и жалованья для сервера, посадка нанятого, увольнение, весть о пустом месте. Пишет поле только этот
-// модуль (замок — `recruit.test.ts`, чтением исходников); в людей на местах он входит одной дверью — `sim/agents` (`seat`,
-// `release`).
+// уже взяли, книга найма и жалованья для сервера, весть о пустом месте, опись для сервера. Пишет поле только этот модуль (замок —
+// `recruit.test.ts`, чтением исходников). Посадка, смена и увольнение — действия окна, они едут докачкой с ним
+// (`sim/recruits`): книгу найма они пишут этой дверью (`bookHire`), людей на местах — дверью `sim/agents` (`seat`, `release`).
 //
 // Устройство — как у совета Ратуши (РТ-1):
 // - **кандидаты выводятся, а не хранятся** — их список, имена, выбор и цена — в `sim/recruits` (едет докачкой с окном Ратуши);
@@ -10,19 +10,15 @@
 // - **жалованье — из той же ведомости, что войско, мастера и совет** (`derived.wagesPerDay`, платит `sim/upkeep`); здесь только
 //   книга уплаченного (`recruitStep`). Неуплатой агенты не уходят (решения АГ-1): человек в поле ушёл бы посреди дела с
 //   дружиной; неуплату ведомость делит на всех, и уходят войско и совет — своими долями;
-// - **сменить и уволить — только дома** (у своих ворот или в городе, `world/shelter.canRegear`): человек в деле его заканчивает.
 import type { FigureId } from '@/world/types';
 import type { GameState, RecruitState } from '../types';
 import { AGENT_ROLES, windowOfRecruit } from '../agentrules';
 import { windowOf } from '../councilrules';
 import { DAY_LENGTH } from '../constants';
-import { RECRUIT_EVENT, RECRUIT_LOG } from '../data/recruit';
+import { RECRUIT_EVENT } from '../data/recruit';
 import { agentWagesPerDay, unpaidShare } from '../derived';
 import { FIGURE_BY_ID } from '@/world/data/figures';
-import { canRegear, type Placed } from '@/world/shelter';
 import { cityName, type WatchAgents } from '../../../netlify/lib/contract';
-import { release, seat, seated, titled, yearsWord } from './agents';
-import { log } from './log';
 
 /** Пустая книга — так читаются новая и старая партия. */
 const EMPTY: RecruitState = { took: { w: -1, n: [] }, hired: 0, fees: 0, paid: 0 };
@@ -36,65 +32,20 @@ function own(s: GameState): RecruitState {
   return s.recruit;
 }
 
-/** Готовый кандидат — то, что ложится в найм (`sim/recruits.recruitsOf`): номер, ступень, имя, возраст и плата вперёд. */
-export interface Hireable {
-  n: number;
-  tier: number;
-  name: string;
-  age0: number;
-  /** Жалованье за сезон вперёд — в книгу платы (сервер сверяет её с ценой кандидата). */
-  advance: number;
-}
-
 /** Номера кандидатов, взятых в окне `w`. */
 export const takenIn = (s: GameState, w: number): readonly number[] => (recruitBook(s).took.w === w ? recruitBook(s).took.n : []);
 
 /**
- * Посадить нанятого на место: прежний (если был) отставлен, номер — во взятые окна, книга сервера считает найм и плату вперёд.
- * Цена уже снята тем, кто зовёт (`sim/recruits.hireRecruit`); можно ли — решил он же (`hireBlock`).
+ * Книга найма: кандидат `n` взят в нынешнем окне, наймов на один больше, плата вперёд — в счёт. Зовёт посадка нанятого
+ * (`sim/recruits.seatRecruit`, докачкой); больше `s.recruit` здесь не пишет никто, кроме шага и вести.
  */
-export function seatRecruit(s: GameState, role: FigureId, c: Hireable): void {
+export function bookHire(s: GameState, n: number, advance: number): void {
   const b = own(s);
-  if (seated(s, role)) log(s, RECRUIT_LOG.dismissed(titled(s, role)), 'info');
   const w = windowOf(s.time);
   if (b.took.w !== w) b.took = { w, n: [] };
-  b.took.n.push(c.n);
+  b.took.n.push(n);
   b.hired += 1;
-  b.fees += Math.max(0, c.advance);
-  seat(s, role, s.time, c.age0, c.name, { n: c.n, tier: c.tier, at: s.time });
-  log(s, RECRUIT_LOG.hired(titled(s, role), yearsWord(Math.floor(c.age0))), 'good');
-  // Дружина прежнего полководца осталась городу: новый приходит без неё и в поле не выйдет, пока её не соберут.
-  if (role === 'general') log(s, 'Отряда при нём нет. Собери его в Статуе.', 'bad');
-}
-
-/**
- * Почему человека на месте нельзя сменить или уволить сейчас; `null` — можно. Где он, знает мир — фигура приходит готовой
- * (`FigureView`), как у переодевания (`sim/agents.regearBlock`): дома — у своих ворот или в городе; в поле, в пути и вне строя
- * он дело заканчивает.
- */
-export function replaceBlock(s: GameState, role: FigureId, where: Placed | null | undefined): string | null {
-  if (!seated(s, role)) return null;
-  // Слова — под кнопкой (не длиннее 32 знаков, docs/ui_audit.md, 3.7): та же строка и в отказе действия.
-  if (!where) return 'Ещё не встал на место.';
-  if (canRegear(where)) return null;
-  if (where.phase === 'down') return 'Вне строя — менять дома.';
-  return where.phase === 'moving' ? 'В пути — менять дома.' : 'В поле — менять дома.';
-}
-
-/** Почему нельзя уволить; `null` — можно. */
-export function dismissBlock(s: GameState, role: FigureId, where: Placed | null | undefined): string | null {
-  if (!seated(s, role)) return 'Место и так пустует.';
-  return replaceBlock(s, role, where);
-}
-
-/** Уволить человека с места: только дома; плата вперёд не возвращается — это не залог. */
-export function dismissAgent(s: GameState, role: FigureId, where: Placed | null | undefined): string | null {
-  const block = dismissBlock(s, role, where);
-  if (block) return block;
-  const who = titled(s, role);
-  if (!release(s, role)) return 'Место и так пустует.';
-  log(s, RECRUIT_LOG.dismissed(who), 'info');
-  return null;
+  b.fees += Math.max(0, advance);
 }
 
 /** Книга жалованья — после содержания (`sim/upkeep` заплатил или задолжал): сколько ушло — доля ведомости, что казна покрыла. */

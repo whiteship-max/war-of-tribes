@@ -707,7 +707,7 @@ HEAD один на всех, см. правило 8). Значит развес�
   `DECREES`, открывает `derived.decreeBlock`, снимает `estatesStep`; сервер — правило «estates» (`estates.test.ts`,
   `security.test.ts`; docs/stability.md, «РТ-2»).
 - **Агенты в Ратуше** — найм, смена и увольнение всех четверых только в Ратуше, раздел «Агенты» (`sim/recruits.hireRecruit`,
-  `sim/recruit.dismissAgent`; сменить и уволить — дома, `world/shelter.canRegear`), здания ведут туда кнопкой; кандидаты —
+  `sim/recruits.dismissAgent`; сменить и уволить — дома, `world/shelter.canRegear`), здания ведут туда кнопкой; кандидаты —
   `agentrules.recruitAt` (сид, окно, ступень — как просители совета); характеристика — фора на лестнице навыка (`skillCircles`),
   в дело — прежними дверями (`pipsOf`, `sightBonusOf`, `stealthOf`/`veilOf`, `eloquenceOf` → `parley.tributeAsk`, диверсия →
   `rivalspy.rivalHarm`); сервер — правило «agents» (`agentbook`, числа войны — свои) (`recruit.test.ts`, `ag1.test.ts`,

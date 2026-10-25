@@ -560,7 +560,7 @@ export function seat(s: GameState, agent: FigureId, at: number, age0: number, na
 
 /**
  * Уволить человека с места (АГ-1): место пустеет сразу, без вести и без строки родословной — его не потеряли, его отпустили.
- * Где он стоит, знает мир: увольняют только дома (`sim/recruit.dismissBlock`), и мир снимает фигуру, как только слепок назовёт
+ * Где он стоит, знает мир: увольняют только дома (`sim/recruits.dismissBlock`), и мир снимает фигуру, как только слепок назовёт
  * место пустым. Возвращает, опустело ли.
  */
 export function release(s: GameState, agent: FigureId): boolean {

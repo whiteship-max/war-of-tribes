@@ -72,3 +72,9 @@ export const ROLE_DUTY: Readonly<Record<FigureId, string>> = {
   spy: 'Выведывает, жжёт, крадёт и мутит у соседей',
   diplomat: 'Союзы с соседями и дань за снятие осады',
 };
+
+/** Строки летописи найма и увольнения (`sim/recruits`). */
+export const RECRUIT_LOG = {
+  hired: (who: string, years: string): string => `${who} нанят в Ратуше, ${years}.`,
+  dismissed: (who: string): string => `${who} уволен.`,
+};

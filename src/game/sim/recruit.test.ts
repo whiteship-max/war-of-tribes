@@ -44,8 +44,8 @@ import {
   veilOf,
 } from './agents';
 import { veilAt } from '@/world/peril';
-import { bestRecruit, hireBlock, hireRecruit, recruitsOf } from './recruits';
-import { agentVacancyEvent, agentVacancyRole, dismissAgent, mergeRecruit, recruitBook, recruitStep } from './recruit';
+import { bestRecruit, dismissAgent, hireBlock, hireRecruit, recruitsOf } from './recruits';
+import { agentVacancyEvent, agentVacancyRole, mergeRecruit, recruitBook, recruitStep } from './recruit';
 import { settleHires } from './hire';
 import { livingNames } from './dynasty';
 import { creditTech } from './tech';

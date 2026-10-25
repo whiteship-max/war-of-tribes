@@ -6,7 +6,7 @@
 // числами, жалованье; «Сменить» и «Уволить» — у человека на месте (только дома: в поле он дело заканчивает), «Нанять» — у пустого.
 // Касание «Нанять» или «Сменить» — лист кандидатов поверх: те же числа и разница с нынешним, черты, жалованье и цена.
 //
-// Своих чисел нет (правило 18): кандидаты, найм и отказы — `sim/recruits`, увольнение — `sim/recruit`, характеристики — двери
+// Своих чисел нет (правило 18): кандидаты, найм, увольнение и отказы — `sim/recruits`, характеристики — двери
 // дела (`agentStats`), жалованье и плата — `agentrules`.
 import './council.css';
 import './agents.css';
@@ -19,8 +19,7 @@ import { MAX_AGENT_LEVEL } from '@/game/data/agents';
 import { faceAge } from '@/game/data/council';
 import { AGENT_TRAIT_WORD, ROLE_DUTY } from '@/game/data/agentWords';
 import { ageOf, agentLevel, personName, recruitOfPlace, seated, traitsBorn, yearsWord } from '@/game/sim/agents';
-import { dismissAgent, dismissBlock, replaceBlock } from '@/game/sim/recruit';
-import { hireBlock, hireRecruit, nextRecruitsIn, recruitsOf, type RecruitView } from '@/game/sim/recruits';
+import { dismissAgent, dismissBlock, hireBlock, hireRecruit, nextRecruitsIn, recruitsOf, replaceBlock, type RecruitView } from '@/game/sim/recruits';
 import { mixSeed } from '@/game/sim/random';
 import { placeBlock } from '@/game/sim/tech';
 import { asGame } from '@/game/pace';
