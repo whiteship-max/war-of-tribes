@@ -1091,7 +1091,7 @@ describe('АГ-1: агенты Ратуши на сервере — честны
     expect(rec.agents?.seats.spy?.n).toBe(recruitId(windowOf(1000), 'spy', 0));
   });
 
-  it('кандидат выше ступени ратуши, найм без счёта, сид сменился — «внимание:», человек ровный', async () => {
+  it('кандидат выше ступени ратуши, найм без счёта, сид сменился — «внимание:»; человек ровный, книга — по новому сиду', async () => {
     const later = NOW + HOUR;
     const t = 1000 + gameSecondsOfMs(HOUR);
     const high = player(5502);
@@ -1111,6 +1111,6 @@ describe('АГ-1: агенты Ратуши на сервере — честны
     expect(await reseed.push(card({ clock: later, time: t, seed: SEED + 1, agents: agents(seats()) }), later)).toBe(200);
     const r2 = await reseed.watch();
     expect(warnings(r2).some((x) => /сид партии сменился/.test(x))).toBe(true);
-    expect(r2.agents?.seed, 'книга держит первый').toBe(SEED);
+    expect(r2.agents?.seed, 'новая партия — книга по новому сиду').toBe(SEED + 1);
   });
 });

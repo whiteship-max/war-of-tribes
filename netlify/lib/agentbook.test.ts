@@ -64,7 +64,7 @@ function hireWhere(s: GameState, role: FigureId, ok: (c: ReturnType<typeof recru
 }
 
 describe('книга агентов: честная партия', () => {
-  it('сид — первый увиденный; люди и метки — как в описи; флагов нет; числа войны — те же, что у игры', () => {
+  it('сид — из описи; люди и метки — как в описи; флагов нет; числа войны — те же, что у игры', () => {
     const s = town(101, 10, 3);
     hireWhere(s, 'general', (c) => (c.head.pips ?? 0) >= 1);
     hireWhere(s, 'spy', (c) => (c.head.stealth ?? 0) >= 1 && (c.head.sabotage ?? 0) >= 1);
@@ -97,6 +97,26 @@ describe('книга агентов: честная партия', () => {
     expect(book.seed).toBeUndefined();
     expect(agentsAt(book, 10)).toEqual({});
     expect(capPips({ fire: 3 }, undefined), 'нет потолка — как есть').toEqual({ fire: 3 });
+  });
+});
+
+describe('книга агентов: новая партия', () => {
+  it('сид сменился — флаг, книга заводится заново по новому сиду: люди встречаются впервые', () => {
+    const s = town(112, 4);
+    s.agents.spy.vacant = true;
+    expect(hireRecruit(s, 'spy', bestRecruit(s, 'spy')!.n, null)).toBeNull();
+    s.agents.spy.xp = 6;
+    const first = agentsStep(undefined, card(s), T0, 4);
+    expect(first.book.seats.spy?.person, 'точка внутри области: в прежней партии на месте — второй человек').toBe(1);
+    const next = town(113, 4);
+    const c = card(next);
+    expect(c.seed, 'точка внутри области: сид другой').not.toBe(first.book.seed);
+    const r = agentsStep(first.book, c, T0 + 60_000, 4);
+    expect(r.found.join(' ')).toMatch(/сид партии сменился/);
+    expect(r.book.seed, 'книга — по новому сиду').toBe(c.seed);
+    expect(r.found.join(' '), 'номера людей новой партии — с нуля, это не подделка').not.toMatch(/номер человека убыл/);
+    expect(r.book.seats.spy?.person, 'на месте — человек новой партии').toBe(0);
+    expect(r.book.seats.spy?.n, 'без метки прежней партии').toBeUndefined();
   });
 });
 
@@ -157,14 +177,12 @@ describe('книга агентов: подделка — флаг, челове
     expect(r.book.seats.spy?.n).toBeUndefined();
   });
 
-  it('опыт быстрее дел — флаг и потолок; сид сменился — флаг, книга держит первый; номер человека убыл — флаг', () => {
+  it('опыт быстрее дел — флаг и потолок; номер человека убыл — флаг', () => {
     const r = forged((c) => {
       spyOf(c).xp = XP_CAP;
-      c.seed = (c.seed ?? 0) + 1;
     });
     const text = r.found.join(' ');
     expect(text).toMatch(/опыт/);
-    expect(text).toMatch(/сид партии сменился/);
     expect(r.book.seats.spy?.xp, 'опыт под потолком дел').toBeLessThanOrEqual(xpGain(60_000, ['apt']));
     expect(r.book.seats.spy?.xp).toBeLessThan(XP_CAP);
     const s = town(104, 10);
