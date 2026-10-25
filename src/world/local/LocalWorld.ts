@@ -2350,7 +2350,10 @@ export class LocalWorld implements WorldApi {
     // человека, — чистый минус, и такую кнопку не нажмёт никто ни разу. Один
     // человек лагерю стоит любой бой у его рогаток, даже проигранный вчистую.
     if (atLeastOne && gone === 0 && before > 1) {
-      m.units = stackAfter(m.units, { warrior: 1 });
+      // Воином, как было; воинов нет — первым видом, у которого есть люди: лагерь из одних разведчиков без потерь не
+      // остаётся (MAP-8).
+      const first = (m.units.warrior ?? 0) > 0 ? 'warrior' : UNIT_IDS.find((u) => (m.units[u] ?? 0) > 0);
+      if (first) m.units = stackAfter(m.units, { [first]: 1 });
       gone = before - stackSize(m.units);
     }
     return gone;
