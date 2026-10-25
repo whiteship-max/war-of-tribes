@@ -19,7 +19,7 @@ import { recruitCheck, startRecruit } from '@/game/sim/army';
 import { forgeCheck, startForge } from '@/game/sim/smithy';
 import { startSurvey } from '@/game/sim/survey';
 import { buyGoods, marketCheck } from '@/game/sim/market';
-import { hireAgent, hireInfo } from '@/game/sim/hire';
+import { hireRecruit, recruitsOf } from '@/game/sim/recruits';
 import { holdRite, riteInfo } from '@/game/sim/faith';
 import { addBonded } from '@/game/sim/population';
 import { creditTech } from '@/game/sim/tech';
@@ -91,7 +91,8 @@ describe('каждая дверь трат — разовая трата опи�
       (s) => {
         // Место разведчика пустует (агент погиб): нанимать есть на что.
         s.agents.scout.vacant = true;
-        return hireInfo(s, 'scout').blocked ?? hireAgent(s, 'scout');
+        const first = recruitsOf(s, 'scout')[0];
+        return first ? hireRecruit(s, 'scout', first.n, null) : 'кандидатов нет';
       },
     ],
     ['обряд', (s) => (riteInfo(s).blocked ? riteInfo(s).blocked : holdRite(s))],

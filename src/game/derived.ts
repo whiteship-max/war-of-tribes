@@ -105,9 +105,9 @@ import {
 import { daysSpan } from './span';
 import { BOON_BY_ID, type BoonDef } from './data/boons';
 import { ESTATE_META } from './data/estates';
-import { MAX_AGENT_LEVEL } from './data/agents';
 import { STAB_STEP, stabClamp, stabOutputMult } from './stabrules';
 import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
+import { AGENT_ROLES, recruitWage, recruitAt, traditionAt } from './agentrules';
 import {
   ESTATES,
   FERVOUR_SCALE,
@@ -763,7 +763,7 @@ export const mastersWagesPerDay = (s: GameState): number => mastersCount(s) * ma
  * из неё платит `sim/upkeep`, по ней «по средствам» решает, сколько ещё держать, и по ней же
  * уходят недоплаченные. Второй ведомости у мастеров нет.
  */
-export const wagesPerDay = (s: GameState): number => armyWagesPerDay(s) + mastersWagesPerDay(s) + councilWagesPerDay(s);
+export const wagesPerDay = (s: GameState): number => armyWagesPerDay(s) + mastersWagesPerDay(s) + councilWagesPerDay(s) + agentWagesPerDay(s);
 
 // ---------- Совет Ратуши (РТ-1) ----------
 //
@@ -794,6 +794,18 @@ export const councilWagesPerDay = (s: GameState): number =>
   ADVISOR_POSTS.reduce((n, p) => {
     const a = councilSeat(s, p);
     return a ? n + advisorWage(a.level, a.trait) : n;
+  }, 0);
+
+/**
+ * Жалованье агентов, нанятых в Ратуше (АГ-1), за игровой день — в той же ведомости, что войско, мастера и совет: по уровню
+ * кандидата и чертам (`agentrules.recruitWage`). Свой человек (без метки найма) служит без жалованья, пустое место — тоже.
+ */
+export const agentWagesPerDay = (s: GameState): number =>
+  AGENT_ROLES.reduce((n, id) => {
+    const p = s.agents?.[id];
+    if (!p || p.vacant || !p.cand) return n;
+    const r = recruitAt(s.seed, p.cand.n, p.cand.tier);
+    return n + recruitWage(r.level, r.traits);
   }, 0);
 
 // ---------- Сословия (РТ-2) ----------
@@ -918,11 +930,7 @@ export const payGraceDays = (s: GameState): number => statOf(s, 'statue', 'loyal
  * и втором уровне — ни одного, на девятом и десятом — четыре. Статуи нет — ноль. Входит в отметки полководца одной дверью —
  * уровнем, с которого их считает `sim/agents.pipsAt` (`sim/agents.pipLevel`); лестница отметок та же, 0…4.
  */
-export function tradition(s: GameState): number {
-  const level = buildingOfType(s, 'statue')?.level ?? 0;
-  if (level < 1) return 0;
-  return Math.ceil((Math.min(level, maxLevelFor('statue')) * MAX_AGENT_LEVEL) / maxLevelFor('statue')) - 1;
-}
+export const tradition = (s: GameState): number => traditionAt(buildingOfType(s, 'statue')?.level ?? 0, maxLevelFor('statue'));
 
 /**
  * Какая доля войска не оплачена: нехватка, делённая на жалованье. Пока долга нет,

@@ -35,6 +35,7 @@ import { marketTick, rollShift } from './caravan';
 import { recruitTick } from './army';
 import { upkeepTick } from './upkeep';
 import { councilStep, vacancyEvent } from './council';
+import { recruitStep } from './recruit';
 import { estatesStep } from './estates';
 import { settleHires } from './hire';
 import { dynastyStep } from './dynasty';
@@ -166,6 +167,9 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   upkeepTick(s, dt, hunger.army);
   // 3г. Совет Ратуши (РТ-1): книга жалованья, уход неуплатой и конец службы по часам; опустевшее место — весть на стол.
   for (const post of councilStep(s, dt)) raiseEvent(s, vacancyEvent(post));
+  // 3г′. Агенты из Ратуши (АГ-1): книга уплаченного жалованья для сервера. Платит ведомость (`sim/upkeep`), уходят неуплатой
+  // войско и совет, агенты — нет (решения АГ-1).
+  recruitStep(s, dt);
   // 3д. Сословия (РТ-2): указ сословия держится, пока оно верно — дар кончился, соперник получил привилегию, и указ снят.
   estatesStep(s);
 

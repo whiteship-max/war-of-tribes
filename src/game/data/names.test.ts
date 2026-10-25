@@ -9,7 +9,8 @@ import { CITY_MAX, cityName } from '../../../netlify/lib/contract';
 import { createInitialState } from '../state';
 import { tick } from '../sim/tick';
 import { applyEffects } from '@/world/bridge';
-import { hireAgent } from '../sim/hire';
+import { hireRecruit, recruitsOf } from '../sim/recruits';
+import { windowEnd, windowOf } from '../councilrules';
 import { study } from '../sim/tech';
 import type { FaithId } from '../types';
 
@@ -86,8 +87,11 @@ describe('имя сеется', () => {
           { id: `f${i}`, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, fell: { agent: 'spy', person, peril: 0.04, where: 'у логова', why: [] }, text: '', good: false },
         ]);
         expect(s.agents.spy.vacant, `точка внутри области: место ${i} пустует`).toBe(true);
-        expect(hireAgent(s, 'spy')).toBeNull();
-        tick(s, s.agents.spy.hiring!.until - s.time);
+        // Найм — в Ратуше из кандидатов окна (АГ-1): каждый — в новом окне, первый в листе.
+        s.time = windowEnd(windowOf(s.time));
+        const first = recruitsOf(s, 'spy')[0];
+        expect(first, `окно ${i}: кандидаты есть`).toBeTruthy();
+        expect(hireRecruit(s, 'spy', first.n, null)).toBeNull();
         expect(s.agents.spy.person).toBe(person + 1);
         names.push(s.agents.spy.name!);
         const living = (['scout', 'diplomat', 'spy', 'general'] as const).map((id) => s.agents[id].name);

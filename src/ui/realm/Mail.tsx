@@ -351,6 +351,19 @@ function DispatchCardNew({
             <small>Просители и совет</small>
           </button>
         )}
+        {/* Пустое место агента (АГ-1): кандидаты — в Ратуше, раздел «Агенты». */}
+        {d.agents && (
+          <button
+            className="nx-ans"
+            onClick={() => {
+              useGame.getState().setTownTab('agents');
+              goTo({ kind: 'building', type: 'town_hall' });
+            }}
+          >
+            <b>Ратуша</b>
+            <small>Кандидаты на место</small>
+          </button>
+        )}
       </div>
       {d.silence && <p className="nx-msilence">{d.silence}</p>}
       <button className="nx-mback" onClick={onBack}>

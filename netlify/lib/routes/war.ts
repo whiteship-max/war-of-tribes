@@ -43,7 +43,7 @@ import { queueNews } from '../outbox.js';
 import { RIVAL_DEED_BY_ID } from '../../../src/world/data/spy.js';
 import { STORES } from '../kv.js';
 import { FROZEN_ORDER, FROZEN_TARGET, frozenNow, isFrozen } from '../admin.js';
-import { addFlags, bookOf, marshalOf, noted, observe, readWatchRecord, townOf, yieldCapOf } from '../watch.js';
+import { addFlags, agentsOf, bookOf, marshalOf, noted, observe, readWatchRecord, townOf, yieldCapOf } from '../watch.js';
 
 /** Все войны лежат одной записью рядом с реестром. */
 const KEY = WARS_KEY;
@@ -115,7 +115,16 @@ export const war: Route = async (req, io) => {
     const rec = readWatchRecord(seen ? parseJson(String(seen.data)) : null);
     // Воевода совета (РТ-1) — только подтверждённый: при ратуше книги стройки (`watch.marshalOf`). Добыча хлеба для осады —
     // не выше потолка подтверждённых построек (ОС-1, `watch.yieldCapOf`).
-    sheets.set(player, { ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}), ...marshalOf(rec, now), ...yieldCapOf(rec, now) });
+    // Агенты (АГ-1) — по книге агентов сервера (`watch.agentsOf`): отметки, скрытность, диверсия и красноречие подтверждённых людей.
+    sheets.set(player, {
+      ...sheet,
+      book: bookOf(rec, now),
+      town: townOf(rec, now),
+      ...(rec.goods ? { goods: rec.goods } : {}),
+      ...marshalOf(rec, now),
+      ...yieldCapOf(rec, now),
+      ...agentsOf(rec, now),
+    });
   };
   // Приказ сверх подтверждённого — флаг в описи наблюдения приказавшего (docs/admin.md, «Флаги»). Пишется там, где ответ
   // уходит, — без записи войн или после легшей записи (OPS-3): попытка, проигравшая гонку, флага не ставит, а флаг берётся

@@ -30,7 +30,8 @@ import {
   slotsOpen,
 } from '@/game/data/agents';
 import { itemIn } from '@/game/data/items';
-import { ageOf, agentLevel, personName, pipLevel, pipsAt, pipsOf, regear, regearBlock, traitsHeld, yearsOf } from '@/game/sim/agents';
+import { ageOf, agentLevel, generalCircles, headOf, personName, retireAgeAt, pipsAt, pipsOf, regear, regearBlock, traitsHeld, yearsOf } from '@/game/sim/agents';
+import { skillCircles } from '@/game/agentrules';
 import { deedsOf } from '@/game/data/traits';
 import { hireWhere } from '@/game/sim/hire';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
@@ -60,11 +61,12 @@ const tip =
 /** Отметки полководца: какие есть, что дают замером и куда ляжет следующая. */
 function GeneralPips({ level }: { level: number }) {
   const s = useGame((g) => g.s);
-  const person = s.agents.general.person;
-  // Отметки считаются с уровня, в который входит и воинская традиция Статуи (`pipLevel`).
-  const at = pipLevel(s, level);
+  const g = s.agents.general;
+  // Отметки считаются с уровня, в который входят врождённое (АГ-1) и воинская традиция Статуи (`generalCircles`).
+  const at = generalCircles(s, level);
+  const own = skillCircles(level, headOf(s, 'general').pips ?? 0);
   // Сколько отметок дала традиция — сверх своих и под потолком: ветерану пятого уровня она уже не прибавляет.
-  const lines = pipLines(at, pipsOf(s), at < MAX_AGENT_LEVEL ? pipsAt(s.seed, person, pipLevel(s, level + 1)) : null, at - level);
+  const lines = pipLines(at, pipsOf(s), at < MAX_AGENT_LEVEL ? pipsAt(s.seed, g.person, generalCircles(s, level + 1), g.cand?.n ?? null) : null, at - own);
   return (
     <>
       <p className="nx-tnote">{lines.now}</p>
@@ -133,7 +135,8 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
   const statue = buildingOfType(s, 'statue')?.level ?? 0;
   const vacant = progress.vacant;
   const years = yearsOf(s, id);
-  const toRest = Math.max(0, RETIRE_AGE - ageOf(s, id));
+  const restAge = retireAgeAt(s, id);
+  const toRest = Math.max(0, restAge - ageOf(s, id));
 
   let road: string | null = null;
   if (f && info && f.place === 'map' && !f.atHome) {
@@ -189,10 +192,10 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
           <div className="nx-facts">
             <button
               className="nx-fact"
-              onClick={tip('Возраст', `В ${RETIRE_AGE} лет уйдёт на покой, как вернётся домой. Стареет, только пока идут часы города.`)}
+              onClick={tip('Возраст', `В ${count(Math.floor(restAge), 'год', 'года', 'лет')} уйдёт на покой, как вернётся домой. Стареет, только пока идут часы города.`)}
             >
               <small>До покоя</small>
-              <b className={years >= RETIRE_WARN ? 'bad' : ''}>{toRest > 0 ? count(Math.ceil(toRest), 'год', 'года', 'лет') : 'пора'}</b>
+              <b className={toRest <= RETIRE_AGE - RETIRE_WARN ? 'bad' : ''}>{toRest > 0 ? count(Math.ceil(toRest), 'год', 'года', 'лет') : 'пора'}</b>
             </button>
             {skill && (
               <button className="nx-fact" onClick={tip(skill.name, `Растёт с уровнем, до ${MAX_AGENT_LEVEL}.`)}>

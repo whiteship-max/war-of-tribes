@@ -71,6 +71,14 @@ export const bountyOf = (r: FateResult): number =>
 export const fairTribute = (bounty: number, share: number): number => Math.max(0, Math.ceil(Math.max(0, bounty) * clamp01(share) - 1e-9));
 
 /**
+ * Дань, которую просит лагерь у осаждённого с дипломатом красноречия `cut` (АГ-1, `agentrules.eloquenceCut`): справедливая,
+ * сбавленная на долю, вверх до целого. Одна функция на лагерь логова у наших стен (мир) и на лагерь игрока (сервер войны, со
+ * своей книгой агентов): дипломат без красноречия и пустое место — ровно справедливая.
+ */
+export const tributeAsk = (fair: number, cut = 0): number =>
+  Math.max(0, Math.ceil(Math.max(0, fair) * (1 - clamp01(Number.isFinite(cut) ? cut : 0)) - 1e-9));
+
+/**
  * Что уходит данью: добро города на `price` той же дверью дележа, что добыча (`spoils.plunder`) — что в тайнике, остаётся,
  * берётся поровну долям того, что лежит на виду. Казна — восьмым припасом, как в участи.
  */

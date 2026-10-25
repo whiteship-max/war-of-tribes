@@ -1943,6 +1943,19 @@ export interface WatchCard {
    */
   council?: WatchCouncil;
   /**
+   * Агенты, нанятые в Ратуше (АГ-1, docs/city_v3.md, «Решения АГ-1»): кто на месте — место, номер человека, номер кандидата и
+   * ступень найма (свой человек — без номера), минута найма, опыт — и счёт наймов, платы вперёд и жалованья, для книги агентов
+   * сервера (правило «agents», `agentbook.ts`). Характеристик в описи нет: их сервер выводит сам из сида, номера и ступени. Нет
+   * поля — опись до АГ-1.
+   */
+  agents?: WatchAgents;
+  /**
+   * Сид партии (АГ-1): из него кандидаты выводятся на сервере теми же формулами, что в игре (`agentrules.recruitAt`). Книга
+   * агентов берёт первый и держит его; сменившийся — флаг. Нет поля — опись до АГ-1: кандидатов сервер не выводит, и в войну
+   * идут прежние потолки правил.
+   */
+  seed?: number;
+  /**
    * Сословия (РТ-2, docs/stability.md, «РТ-2»): привилегии по сословиям, указ сословия, влияние и счёт дарований, отнятий и
    * даров — для книги сословий сервера (правило «estates»). Нет поля — опись до сословий.
    */
@@ -2047,6 +2060,56 @@ function readEstates(v: unknown): Pick<WatchCard, 'estates'> {
       gifts: whole(r.gifts, 1e9),
     },
   };
+}
+
+/** Человек на месте агента в описи (АГ-1): место строкой как есть (чужое — флаг книги), числа — целыми и неотрицательными. */
+export interface WatchAgent {
+  role: string;
+  /** Номер человека на месте: новый номер — новый человек. */
+  person: number;
+  /** Номер кандидата Ратуши; свой человек — без поля. */
+  n?: number;
+  /** Ступень совета при найме (1…3); у своего человека нет. */
+  tier?: number;
+  /** Игровая секунда найма; у своего человека нет. */
+  at?: number;
+  /** Опыт человека. */
+  xp: number;
+  /** Место пустует. */
+  vacant?: true;
+}
+
+/** Агенты в описи — то, что сверяет сервер (`agentbook.agentsStep`, правило «agents»). */
+export interface WatchAgents {
+  seats: WatchAgent[];
+  hired: number;
+  fees: number;
+  paid: number;
+}
+
+/** Сколько мест агентов опись везёт самое большее: мест четыре — лишние говорят о подделке. */
+const AGENTS_READ_MAX = 8;
+
+/** Агенты описи: место — строкой до 16 знаков, номера, ступень, минута и опыт — целыми и неотрицательными. */
+function readAgents(v: unknown): Pick<WatchCard, 'agents'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const seats: WatchAgent[] = [];
+  for (const x of (Array.isArray(r.seats) ? r.seats : []).slice(0, AGENTS_READ_MAX)) {
+    if (!x || typeof x !== 'object') continue;
+    const a = x as Record<string, unknown>;
+    const role = str(a.role, 16);
+    if (!role) continue;
+    const hired = Number.isInteger(a.n) && (a.n as number) >= 0;
+    seats.push({
+      role,
+      person: whole(a.person, 1e9),
+      ...(hired ? { n: whole(a.n, 1e12), tier: whole(a.tier, 99), at: whole(a.at, 1e12) } : {}),
+      xp: whole(a.xp, 1e6),
+      ...(a.vacant === true ? { vacant: true as const } : {}),
+    });
+  }
+  return { agents: { seats, hired: whole(r.hired, 1e9), fees: whole(r.fees, 1e12), paid: whole(r.paid, 1e12) } };
 }
 
 /** Советник в описи: должность и черта — строкой как есть (чужая — флаг книги, а не тихая потеря), уровень — целым. */
@@ -2230,6 +2293,8 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...readStab(r.stab),
     ...readCrown(r.crown),
     ...readCouncil(r.council),
+    ...readAgents(r.agents),
+    ...(Number.isInteger(r.seed) && (r.seed as number) >= 0 ? { seed: whole(r.seed, 0xffffffff) } : {}),
     ...readMarket(r.market),
     ...readEstates(r.estates),
   };

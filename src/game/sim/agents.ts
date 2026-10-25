@@ -2,9 +2,9 @@
 //
 // На каждом из четырёх мест стоит человек — с именем, возрастом, опытом и вещами, —
 // или место пустует. Человек смертен: гибнет на деле (`HomeEffect.fell`) и уходит на
-// покой в возрасте `RETIRE_AGE` (`HomeEffect.retired`). Нового нанимают в здании (`sim/hire.ts`),
-// и начинает он **с нуля**: первый уровень, новое имя, молодой возраст — не
-// наследуется ничего.
+// покой в возрасте `RETIRE_AGE` (`HomeEffect.retired`). Нового нанимают в Ратуше из кандидатов
+// (`sim/recruits`, АГ-1), и начинает он **с нуля** по опыту: первый уровень, новое имя — не
+// наследуется ничего; с собой он приносит только своё — врождённое и черты кандидата.
 //
 // Опыт приходит из мира делом (`HomeEffect.deed`) и тоже чистая функция от события:
 // тика у опыта нет. Возраст не хранится вовсе — он выводится из игрового времени
@@ -14,7 +14,7 @@
 // Вещи меняются только дома. Место агента знает мир, поэтому переодевание
 // принимает его готовым (`Placed` из вида фигуры), а правило «дома» — одно на
 // игру и на карточку: `world/shelter.canRegear`.
-import type { AgentProgress, FaithId, GameState, LineageEntry, LineagePlace, RulerSkills, Tally } from '../types';
+import type { AgentProgress, FaithId, GameState, LineageEntry, LineagePlace, RecruitMark, RulerSkills, Tally } from '../types';
 import type { FigureId, HomeEffect } from '@/world/types';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { canRegear, placeOf, type Placed } from '@/world/shelter';
@@ -24,7 +24,6 @@ import {
   DEED_GAP,
   DEED_XP,
   MAX_AGENT_LEVEL,
-  RETIRE_AGE,
   SIGHT_PER_CIRCLE,
   SKILL_OF,
   STEALTH_PER_CIRCLE,
@@ -51,10 +50,23 @@ import { has } from '../guard';
 import { cityName } from '../../../netlify/lib/contract';
 import { perilText, veilAt } from '@/world/peril';
 import { SIEGE_PIPS_MAX } from '@/world/data/siegeroll';
-import { PIP_IDS, type Pips } from '@/battle';
+import type { Pips } from '@/battle';
 import { tradition } from '../derived';
+import {
+  eloquenceCut,
+  fixedCircles,
+  deedXp,
+  pipsSpread,
+  recruitAt,
+  retireAgeOf,
+  sabotagePower,
+  skillCircles,
+  temperKey,
+  type AgentTrait,
+  type Head,
+  type Recruit,
+} from '../agentrules';
 import { log } from './log';
-import { mixSeed, seeded } from './random';
 
 const blank = (): AgentProgress => ({
   xp: 0,
@@ -115,9 +127,23 @@ export function mergeAgents(saved: unknown): Record<FigureId, AgentProgress> {
         burned: count(t.burned),
         ...(count(t.sieges) > 0 ? { sieges: count(t.sieges) } : {}),
       },
+      ...readMark(r.cand),
     };
   }
   return out;
+}
+
+/**
+ * Метка найма из сохранения (АГ-1): номер — целый неотрицательный, ступень — 1…3, минута — число. Не такая — человека читаем
+ * своим (ровным): выдумать ему кандидата нельзя, а дать чужие числа — тем более.
+ */
+function readMark(v: unknown): { cand?: RecruitMark } {
+  if (!v || typeof v !== 'object') return {};
+  const m = v as Record<string, unknown>;
+  if (!Number.isInteger(m.n) || (m.n as number) < 0) return {};
+  if (!Number.isInteger(m.tier) || (m.tier as number) < 1 || (m.tier as number) > 3) return {};
+  if (!finite(m.at)) return {};
+  return { cand: { n: m.n as number, tier: m.tier as number, at: m.at } };
 }
 
 /**
@@ -194,14 +220,34 @@ export function ageOf(s: GameState, agent: FigureId): number {
 /** Сколько полных лет — так возраст и называют. */
 export const yearsOf = (s: GameState, agent: FigureId): number => Math.floor(ageOf(s, agent));
 
-/** Дожил до покоя: бросает дело и уходит, как дойдёт до своих ворот. */
-export const retiring = (s: GameState, agent: FigureId): boolean => seated(s, agent) && ageOf(s, agent) >= RETIRE_AGE;
+/** В каком возрасте человек на месте уйдёт на покой: `RETIRE_AGE`, у крепкого позже, у хворого раньше (АГ-1). */
+export const retireAgeAt = (s: GameState, agent: FigureId): number => retireAgeOf(traitsBorn(s, agent));
 
-/** Когда человеку на месте исполнится `RETIRE_AGE`, игровое время. */
+/** Дожил до покоя: бросает дело и уходит, как дойдёт до своих ворот. */
+export const retiring = (s: GameState, agent: FigureId): boolean => seated(s, agent) && ageOf(s, agent) >= retireAgeAt(s, agent);
+
+/** Когда человеку на месте исполнится возраст покоя, игровое время. */
 export function retireAt(s: GameState, agent: FigureId): number {
   const p = s.agents[agent];
-  return p.bornAt + Math.max(0, RETIRE_AGE - p.age0) * AGENT_YEAR;
+  return p.bornAt + Math.max(0, retireAgeAt(s, agent) - p.age0) * AGENT_YEAR;
 }
+
+// ---------- Из кого нанят (АГ-1) ----------
+//
+// Нанятый в Ратуше несёт метку кандидата (`AgentProgress.cand`); его врождённое, черты и облик выводятся из сида партии, номера
+// и ступени теми же формулами, что показывал лист кандидатов (`agentrules.recruitAt`). Свой человек — без метки: ровный.
+
+/** Кандидат, из которого нанят человек на месте; свой человек — `null`. Не хранится: выводится. */
+export function recruitOfPlace(s: GameState, agent: FigureId): Recruit | null {
+  const c = s.agents?.[agent]?.cand;
+  return c ? recruitAt(s.seed, c.n, c.tier) : null;
+}
+
+/** Врождённое человека на месте: кружков форы по характеристикам. Свой человек и пустое место — ни одного. */
+export const headOf = (s: GameState, agent: FigureId): Head => (seated(s, agent) ? (recruitOfPlace(s, agent)?.head ?? {}) : {});
+
+/** Черты, с которыми человек пришёл (АГ-1); у своего человека их нет. Черты из дел — `traitsHeld`. */
+export const traitsBorn = (s: GameState, agent: FigureId): readonly AgentTrait[] => recruitOfPlace(s, agent)?.traits ?? [];
 
 /** Имя человека на месте — или имя должности, пока имени нет. */
 export const personName = (s: GameState, agent: FigureId): string => s.agents?.[agent]?.name ?? FIGURE_BY_ID[agent].name;
@@ -247,9 +293,6 @@ export const agentLevel = (s: GameState, agent: FigureId): number => levelOf(s.a
 /** Кружков сверх первого на уровне. Первый уровень — ноль, и навык не действует. */
 const extra = (level: number): number => Math.max(0, Math.min(MAX_AGENT_LEVEL, Math.floor(level)) - 1);
 
-/** Соль склонности полководца: своя, чтобы не совпасть ни с костью дома, ни с перестановкой имён. */
-const TEMPER_DIE = 0x70697073;
-
 /**
  * Отметки полководца на этом уровне. Кружков сверх первого — столько же отметок, и каждая ложится в
  * одну из четырёх (обстрел, сшибка, сеча, манёвр) по склонности человека: броском от сида партии и
@@ -257,14 +300,8 @@ const TEMPER_DIE = 0x70697073;
  * сохранении нет, `s.rolls` не двигается, и один и тот же человек растёт всегда одинаково: второй
  * кружок ложится туда же, дорасти он до него раньше или позже. Первый уровень — ни одной отметки.
  */
-export function pipsAt(seed: number, person: number, level: number): Pips {
-  const rnd = seeded(mixSeed(seed, mixSeed(TEMPER_DIE, person)));
-  const out: Pips = {};
-  for (let i = 0; i < extra(level); i += 1) {
-    const pip = PIP_IDS[Math.floor(rnd() * PIP_IDS.length)];
-    out[pip] = (out[pip] ?? 0) + 1;
-  }
-  return out;
+export function pipsAt(seed: number, person: number, level: number, recruit: number | null = null): Pips {
+  return pipsSpread(seed, temperKey(person, recruit), level);
 }
 
 /** Зоркость на этом уровне разведчика: на сколько клеток шире он открывает землю. */
@@ -272,8 +309,15 @@ export const sightBonusAt = (level: number): number => SIGHT_PER_CIRCLE * extra(
 /** Скрытность на этом уровне лазутчика: доля провалов, прошедших незамеченными. */
 export const stealthAt = (level: number): number => STEALTH_PER_CIRCLE * extra(level);
 
-const onPlace = (s: GameState, agent: FigureId, value: (level: number) => number, none: number): number =>
-  seated(s, agent) ? value(agentLevel(s, agent)) : none;
+/**
+ * Кружков навыка человека на месте: уровень и врождённое (АГ-1), не выше вершины лестницы. Своему человеку — ровно уровень.
+ * Навык считается от кружков сверх первого, поэтому у своего человека первого уровня его нет — как прежде.
+ */
+export const circlesOf = (s: GameState, agent: FigureId, stat: 'sight' | 'stealth' | 'eloquence'): number =>
+  skillCircles(agentLevel(s, agent), headOf(s, agent)[stat] ?? 0);
+
+const onPlace = (s: GameState, agent: FigureId, stat: 'sight' | 'stealth' | 'eloquence', value: (circles: number) => number, none: number): number =>
+  seated(s, agent) ? value(circlesOf(s, agent, stat)) : none;
 
 /**
  * Уровень, с которого считаются отметки полководца уровня `level`: его кружки и кружки воинской традиции Статуи
@@ -282,6 +326,13 @@ const onPlace = (s: GameState, agent: FigureId, value: (level: number) => number
  */
 export const pipLevel = (s: GameState, level: number): number =>
   Math.min(MAX_AGENT_LEVEL, Math.max(1, Math.floor(level)) + tradition(s));
+
+/**
+ * Уровень, с которого считаются отметки полководца на месте: его уровень и врождённое (АГ-1) — фора на той же лестнице, — с
+ * традицией Статуи, не выше вершины. Склонность — по номеру кандидата у нанятого в Ратуше, по номеру человека у своего.
+ */
+export const generalCircles = (s: GameState, level = agentLevel(s, 'general')): number =>
+  pipLevel(s, skillCircles(level, headOf(s, 'general').pips ?? 0));
 
 /**
  * Отметка «осада» по опыту осад (docs/siege_v2.md, 2.3, этап 2е): кружок той же лестницы опыта (`LEVEL_XP`), где дело — осада,
@@ -295,7 +346,8 @@ export const siegePipsAt = (sieges: number): number =>
 /** Отметки полководца на месте. Пустое место — ни одной: навык — свойство человека, а не должности. */
 export function pipsOf(s: GameState): Pips {
   if (!seated(s, 'general')) return {};
-  const out = pipsAt(s.seed, s.agents?.general?.person ?? 0, pipLevel(s, agentLevel(s, 'general')));
+  const g = s.agents?.general;
+  const out = pipsAt(s.seed, g?.person ?? 0, generalCircles(s), g?.cand?.n ?? null);
   const siege = siegePipsAt(s.agents?.general?.tally.sieges ?? 0);
   return siege > 0 ? { ...out, siege } : out;
 }
@@ -313,10 +365,16 @@ export function recordSiege(s: GameState): void {
   const now = siegePipsAt(p.tally.sieges);
   if (now > was) log(s, `${titled(s, 'general')} набрался осадного опыта: отметка «осада» ${'●'.repeat(now)}.`, 'good');
 }
-export const sightBonusOf = (s: GameState): number => onPlace(s, 'scout', sightBonusAt, 0);
-export const stealthOf = (s: GameState): number => onPlace(s, 'spy', stealthAt, 0);
+export const sightBonusOf = (s: GameState): number => onPlace(s, 'scout', 'sight', sightBonusAt, 0);
+export const stealthOf = (s: GameState): number => onPlace(s, 'spy', 'stealth', stealthAt, 0);
 /** Скрытность лазутчика в гибели: во сколько раз реже он гибнет на деле (`world/peril.veilAt`). */
-export const veilOf = (s: GameState): number => onPlace(s, 'spy', veilAt, 1);
+export const veilOf = (s: GameState): number => onPlace(s, 'spy', 'stealth', veilAt, 1);
+/** Красноречие дипломата (АГ-1): на какую долю лагерь сбавляет дань (`world/parley.tributeAsk`). Пустое место — ни на какую. */
+export const eloquenceOf = (s: GameState): number => onPlace(s, 'diplomat', 'eloquence', eloquenceCut, 0);
+/** Кружков диверсии лазутчика на месте (АГ-1): только врождённое, опыт дел его не прибавляет. */
+export const sabotageCirclesOf = (s: GameState): number => (seated(s, 'spy') ? fixedCircles(headOf(s, 'spy').sabotage ?? 0) : 1);
+/** Сила диверсии лазутчика множителем — то, что считает сервер войны своей книгой (`agentbook`); здесь — для карточки. */
+export const sabotageOf = (s: GameState): number => sabotagePower(sabotageCirclesOf(s));
 
 const ORDINAL = ['', 'первого', 'второго', 'третьего', 'четвёртого', 'пятого'];
 
@@ -357,7 +415,8 @@ export function recordDeed(s: GameState, deed: Deed): number {
   const before = p.xp;
   const had = traitsOf(deed.agent, p.tally);
   p.deedAt = deed.at;
-  p.xp = Math.min(XP_CAP, p.xp + (deed.ok ? DEED_XP.ok : DEED_XP.fail));
+  // Опыт за дело — по чертам, с которыми человек пришёл: «способному» удача даёт больше (АГ-1, `agentrules.deedXp`).
+  p.xp = Math.min(XP_CAP, p.xp + deedXp(deed.ok, traitsBorn(s, deed.agent)));
   // Счёт дел — за той же проверкой срока, что опыт: черты не фармятся там, где не
   // фармится опыт.
   if (deed.ok) p.tally.ok += 1;
@@ -472,10 +531,11 @@ export function recordRetire(s: GameState, retired: NonNullable<HomeEffect['reti
   if (!p) return false;
   const level = agentLevel(s, retired.agent);
   const who = titled(s, retired.agent);
+  const age = Math.floor(retireAgeAt(s, retired.agent));
   if (!vacate(s, retired.agent, retired.person, 'rest')) return false;
   log(
     s,
-    `${who} ушёл на покой в ${RETIRE_AGE} лет, дослужив до ур. ${level}. ` +
+    `${who} ушёл на покой в ${yearsWord(age)}, дослужив до ур. ${level}. ` +
       `Место пустует, нанять ${where(retired.agent)}.`,
     'info',
   );
@@ -487,14 +547,28 @@ export function recordRetire(s: GameState, retired: NonNullable<HomeEffect['reti
  * какой дало здание. Имя известно с начала найма; если веры тогда ещё не знали, оно
  * берётся сейчас.
  */
-export function seat(s: GameState, agent: FigureId, at: number, age0: number, name: string | null): void {
+export function seat(s: GameState, agent: FigureId, at: number, age0: number, name: string | null, cand?: RecruitMark): void {
   const p = s.agents[agent];
   const next = blank();
   next.person = p.person + 1;
   next.bornAt = at;
   next.age0 = age0;
   next.name = name ?? drawName(s);
+  if (cand) next.cand = { ...cand };
   s.agents[agent] = next;
+}
+
+/**
+ * Уволить человека с места (АГ-1): место пустеет сразу, без вести и без строки родословной — его не потеряли, его отпустили.
+ * Где он стоит, знает мир: увольняют только дома (`sim/recruit.dismissBlock`), и мир снимает фигуру, как только слепок назовёт
+ * место пустым. Возвращает, опустело ли.
+ */
+export function release(s: GameState, agent: FigureId): boolean {
+  const p = s.agents?.[agent];
+  if (!p || p.vacant) return false;
+  p.vacant = true;
+  p.hiring = null;
+  return true;
 }
 
 // ---------- Что черта даёт ----------

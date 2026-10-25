@@ -146,6 +146,7 @@ import {
   siegeShare,
   softerThan,
   termsBlock,
+  tributeAsk,
   tributeGoods,
   type OfferKind,
 } from '../../src/world/parley.js';
@@ -158,6 +159,7 @@ import { machineShare, gateBusyText, playerWood, rebaseWood } from '../../src/wo
 import { stackCarry, stackEscort } from '../../src/world/data/units.js';
 import { PACT_BREAK_NOTICE, PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
 import { bookLive, least, over, rulePips, ruleResolve, type ArmyBook } from './book.js';
+import { capPips, type AgentsAt } from './agentbook.js';
 import { floorAt, townSheet, type TownBook } from './town.js';
 
 /** Война в хранилище: вид для игроков плюс ключи сторон. Ключи наружу не уходят никогда (`viewOf`). */
@@ -259,6 +261,8 @@ export interface SpyRow extends Omit<SpyView, 'role'> {
   stealth: number;
   /** Сколько держат в плену, мс мира с темпом войны — на минуту приказа. */
   heldMs: number;
+  /** Сила диверсии лазутчика (АГ-1) — по книге агентов сервера на минуту приказа. Нет — новичок (единица). */
+  power?: number;
 }
 
 /** Победы игрока в боях войны и взятые им города. */
@@ -656,6 +660,12 @@ export interface SheetAt {
    */
   marshal?: number;
   /**
+   * Агенты подтверждённой книги (АГ-1, `watch.agentsOf` → `agentbook.agentsAt`): отметки полководца, скрытность и диверсия
+   * лазутчика, красноречие дипломата — числа, которые сервер считает сам. Нет — запись до АГ-1 или сид неизвестен: правила
+   * прежние (`rulePips`, слепок лазутчика под потолками `town.ruleWatch`).
+   */
+  agents?: AgentsAt;
+  /**
    * Стойкость рыцарства в силе (РТ-2, `watch.estateCeilOf`): по подтверждённым уровням и привилегиям, лояльность сверху —
    * сверх обряда и Воеводы. Нет — ноль.
    */
@@ -839,7 +849,19 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
       if (back) home = plus(home, w.army.troops);
     }
   }
-  return { ...sheet, army, home, stock, gold, bonded, pop, levels, pips: rulePips(pips), resolve: ruleResolve(sheet.resolve, s.marshal ?? 0, s.knights ?? 0) };
+  return {
+    ...sheet,
+    army,
+    home,
+    stock,
+    gold,
+    bonded,
+    pop,
+    levels,
+    // Отметки — под потолком правил и подтверждённого полководца (АГ-1): у стен — его отметки, а не названные слепком.
+    pips: capPips(rulePips(pips), s.agents?.pips),
+    resolve: ruleResolve(sheet.resolve, s.marshal ?? 0, s.knights ?? 0),
+  };
 }
 
 /** По видам — не больше, чем в `cap`. */
@@ -2024,7 +2046,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (why) return why;
       const s = ctx.sheet(w.def);
       if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
-      const price = order.kind === 'tribute' ? fairOf(w, now, liveSheet(file, w.def, s, now)) : 0;
+      // Дань — справедливая, сбавленная красноречием дипломата осаждённого по книге агентов сервера (АГ-1, `parley.tributeAsk`).
+      const price = order.kind === 'tribute' ? tributeAsk(fairOf(w, now, liveSheet(file, w.def, s, now)), s.agents?.eloquence ?? 0) : 0;
       if (order.kind === 'tribute' && price <= 0) return 'На виду ничего не лежит: дани дать нечем.';
       const offer = order.kind === 'terms' ? { kind: order.kind, at: now, fate: order.fate } : { kind: order.kind, at: now, price };
       w.camp = { ...w.camp, ...offerAfter(camp, offer) } as WarCamp;
@@ -2103,7 +2126,12 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
  * Войско приказа в пределах правил: стойкость и отметки полководца не выше, чем бывает у игрока (`book.ts`); стойкость —
  * сверх обряда ещё Воеводой подтверждённого совета (РТ-1, `SheetAt.marshal`).
  */
-const ruleArmy = (a: WarArmy, s: SheetAt | null): WarArmy => ({ ...a, resolve: ruleResolve(a.resolve, s?.marshal ?? 0, s?.knights ?? 0), pips: rulePips(a.pips) });
+const ruleArmy = (a: WarArmy, s: SheetAt | null): WarArmy => ({
+  ...a,
+  resolve: ruleResolve(a.resolve, s?.marshal ?? 0, s?.knights ?? 0),
+  // Отметки полководца — не выше подтверждённого книгой агентов (АГ-1, `agentbook.agentsAt`).
+  pips: capPips(rulePips(a.pips), s?.agents?.pips),
+});
 
 /**
  * Когда город в последний раз пал или дал дань — от этой минуты он неприкосновенен (`SIEGE_IMMUNE`): дань за снятие осады
@@ -2581,6 +2609,15 @@ function spyHomeAt(file: WarFile, key: string, s: SheetAt, at: number): boolean 
 /** Игровое время в городе в минуту `at` — от слепка (`WarSheet.time`). */
 const villageTimeAt = (s: SheetAt, at: number): number => (s.sheet.time ?? 0) + gameSecondsOfMs(Math.max(0, at - s.at));
 
+/**
+ * Скрытность своего лазутчика в гибели (множитель): названная слепком, но не ниже, чем у подтверждённого книгой агентов (АГ-1).
+ * Книги нет — как назвал слепок (прежнее правило).
+ */
+const ownVeil = (mine: SheetAt): number => Math.max(mine.sheet.watch?.veil ?? 1, mine.agents?.veil ?? 0);
+
+/** Скрытность своего лазутчика (доля провалов без поимки): названная слепком, но не выше подтверждённой книгой агентов (АГ-1). */
+const ownStealth = (mine: SheetAt): number => Math.min(mine.sheet.watch?.stealth ?? 0, mine.agents?.stealth ?? Infinity);
+
 /** Сколько раз лазутчики этого игрока заходили к этому городу за окно памяти — любым исходом (`peril.recentVisits`). */
 const spyVisits = (file: WarFile, atk: string, def: string, at: number): number =>
   (file.spies ?? []).filter((x) => x.atk === atk && x.def === def && x.arriveAt <= at && at - x.arriveAt < PERIL_MEMORY).length;
@@ -2617,7 +2654,7 @@ function spyPlan(file: WarFile, key: string, target: string, at: number, ctx: Or
   const sheet = liveSheet(file, def, theirs, at);
   const guard = rivalGuard({ homePower: homePowerOf(sheet.home), keen: theirs.sheet.watch?.keen ?? 1, spyHome: spyHomeAt(file, def, theirs, at) });
   const away = distance(own, row);
-  const risk = rivalPeril(rivalPerilCase(mine.sheet.watch.veil, villageTimeAt(theirs, at), spyVisits(file, key, def, at), away));
+  const risk = rivalPeril(rivalPerilCase(ownVeil(mine), villageTimeAt(theirs, at), spyVisits(file, key, def, at), away));
   // Нападение на слабого и на недавно павший — те же запреты, что у похода; разведка — не нападение.
   const shield = !ctx.noShield && shielded(file, def, theirs, at);
   const fell = fellAt(file, def);
@@ -2681,8 +2718,10 @@ function spyOrder(file: WarFile, key: string, order: Extract<WarOrder, { op: 'sp
     peril: opt.peril,
     phase: 'go',
     energy: onRoad(spend({ value: have, at: now, mode: 'hold' }, now, price), now, now + plan.walkMs, false),
-    stealth: watch.stealth,
+    stealth: ownStealth(plan.mine),
     heldMs: Math.round((SPY_HELD * watch.held) / pace),
+    // Сила диверсии — по книге агентов сервера (АГ-1): клиент её не присылает.
+    ...((plan.mine.agents?.sabotage ?? 1) > 1 ? { power: plan.mine.agents?.sabotage } : {}),
   };
   file.spies = [...(file.spies ?? []), row];
   return null;
@@ -2717,7 +2756,7 @@ function resolveSpy(file: WarFile, x: SpyRow, s: SheetAt | null): void {
   }
   const sheet = liveSheet(file, x.def, s, at);
   const f = rivalFate(x.chance, x.peril, x.stealth, rivalRolls(x.id));
-  const harm = f.ok ? rivalHarm(x.deed, { stock: sheet.stock, gold: sheet.gold, stash: sheet.stash, pop: sheet.pop }) : {};
+  const harm = f.ok ? rivalHarm(x.deed, { stock: sheet.stock, gold: sheet.gold, stash: sheet.stash, pop: sheet.pop }, x.power ?? 1) : {};
   x.out = {
     at,
     ...f,

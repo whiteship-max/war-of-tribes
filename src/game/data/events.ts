@@ -59,6 +59,8 @@ import { addRes, amount, crowd, FameWord, sizeOf, fameWord, moraleWord, MoraleWo
 import { CHAIN_SEASONS, TIDING, TIDINGS } from './tidings';
 import { ADVISOR_POSTS } from '../councilrules';
 import { vacancyDef } from '../sim/council';
+import { agentVacancyDef } from '../sim/recruit';
+import { AGENT_ROLES } from '../agentrules';
 import { BOON_BY_ID, boonWords } from './boons';
 import { SEASON_DAYS } from './seasons';
 import { grantBoon } from '../sim/boons';
@@ -780,6 +782,8 @@ export const EVENTS: EventDef[] = [
   ...crownEvents(),
   // Пустое место в совете Ратуши (РТ-1): весть кладёт конец службы (`sim/tick`), случаем она не выпадает.
   ...ADVISOR_POSTS.map(vacancyDef),
+  // Пустое место агента (АГ-1): весть кладёт гибель или покой (`sim/expedition`), случаем она не выпадает.
+  ...AGENT_ROLES.map(agentVacancyDef),
   {
     id: 'relic_offer',
     silence: 1,

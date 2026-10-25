@@ -121,6 +121,18 @@ export function councilName(seed: number, n: number, faith: FaithId): string {
   return fullName(seed, n, faith, COUNCIL_SALT, COUNCIL_EPITHET_SALT);
 }
 
+/** Соли кандидатов в агенты (АГ-1): свой порядок, как у совета, — имена агентов прежнего найма, дома и совета не едут. */
+const RECRUIT_SALT = 0x72656372;
+const RECRUIT_EPITHET_SALT = 0x72657069;
+
+/**
+ * Имя кандидата в агенты с номером `n` (`agentrules.recruitId`). Чистая функция: тот же кандидат зовётся одинаково на любом
+ * устройстве; тёзок среди живых не допускает лист кандидатов (`sim/recruits`), шагая дальше по перестановке.
+ */
+export function recruitName(seed: number, n: number, faith: FaithId): string {
+  return fullName(seed, n, faith, RECRUIT_SALT, RECRUIT_EPITHET_SALT);
+}
+
 function fullName(seed: number, index: number, faith: FaithId, nameSalt: number, epithetSalt: number): string {
   const names = AGENT_NAMES[faith];
   const n = Math.max(0, Math.floor(index));

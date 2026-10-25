@@ -67,7 +67,7 @@ import {
   troopOpenAt,
 } from './tech';
 import { pointsOf, spend } from './points';
-import { hireInfo } from './hire';
+import { hireBlock, recruitsOf } from './recruits';
 import { raiseEvent } from './mail';
 import { settleHires } from './hire';
 import { dynastyStep } from './dynasty';
@@ -127,7 +127,7 @@ describe('гейт: одна дверь на показ и на запрет', (
         expect(placeOpen(s, id), `${id}: у новой партии место закрыто`).toBe(false);
         expect(gate, `${id}: причина названа словами`).toBeTruthy();
         expect(gate, `${id}: и это та же строка, что у самой ступени`).toBe(techBlock(s, 'spy'));
-        expect(hireInfo(s, id).blocked, `${id}: отказ найма — та же строка`).toBe(gate);
+        expect(hireBlock(s, id, 0, null), `${id}: отказ найма — та же строка`).toBe(gate);
       } else {
         expect(placeOpen(s, id), `${id}: гейта нет`).toBe(true);
         expect(gate, `${id}: закрывать нечего`).toBeNull();
@@ -139,7 +139,8 @@ describe('гейт: одна дверь на показ и на запрет', (
     expect(placeOpen(open, 'spy')).toBe(true);
     expect(techBlock(open, 'spy')).toBeNull();
     open.gold = 1_000_000;
-    expect(hireInfo(open, 'spy').blocked, 'открытое место нанимается').toBeNull();
+    open.agents.spy.vacant = true;
+    expect(hireBlock(open, 'spy', recruitsOf(open, 'spy')[0].n, null), 'открытое место нанимается').toBeNull();
   });
 
   /** Уровень ступени выводится из места в списке ветви, а не пишется рядом. */

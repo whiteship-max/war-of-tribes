@@ -299,6 +299,7 @@ import {
   botTakesTribute,
   bountyOf,
   fairTribute,
+  tributeAsk,
   lairRansoms,
   liveOffer,
   offerAfter,
@@ -1751,10 +1752,14 @@ export class LocalWorld implements WorldApi {
     return bountyOf(this.fateHome(this.save.profile, haul.carry, haul.escort, at, f));
   }
 
-  /** Справедливая дань лагерю логова у наших стен в минуту `at` (7.2). */
+  /**
+   * Дань лагерю логова у наших стен в минуту `at`: справедливая (7.2), сбавленная красноречием нашего дипломата (АГ-1,
+   * `parley.tributeAsk`) — её и показывает окно, и берёт лагерь.
+   */
   private homeFair(w: SiegeWindow, at: number): number {
     const camp = this.save.marches.find((m) => m.id === w.campId);
-    return fairTribute(this.homeBounty(camp?.units ?? {}, at, this.fateFor(w.fate, HOME_ID, at)), siegeShare(w, at));
+    const fair = fairTribute(this.homeBounty(camp?.units ?? {}, at, this.fateFor(w.fate, HOME_ID, at)), siegeShare(w, at));
+    return tributeAsk(fair, this.save.profile?.eloquence ?? 0);
   }
 
   /** Почему наш город не может дать дань в минуту `at`; null — может. */
@@ -1766,6 +1771,7 @@ export class LocalWorld implements WorldApi {
   private parleyHome(w: SiegeWindow, order: ParleyOrder, at: number): string | null {
     if (order.act === 'answer') return 'Лагерь логова условий не предлагает.';
     if (order.kind !== 'tribute') return 'Условия предлагает осаждающий.';
+    // Цена — та, что просит лагерь: справедливая, сбавленная красноречием (`homeFair`); логово берёт не меньше неё.
     const fair = this.homeFair(w, at);
     const why = this.tributeBlock(w, at, fair);
     if (why) return why;
@@ -10508,7 +10514,8 @@ export class LocalWorld implements WorldApi {
         (w.reliefs ?? []).map((r) => ({ from: cityOr(r.city), men: troopTotal(r.army.troops as TroopStack), at: r.at })),
       ),
       // Цену дани назначит сервер на минуту предложения той же формулой по слепку обороны; окно считает её по нашему складу.
-      parley: this.parleyDef(c, now, false, fairTribute(this.homeBounty({ warrior: troopTotal(w.army.troops as TroopStack) }, now, w.fate), siegeShare(c, now))),
+      // Дань лагерю игрока — та же, что назначит сервер: справедливая, сбавленная красноречием нашего дипломата (АГ-1).
+      parley: this.parleyDef(c, now, false, tributeAsk(fairTribute(this.homeBounty({ warrior: troopTotal(w.army.troops as TroopStack) }, now, w.fate), siegeShare(c, now)), this.save.profile?.eloquence ?? 0)),
       // Кольцо блокады (Р-5): лагерь — без выбитых башней, гарнизон — свой; решает сервер той же дверью (`war.ringCheck`).
       blockade: this.blockadeView(c, now, troopPower(w.army.troops as TroopStack) * (1 - (c.fire ? fireView(c.fire, now).thin : 0)), troopPower(this.defenders(now).all), false),
       // Постройки, стоящие без работы под обстрелом (Р-5): до броска следующей фазы — племя не берёт с них выработку.

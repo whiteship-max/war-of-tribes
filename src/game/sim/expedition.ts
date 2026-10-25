@@ -24,9 +24,11 @@ import { ORDER_TEXT } from '../data/order';
 import { addBonded, addPop, loseBonded, losePop } from './population';
 import { log, tagSince } from './log';
 import { woundLine, woundsOfBattle } from './infirmary';
-import { recordDeath, recordDeed, recordRetire, recordSiege, reputeMorale, type Deed } from './agents';
+import { personName, recordDeath, recordDeed, recordRetire, recordSiege, reputeMorale, type Deed } from './agents';
+import { agentVacancyEvent, noteGone } from './recruit';
+import { raiseEvent } from './mail';
 import { hireWhere } from './hire';
-import type { HomeEffect } from '@/world/types';
+import type { FigureId, HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
 import { addStock, outlay, trimStock } from './stock';
 import { stabAfterBattle } from './stability';
@@ -413,8 +415,15 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.siege) recordSiege(s);
   // Весть о гибели — объектом с номером человека. Строкой её слал мир до смертных
   // агентов, и значила она «выбыл на `FIGURE_DOWN`»: убивать по ней нельзя.
-  if (o.fell && typeof o.fell === 'object') recordDeath(s, o.fell, (a) => hireWhere(s, a));
-  if (o.retired) recordRetire(s, o.retired, (a) => hireWhere(s, a));
+  // Место опустело — весть на стол (АГ-1): выбор нового в Ратуше, где видны лица, характеристики и цена.
+  if (o.fell && typeof o.fell === 'object') {
+    const name = personName(s, o.fell.agent);
+    if (recordDeath(s, o.fell, (a) => hireWhere(s, a))) vacancyNews(s, o.fell.agent, name, 'fell');
+  }
+  if (o.retired) {
+    const name = personName(s, o.retired.agent);
+    if (recordRetire(s, o.retired, (a) => hireWhere(s, a))) vacancyNews(s, o.retired.agent, name, 'rest');
+  }
   if (sacked.length > 0) {
     log(s, `За стеной разорили: ${sacked.join(', ')}. Работники разбежались.`, 'bad');
   }
@@ -441,4 +450,10 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen}.`, 'bad');
   if (care.laid + care.carried + care.noBed > 0) log(s, woundLine(care), care.noBed > 0 ? 'bad' : 'info');
   if (o.ref) tagSince(s, head, o.ref);
+}
+
+/** Весть о пустом месте агента: кто ушёл и почему — в книгу найма, весть — на стол (`sim/recruit.agentVacancyDef`). */
+function vacancyNews(s: GameState, role: FigureId, name: string, why: 'fell' | 'rest'): void {
+  noteGone(s, role, name, why);
+  raiseEvent(s, agentVacancyEvent(role));
 }

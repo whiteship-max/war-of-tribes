@@ -35,7 +35,7 @@ import {
   stealthOf,
 } from './agents';
 import { applyEffects, playerProfile } from '@/world/bridge';
-import { hireAgent } from './hire';
+import { hireRecruit, recruitsOf } from './recruits';
 import { creditTech } from './tech';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { PIP_IDS, type Pips } from '@/battle';
@@ -183,8 +183,9 @@ describe('гибель забирает человека, а не часть п�
     s.faith.id = 'catholic';
     applyEffects(s, [fell('scout', 0)]);
     s.gold = 10_000;
-    expect(hireAgent(s, 'scout')).toBeNull();
-    tick(s, s.agents.scout.hiring!.until - s.time);
+    // Найм — в Ратуше из кандидатов окна (АГ-1): сразу, без срока.
+    const first = recruitsOf(s, 'scout')[0];
+    expect(hireRecruit(s, 'scout', first.n, null)).toBeNull();
     expect(s.agents.scout.vacant).toBe(false);
     expect(s.agents.scout.person, 'новый человек — новый номер').toBe(1);
     expect(s.agents.scout.xp, 'новичок начинает с нуля').toBe(0);
