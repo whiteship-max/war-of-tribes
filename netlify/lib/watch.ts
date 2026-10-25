@@ -1117,7 +1117,10 @@ export function booked(
   };
   const built = buildStep(town0, at, claim, gems, prior.card?.site);
   const book0 = bookOf(rec, at);
-  const step = bookAfter(book0, at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, grants, wars, key, seen ?? [], built.book.levels);
+  // Указ входит в книгу, когда партия его применила (AC-2): опись называет номер последнего применённого (`seen`). Раньше
+  // книга прибавляла бойцов указа, которых опись ещё не называла, тут же срезала их до заявленного и считала указ учтённым.
+  const applied = grants.filter((g) => g.n <= (watch.seen ?? 0));
+  const step = bookAfter(book0, at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, applied, wars, key, seen ?? [], built.book.levels);
   const army = {
     before: sumOf(book0.bodies),
     after: sumOf(step.book.bodies),
