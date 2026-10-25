@@ -10,7 +10,8 @@ import { eatFloorOf, seedTown } from './town.js';
 import { emptyWars, liveSheet, readStoredSheet } from './war.js';
 import type { Telegram } from './telegram.js';
 import { PAY_NOT_COUNTED, PAY_NOT_SOLD } from './words.js';
-import type { GemsResponse, RatingResponse, WarSheet, WatchAdvisor, WatchCard, WatchCouncil, WatchEstates } from './contract.js';
+import type { GemsResponse, RatingResponse, WarSheet, WatchAdvisor, WatchAgent, WatchAgents, WatchCard, WatchCouncil, WatchEstates } from './contract.js';
+import { recruitAdvance, recruitAt, recruitId } from '../../src/game/agentrules.js';
 import { advisorWage, candidateId, councilTier, giftCeil, giftOf, hirePrice, windowOf } from '../../src/game/councilrules.js';
 import type { AdvisorTrait } from '../../src/game/types.js';
 import { RESOLVE_MAX, ruleResolve } from './book.js';
@@ -126,7 +127,7 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'estates', 'market', 'deeds', 'bonded']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'agents', 'estates', 'market', 'deeds', 'bonded']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
@@ -1056,5 +1057,60 @@ describe('РТ-2: сословия на сервере — честная опо
     expect(k).toBeCloseTo(estateCeilOf(knights.card!, LEVEL1).resolve, 9);
     expect(ruleResolve(RESOLVE_MAX + 1e6, 0, k)).toBeCloseTo(RESOLVE_MAX + k, 9);
     expect(marshalOf(readWatchRecord({ first: NOW, card: card() }), NOW).knights, 'опись без сословий — стойкости рыцарей нет').toBeUndefined();
+  });
+});
+
+// Агенты Ратуши (АГ-1, docs/city_v3.md, «Решения АГ-1»): опись несёт людей на местах агентов и сид партии, сервер выводит
+// кандидатов сам (`agentrules.recruitAt`) и пишет книгу агентов (`agentbook.agentsStep`). Область правила: опись с сидом и
+// агентами; найм — между описями; ратуша первого уровня даёт только первую ступень (точка внутри — утверждением в тесте).
+describe('АГ-1: агенты Ратуши на сервере — честный найм без флага, подделка — «внимание:»', () => {
+  const SEED = 777;
+  const seats = (spy: Partial<WatchAgent> = {}): WatchAgent[] => [
+    { role: 'general', person: 0, xp: 0 },
+    { role: 'scout', person: 0, xp: 0 },
+    { role: 'spy', person: 0, xp: 0, ...spy },
+    { role: 'diplomat', person: 0, xp: 0 },
+  ];
+  const agents = (list: WatchAgent[], o: Partial<WatchAgents> = {}): WatchAgents => ({ seats: list, hired: 0, fees: 0, paid: 0, ...o });
+  const hired = (tier: number): Partial<WatchAgent> => ({ person: 1, n: recruitId(windowOf(1000), 'spy', 0), tier, at: 1000 });
+  const advance = (tier: number): number => {
+    const r = recruitAt(SEED, recruitId(windowOf(1000), 'spy', 0), tier);
+    return recruitAdvance(r.level, r.traits);
+  };
+
+  it('честный найм первой ступени — без флага; книга держит сид и человека', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    expect(councilTier(LEVEL1.town_hall ?? 0), 'точка внутри: ратуша 1 даёт первую ступень').toBe(1);
+    const honest = player(5501);
+    expect(await honest.push(card({ seed: SEED, agents: agents(seats()) }), NOW)).toBe(200);
+    expect(await honest.push(card({ clock: later, time: t, seed: SEED, agents: agents(seats(hired(1)), { hired: 1, fees: advance(1) }) }), later)).toBe(200);
+    const rec = await honest.watch();
+    expect(kinds(rec)).not.toContain('agents');
+    expect(rec.agents?.seed).toBe(SEED);
+    expect(rec.agents?.seats.spy?.n).toBe(recruitId(windowOf(1000), 'spy', 0));
+  });
+
+  it('кандидат выше ступени ратуши, найм без счёта, сид сменился — «внимание:», человек ровный', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    const high = player(5502);
+    expect(await high.push(card({ seed: SEED, agents: agents(seats()) }), NOW)).toBe(200);
+    expect(await high.push(card({ clock: later, time: t, seed: SEED, agents: agents(seats(hired(3)), { hired: 1, fees: advance(3) }) }), later)).toBe(200);
+    const rec = await high.watch();
+    expect(warnings(rec).some((x) => /ступени 3 при ратуше/.test(x))).toBe(true);
+    expect(rec.agents?.seats.spy?.n, 'человек ровный').toBeUndefined();
+
+    const uncounted = player(5503);
+    expect(await uncounted.push(card({ seed: SEED, agents: agents(seats()) }), NOW)).toBe(200);
+    expect(await uncounted.push(card({ clock: later, time: t, seed: SEED, agents: agents(seats(hired(1))) }), later)).toBe(200);
+    expect(warnings(await uncounted.watch()).some((x) => /наймов в счёте 0/.test(x))).toBe(true);
+
+    const reseed = player(5504);
+    expect(await reseed.push(card({ seed: SEED, agents: agents(seats()) }), NOW)).toBe(200);
+    expect(await reseed.push(card({ clock: later, time: t, seed: SEED + 1, agents: agents(seats()) }), later)).toBe(200);
+    const r2 = await reseed.watch();
+    expect(warnings(r2).some((x) => /сид партии сменился/.test(x))).toBe(true);
+    expect(r2.agents?.seed, 'книга держит первый').toBe(SEED);
   });
 });
