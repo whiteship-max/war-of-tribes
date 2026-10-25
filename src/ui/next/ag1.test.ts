@@ -91,16 +91,22 @@ describe('раздел «Агенты» в Ратуше', () => {
     expect(html).toContain('●○○○○');
     expect((html.match(/class="ag-stat"/g) ?? []).length, 'отметки — четыре, зоркость, скрытность и диверсия, красноречие').toBe(4 + 1 + 2 + 1);
     expect(html).toContain('без жалованья');
+    // У карточки одна кнопка — «Сменить»; «Уволить» — над листом кандидатов, рядом с нынешним (четыре карточки без прокрутки).
     expect((html.match(/>Сменить</g) ?? []).length).toBe(4);
-    expect((html.match(/>Уволить</g) ?? []).length).toBe(4);
+    expect(html).not.toContain('>Уволить<');
   });
 
-  it('человек в поле: «Сменить» и «Уволить» погашены словами — менять дома', async () => {
-    const { HallAgents } = await import('./HallAgents');
+  it('человек в поле: «Сменить», «Уволить» и найм на его место погашены словами — менять дома', async () => {
+    const { HallAgents, RecruitList } = await import('./HallAgents');
     const s = town();
     view(s, 'spy');
-    const html = renderToStaticMarkup(h(HallAgents));
-    expect((html.match(/В поле — менять дома\./g) ?? []).length, 'обе кнопки лазутчика').toBe(2);
+    const card = renderToStaticMarkup(h(HallAgents));
+    expect((card.match(/В поле — менять дома\./g) ?? []).length, 'кнопка «Сменить» лазутчика').toBe(1);
+    const list = renderToStaticMarkup(h(RecruitList, { role: 'spy', onClose: () => undefined }));
+    const n = recruitsOf(s, 'spy').length;
+    expect(n, 'точка внутри области: кандидаты есть').toBeGreaterThan(0);
+    expect(list).toContain('>Уволить<');
+    expect((list.match(/В поле — менять дома\./g) ?? []).length, '«Уволить» и «Сменить» у каждого кандидата').toBe(1 + n);
   });
 
   it('пустое место: «Место пустует», «Нанять» со счётом кандидатов; нанятый — с чертами и жалованьем', async () => {

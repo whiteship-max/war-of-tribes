@@ -2,9 +2,10 @@
 // карточками; найм, смена и увольнение всех четверых — только здесь. Едет своим куском (докачкой из окна Ратуши): первой
 // загрузке не нужен.
 //
-// Карточка места: портрет (набор персонажа, `Portrait`), место и кружки уровня, имя, возраст, черты кандидата, характеристики
-// числами, жалованье; «Сменить» и «Уволить» — у человека на месте (только дома: в поле он дело заканчивает), «Нанять» — у пустого.
-// Касание «Нанять» или «Сменить» — лист кандидатов поверх: те же числа и разница с нынешним, черты, жалованье и цена.
+// Карточка места: портрет (набор персонажа, `Portrait`), место и кружки уровня, имя, возраст, черты кандидата, жалованье,
+// характеристики числами; «Сменить» — у человека на месте (только дома: в поле он дело заканчивает), «Нанять» — у пустого.
+// Касание — лист кандидатов поверх: нынешний и «Уволить» над ним, кандидаты с теми же числами и разницей с нынешним, чертами,
+// жалованьем и ценой. Четыре карточки по одной кнопке влезают в шторку без прокрутки.
 //
 // Своих чисел нет (правило 18): кандидаты, найм, увольнение и отказы — `sim/recruits`, характеристики — двери
 // дела (`agentStats`), жалованье и плата — `agentrules`.
@@ -109,7 +110,6 @@ function Wage({ wage }: { wage: number }) {
 
 function RoleCard({ role, onPick }: { role: FigureId; onPick: () => void }) {
   const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
   const f = useWorld((g) => g.figures.find((x) => x.id === role));
   const def = FIGURE_BY_ID[role];
   const head = (level: number | null) => (
@@ -129,11 +129,9 @@ function RoleCard({ role, onPick }: { role: FigureId; onPick: () => void }) {
           <b className="cn-name muted">Место закрыто</b>
           <small className="ag-why">{closed}</small>
         </div>
-        <div className="cn-acts">
-          <Btn why={closed} onClick={() => {}}>
-            Нанять
-          </Btn>
-        </div>
+        <span className="ag-lock" aria-hidden="true">
+          <Icon name="ui-lock" />
+        </span>
       </div>
     );
   }
@@ -171,22 +169,17 @@ function RoleCard({ role, onPick }: { role: FigureId; onPick: () => void }) {
         {head(agentLevel(s, role))}
         <b className="cn-name one-line">{personName(s, role)}</b>
         <span className="cn-meta">
-          {yearsWord(Math.floor(age))}
+          <span className="ag-age">{yearsWord(Math.floor(age))}</span>
           {traitsBorn(s, role).map((t) => (
             <Trait key={t} t={t} />
           ))}
-        </span>
-        <span className="ag-line">
-          <Stats list={statsNow(s, role)} />
           <Wage wage={r ? recruitWage(r.level, r.traits) : 0} />
         </span>
+        <Stats list={statsNow(s, role)} />
       </div>
       <div className="cn-acts">
         <Btn onClick={onPick} why={away}>
           Сменить
-        </Btn>
-        <Btn confirm why={dismissBlock(s, role, f)} onClick={() => act((st) => dismissAgent(st, role, f))}>
-          Уволить
         </Btn>
       </div>
     </div>
@@ -204,11 +197,7 @@ export function RecruitList({ role, onClose }: { role: FigureId; onClose: () => 
       <div className="hall-veil" onClick={onClose} />
       <div className="hall-card cn-sheet" role="dialog" aria-label={`${name}: кандидаты`}>
         <SheetPage icon={iconName('fig', role)} title={`${name}: кандидаты`} sub={`новые через ${waitLeft(asGame(nextRecruitsIn(s)))}`} onClose={onClose}>
-          {seated(s, role) && (
-            <div className="cn-note">
-              Сейчас — {personName(s, role)}, ур. {agentLevel(s, role)}. Нанятый займёт его место; числа рядом — разница с ним.
-            </div>
-          )}
+          {seated(s, role) && <Current role={role} />}
           {list.length === 0 ? (
             <div className="cn-note">{s.faith?.id ? 'Кандидаты этого сезона уже были в ратуше. Новые придут с сезоном.' : 'Кандидаты ещё в пути.'}</div>
           ) : (
@@ -217,6 +206,23 @@ export function RecruitList({ role, onClose }: { role: FigureId; onClose: () => 
         </SheetPage>
       </div>
     </>
+  );
+}
+
+/** Нынешний на месте — над листом: кто он, что значат числа рядом, и «Уволить» (только дома, с «Точно?»). */
+function Current({ role }: { role: FigureId }) {
+  const s = useGame((g) => g.s);
+  const act = useGame((g) => g.act);
+  const f = useWorld((g) => g.figures.find((x) => x.id === role));
+  return (
+    <div className="ag-now">
+      <span className="cn-note">
+        Сейчас — {personName(s, role)}, ур. {agentLevel(s, role)}. Нанятый займёт его место; числа рядом — разница с ним.
+      </span>
+      <Btn confirm why={dismissBlock(s, role, f)} onClick={() => act((st) => dismissAgent(st, role, f))}>
+        Уволить
+      </Btn>
+    </div>
   );
 }
 
@@ -231,15 +237,13 @@ function RecruitRow({ c, than, onHired }: { c: RecruitView; than?: StatValue[]; 
       <div className="cn-body">
         <b className="cn-name one-line">{c.name}</b>
         <span className="cn-meta">
-          {yearsWord(Math.floor(c.age0))}
+          <span className="ag-age">{yearsWord(Math.floor(c.age0))}</span>
           {c.traits.map((t) => (
             <Trait key={t} t={t} />
           ))}
-        </span>
-        <span className="ag-line">
-          <Stats list={statsOfRecruit(s, c)} than={than} />
           <Wage wage={c.wage} />
         </span>
+        <Stats list={statsOfRecruit(s, c)} than={than} />
       </div>
       <div className="cn-buy">
         <Cost cost={{ gold: c.price }} />
