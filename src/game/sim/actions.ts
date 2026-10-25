@@ -10,11 +10,10 @@ import {
   feastInfo,
   feastSeconds,
   isSite,
-  upgradeCost,
   upgradeInfo,
 } from '../derived';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { cancelShare } from '../labour';
+import { cancelRefund } from '../labour';
 import { log } from './log';
 import { outlay, pay, refund } from './pay';
 import { daysSpan } from '../span';
@@ -49,7 +48,7 @@ export function startUpgrade(s: GameState, buildingId: number): string | null {
 
 /**
  * Отменяет улучшение и снимает его с очереди. Начатое (строящееся, на нём есть работа) возвращает половину цены,
- * нетронутое — целиком (`labour.cancelShare`). Возврат не разовое дело описи: сервер выводит положенное сам из очереди
+ * нетронутое — целиком (`labour.cancelRefund`). Возврат не разовое дело описи: сервер выводит положенное сам из очереди
  * описи (`netlify/lib/watch.ts`, docs/ui_v2.md, «Решения СТ-1»), и лишний возврат там — флаг.
  */
 export function cancelUpgrade(s: GameState, buildingId: number): string | null {
@@ -57,7 +56,9 @@ export function cancelUpgrade(s: GameState, buildingId: number): string | null {
   if (!b) return 'Здание не найдено.';
   if (!isSite(b)) return 'Здесь ничего не строят.';
   const def = BUILDING_BY_ID[b.type];
-  refund(s, upgradeCost(def, b.level + 1), cancelShare(b.work > 0), false);
+  // Возврат — правилом сервера (`labour.cancelRefund`: доля каждой части двора вниз), а не долей суммы (AC-6): у двора с двумя
+  // делами сумма долей вниз меньше доли суммы, и честная отмена давала флаг лишнего возврата.
+  refund(s, cancelRefund(def, b.level + 1, b.work > 0), 1, false);
   b.work = 0;
   b.workRequired = 0;
   s.buildQueue = buildQueue(s).map((x) => x.id);
