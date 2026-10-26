@@ -114,7 +114,6 @@ import { FLANKS, commanderAt, leadLoyalty, type Birth, type Commander } from './
 import {
   ESTATES,
   FERVOUR_SCALE,
-  LEAD_ESTATE,
   LOYAL,
   PIETY_SCALE,
   influenceOf,
@@ -883,7 +882,8 @@ export function estatesWith(s: GameState, priv: Partial<Record<EstateId, number>
   const dec = estateDecree(s);
   const out = {} as Record<EstateId, EstateNow>;
   for (const e of ESTATES) {
-    const parts = loyaltyParts(e, priv, infl[e], estateMood(s, e), e === LEAD_ESTATE ? commandLead(s) : 0);
+    // Командиры флангов (ДР-3): слагаемое знати — одно правило `loyaltyParts` решает, какому сословию оно не безразлично.
+    const parts = loyaltyParts(e, priv, infl[e], estateMood(s, e), commandLead(s));
     const loyalty = loyaltyFrom(parts);
     const strength = strengthOf(infl[e], dec === e);
     out[e] = { id: e, infl: infl[e], loyalty, parts, strength, plus: plusOf(e, strength, loyalty), minus: minusOf(e, strength), decree: dec === e };

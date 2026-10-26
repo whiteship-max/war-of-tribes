@@ -10,7 +10,8 @@ import { eatFloorOf, seedTown } from './town.js';
 import { emptyWars, liveSheet, readStoredSheet } from './war.js';
 import type { Telegram } from './telegram.js';
 import { PAY_NOT_COUNTED, PAY_NOT_SOLD } from './words.js';
-import type { GemsResponse, RatingResponse, WarSheet, WatchAdvisor, WatchAgent, WatchAgents, WatchCard, WatchCouncil, WatchEstates } from './contract.js';
+import type { GemsResponse, RatingResponse, WarSheet, WatchAdvisor, WatchAgent, WatchAgents, WatchCard, WatchCommand, WatchCouncil, WatchEstates } from './contract.js';
+import { commandTier, commanderAt, commanderId } from '../../src/game/commandrules.js';
 import { recruitAdvance, recruitAt, recruitId } from '../../src/game/agentrules.js';
 import { advisorWage, candidateId, councilTier, giftCeil, giftOf, hirePrice, windowOf } from '../../src/game/councilrules.js';
 import type { AdvisorTrait } from '../../src/game/types.js';
@@ -1112,5 +1113,47 @@ describe('АГ-1: агенты Ратуши на сервере — честны
     const r2 = await reseed.watch();
     expect(warnings(r2).some((x) => /сид партии сменился/.test(x))).toBe(true);
     expect(r2.agents?.seed, 'новая партия — книга по новому сиду').toBe(SEED + 1);
+  });
+});
+
+// Командиры флангов (ДР-3, docs/siege_v2.md, «Решения ДР-3»): опись несёт места (номер кандидата, ступень, минута), сервер выводит
+// кандидата сам по сиду книги агентов и пишет книгу командиров (`commandbook.commandStep`). Область правила: опись с сидом и
+// местами; найм — между описями; Казармы первого уровня дают только первую ступень (точка внутри — утверждением в тесте).
+describe('ДР-3: командиры флангов на сервере — честный найм без флага, подделка — «внимание:» и пустое место', () => {
+  const SEED = 778;
+  const n0 = commanderId(windowOf(1000), 0);
+  const seats = (): WatchAgent[] => ['general', 'scout', 'spy', 'diplomat'].map((role) => ({ role, person: 0, xp: 0 }));
+  const command = (tier: number, o: Partial<WatchCommand> = {}): WatchCommand => {
+    const c = commanderAt(SEED, n0, tier);
+    return { seats: [{ flank: 'left', n: n0, tier, at: 1000 }], hired: 1, fees: recruitAdvance(c.level, c.traits), paid: 0, ...o };
+  };
+
+  it('честный найм первой ступени — без флага; книга держит место', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    expect(commandTier(LEVEL1.barracks ?? 0), 'точка внутри: Казармы 1 дают первую ступень').toBe(1);
+    const honest = player(5511);
+    expect(await honest.push(card({ seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 } }), NOW)).toBe(200);
+    expect(await honest.push(card({ clock: later, time: t, seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 }, command: command(1) }), later)).toBe(200);
+    const rec = await honest.watch();
+    expect(kinds(rec)).not.toContain('command');
+    expect(rec.command?.seats.left?.n).toBe(n0);
+  });
+
+  it('кандидат выше ступени Казарм и найм без счёта — «внимание:»; место пустое', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    const high = player(5512);
+    expect(await high.push(card({ seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 } }), NOW)).toBe(200);
+    expect(await high.push(card({ clock: later, time: t, seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 }, command: command(3) }), later)).toBe(200);
+    const rec = await high.watch();
+    expect(kinds(rec)).toContain('command');
+    expect(warnings(rec).some((x) => /ступени 3 при Казармах/.test(x))).toBe(true);
+    expect(rec.command?.seats.left, 'место пустое').toBeUndefined();
+
+    const uncounted = player(5513);
+    expect(await uncounted.push(card({ seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 } }), NOW)).toBe(200);
+    expect(await uncounted.push(card({ clock: later, time: t, seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 }, command: command(1, { hired: 0, fees: 0 }) }), later)).toBe(200);
+    expect(warnings(await uncounted.watch()).some((x) => /наймов в счёте 0/.test(x))).toBe(true);
   });
 });
