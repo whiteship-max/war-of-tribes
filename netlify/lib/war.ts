@@ -38,6 +38,8 @@ import {
   type WarFall,
   type WarOrder,
   type WarSheet,
+  type WarFlanks,
+  type WarSpirit,
   type WarView,
   RIVAL_DEEDS,
   spySeenId,
@@ -46,15 +48,30 @@ import {
   type SpyOption,
   type SpyView,
 } from './contract.js';
-import { stackTotal, type Pips, type Stack } from '../../src/battle/index.js';
+import { stackTotal, type Flanks, type Pips, type Stack } from '../../src/battle/index.js';
 import { TROOPS_OF_KIND, troopTotal, type TroopStack } from '../../src/game/battle/kinds.js';
-import { kindsOf, troopLosses, troopPower } from '../../src/game/battle/price.js';
+import { kindsOf, shareLosses, troopLosses, troopPower } from '../../src/game/battle/price.js';
 import { wallRepairCost } from '../../src/game/build.js';
 import { statAt } from '../../src/game/train.js';
 import { ENGINES } from '../../src/game/data/engines.js';
 import { campFight, guardKinds, homeLosses, machineFight, wallFight } from '../../src/world/fights.js';
+import { placeAt, scarWhere } from '../../src/world/place.js';
+import type { FieldOutcome } from '../../src/world/battle.js';
+import { isScarId, type ScarSide, type ScarWhere } from '../../src/game/scarrules.js';
+import { scarsAt, type ScarBook } from './scarbook.js';
 import { SCALING, wallFront } from '../../src/world/wall.js';
-import { PROPOSALS, answerBlock, type ProposalAct, type ProposalEnd, type ProposalKind, type ProposalView } from '../../src/world/proposals.js';
+import {
+  PROPOSALS,
+  answerBlock,
+  pactBreakingBlock,
+  pactHolds,
+  pactWarBlock,
+  type ProposalAct,
+  type ProposalEnd,
+  type ProposalKind,
+  type ProposalView,
+} from '../../src/world/proposals.js';
+import { has, own } from '../../src/game/guard.js';
 import {
   GUARD_SHARE,
   assaultOf,
@@ -67,7 +84,7 @@ import {
   type MachineId,
 } from '../../src/world/machines.js';
 import { aimOf, firePlan, reaim, thinAt, thinKinds, type Aim, type Fire, type TowerGun } from '../../src/world/bombard.js';
-import { fieldReach, fieldWalkFloorMs, foodLeft, spyWalkMs, warAt, warWalkMs } from '../../src/world/pvp.js';
+import { fieldReach, fieldWalkFloorMs, foodLeft, reliefCredit, spyWalkMs, warAt, warWalkMs } from '../../src/world/pvp.js';
 import { distance } from '../../src/world/geo.js';
 import { goodsSheet, type GoodsBook } from './goods.js';
 import {
@@ -82,7 +99,19 @@ import {
   rivalRolls,
 } from '../../src/world/rivalspy.js';
 import { gameDaysOfMs, gameSecondsOfMs } from '../../src/game/pace.js';
-import { breadAt, breadStock, FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import {
+  breadAt,
+  breadStock,
+  FATE_SAME,
+  GENERAL_MARCHES,
+  GENERAL_RELIEVES,
+  GENERAL_STRIKES,
+  openSiege,
+  SIEGE_BLOCK,
+  siegeSince,
+  starvesAt,
+  type SiegeWindow,
+} from '../../src/world/siege.js';
 import { siegeCutOf, starves } from '../../src/world/siegefood.js';
 import { BREAD_SLACK, BREAD_SLACK_MIN } from '../../src/world/data/siegefood.js';
 import { aimBlock as artilleryAimBlock, gunAfter, gunAimBlock, gunBlock, shotsApplied } from '../../src/world/shelling.js';
@@ -104,9 +133,11 @@ import {
   repairBlock,
   repairsOf,
   rollPhase,
+  rollSeed,
   rowsOf,
   hungerStepAt,
   softerFate,
+  wasteLosses,
   type PhaseRow,
 } from '../../src/world/siegeroll.js';
 import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
@@ -121,18 +152,22 @@ import {
   siegeShare,
   softerThan,
   termsBlock,
+  tributeAsk,
   tributeGoods,
   type OfferKind,
 } from '../../src/world/parley.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
-import { energyAt, energyBlock, onRoad, priceOf, remark, spend } from '../../src/world/energy.js';
-import { ENERGY_MAX } from '../../src/world/data/energy.js';
+import { energyAt, energyBlock, onRoad, priceOf, remark, spend, type EnergyMark } from '../../src/world/energy.js';
+import { gaitField, gaitHaltMs, gaitHaul, gaitName, gaitSpeed, readGait, roadLosses, siegeBlockOf, strikeSeed, strikeWorn, type Gait } from '../../src/world/gait.js';
+import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { machineShare, gateBusyText, playerWood, rebaseWood } from '../../src/world/works.js';
 import { stackCarry, stackEscort } from '../../src/world/data/units.js';
-import { PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
-import { bookLive, least, over, rulePips, ruleResolve, type ArmyBook } from './book.js';
+import { PACT_BREAK_NOTICE, PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
+import { bookLive, least, over, rulePips, ruleResolve, ruleSpirit, type ArmyBook } from './book.js';
+import { capPips, type AgentsAt } from './agentbook.js';
+import type { CommandAt } from './commandbook.js';
 import { floorAt, townSheet, type TownBook } from './town.js';
 
 /** Война в хранилище: вид для игроков плюс ключи сторон. Ключи наружу не уходят никогда (`viewOf`). */
@@ -144,6 +179,18 @@ export interface WarRow extends Omit<WarView, 'role'> {
    * пробившейся через рогатки, уходит союзнику (`newsOf`). Пишет приказ `relief`; наружу не уходит (`viewOf`).
    */
   allies?: Record<string, { key: string; city: string }>;
+  /**
+   * Ушедшие налегке на дороге удара и выручки (ДР-5): сколько снял сервер (`roadArmy`, `gait.strikeWorn`), чей замок и номер.
+   * Книга войска вычитает их, как павших (`book.warLosses`): держать ушедших живыми — сверх книги, флаг. Наружу не уходит.
+   */
+  worn?: WarWorn[];
+}
+
+/** Уход налегке на дороге удара или выручки одного замка (ДР-5). */
+export interface WarWorn {
+  id: string;
+  castle: string;
+  lost: Counts;
 }
 
 /** Все войны одной записью — как реестр: читают целиком и целиком переписывают с условием по ETag. */
@@ -170,6 +217,13 @@ export interface WarFile {
    * летопись обеих сторон и вести в Telegram. Лежат `DEALT_KEEP_MS`. Нет поля — ни одного.
    */
   dealt?: DealtRow[];
+  /**
+   * Энергия полководца по делам, которые не ведут свою войну, — удару по лагерю у своих стен и выручке союзника (этап 7
+   * аудита, п. 9): по ключу игрока, отметка минуты приказа за вычетом цены дела, дальше копится, как дома. Потолок для
+   * `generalCap`, а не правда: дорога туда и обратно не копит. Лежит `ENERGY_FILL` — потом запас полон и так. Нет поля —
+   * таких дел не было.
+   */
+  gens?: Record<string, EnergyMark>;
 }
 
 /** Пакт двух игроков: ключи по порядку, имена городов на минуту пакта. Ключи наружу не уходят (`pactsOf`). */
@@ -180,6 +234,13 @@ export interface PactRow {
   cities: Record<string, string>;
   /** Кто принял предложение (ключ): весть «пакт заключён» уходит другому — предложившему (19.2). Нет — пакт старше поля. */
   by?: string;
+  /**
+   * Разрыв объявлен (АУ-8, п. 1; OWNER-DECISIONS п. 11): до этой минуты пакт держит обе стороны, потом уходит из записи
+   * (`endPacts`). Нет — разрыва нет; пакт записи старше отсрочки — тоже.
+   */
+  breakAt?: number;
+  /** Кто объявил разрыв (ключ). */
+  breakBy?: string;
 }
 
 /**
@@ -220,6 +281,8 @@ export interface SpyRow extends Omit<SpyView, 'role'> {
   stealth: number;
   /** Сколько держат в плену, мс мира с темпом войны — на минуту приказа. */
   heldMs: number;
+  /** Сила диверсии лазутчика (АГ-1) — по книге агентов сервера на минуту приказа. Нет — новичок (единица). */
+  power?: number;
 }
 
 /** Победы игрока в боях войны и взятые им города. */
@@ -273,11 +336,19 @@ export function readWars(raw: unknown): WarFile {
   const pacts = Array.isArray(r.pacts)
     ? r.pacts
         .filter((x): x is PactRow => Boolean(x) && typeof x.a === 'string' && typeof x.b === 'string')
-        .map((x) => ({ a: x.a, b: x.b, at: Number(x.at) || 0, cities: names(x.cities), ...(typeof x.by === 'string' ? { by: x.by } : {}) }))
+        .map((x) => ({
+          a: x.a,
+          b: x.b,
+          at: Number(x.at) || 0,
+          cities: names(x.cities),
+          ...(typeof x.by === 'string' ? { by: x.by } : {}),
+          ...(Number.isFinite(x.breakAt) ? { breakAt: Number(x.breakAt) } : {}),
+          ...(typeof x.breakBy === 'string' ? { breakBy: x.breakBy } : {}),
+        }))
     : [];
   const offer = (x: Partial<PactOffer>): PactOffer => {
     const at = Number(x.at) || 0;
-    const kind = x.kind && PROPOSALS[x.kind] ? x.kind : 'pact';
+    const kind = x.kind && has(PROPOSALS, x.kind) ? x.kind : 'pact';
     return {
       id: typeof x.id === 'string' && x.id ? x.id : proposalId(x.from as string, at),
       kind,
@@ -305,14 +376,51 @@ export function readWars(raw: unknown): WarFile {
     ...(pacts.length ? { pacts } : {}),
     ...(offers.length ? { offers } : {}),
     ...(dealt.length ? { dealt } : {}),
+    ...gensOf(r.gens),
   };
+}
+
+const ENERGY_MODES: readonly EnergyMark['mode'][] = ['drain', 'fill', 'camp', 'hold'];
+
+/** Отметки полководцев из хранилища: только целые (`WarFile.gens`). */
+function gensOf(v: unknown): { gens?: Record<string, EnergyMark> } {
+  if (!v || typeof v !== 'object') return {};
+  const gens: Record<string, EnergyMark> = {};
+  for (const [k, m] of Object.entries(v as Record<string, unknown>)) {
+    const x = (m ?? {}) as Partial<EnergyMark>;
+    if (Number.isFinite(x.value) && Number.isFinite(x.at) && x.mode && ENERGY_MODES.includes(x.mode)) gens[k] = { value: x.value as number, at: x.at as number, mode: x.mode };
+  }
+  return Object.keys(gens).length ? { gens } : {};
+}
+
+/**
+ * Дружина полководца в бою удара или выручки в минуту `at` легла вся — как у войска, не вернувшегося из похода, на его месте
+ * может стоять новый, свежий: потолка нет.
+ */
+function unmarkBeaten(file: WarFile, w: WarRow, key: string, at: number): void {
+  const b = w.battles[w.battles.length - 1];
+  if (!b || b.at !== at || !b.genTroops || !file.gens?.[key]) return;
+  if (troopTotal(asTroops(minus(b.genTroops, b.genLost ?? {}))) > 0) return;
+  const { [key]: _, ...rest } = file.gens;
+  if (Object.keys(rest).length) file.gens = rest;
+  else delete file.gens;
+}
+
+/** Удар или выручка приняты: полководец заплатил цену в минуту `now` из `have` — потолок до его следующего дела. */
+function markGeneral(file: WarFile, key: string, have: number, now: number): void {
+  file.gens = { ...(file.gens ?? {}), [key]: spend({ value: have, at: now, mode: 'fill' }, now, priceOf('strike')) };
 }
 
 /**
  * Кто выиграл бой войны. `won` — победил ли тот, кто в этом бою нападал: при штурме это поход (`atk`), при вылазке и
- * ударе по лагерю — город (`def`).
+ * ударе по лагерю — город (`def`). Выручка (АУ-8, п. 4): лагерь разбил союзник — победа его, а не города, чей гарнизон не
+ * выходил (`pvp.reliefCredit`, с версии правил `RELIEF_WIN_RULES`); союзник отбит — победа осаждающего, как прежде.
  */
-export const battleWinner = (w: WarRow, b: WarBattle): string => ((b.by === 'atk') === b.won ? w.atk : w.def);
+export const battleWinner = (w: WarRow, b: WarBattle): string => {
+  const side = (b.by === 'atk') === b.won ? w.atk : w.def;
+  if (side !== w.def || !reliefCredit(b)) return side;
+  return (w.allies && b.ally ? own(w.allies, b.ally)?.key : undefined) ?? side;
+};
 
 /** Прибавить к счёту итоги одной войны: победы в её боях и взятый город. */
 function tallyWar(out: Record<string, WarTally>, w: WarRow): void {
@@ -346,8 +454,9 @@ export function readStoredSheet(raw: unknown): SheetAt | null {
 
 /** Война глазами одной из сторон или союзника осаждённого: без ключей. */
 export function viewOf(row: WarRow, key: string): WarView {
-  const { atk, def, allies, ...rest } = row;
+  const { atk, def, allies, worn, ...rest } = row;
   void allies;
+  void worn;
   if (atk === key || def === key) return { ...rest, role: atk === key ? 'atk' : 'def' };
   return { ...rest, role: 'ally', me: castleIdOf(key) };
 }
@@ -369,9 +478,24 @@ export const warsOf = (file: WarFile, key: string): WarView[] =>
 
 // ------------------------------------------------ пакты между игроками ---
 
-/** Пакт двух игроков есть. */
-export const pacted = (file: WarFile, a: string, b: string): boolean =>
-  (file.pacts ?? []).some((p) => (p.a === a && p.b === b) || (p.a === b && p.b === a));
+/** Пакт двух игроков в записи (и в отсчёте разрыва — тоже). */
+const pactRow = (file: WarFile, a: string, b: string): PactRow | undefined =>
+  (file.pacts ?? []).find((p) => (p.a === a && p.b === b) || (p.a === b && p.b === a));
+
+/** Пакт двух игроков есть. В отсчёте разрыва — есть: он держит обе стороны до `breakAt` (АУ-8, п. 1). */
+export const pacted = (file: WarFile, a: string, b: string, now = -Infinity): boolean => {
+  const p = pactRow(file, a, b);
+  return Boolean(p) && pactHolds({ state: 'pact', breakAt: p?.breakAt }, now);
+};
+
+/** Отсчёт разрыва кончился — пакт уходит из записи (ход записи, `advance`). */
+export function endPacts(file: WarFile, now: number): boolean {
+  const was = file.pacts ?? [];
+  const kept = was.filter((p) => p.breakAt === undefined || p.breakAt > now);
+  if (kept.length === was.length) return false;
+  file.pacts = kept;
+  return true;
+}
 
 /** Сколько предложений пакта игрок держит сразу — потолок записи, не правило игры. */
 export const PACT_OFFERS_MAX = 20;
@@ -382,7 +506,7 @@ export function pactsOf(file: WarFile, key: string): WarPact[] {
   for (const p of file.pacts ?? []) {
     if (p.a !== key && p.b !== key) continue;
     const other = p.a === key ? p.b : p.a;
-    out.push({ castle: castleIdOf(other), city: cityOr(p.cities[other]), state: 'pact', at: p.at });
+    out.push({ castle: castleIdOf(other), city: cityOr(p.cities[other]), state: 'pact', at: p.at, ...(p.breakAt !== undefined ? { breakAt: p.breakAt } : {}) });
   }
   for (const o of file.offers ?? []) {
     if (o.from === key) out.push({ castle: castleIdOf(o.to), city: cityOr(o.cities[o.to]), state: 'offered', at: o.at });
@@ -483,7 +607,8 @@ function pactOrder(file: WarFile, key: string, target: string, now: number, ctx:
   const other = Object.keys(ctx.roster.rows).find((k) => castleIdOf(k) === target) ?? null;
   if (!other) return 'Такого города нет на карте.';
   if (other === key) return 'Пакт с самим собой не заключают.';
-  if (pacted(file, key, other)) return 'Пакт уже заключён.';
+  const held = pactRow(file, key, other);
+  if (held) return pactBreakingBlock({ state: 'pact', breakAt: held.breakAt }, now) ?? 'Пакт уже заключён.';
   if (warBetween(file, key, other)) return 'Между нами идёт война. Пакта не будет, пока она не кончится.';
   const cities = { [key]: cityOr(ctx.roster.rows[key]?.city), [other]: cityOr(ctx.roster.rows[other]?.city) };
   const offers = file.offers ?? [];
@@ -502,17 +627,26 @@ function pactOrder(file: WarFile, key: string, target: string, now: number, ctx:
 /**
  * Разорвать пакт, отозвать своё предложение или отклонить чужое. Каждое — итогом в закрытые (ДП-1): разрыв — строкой
  * «разорван» от разорвавшего, отозванное и отклонённое — своим итогом.
+ *
+ * Разрыв — не сразу (АУ-8, п. 1; OWNER-DECISIONS п. 11): пакт держит обе стороны ещё `PACT_BREAK_NOTICE` (`breakAt`), как
+ * у соседей-ботов в мире (`world/diplomacy`), — та сторона, что заходит раз в несколько часов, узнаёт о разрыве до похода.
+ * Итог «разорван» ложится в минуту объявления — весть уходит сразу, — и несёт минуту конца союза в `until`.
  */
 function unpactOrder(file: WarFile, key: string, target: string, now: number): string | null {
   const pacts = file.pacts ?? [];
   const mine = (k: string): boolean => castleIdOf(k) === target;
-  const broken = pacts.filter((p) => (p.a === key && mine(p.b)) || (p.b === key && mine(p.a)));
+  const held = pacts.filter((p) => (p.a === key && mine(p.b)) || (p.b === key && mine(p.a)));
   const offers = (file.offers ?? []).filter((o) => (o.from === key && mine(o.to)) || (o.to === key && mine(o.from)));
-  if (broken.length === 0 && offers.length === 0) return 'Пакта нет.';
-  file.pacts = pacts.filter((p) => !broken.includes(p));
+  if (held.length === 0 && offers.length === 0) return 'Пакта нет.';
+  const breaking = held.map((p) => pactBreakingBlock({ state: 'pact', breakAt: p.breakAt }, now)).find((x) => x);
+  if (breaking && offers.length === 0) return breaking;
+  const broken = held.filter((p) => p.breakAt === undefined);
+  const breakAt = now + PACT_BREAK_NOTICE;
   for (const p of broken) {
+    p.breakAt = breakAt;
+    p.breakBy = key;
     const other = p.a === key ? p.b : p.a;
-    const row: DealtRow = { id: proposalId(key, now), kind: 'pact', from: key, to: other, at: now, until: now, cities: { ...p.cities }, end: 'broken', endAt: now, endBy: key };
+    const row: DealtRow = { id: proposalId(key, now), kind: 'pact', from: key, to: other, at: now, until: breakAt, cities: { ...p.cities }, end: 'broken', endAt: now, endBy: key };
     file.dealt = [...(file.dealt ?? []), row];
   }
   for (const o of offers) closeOffer(file, o, o.from === key ? 'withdrawn' : 'no', now, key);
@@ -547,6 +681,12 @@ export interface SheetAt {
    */
   marshal?: number;
   /**
+   * Агенты подтверждённой книги (АГ-1, `watch.agentsOf` → `agentbook.agentsAt`): отметки полководца, скрытность и диверсия
+   * лазутчика, красноречие дипломата — числа, которые сервер считает сам. Нет — запись до АГ-1 или сид неизвестен: правила
+   * прежние (`rulePips`, слепок лазутчика под потолками `town.ruleWatch`).
+   */
+  agents?: AgentsAt;
+  /**
    * Стойкость рыцарства в силе (РТ-2, `watch.estateCeilOf`): по подтверждённым уровням и привилегиям, лояльность сверху —
    * сверх обряда и Воеводы. Нет — ноль.
    */
@@ -556,6 +696,21 @@ export interface SheetAt {
    * подтверждённых жителях, работником в лучших множителях. Слепок, назвавший больше, идёт в осаду с потолком. Нет — как есть.
    */
   yieldCap?: number;
+  /**
+   * Потолок духа дружины (ДР-1, `watch.spiritCeilOf`): книга духа — жалованье по часам сервера — и подтверждённые Воевода,
+   * рыцари и казармы. Дух слепка и приказа идёт в бой не выше него (`book.ruleSpirit`). Нет — названный в пределах шкалы.
+   */
+  spirit?: WarSpirit;
+  /**
+   * Командиры флангов подтверждённой книги (ДР-3, `watch.commandOf` → `commandbook.commandAt`): тактика флангов в войну — у
+   * стен, пока полководец в городе (`liveSheet`), и в походе (`ruleArmy`), — числами сервера, а не клиента. Нет — командиров нет.
+   */
+  command?: CommandAt;
+  /**
+   * Книга черт армии и полководец по книге агентов (ДР-4, `watch.scarsOfRec`): из них и из меток нынешней записи войн сервер
+   * выводит черты стороны сам (`scarbook.scarsAt`) — у стен в слепке (`liveSheet`) и в походе (`ruleArmy`). Нет — черт нет.
+   */
+  scars?: { book?: ScarBook; gen?: number };
 }
 
 // ------------------------------------------------ счёт по видам ---
@@ -577,7 +732,7 @@ function plus(a: Counts, b: Counts): Counts {
   return out;
 }
 
-const fits = (want: Counts, have: Counts): boolean => Object.entries(want).every(([k, v]) => (v ?? 0) <= (have[k] ?? 0));
+const fits = (want: Counts, have: Counts): boolean => Object.entries(want).every(([k, v]) => (v ?? 0) <= (own(have, k) ?? 0));
 
 /** Сид боя войны: номер войны и номер боя — одна и та же война даёт один и тот же бой у кого угодно. */
 export function warSeed(id: string, n: number): number {
@@ -660,8 +815,10 @@ export function shielded(file: WarFile, key: string, s: SheetAt, at: number): bo
  * в пределах правил (`book.ruleResolve`, `rulePips`): больше их у игрока не бывает никак.
  */
 function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSheet {
-  // Склад, казна, хлеб и невольники — книги запасов той же записи, а не слова слепка (docs/security.md, ЗЩ-2).
-  const sheet = goodsSheet(s.sheet, s.at, s.goods);
+  // Склад, казна, хлеб и невольники — книги запасов той же записи, а не слова слепка (docs/security.md, ЗЩ-2). Тактика флангов
+  // слепка не читается вовсе (ДР-3): её ставит книга командиров ниже.
+  const { flanks: told, ...sheet } = goodsSheet(s.sheet, s.at, s.goods);
+  void told;
   const seen = new Set(sheet.seen);
   let army = sheet.army;
   let home = sheet.home;
@@ -715,6 +872,8 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
     }
   }
   let pips = sheet.pips;
+  // Полководец в городе — с ним у стен и командиры флангов (ДР-3); ушёл в поход — ушли и они, вернулся — вернулись.
+  let led = sheet.led === true;
   const out = new Set(sheet.out ?? []);
   for (const w of file.wars) {
     if (w.atk !== key || w.sentAt > at) continue;
@@ -723,15 +882,79 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
       if (!back) continue;
       home = plus(home, w.army.troops);
       pips = w.army.pips;
+      led = true;
     } else if (s.at < w.sentAt) {
       const went = w.went ?? w.army.troops;
       home = minus(home, sheet.retinue ? atMost(went, sheet.retinue) : went);
       pips = back ? w.army.pips : {};
+      led = back;
       if (back) home = plus(home, w.army.troops);
     }
   }
-  return { ...sheet, army, home, stock, gold, bonded, pop, levels, pips: rulePips(pips), resolve: ruleResolve(sheet.resolve, s.marshal ?? 0, s.knights ?? 0) };
+  // Черты армии и полководец (ДР-4) — только числами сервера: названное слепком снимается, даже если разбор его пропустил.
+  const { scars: toldScars, scarGen: toldGen, ...given } = sheet;
+  void toldScars;
+  void toldGen;
+  return {
+    ...given,
+    army,
+    home,
+    stock,
+    gold,
+    bonded,
+    pop,
+    levels,
+    // Отметки — под потолком правил и подтверждённого полководца (АГ-1): у стен — его отметки, а не названные слепком.
+    pips: capPips(rulePips(pips), s.agents?.pips),
+    // Командиры флангов — числами книги командиров сервера (ДР-3, `commandbook.commandAt`), пока полководец в городе; слепок
+    // клиента их не несёт (`contract.readSheet`).
+    ...(led ? flanksField(s.command?.flanks) : {}),
+    resolve: ruleResolve(sheet.resolve, s.marshal ?? 0, s.knights ?? 0),
+    ...spiritField(ruleSpirit(sheet.spirit, s.spirit)),
+    // Черты армии обороны (ДР-4) — книгой черт сервера и метками записи войн; слепок клиента их не несёт (`contract.readSheet`).
+    ...scarsField(file, key, s),
+  };
 }
+
+/**
+ * Черты армии игрока `key` в войну (ДР-4, Ш6): книга черт и метки записи войн, полководец — книгой агентов; и номер полководца
+ * для метки боя. Ни книги, ни полководца — пусто.
+ */
+export function scarsField(file: WarFile, key: string, s: SheetAt | null | undefined): { scars?: string[]; scarGen?: number } {
+  const gen = s?.scars?.gen;
+  const held = scarsAt(s?.scars?.book, file, key, gen);
+  return { ...(held.length > 0 ? { scars: held } : {}), ...(gen !== undefined ? { scarGen: gen } : {}) };
+}
+
+/** Черты стороны в бой (ДР-4): имена, поставленные сервером; голода в бою войны нет (Ш6). Нет черт — поля нет. */
+const scarSide = (held: readonly string[] | undefined): { scars?: ScarSide } => {
+  const ids = (held ?? []).filter(isScarId);
+  return ids.length > 0 ? { scars: { held: ids } } : {};
+};
+
+/** Место боя войны для черт (ДР-4): клетка города — лес, река, холмы; часа нет; бой войны всегда осадный. */
+const warWhere = (w: WarRow): ScarWhere => scarWhere(placeAt(0, w.to.x, w.to.y), true);
+
+/**
+ * Метки боя для журналов армий (ДР-4): у каждой дравшейся стороны — её роль в войне и полководец, при котором она дралась
+ * (`scarGen`). Боя не было — поля нет.
+ */
+function marksOf(field: FieldOutcome, roles: Partial<Record<'attacker' | 'defender', { role: 'atk' | 'def' | 'ally'; gen?: number }>>): { marks?: WarBattle['marks'] } {
+  if (!field.marks) return {};
+  const out: NonNullable<WarBattle['marks']> = {};
+  for (const side of ['attacker', 'defender'] as const) {
+    const r = roles[side];
+    if (!r) continue;
+    out[r.role] = { ...field.marks[side], ...(r.gen !== undefined ? { gen: r.gen } : {}) };
+  }
+  return Object.keys(out).length > 0 ? { marks: out } : {};
+}
+
+/** Командиры флангов — полем, когда они есть (ДР-3): бой без них идёт байт в байт прежним. */
+const flanksField = (f: WarFlanks | undefined): { flanks?: Flanks } => (f && (f.A || f.C) ? { flanks: { ...f } } : {});
+
+/** Дух — полем, когда он есть: бой без духа (клиент до ДР-1) идёт по прежним правилам. */
+const spiritField = (v: WarSpirit | undefined): { spirit?: WarSpirit } => (v ? { spirit: v } : {});
 
 /** По видам — не больше, чем в `cap`. */
 function atMost(a: Counts, cap: Counts): Counts {
@@ -754,7 +977,7 @@ const armyRest = (a: WarArmy, at: number): number => restAt(a.rest, at, men(a.tr
 function wear(a: WarArmy, lost: Counts, share: number, at: number): WarArmy {
   const troops = minus(a.troops, lost);
   const rest = restAfter(share, at, men(troops));
-  return { troops, resolve: a.resolve, pips: a.pips, ...(rest ? { rest } : {}), ...(a.energy ? { energy: a.energy } : {}) };
+  return { troops, resolve: a.resolve, pips: a.pips, ...flanksField(a.flanks), ...spiritField(a.spirit), ...(rest ? { rest } : {}), ...(a.energy ? { energy: a.energy } : {}) };
 }
 
 /**
@@ -762,7 +985,7 @@ function wear(a: WarArmy, lost: Counts, share: number, at: number): WarArmy {
  * мира на клиенте (`world/energy.onRoad`; docs/agent_energy.md, раздел 2).
  */
 function homeward(w: WarRow, at: number, backAt: number): void {
-  w.army = { ...w.army, energy: onRoad(w.army.energy, at, backAt, true) };
+  w.army = { ...w.army, energy: onRoad(w.army.energy, at, backAt, true, gaitSpeed(w.gait)) };
 }
 
 /**
@@ -819,16 +1042,29 @@ function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly Machin
   const { input, field } = wallFight({
     seed: warSeed(w.id, n),
     // Башня города бьёт по лагерю (docs/siege_v2.md, раздел 5): на штурм идут те, кого обстрел не выбил.
-    attacker: { kinds: thinned(kindsOf(asTroops(w.army.troops)), thinOf(w, at)), resolve: w.army.resolve, pips: w.army.pips as Pips, rest: armyRest(w.army, at) },
+    attacker: {
+      kinds: thinned(kindsOf(asTroops(w.army.troops)), thinOf(w, at)),
+      resolve: w.army.resolve,
+      pips: w.army.pips as Pips,
+      ...flanksField(w.army.flanks),
+      rest: armyRest(w.army, at),
+      ...spiritField(w.army.spirit),
+      ...scarSide(w.army.scars),
+    },
     defender: {
       kinds: kindsOf(asTroops(sheet.home)),
       militia: wall.militia,
       archers: wall.archers,
       resolve: sheet.resolve,
+      ...spiritField(sheet.spirit),
       pips: sheet.pips as Pips,
+      ...flanksField(sheet.flanks),
       rest: garrisonRest(w, sheet, at),
+      ...scarSide(sheet.scars),
     },
     front,
+    // Место для черт (ДР-4): клетка города, бой у стены.
+    where: warWhere(w),
   });
   const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.attacker.losses) as Counts) : {};
   const homeLost = homeLosses(asTroops(sheet.home), field) as Counts;
@@ -847,6 +1083,8 @@ function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly Machin
     ...craftOf(w),
     // Проёмы штурма — только показ: ролик рисует выбранный способ (лестницы, таран, башня, пролом).
     openings: front.openings,
+    // Метки боя для журналов армий (ДР-4): поход и город.
+    ...marksOf(field, { attacker: { role: 'atk', gen: w.army.scarGen }, defender: { role: 'def', gen: sheet.scarGen } }),
   };
   w.battles.push(battle);
   w.army = wear(w.army, atkLost, field.rest.attacker, at);
@@ -858,8 +1096,11 @@ function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly Machin
  * дани (`fairOf`): справедливая дань считается от той же добычи, что увезёт падение.
  */
 function fateOfWar(w: WarRow, at: number, sheet: WarSheet, fated: WarRow['fate']) {
-  // Обоз и конвой — уцелевшие похода, той же меркой, что у полководца против логова (`LocalWorld.haul`).
-  const survivors = troopTotal(asTroops(w.army.troops));
+  // Обоз и конвой — уцелевшие похода, той же меркой, что у полководца против логова (`LocalWorld.haul`). Выбитые башней
+  // списываются с войска, когда лагерь снят (`turnBack`), — позже падения; добычу они не несут (у мира — `homeFalls` после
+  // `liftSiege`).
+  const thin = thinOf(w, at);
+  const survivors = troopTotal(asTroops(thin > 0 ? wasted(w.army.troops, thin) : w.army.troops));
   return fate({
     fate: fated,
     stock: sheet.stock,
@@ -867,7 +1108,8 @@ function fateOfWar(w: WarRow, at: number, sheet: WarSheet, fated: WarRow['fate']
     stash: sheet.stash,
     pop: sheet.pop,
     bonded: sheet.bonded,
-    carry: stackCarry({ warrior: survivors }),
+    // Вывоз — по режиму марша похода (ДР-5): налегке без обоза меньше, с обозом больше — той же дверью, что у мира.
+    carry: stackCarry({ warrior: survivors }) * gaitHaul(w.gait),
     escort: stackEscort({ warrior: survivors }),
     levels: sheet.levels,
     seed: fallSeed(warSeed(w.id, 0xfa11), at),
@@ -972,11 +1214,32 @@ export const setWarPace = (n: number): void => {
   pace = Number.isFinite(n) && n >= 1 ? n : 1;
 };
 
-/** Путь войска между двумя клетками с темпом войны. */
-const walk = (from: { x: number; y: number }, to: { x: number; y: number }): number => Math.round(warWalkMs(from, to) / pace);
+/** Путь войска между двумя клетками с темпом войны, в режиме марша `g` (ДР-2). */
+const walk = (from: { x: number; y: number }, to: { x: number; y: number }, g?: Gait): number => Math.round(warWalkMs(from, to, g) / pace);
+
+/** Где войско похода в минуту `at`: после смены режима — от начала нового отрезка, в стоянку — на месте (ДР-2, М6). */
+const marchSpot = (w: WarRow, at: number): { x: number; y: number } => warAt(w.legFrom ?? w.from, w.to, w.legAt ?? w.sentAt, w.arriveAt, at);
+
+/** Где войско на обратном пути в минуту `at`. */
+const backSpot = (w: WarRow, at: number): { x: number; y: number } =>
+  warAt(w.backFrom ?? w.to, w.from, w.legAt ?? w.endAt ?? at, w.backAt ?? at, at);
+
+/**
+ * Истощение налегке с `wornAt` до минуты `at` (ДР-2, М4): доля вида той же дверью, что у мира (`gait.roadLosses`), сид —
+ * поход и начало отрезка. Списывается в минуты событий — приход, поворот домой, возврат, смена режима, — поэтому шаг
+ * очереди сервера, частый или редкий, даёт тех же ушедших. Не налегке — ничего.
+ */
+function wearLight(w: WarRow, at: number): void {
+  if (w.gait !== 'light' || w.wornAt === undefined || !(at > w.wornAt)) return;
+  const lost = roadLosses(w.army.troops, 'light', at - w.wornAt, `${w.id}:${w.wornAt}`);
+  w.army = { ...w.army, troops: minus(w.army.troops, lost) };
+  w.wornAt = at;
+}
 
 /** Войско уходит домой от минуты `at` с места `from`. Некому уходить — война кончена на месте. */
 function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: WarEnd): void {
+  // Налегке — истощение до этой минуты (ДР-2): поворот домой — событие отрезка.
+  wearLight(w, at);
   // Журнал фаз переживает лагерь: по нему вести и донесение у обеих сторон (`newsOf`).
   if (w.camp?.phases?.length) w.phases = w.camp.phases;
   // Выбитое башней записывается одним разом, когда лагерь снят, — как у лагеря под логовом (`LocalWorld.liftSiege`).
@@ -995,7 +1258,9 @@ function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: Wa
   }
   w.phase = 'back';
   w.backFrom = from;
-  w.backAt = at + walk(from, w.from);
+  delete w.legFrom;
+  delete w.legAt;
+  w.backAt = at + walk(from, w.from, readGait(w.gait));
   homeward(w, at, w.backAt);
 }
 
@@ -1028,6 +1293,8 @@ function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null
     // истощение считает игровые дни дороги), журнал дел и фаз и наказы той же осады переносятся.
     wall: prev ? prev.wall : (sheet.levels.palisade ?? 0),
     homeDays: prev ? prev.homeDays : gameDaysOfMs(warWalkMs(w.from, w.to)),
+    // Лагерь с обозом (ДР-2, М5) — без подвоза из дома; записан при постановке, у той же осады переносится.
+    gait: prev ? prev.gait : w.gait === 'train' ? 'train' : undefined,
     log: prev ? prev.log : [],
     phases: prev?.phases,
     orders: prev?.orders,
@@ -1095,12 +1362,12 @@ function shotsStep(w: WarRow, row: PhaseRow, at: number): void {
   if (after.guns !== camp.guns) camp.guns = after.guns;
 }
 
-/** Войско после истощения фазы: доля `share` с каждого рода, как при потерях в бою. */
+/**
+ * Войско после доли `share` (выбитое башней): доля с каждого рода, остаток рода — к ближнему (`price.shareLosses`, BTL-1).
+ * Истощение фазы — не здесь, а костью сида осады (`siegeroll.wasteLosses`, АУ-8, п. 3).
+ */
 function wasted(troops: Counts, share: number): Counts {
-  const kinds = kindsOf(asTroops(troops));
-  const hit = { ...kinds };
-  for (const k of Object.keys(hit) as (keyof typeof hit)[]) hit[k] = Math.round(kinds[k] * share);
-  return minus(troops, troopLosses(asTroops(troops), hit) as Counts);
+  return minus(troops, shareLosses(asTroops(troops), share) as Counts);
 }
 
 /**
@@ -1110,7 +1377,7 @@ function wasted(troops: Counts, share: number): Counts {
  * иначе залп этой фазы, пока энергии хватает и на него, и на штурм. `atkHungry` — пуст ли амбар дома у нападающего.
  */
 function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): void {
-  const camp = w.camp as SiegeWindow;
+  let camp = w.camp as SiegeWindow;
   // Шаг осады (ОС-1): добыча → прокорм → проверка — склад окна, вставший на последнюю опись. Не оплатил прокорм — город сдан
   // голодом, и кость этой фазы не бросается. Ровно ноль — оплачен.
   if (starves(breadAt(camp, at))) {
@@ -1122,13 +1389,16 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
   const row = rollPhase(camp, k, atkHungry);
   camp.phases = [...rowsOf(camp), row];
   shotsStep(w, row, at);
-  if (row.waste > 0) w.army = { ...w.army, troops: wasted(w.army.troops, row.waste) };
+  // Истощение фазы — доля вида, дробь костью сида осады (АУ-8, п. 3): та же дверь, что у мира.
+  if (row.waste > 0) w.army = { ...w.army, troops: minus(w.army.troops, wasteLosses(w.army.troops, row.waste, rollSeed(camp), k)) };
   if (troopTotal(asTroops(w.army.troops)) <= 0) {
     turnBack(w, at, w.to, 'lifted');
     return;
   }
-  // Кольцо блокады после броска и истощения: держит ли его мощь лагеря (Р-5).
+  // Кольцо блокады после броска и истощения: держит ли его мощь лагеря (Р-5). Разомкнув, оно кладёт новое окно лагеря —
+  // наказы и залп дальше пишут в него, а не в прежнее (BTL-4).
   ringCheck(w, at, sheet);
+  camp = w.camp as SiegeWindow;
   if (row.out === 'gates') {
     fall(w, at, sheet, 'gates');
     turnBack(w, at, w.to, 'taken');
@@ -1222,10 +1492,14 @@ function burnMachine(w: WarRow, at: number, sheet: WarSheet, id: MachineId, troo
   const side = campSide(w, at);
   const { input, field } = machineFight({
     seed: warSeed(w.id, n),
-    guard: { kinds: guardKinds(side.kinds, GUARD_SHARE), resolve: side.resolve, pips: side.pips, rest: side.rest },
+    guard: { kinds: guardKinds(side.kinds, GUARD_SHARE), resolve: side.resolve, pips: side.pips, flanks: side.flanks, rest: side.rest, scars: side.scars },
     sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
     resolve: sheet.resolve,
     pips: sheet.pips as Pips,
+    ...flanksField(sheet.flanks),
+    ...spiritField(sheet.spirit),
+    ...scarSide(sheet.scars),
+    where: warWhere(w),
   });
   const homeLost = field.result ? (troopLosses(asTroops(troops), field.result.sides.attacker.losses) as Counts) : {};
   const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.defender.losses) as Counts) : {};
@@ -1242,6 +1516,9 @@ function burnMachine(w: WarRow, at: number, sheet: WarSheet, id: MachineId, troo
     homeLost,
     burn: id,
     ...craftOf(w),
+
+    // Метки боя (ДР-4): вышли из ворот — город, охрана — поход.
+    ...marksOf(field, { attacker: { role: 'def', gen: sheet.scarGen }, defender: { role: 'atk', gen: w.army.scarGen } }),
   });
   // Дралась охрана, а не весь лагерь: убыль — её потери, мораль лагеря прежняя.
   w.army = { ...w.army, troops: minus(w.army.troops, atkLost) };
@@ -1282,10 +1559,14 @@ function breakout(w: WarRow, at: number, sheet: WarSheet, troops: Counts): strin
   const side = campSide(w, at);
   const { input, field } = machineFight({
     seed: warSeed(w.id, n),
-    guard: { kinds: guardKinds(side.kinds, BREAKOUT_SHARE), resolve: side.resolve, pips: side.pips, rest: side.rest },
+    guard: { kinds: guardKinds(side.kinds, BREAKOUT_SHARE), resolve: side.resolve, pips: side.pips, flanks: side.flanks, rest: side.rest, scars: side.scars },
     sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
     resolve: sheet.resolve,
     pips: sheet.pips as Pips,
+    ...flanksField(sheet.flanks),
+    ...spiritField(sheet.spirit),
+    ...scarSide(sheet.scars),
+    where: warWhere(w),
   });
   const homeLost = field.result ? (troopLosses(asTroops(troops), field.result.sides.attacker.losses) as Counts) : {};
   const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.defender.losses) as Counts) : {};
@@ -1302,6 +1583,9 @@ function breakout(w: WarRow, at: number, sheet: WarSheet, troops: Counts): strin
     homeLost,
     breakout: true,
     ...craftOf(w),
+
+    // Метки боя (ДР-4): вышли из ворот — город, охрана — поход.
+    ...marksOf(field, { attacker: { role: 'def', gen: sheet.scarGen }, defender: { role: 'atk', gen: w.army.scarGen } }),
   });
   // Дрался пост, а не весь лагерь: убыль — его потери, мораль лагеря прежняя.
   w.army = { ...w.army, troops: minus(w.army.troops, atkLost) };
@@ -1366,7 +1650,11 @@ const campSide = (w: WarRow, at: number) => ({
   kinds: thinned(kindsOf(asTroops(w.army.troops)), thinOf(w, at)),
   resolve: w.army.resolve,
   pips: w.army.pips as Pips,
+  flanks: flanksField(w.army.flanks).flanks,
   rest: armyRest(w.army, at),
+  ...spiritField(w.army.spirit),
+  // Черты армии похода (ДР-4) — поставленные сервером в минуту приказа (`ruleArmy`).
+  ...scarSide(w.army.scars),
 });
 
 const sightOf = (c: WarCamp) => ({
@@ -1402,6 +1690,12 @@ function hitCamp(
     // Ведёт полководец, если он бьёт с тыла; вылазку — он же, если стоит у ворот (слепок).
     resolve: hit.rear ? hit.rear.resolve : sheet.resolve,
     pips: (hit.rear ? hit.rear.pips : sheet.pips) as Pips,
+    ...flanksField(hit.rear ? hit.rear.flanks : sheet.flanks),
+    // Дух — чьё войско бьёт: гарнизон и дружина одного города, дух у них один.
+    ...spiritField(hit.rear ? hit.rear.spirit : sheet.spirit),
+    // Черты армии (ДР-4) — того же войска: у дружины с поля — поставленные в минуту приказа, у вылазки — книги в слепке.
+    ...scarSide(hit.rear ? hit.rear.scars : sheet.scars),
+    where: warWhere(w),
     // Укрепления лагеря — та же дверь, что у лагеря игрока под логовом (`siegecraft.fortFaces`).
     fort: fortFaces(camp.craft),
   });
@@ -1438,6 +1732,11 @@ function hitCamp(
     ...craftOf(w),
     // Выручка союзника: его дружина в `genTroops`, списывает её он, а не город.
     ...(hit.ally ? { ally: hit.ally } : {}),
+    // Метки боя (ДР-4): бил город — его метка, выручка — союзника; лагерь — похода.
+    ...marksOf(field, {
+      attacker: { role: hit.ally ? 'ally' : 'def', gen: hit.rear ? hit.rear.scarGen : sheet.scarGen },
+      defender: { role: 'atk', gen: w.army.scarGen },
+    }),
   };
   w.battles.push(battle);
   w.army = wear(w.army, atkLost, field.rest.defender, at);
@@ -1492,6 +1791,8 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
     for (let guard = 0; guard < 64; guard++) {
       if (w.phase === 'march' && w.arriveAt <= now) {
         changed = true;
+        // Налегке — истощение пути до минуты прихода (ДР-2): к стене подходят те, кто дошёл.
+        wearLight(w, w.arriveAt);
         const sheet = sheetOf(w, w.arriveAt);
         if (!sheet) {
           turnBack(w, w.arriveAt, w.to, 'gone');
@@ -1537,12 +1838,15 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
           const s = w.strike;
           delete w.strike;
           hitCamp(w, s.at, sheet, { rear: s.army, front: s.joint ? sheet.home : undefined, site: s.joint ? 'joint' : 'camp' });
+          unmarkBeaten(file, w, w.def, s.at);
           continue;
         }
         if (strikeAt <= phaseAt && relief) {
           w.reliefs = (w.reliefs ?? []).filter((r) => r !== relief);
           if (!w.reliefs.length) delete w.reliefs;
           hitCamp(w, relief.at, sheet, { rear: relief.army, site: 'camp', ally: relief.castle, city: cityOr(relief.city) });
+          const ally = w.allies?.[relief.castle]?.key;
+          if (ally) unmarkBeaten(file, w, ally, relief.at);
           continue;
         }
         const atk = sheets.get(w.atk);
@@ -1551,6 +1855,9 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
       }
       if (w.phase === 'back' && (w.backAt ?? 0) <= now) {
         changed = true;
+        // Налегке — истощение обратного пути до минуты возврата (ДР-2): домой входят те, кто дошёл.
+        wearLight(w, w.backAt ?? now);
+        delete w.wornAt;
         w.phase = 'done';
         continue;
       }
@@ -1559,6 +1866,7 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
   }
   if (advanceSpies(file, now, sheets)) changed = true;
   if (expireOffers(file, now)) changed = true;
+  if (endPacts(file, now)) changed = true;
   return changed;
 }
 
@@ -1568,12 +1876,19 @@ export function pruneWars(file: WarFile, now: number): void {
   file.wars = file.wars.filter((w) => active(w) || now - (w.endAt ?? w.sentAt) <= WAR_KEEP_MS);
   if (file.wars.length > WAR_MAX) {
     const keep = file.wars.filter(active);
-    const done = file.wars.filter((w) => !active(w)).slice(-(Math.max(0, WAR_MAX - keep.length)));
+    // Мест под закончившиеся нет — не остаётся ни одной: `slice(-0)` — это весь список (BTL-8).
+    const room = Math.max(0, WAR_MAX - keep.length);
+    const done = room > 0 ? file.wars.filter((w) => !active(w)).slice(-room) : [];
     file.wars = file.wars.filter((w) => keep.includes(w) || done.includes(w));
   }
   if (file.spies) {
     const keep = file.spies.filter((x) => x.phase !== 'done' || now - (x.endAt ?? x.sentAt) <= WAR_KEEP_MS).slice(-WAR_MAX);
     if (keep.length !== file.spies.length) file.spies = keep;
+  }
+  if (file.gens) {
+    const gens = Object.fromEntries(Object.entries(file.gens).filter(([, m]) => now - m.at <= ENERGY_FILL));
+    if (Object.keys(gens).length) file.gens = gens;
+    else delete file.gens;
   }
   if (file.dealt) {
     const keep = file.dealt.filter((x) => now - x.endAt <= DEALT_KEEP_MS).slice(-WAR_MAX);
@@ -1613,7 +1928,7 @@ export interface OrderCtx {
  * Невозможное — отказ словами и флаг «срок пути» (`OrderCtx.forged`). Честный срок — по ландшафту личной карты, и он
  * не короче пола: ландшафт не бывает быстрее самой быстрой клетки. Возвращает отказ или срок, мс мира.
  */
-function walkOf(order: { from: { x: number; y: number }; walkMs: number }, to: { x: number; y: number }, s: SheetAt, now: number, ctx: OrderCtx): string | number {
+function walkOf(order: { from: { x: number; y: number }; walkMs: number; gait?: Gait }, to: { x: number; y: number }, s: SheetAt, now: number, ctx: OrderCtx): string | number {
   const gen = s.sheet.gen;
   if (gen) {
     const went = distance(gen, order.from);
@@ -1623,10 +1938,12 @@ function walkOf(order: { from: { x: number; y: number }; walkMs: number }, to: {
       return 'Полководец не мог оказаться там так быстро. Обнови игру и попробуй снова.';
     }
   }
-  const floor = fieldWalkFloorMs(order.from, to);
+  // Пол — в режиме марша, названном приказом (ДР-2, М9): налегке быстрее, и пол у него свой; назвать «налегке» — значит и
+  // идти с его истощением (его считает сервер сам, `roadArmy`, ДР-5).
+  const floor = fieldWalkFloorMs(order.from, to, order.gait);
   // Миллисекунда — округление: клиент и сервер переводят одну и ту же дорогу в мс одной формулой.
   if (order.walkMs + 1 < floor) {
-    ctx.forged?.(`Срок пути удара полководца ${Math.round(order.walkMs / 1000)} с, а от клетки ${spot(order.from)} до цели ${distance(order.from, to).toFixed(1)} кл. — не меньше ${Math.round(floor / 1000)} с.`, 'walk');
+    ctx.forged?.(`Срок пути удара полководца ${Math.round(order.walkMs / 1000)} с (${gaitName(order.gait).toLowerCase()}), а от клетки ${spot(order.from)} до цели ${distance(order.from, to).toFixed(1)} кл. — не меньше ${Math.round(floor / 1000)} с.`, 'walk');
     return 'Так быстро полководцу не дойти. Обнови игру и попробуй снова.';
   }
   return Math.max(order.walkMs, floor);
@@ -1669,16 +1986,22 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
     case 'recall': {
       const w = theirs(file, order.id, key, 'atk');
       if (!w || w.phase !== 'march') return 'Отряд уже не в пути.';
-      // Обратный путь — по уже пройденному: развернулись там, где шли.
-      const at = warAt(w.from, w.to, w.sentAt, w.arriveAt, now);
+      // Обратный путь — по уже пройденному: развернулись там, где шли. После смены режима (ДР-2) пройденное — не время с
+      // выхода, а путь от места поворота нынешним режимом.
+      const at = marchSpot(w, now);
+      wearLight(w, now);
       w.end = 'recalled';
       w.endAt = now;
       w.phase = 'back';
       w.backFrom = at;
-      w.backAt = now + Math.max(0, now - w.sentAt);
+      w.backAt = now + (w.legAt !== undefined ? walk(at, w.from, readGait(w.gait)) : Math.max(0, now - w.sentAt));
+      delete w.legFrom;
+      delete w.legAt;
       homeward(w, now, w.backAt);
       return null;
     }
+    case 'gait':
+      return gaitOrder(file, key, order.id, order.gait, now);
     case 'retreat': {
       const w = theirs(file, order.id, key, 'atk');
       if (!w || w.phase !== 'camp') return 'Лагеря уже нет.';
@@ -1898,7 +2221,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (why) return why;
       const s = ctx.sheet(w.def);
       if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
-      const price = order.kind === 'tribute' ? fairOf(w, now, liveSheet(file, w.def, s, now)) : 0;
+      // Дань — справедливая, сбавленная красноречием дипломата осаждённого по книге агентов сервера (АГ-1, `parley.tributeAsk`).
+      const price = order.kind === 'tribute' ? tributeAsk(fairOf(w, now, liveSheet(file, w.def, s, now)), s.agents?.eloquence ?? 0) : 0;
       if (order.kind === 'tribute' && price <= 0) return 'На виду ничего не лежит: дани дать нечем.';
       const offer = order.kind === 'terms' ? { kind: order.kind, at: now, fate: order.fate } : { kind: order.kind, at: now, price };
       w.camp = { ...w.camp, ...offerAfter(camp, offer) } as WarCamp;
@@ -1918,11 +2242,11 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря под стенами уже нет.';
       if (w.atk === key) return 'Это наш лагерь.';
       if (w.def === key) return 'По лагерю у своих стен бьют ударом полководца.';
-      if (!pacted(file, key, w.def)) return 'На выручку идут только к союзнику по пакту.';
+      if (!pacted(file, key, w.def, now)) return 'На выручку идут только к союзнику по пакту.';
       const me = castleIdOf(key);
       if (w.reliefs?.some((r) => r.castle === me)) return 'Наша дружина уже идёт на выручку.';
-      if (file.wars.some((x) => x.atk === key && active(x))) return 'Полководец в походе на соседа.';
-      if (file.wars.some((x) => x.reliefs?.some((r) => r.castle === me))) return 'Полководец уже идёт на выручку.';
+      const busy = generalBusy(file, key);
+      if (busy) return busy;
       const s = ctx.sheet(key);
       if (!s) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
       if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет отряда.';
@@ -1931,11 +2255,14 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const walkMs = walkOf(order, w.to, s, now, ctx);
       if (typeof walkMs === 'string') return walkMs;
       const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
-      const tired = energyBlock(have, priceOf('strike'), walkMs);
+      const tired = energyBlock(have, priceOf('strike'), walkMs, gaitSpeed(order.gait));
       if (tired) return tired;
       const at = now + Math.round(walkMs / pace);
       if (at >= (w.starvesAt ?? Infinity)) return 'Не успеть: хлеб в городе кончится раньше.';
-      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army, s) }];
+      const came = roadArmy(w, me, 'relief', order, walkMs, now);
+      if (typeof came === 'string') return came;
+      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(came, s, file, key), ...gaitField(order.gait) }];
+      markGeneral(file, key, have, now);
       // Ключ союзника — для вестей ему о его выручке (19.2); наружу не уходит.
       w.allies = { ...(w.allies ?? {}), [me]: { key, city: cityOr(ctx.roster.rows[key]?.city) } };
       return null;
@@ -1949,9 +2276,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
     case 'strike': {
       const w = theirs(file, order.id, key, 'def');
       if (!w || w.phase !== 'camp') return 'Лагеря под стенами уже нет.';
-      if (w.strike) return 'Полководец уже идёт на лагерь.';
-      // Полководец один: ведёт свой поход — по лагерю у своих стен он не ударит (у клиента — `WAR_BUSY`).
-      if (file.wars.some((x) => x.atk === key && active(x))) return 'Полководец в походе на соседа.';
+      // Полководец один: ведёт свой поход, идёт на выручку или уже бьёт этот лагерь — второго дела нет (BTL-2).
+      const busy = generalBusy(file, key);
+      if (busy) return busy;
       const s = ctx.sheet(key);
       if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
       if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет отряда.';
@@ -1963,19 +2290,53 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const walkMs = walkOf(order, w.to, s, now, ctx);
       if (typeof walkMs === 'string') return walkMs;
       const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
-      const tired = energyBlock(have, priceOf('strike'), walkMs);
+      const tired = energyBlock(have, priceOf('strike'), walkMs, gaitSpeed(order.gait));
       if (tired) return tired;
-      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(order.army, s), joint: order.joint };
+      const came = roadArmy(w, castleIdOf(key), 'strike', order, walkMs, now);
+      if (typeof came === 'string') return came;
+      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(came, s, file, key), joint: order.joint, ...gaitField(order.gait) };
+      markGeneral(file, key, have, now);
       return null;
     }
   }
 }
 
 /**
+ * Дорога удара и выручки налегке (ДР-5): уход за неё сервер считает сам той же `gait.strikeWorn`, что мир (`LocalWorld.strikeLeg`),
+ * — от состава на выходе (приказ, не выше книги войска) за срок пути, сидом из приказа (`gait.strikeSeed`). В бой идут дошедшие;
+ * ушедшие ложатся в запись войны (`WarRow.worn`), и книга войска их вычитает. Не налегке — все дошли. Возвращает войско или
+ * отказ, если налегке не дойдёт никто.
+ */
+function roadArmy(w: WarRow, castle: string, op: 'strike' | 'relief', order: { army: WarArmy; from: { x: number; y: number }; walkMs: number; gait?: Gait }, walkMs: number, now: number): WarArmy | string {
+  const { came, lost } = strikeWorn(order.army.troops, order.gait, Math.round(walkMs / pace), strikeSeed(op, w.id, order.from, order.walkMs));
+  if (troopTotal(asTroops(lost)) === 0) return order.army;
+  if (troopTotal(asTroops(came)) === 0) return 'Налегке отряд растает в пути: до лагеря не дойдёт никто. Возьми обоз или подойди ближе.';
+  w.worn = [...(w.worn ?? []), { id: `${w.id}:worn:${op}:${castle}:${now}`, castle, lost }];
+  return { ...order.army, troops: came };
+}
+
+/**
  * Войско приказа в пределах правил: стойкость и отметки полководца не выше, чем бывает у игрока (`book.ts`); стойкость —
  * сверх обряда ещё Воеводой подтверждённого совета (РТ-1, `SheetAt.marshal`).
  */
-const ruleArmy = (a: WarArmy, s: SheetAt | null): WarArmy => ({ ...a, resolve: ruleResolve(a.resolve, s?.marshal ?? 0, s?.knights ?? 0), pips: rulePips(a.pips) });
+const ruleArmy = (a: WarArmy, s: SheetAt | null, file: WarFile, key: string): WarArmy => {
+  // Командиры флангов — числами книги командиров сервера (ДР-3): названное приказом не читается, ставит сервер. Черты армии
+  // (ДР-4) — так же: книгой черт и метками записи войн в минуту приказа.
+  const { flanks: told, scars: claimed, scarGen: claimedGen, ...army } = a;
+  void told;
+  void claimed;
+  void claimedGen;
+  return {
+    ...army,
+    ...scarsField(file, key, s),
+    resolve: ruleResolve(a.resolve, s?.marshal ?? 0, s?.knights ?? 0),
+    // Дух — не выше потолка книги духа сервера (ДР-1, `book.ruleSpirit`); приказ без духа — без духа.
+    ...spiritField(ruleSpirit(a.spirit, s?.spirit)),
+    // Отметки полководца — не выше подтверждённого книгой агентов (АГ-1, `agentbook.agentsAt`).
+    pips: capPips(rulePips(a.pips), s?.agents?.pips),
+    ...flanksField(s?.command?.flanks),
+  };
+};
 
 /**
  * Когда город в последний раз пал или дал дань — от этой минуты он неприкосновенен (`SIEGE_IMMUNE`): дань за снятие осады
@@ -2015,8 +2376,24 @@ export function generalCap(file: WarFile, key: string, now: number): number {
   let last: WarRow | null = null;
   for (const w of file.wars) if (w.atk === key && (!last || w.sentAt >= last.sentAt)) last = w;
   const mark = last?.army.energy;
+  // Удар и выручка своей войны не ведут — их отметка в `gens`; позже похода — она и есть последнее дело (этап 7, п. 9).
+  const field = file.gens?.[key];
+  if (field && (!last || field.at >= last.sentAt)) return energyAt(field, now);
   if (!last || !mark || (last.phase === 'done' && last.backAt === undefined)) return ENERGY_MAX;
   return energyAt(mark, now);
+}
+
+/**
+ * Занят ли полководец (BTL-2, OWNER-DECISIONS п. 9: один полководец — одно действие): ведёт свой поход, его выручка союзнику в
+ * пути или его удар по лагерю у своих стен ждёт минуты прихода. Одна проверка у похода, выручки и удара; у мира — та же,
+ * `LocalWorld.warGeneralBusy`. Выручка и удар снимаются с записи боем или уходом лагеря — с ними полководец и свободен.
+ */
+export function generalBusy(file: WarFile, key: string): string | null {
+  if (file.wars.some((w) => w.atk === key && active(w))) return GENERAL_MARCHES;
+  const me = castleIdOf(key);
+  if (file.wars.some((w) => w.reliefs?.some((r) => r.castle === me))) return GENERAL_RELIEVES;
+  if (file.wars.some((w) => w.def === key && w.strike)) return GENERAL_STRIKES;
+  return null;
 }
 
 function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march' }>, now: number, ctx: OrderCtx): string | null {
@@ -2026,11 +2403,15 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (!entry) return 'Этого города больше нет в игре.';
   const [def, row] = entry;
   if (def === key) return 'Это твой город.';
-  // Пакт (docs/siege_v2.md, раздел 5): на союзника походом не ходят — сначала разорвать.
-  if (pacted(file, key, def)) return 'С этим городом у нас пакт. Сначала разорви его.';
+  // Пакт (docs/siege_v2.md, раздел 5): на союзника походом не ходят — сначала разорвать; разрыв держит пакт ещё
+  // `PACT_BREAK_NOTICE` (АУ-8, п. 1) — одна проверка с кнопкой похода (`proposals.pactWarBlock`).
+  const pact = pactRow(file, key, def);
+  const pactNo = pact ? pactWarBlock({ state: 'pact', breakAt: pact.breakAt }, now) : null;
+  if (pactNo) return pactNo;
   // Регион игрока — правило мира (`theatre.inHomeTheatre`): походы за край не уходят.
   if (!inHomeTheatre(own, row)) return 'Город за пределами твоего края. Походы туда не ходят.';
-  if (file.wars.some((w) => w.atk === key && active(w))) return 'Полководец уже в походе.';
+  const busy = generalBusy(file, key);
+  if (busy) return busy;
   if (besieged(file, key)) return SIEGE_BLOCK;
   if (file.wars.some((w) => w.def === def && active(w))) return 'На этот город уже идёт другой отряд.';
   // Павший город неприкосновенен, как и у логова (`siege.SIEGE_IMMUNE`): цепочки падений нет.
@@ -2051,15 +2432,22 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (short) return short;
   // Энергия полководца — той же дверью, что у мира (`world/energy`): дело у стен — ценой при выходе, и её должно хватить
   // к минуте прихода, с дорогой; дорога уходит по дням пути, у стен — стоит (docs/agent_energy.md, раздел 2).
+  // Режим марша (ДР-2, М7, М9): налегке лагерь не встаёт — интерфейс такой осады не шлёт, значит это подделка.
+  const gait = readGait(order.gait);
+  const noCamp = order.mode === 'siege' ? siegeBlockOf(gait) : null;
+  if (noCamp) {
+    ctx.forged?.(`Поход на осаду налегке: лагерь налегке не ставят, интерфейс такой приказ не шлёт.`);
+    return noCamp;
+  }
   const from = { x: own.x, y: own.y };
   const to = { x: row.x, y: row.y };
-  const walkMs = walk(from, to);
+  const walkMs = walk(from, to, gait);
   // Отметка — из приказа, но не выше того, что сервер знает о полководце сам (`generalCap`): вернувшийся из похода
   // не выходит в новый с полным запасом, пока не отдохнёт дома (docs/siege_audit.md, решение 11).
   const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
-  const tired = energyBlock(have, priceOf(order.mode), walkMs);
+  const tired = energyBlock(have, priceOf(order.mode), walkMs, gaitSpeed(gait));
   if (tired) return tired;
-  const energy = onRoad(spend({ value: have, at: now, mode: 'hold' }, now, priceOf(order.mode)), now, now + walkMs, false);
+  const energy = onRoad(spend({ value: have, at: now, mode: 'hold' }, now, priceOf(order.mode)), now, now + walkMs, false, gaitSpeed(gait));
   file.seq += 1;
   file.wars.push({
     id: `w${file.seq.toString(36)}${(now % 46656).toString(36)}`,
@@ -2076,11 +2464,52 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     sentAt: now,
     arriveAt: now + walkMs,
     phase: 'march',
-    army: { ...ruleArmy(order.army, mine), energy },
+    army: { ...ruleArmy(order.army, mine, file, key), energy },
     went: { ...order.army.troops },
     ...(order.blockade && order.mode === 'siege' ? { ring: true as const } : {}),
+    ...gaitField(gait),
+    ...(gait === 'light' ? { wornAt: now } : {}),
     battles: [],
   });
+  return null;
+}
+
+/**
+ * Смена режима марша в пути (ДР-2, М6) — та же стоянка и цена, что у мира (`gait.gaitHaltMs`, `ENERGY_PRICE.gait`): войско
+ * встаёт на месте, после стоянки идёт дальше новой скоростью. Нельзя в лагере; налегке — у похода на осаду (лагерь налегке не
+ * встаёт). Налегке до этой минуты — истощение списано; налегке с неё — отрезок с минуты смены (стоянка в поле — тоже поле).
+ */
+function gaitOrder(file: WarFile, key: string, id: string, next: Gait, now: number): string | null {
+  const w = theirs(file, id, key, 'atk');
+  if (!w || (w.phase !== 'march' && w.phase !== 'back')) return w?.phase === 'camp' ? 'В лагере режим марша не меняют.' : 'Отряд уже не в пути.';
+  const was = readGait(w.gait);
+  if (was === next) return 'Отряд и так идёт этим режимом.';
+  if (w.phase === 'march' && w.mode === 'siege') {
+    const noCamp = siegeBlockOf(next);
+    if (noCamp) return `${noCamp} Поход идёт на осаду.`;
+  }
+  if ((w.legAt ?? 0) > now) return 'Отряд ещё стоит: обоз не собран.';
+  const have = energyAt(w.army.energy, now);
+  const tired = energyBlock(have, priceOf('gait'));
+  if (tired) return tired;
+  const march = w.phase === 'march';
+  const spot = march ? marchSpot(w, now) : backSpot(w, now);
+  wearLight(w, now);
+  const legAt = now + Math.round(gaitHaltMs() / pace);
+  const arrive = legAt + walk(spot, march ? w.to : w.from, next);
+  w.gait = next === 'normal' ? undefined : next;
+  if (w.gait === undefined) delete w.gait;
+  if (next === 'light') w.wornAt = now;
+  else delete w.wornAt;
+  w.legAt = legAt;
+  if (march) {
+    w.legFrom = spot;
+    w.arriveAt = arrive;
+  } else {
+    w.backFrom = spot;
+    w.backAt = arrive;
+  }
+  w.army = { ...w.army, energy: onRoad(spend(w.army.energy, now, priceOf('gait')), now, arrive, !march, gaitSpeed(next)) };
   return null;
 }
 
@@ -2347,7 +2776,8 @@ export function pactNewsOf(file: WarFile): WarNews[] {
           kind: 'war-pact',
           fireAt: d.endAt,
           until: d.endAt + RESULT_KEEP,
-          p: { from: plainName(cityOr(d.cities[other])), fate: 'plunder', about: d.endAt, pact: end, ...(role ? { role } : {}) },
+          // Разрыв с отсрочкой (АУ-8, п. 1): `about` — минута конца союза, «держится до 14:40».
+          p: { from: plainName(cityOr(d.cities[other])), fate: 'plunder', about: end === 'broken' ? Math.max(d.endAt, d.until) : d.endAt, pact: end, ...(role ? { role } : {}) },
         },
       });
     };
@@ -2404,15 +2834,15 @@ export function newsDiff(before: Map<string, WarNews>, after: Map<string, WarNew
 // игрок видел их в меню (`spyMenuOf`), и применяются ровно они; что дело сделало с городом, считается по слепку обороны
 // в минуту прихода (`rivalHarm`). Кости — из номера дела (`rivalRolls`): тот же номер даёт тот же исход у кого угодно.
 
-/** Свежесть меню: приказ исполняется по минуте меню, если ей не больше стольких мс (как `OrderOption.at` у логова). */
-export const SPY_SHOWN_FRESH = 10_000;
-
 /** Путь лазутчика между двумя клетками с темпом войны. */
 const spyWalk = (from: { x: number; y: number }, to: { x: number; y: number }): number => Math.round(spyWalkMs(from, to) / pace);
 
 const spyActive = (x: SpyRow): boolean => x.phase !== 'done';
 
-/** Лазутчик города дома в минуту `at`: слепок говорит, а свои дела, которых слепок ещё не знал, — поправляют. */
+/**
+ * Лазутчик города дома в минуту `at`: слепок говорит, а свои дела, которых слепок ещё не знал, — поправляют. Гибель раньше
+ * слепка в нём уже учтена — на месте павшего новый (BTL-8): прежде павший держал город «без лазутчика дома» всю неделю записи.
+ */
 function spyHomeAt(file: WarFile, key: string, s: SheetAt, at: number): boolean {
   let home = s.sheet.watch?.home ?? false;
   for (const x of file.spies ?? []) {
@@ -2420,7 +2850,9 @@ function spyHomeAt(file: WarFile, key: string, s: SheetAt, at: number): boolean 
     const back = x.phase === 'done' && !x.out?.dead ? (x.endAt ?? x.backAt ?? Infinity) : Infinity;
     if (back <= at) {
       if (back > s.at) home = true;
-    } else if (x.phase !== 'done' || x.out?.dead) {
+    } else if (x.out?.dead) {
+      if ((x.out.at ?? x.arriveAt) > s.at) home = false;
+    } else if (x.phase !== 'done') {
       home = false;
     }
   }
@@ -2429,6 +2861,15 @@ function spyHomeAt(file: WarFile, key: string, s: SheetAt, at: number): boolean 
 
 /** Игровое время в городе в минуту `at` — от слепка (`WarSheet.time`). */
 const villageTimeAt = (s: SheetAt, at: number): number => (s.sheet.time ?? 0) + gameSecondsOfMs(Math.max(0, at - s.at));
+
+/**
+ * Скрытность своего лазутчика в гибели (множитель): названная слепком, но не ниже, чем у подтверждённого книгой агентов (АГ-1).
+ * Книги нет — как назвал слепок (прежнее правило).
+ */
+const ownVeil = (mine: SheetAt): number => Math.max(mine.sheet.watch?.veil ?? 1, mine.agents?.veil ?? 0);
+
+/** Скрытность своего лазутчика (доля провалов без поимки): названная слепком, но не выше подтверждённой книгой агентов (АГ-1). */
+const ownStealth = (mine: SheetAt): number => Math.min(mine.sheet.watch?.stealth ?? 0, mine.agents?.stealth ?? Infinity);
 
 /** Сколько раз лазутчики этого игрока заходили к этому городу за окно памяти — любым исходом (`peril.recentVisits`). */
 const spyVisits = (file: WarFile, atk: string, def: string, at: number): number =>
@@ -2466,7 +2907,7 @@ function spyPlan(file: WarFile, key: string, target: string, at: number, ctx: Or
   const sheet = liveSheet(file, def, theirs, at);
   const guard = rivalGuard({ homePower: homePowerOf(sheet.home), keen: theirs.sheet.watch?.keen ?? 1, spyHome: spyHomeAt(file, def, theirs, at) });
   const away = distance(own, row);
-  const risk = rivalPeril(rivalPerilCase(mine.sheet.watch.veil, villageTimeAt(theirs, at), spyVisits(file, key, def, at), away));
+  const risk = rivalPeril(rivalPerilCase(ownVeil(mine), villageTimeAt(theirs, at), spyVisits(file, key, def, at), away));
   // Нападение на слабого и на недавно павший — те же запреты, что у похода; разведка — не нападение.
   const shield = !ctx.noShield && shielded(file, def, theirs, at);
   const fell = fellAt(file, def);
@@ -2490,10 +2931,14 @@ export function spyMenuOf(file: WarFile, key: string, target: string, now: numbe
   return { target, at: now, walkMs: plan.walkMs, options: plan.options };
 }
 
-/** Приказ лазутчику: числа — на минуту меню, если она свежая; не те, что видел игрок, — отказ, а не другое дело. */
+/**
+ * Приказ лазутчику: числа — на минуту сервера; не те, что видел игрок, — отказ, а не другое дело. Минуту меню (`order.at`)
+ * сервер не берёт (BTL-8): прежде приказ шёл по ней, если ей не больше 10 с, и подделанный клиент выбирал в этом окне
+ * минуту, когда охрана соседа была слабее. Числа меню меняются только на границах (часть суток, лазутчик соседа ушёл или
+ * вернулся, гарнизон), и честный приказ проходит как прежде.
+ */
 function spyOrder(file: WarFile, key: string, order: Extract<WarOrder, { op: 'spy' }>, now: number, ctx: OrderCtx): string | null {
-  const at = order.at <= now && now - order.at <= SPY_SHOWN_FRESH ? order.at : now;
-  const plan = spyPlan(file, key, order.target, at, ctx);
+  const plan = spyPlan(file, key, order.target, now, ctx);
   if (typeof plan === 'string') return plan;
   const opt = plan.options.find((o) => o.deed === order.deed);
   if (!opt) return 'Такого дела нет.';
@@ -2526,8 +2971,10 @@ function spyOrder(file: WarFile, key: string, order: Extract<WarOrder, { op: 'sp
     peril: opt.peril,
     phase: 'go',
     energy: onRoad(spend({ value: have, at: now, mode: 'hold' }, now, price), now, now + plan.walkMs, false),
-    stealth: watch.stealth,
+    stealth: ownStealth(plan.mine),
     heldMs: Math.round((SPY_HELD * watch.held) / pace),
+    // Сила диверсии — по книге агентов сервера (АГ-1): клиент её не присылает.
+    ...((plan.mine.agents?.sabotage ?? 1) > 1 ? { power: plan.mine.agents?.sabotage } : {}),
   };
   file.spies = [...(file.spies ?? []), row];
   return null;
@@ -2562,7 +3009,7 @@ function resolveSpy(file: WarFile, x: SpyRow, s: SheetAt | null): void {
   }
   const sheet = liveSheet(file, x.def, s, at);
   const f = rivalFate(x.chance, x.peril, x.stealth, rivalRolls(x.id));
-  const harm = f.ok ? rivalHarm(x.deed, { stock: sheet.stock, gold: sheet.gold, stash: sheet.stash, pop: sheet.pop }) : {};
+  const harm = f.ok ? rivalHarm(x.deed, { stock: sheet.stock, gold: sheet.gold, stash: sheet.stash, pop: sheet.pop }, x.power ?? 1) : {};
   x.out = {
     at,
     ...f,

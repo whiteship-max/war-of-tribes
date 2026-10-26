@@ -9,7 +9,7 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchMarket, type WatchStab } from '../../netlify/lib/contract';
+import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchMarket, type WatchSpirit, type WatchStab } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { SAVE_VERSION } from '@/game/state';
 import {
@@ -38,10 +38,14 @@ import { troopTotal } from '@/game/battle/kinds';
 import { hiredAt } from '@/game/sim/army';
 import { minigameCap } from '@/game/sim/minigames';
 import { adminSeen } from '@/game/sim/admin';
-import { gemSeen } from '@/game/sim/gems';
+import { gemSeen, gemUnneeded } from '@/game/sim/gems';
 import { stabLevel, stabOf } from '@/game/sim/stability';
 import { crownOf } from '@/game/sim/crown';
 import { councilOf } from '@/game/sim/council';
+import { agentsWatch } from '@/game/sim/recruit';
+import { commandWatch } from '@/game/sim/command';
+import { spiritOf, wageMode } from '@/game/sim/spirit';
+import { scarsWatch } from '@/game/sim/scars';
 import { ADVISOR_POSTS } from '@/game/councilrules';
 import { estatesOf, privList } from '@/game/sim/estates';
 import { ESTATES } from '@/game/estaterules';
@@ -138,7 +142,9 @@ export function watchOf(s: GameState): WatchCard {
     deeds:
       st.hunts + st.battlesWon + st.battlesLost + st.eventsResolved + st.scouted + st.raids + st.castles + st.lairs + st.purchases + st.dailyWins + games + seen + gemmed +
       s.completedQuests.length + (st.windfalls ?? 0),
-    // Разовые траты (`sim/pay.outlay`): между описями без дел и трат книга запасов сервера держит склад «не меньше»
+    // Добро без дела отдельно (AC-1): таблица наград его не держит, и сервер отличает его от прочих дел.
+    windfalls: st.windfalls ?? 0,
+    // Разовые траты (`sim/pay.outlay`): между описями без трат книга запасов сервера держит склад «не меньше»
     // (docs/security.md, ЗЩ-2).
     outlays: st.outlays ?? 0,
     // Ложные сдачи голодом (ОС-1): сдан голодом при складе, оплачивавшем прокорм, — сервер пишет «внимание:» (правило «starve»).
@@ -154,18 +160,38 @@ export function watchOf(s: GameState): WatchCard {
     lead: whole(leadAt()),
     seen,
     gemSeen: gemmed,
+    // Ускорения «не понадобилось» (FIN-5): сервер вернёт алмазы по книге стройки и назовёт рассуждённые.
+    ...(gemUnneeded(s).length ? { gemUnneeded: gemUnneeded(s) } : {}),
     // Книга стабильности сервера (docs/stability.md, 2.7): ступень и счёт покупок, трат и мятежей.
     stab: stabCard(s),
     // Книга вестей державы (СБ-2): счёт ответов и последние из них — чтением одной двери (`sim/crown.crownOf`).
     crown: crownCard(s),
     // Книга совета Ратуши (РТ-1): кто сидит и счёт наймов, платы и жалованья. Совета не было — поля нет.
     ...(s.council ? { council: councilCard(s) } : {}),
+    // Книга агентов (АГ-1): кто на местах, из какого кандидата, опыт; и сид партии — из него сервер выводит кандидатов сам.
+    agents: agentsWatch(s),
+    // Книга командиров флангов (ДР-3): кто на местах и из какого кандидата. Командиров не нанимали — поля нет.
+    ...(s.command ? { command: commandWatch(s) } : {}),
+    seed: s.seed >>> 0,
     // Книга сословий (РТ-2): привилегии, указ сословия, влияние и счёт — у каждой партии (влияние есть и без привилегий).
     estates: estatesCard(s),
     // Книга рынка (РН-1): привоз, счёт, серебро купцов, нажим и последние сделки — как лежат в партии (`sim/market`). Сделок не
     // было — поля нет.
     ...(s.market?.seq ? { market: marketCard(s) } : {}),
+    // Книга духа (ДР-1): жалованье, мораль и дисциплина в эту минуту и счёт уплаченного дружине — одной дверью (`sim/spirit`).
+    spirit: spiritCard(s),
+    // Черты армии (ДР-4): свои, номера боёв войны в журнале и черты войны по ним — для правила «scars» (`sim/scars`).
+    ...(() => {
+      const scars = scarsWatch(s);
+      return scars ? { scars } : {};
+    })(),
   };
+}
+
+/** Дух дружины для описи: режим жалованья, мораль и дисциплина той же двери, что везёт их в бой, и счёт уплаченного. */
+function spiritCard(s: GameState): WatchSpirit {
+  const v = spiritOf(s);
+  return { wage: wageMode(s), morale: v.morale, discipline: v.discipline, paid: Math.floor(s.pay?.paid ?? 0) };
 }
 
 /** Рынок для описи: то, что записала дверь сделок (`sim/market`), без пересчёта — цену сервер выводит сам. */

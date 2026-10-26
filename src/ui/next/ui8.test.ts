@@ -183,8 +183,9 @@ describe('«Что даёт городу» — вклад строкой, ито
     expect(html).not.toMatch(/>Оборона</);
     expect(html).toContain('aria-label="Дружина"');
     expect(html).toContain('aria-label="Стены"');
-    // Терпение — дверью в Статую: его число делает она.
-    expect(html).toContain('aria-label="Терпение: Статуя Героя"');
+    // Жалованье с терпением (дверь в Статую), дух и роспуск — в «Дружине» (ДР-1): здесь о них строка двери «Дружина».
+    expect(html).not.toContain('aria-label="Терпение: Статуя Героя"');
+    expect(html).toMatch(/жалованье, дух, роспуск|бойцов нет/);
   });
 });
 

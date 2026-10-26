@@ -51,6 +51,10 @@ import { popGrowth } from '@/game/sim/population';
 import { surveyInfo } from '@/game/sim/survey';
 import { assignWorker } from '@/game/sim/workers';
 import { playerProfile } from '@/world/bridge';
+import { spiritView } from '@/game/sim/spirit';
+
+/** Строки стойкости в морали духа (ДР-1). */
+const RESOLVE_LINES = new Set(['rite', 'marshal', 'knights', 'merchants']);
 import { NOTHING_GAINED, gainText, readVillage, shown, upgradeGain, upgradeGains } from './upgrade';
 
 const stripComments = (code: string): string =>
@@ -193,7 +197,8 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   output: { kind: 'grow', read: (s) => jobMultiplier(s, 'hunter') },
   learning: { kind: 'grow', read: (s) => surveyInfo(s).learning },
   growth: { kind: 'grow', read: (s) => popGrowth(s).faith },
-  fervour: { kind: 'more', read: (s) => playerProfile(inRite(s)).fervour ?? 0 },
+  // Стойкость обряда, Воеводы и сословий — строки морали духа (ДР-1): сумма строк стойкости, той же двери, что едет в мир.
+  fervour: { kind: 'more', read: (s) => spiritView(inRite(s)).morale.lines.filter((l) => RESOLVE_LINES.has(l.id)).reduce((n, l) => n + l.value, 0) },
 };
 
 const lineOf = (lines: { id: string; value: number }[], id: string): number =>

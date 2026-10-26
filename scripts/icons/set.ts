@@ -76,6 +76,8 @@ Object.assign(ART, {
   'post-steward': troop('ve', () => m.cap('ve'), m.key, { x: 8.2, y: 4.4, s: 0.7 }),
   'post-treasurer': troop('pu', () => m.cap('pu'), m.pouch, { x: 7, y: 4.2, s: 0.68 }),
   'post-marshal': troop('gu', m.bustHelm, m.banner, { x: 5.6, s: 0.76 }),
+  // Раздел «Агенты» Ратуши (АГ-1, docs/icons.md, «АГ-1»): бюст в капюшоне с подзорной трубой — человек на деле вне стен.
+  'hall-agents': troop('sa', () => m.hood('sa'), m.spyglass, { x: 7.4, y: 3.6, s: 0.62 }),
   'fig-scout': m.scoutFig,
   'fig-diplomat': m.diplomatFig,
   'fig-spy': m.spyFig,

@@ -15,7 +15,8 @@
  * только в том, что транзакция есть и записана в мастерчейн; кто кому что прислал — разбираем из тела сами.
  *
  * Подтверждения. У TON нет «N подтверждений»: блок, вошедший в мастерчейн, окончателен. toncenter v3 отдаёт транзакции
- * из записанных блоков; транзакцию без номера блока мастерчейна (`mc_block_seqno: null`) не засчитываем.
+ * из записанных блоков; транзакцию без номера блока мастерчейна (`mc_block_seqno` нет, `null` или не число больше нуля)
+ * не засчитываем.
  *
  * Сеть — `TON_NETWORK` (`testnet` по умолчанию, `mainnet` — основная). Переход — одной настройкой: адреса API и
  * мастер USDT основной сети по умолчанию свои; кошелёк проекта тот же по смыслу, его адрес задаёт владелец.
@@ -218,13 +219,15 @@ export async function projectJettonWallet(cfg: PayConfig, fetcher: Fetch): Promi
 export interface TonTx {
   /** Хеш транзакции (hex, строчными) — ключ в хранилище оплаченных. */
   hash: string;
+  /** Логическое время транзакции (десятичной строкой): у одного счёта своё у каждой и растёт — по нему идёт курсор. */
+  lt: string;
   /** Время транзакции, мс. */
   at: number;
   /** Записана в мастерчейн. */
   final: boolean;
   /** Отправитель входящего сообщения. */
   source: Address | null;
-  /** Тело входящего сообщения (BOC base64). */
+  /** Тело входящего сообщения (BOC base64); нет его — пусто: транзакция не наша, но курсор её проходит. */
   body: string;
 }
 
@@ -236,7 +239,14 @@ const rawTxs = (raw: unknown): unknown[] => {
   return Array.isArray(list) ? list : [];
 };
 
-/** Транзакции toncenter v3 из ответа: кривые пропускаем. */
+/** Логическое время из ответа: десятичная строка или целое число; другое — `null`. */
+const ltOf = (v: unknown): string | null =>
+  typeof v === 'string' && /^\d{1,20}$/.test(v) ? BigInt(v).toString() : typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? String(v) : null;
+
+/**
+ * Транзакции toncenter v3 из ответа. Без хеша, времени или логического времени — кривые, пропускаем; без тела входящего
+ * сообщения (внешнее, исходящее) — с пустым телом: перевода в ней нет, но курсор просмотра обязан её пройти (FIN-1).
+ */
 export function readTxs(raw: unknown): TonTx[] {
   const list = rawTxs(raw);
   const out: TonTx[] = [];
@@ -244,15 +254,18 @@ export function readTxs(raw: unknown): TonTx[] {
     const r = t as Record<string, unknown>;
     const msg = r?.in_msg as Record<string, unknown> | null | undefined;
     const body = (msg?.message_content as Record<string, unknown> | undefined)?.body;
-    if (typeof r?.hash !== 'string' || typeof r.now !== 'number' || typeof body !== 'string') continue;
+    const lt = ltOf(r?.lt);
+    if (typeof r?.hash !== 'string' || typeof r.now !== 'number' || lt === null) continue;
     const hash = hexOf(r.hash);
     if (hash.length !== 64) continue;
     out.push({
       hash,
+      lt,
       at: r.now * 1000,
-      final: r.mc_block_seqno !== null,
+      // Финальна только с номером блока мастерчейна: поля нет, `null`, ноль или не число — блок не записан (FIN-2).
+      final: typeof r.mc_block_seqno === 'number' && r.mc_block_seqno > 0,
       source: addr(typeof msg?.source === 'string' ? msg.source : undefined),
-      body,
+      body: typeof body === 'string' ? body : '',
     });
   }
   return out;
@@ -260,17 +273,43 @@ export function readTxs(raw: unknown): TonTx[] {
 
 /** Сколько транзакций берём за запрос и сколько страниц самое большее за одну проверку. */
 const PAGE = 100;
-const PAGES = 5;
+export const PAGES = 20;
 
-/** Входящие транзакции кошелька проекта с минуты `since` (мс), старые первыми. */
-export async function incoming(cfg: PayConfig, fetcher: Fetch, since: number): Promise<TonTx[]> {
-  const out: TonTx[] = [];
-  const start = Math.max(0, Math.floor(since / 1000));
-  for (let page = 0; page < PAGES; page++) {
-    const q = `account=${encodeURIComponent(cfg.wallet.toRawString())}&start_utime=${start}&limit=${PAGE}&offset=${page * PAGE}&sort=asc`;
-    const raw = await call(cfg, fetcher, `/api/v3/transactions?${q}`);
-    out.push(...readTxs(raw));
-    if (rawTxs(raw).length < PAGE) break;
+/** Где начать просмотр: после транзакции с логическим временем `lt` или, пока курсора нет, с минуты `since` (мс). */
+export interface ScanFrom {
+  lt?: string;
+  since: number;
+}
+
+/** Что дал просмотр: транзакции по порядку логического времени и `truncated` — бюджет страниц кончился раньше истории. */
+export interface Scan {
+  txs: TonTx[];
+  truncated: boolean;
+}
+
+/**
+ * Входящие транзакции кошелька проекта после курсора, старые первыми (FIN-1). Читает страницами, пока не придёт неполная
+ * или не кончится бюджет `pages`; тогда `truncated` — дочитает следующая проверка от курсора, платёж не теряется, а
+ * задерживается. Прежде просмотр шёл от минуты старейшего искомого заказа и молча обрывался на пятистах транзакциях:
+ * новые платежи не были видны неделю. Первая страница не ответила — исключение (сеть молчит); следующая — отдаём
+ * прочитанное с `truncated`, чтобы курсор сдвинулся хоть на него.
+ */
+export async function incoming(cfg: PayConfig, fetcher: Fetch, from: ScanFrom, pages = PAGES): Promise<Scan> {
+  const after = from.lt !== undefined ? BigInt(from.lt) : -1n;
+  const start = from.lt !== undefined ? `start_lt=${from.lt}` : `start_utime=${Math.max(0, Math.floor(from.since / 1000))}`;
+  const seen = new Map<string, TonTx>();
+  const done = (truncated: boolean): Scan => ({ txs: [...seen.values()].sort((a, b) => (BigInt(a.lt) < BigInt(b.lt) ? -1 : 1)), truncated });
+  for (let page = 0; page < pages; page++) {
+    const q = `account=${encodeURIComponent(cfg.wallet.toRawString())}&${start}&limit=${PAGE}&offset=${page * PAGE}&sort=asc`;
+    let raw: unknown;
+    try {
+      raw = await call(cfg, fetcher, `/api/v3/transactions?${q}`);
+    } catch (e) {
+      if (page === 0) throw e;
+      return done(true);
+    }
+    for (const t of readTxs(raw)) if (BigInt(t.lt) > after) seen.set(t.lt, t);
+    if (rawTxs(raw).length < PAGE) return done(false);
   }
-  return out;
+  return done(true);
 }

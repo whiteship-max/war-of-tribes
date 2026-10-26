@@ -326,6 +326,18 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/ui\/next\/HallCouncil\.tsx$/, /\/src\/game\/sim\/candidates\.ts$/, /\/src\/game\/data\/councilWords\.ts$/],
   },
   {
+    // Агенты Ратуши (АГ-1, docs/city_v3.md): раздел, кандидаты, найм и слова — своим куском по вкладке «Агенты»; шагу партии
+    // нужен только нанятый (`sim/agents`, `sim/recruit`, `agentrules`), он в первой загрузке.
+    name: 'агенты: кандидаты',
+    door: /\/src\/ui\/next\/HallAgents\.tsx$/,
+    owns: [
+      /\/src\/ui\/next\/HallAgents\.tsx$/,
+      /\/src\/ui\/next\/agentStats\.ts$/,
+      /\/src\/game\/sim\/recruits\.ts$/,
+      /\/src\/game\/data\/agentWords\.ts$/,
+    ],
+  },
+  {
     // Окно «Настройки» стартового экрана, подсказка обучения, шторка окон и слова хлеба осады (ОС-1, docs/siege_v2.md, 23: первая
     // загрузка не растёт) — куском нового вида: настройки отдаёт `App` по кнопке, как шаг имени; подсказка встаёт с верхом и низом;
     // всё, что показывает шторка, едет тем же куском; слова пишет окно защитника, а правила хлеба (`world/siegefood`) — с миром.

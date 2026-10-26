@@ -7,10 +7,12 @@
 import { Suspense, lazy, useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { RESOURCE_META } from '@/game/constants';
-import { SHOP_DAILY, SHOP_GOODS, SHOP_LOT, shopBlocked, shopPrice, shopRoom } from '@/game/sim/gems';
+import { SHOP_DAILY, SHOP_GOODS, SHOP_LOT, shopPrice } from '@/game/sim/gems';
+import { shopBlocked, shopRoom } from '@/game/sim/gemview';
 import { gemLine, shopResetAt } from '@/game/gemrules';
 import { buildingTitle } from '@/game/derived';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { has } from '@/game/guard';
 import { gemsOffline, orderBuy, useGems, type GemsStore } from '@/net/gems';
 import { serverNow } from '@/net/clock';
 import type { BuildingTypeId } from '@/game/types';
@@ -24,6 +26,8 @@ import { gemsTip } from './hudTips';
 import { tipAt } from './tip';
 import { Table, type Col } from '@/ui/kit/Table';
 import { iconName } from '@/ui/icons/registry';
+import { overflowOf } from '@/game/sim/stockview';
+import { askRoom } from '@/ui/room';
 
 /**
  * Лавка сегодня по часам сервера — одни часы на лавку и подсказку плашки: «сейчас», от которого считают сутки (полночь
@@ -135,6 +139,8 @@ function Shop() {
   const left = Math.max(0, SHOP_DAILY - used);
   const offline = gemsOffline({ balance, at, why }, now);
   const buy = async (r: (typeof SHOP_GOODS)[number]): Promise<void> => {
+    // Сто не влезут — сначала окно «Склад заполнен»; «Отмена» — приказа нет, алмазы не списаны (OWNER-DECISIONS, п. 1).
+    if (!(await askRoom(overflowOf(useGame.getState().s, { [r]: SHOP_LOT })))) return;
     const err = await orderBuy(r);
     if (err) toast(err);
   };
@@ -210,7 +216,7 @@ function History() {
   const list = useGems((g) => g.list);
   const balance = useGems((g) => g.balance);
   if (list.length === 0) return <div className="note">{balance === null ? 'Нет связи. Журнал откроется, когда она вернётся.' : 'Записей ещё нет.'}</div>;
-  const name = (b: string): string => (b in BUILDING_BY_ID ? buildingTitle(s, b as BuildingTypeId) : b);
+  const name = (b: string): string => (has(BUILDING_BY_ID, b) ? buildingTitle(s, b as BuildingTypeId) : b);
   return (
     <div className="nx-gem-log">
       {[...list].reverse().map((e) => (

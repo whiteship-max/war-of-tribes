@@ -69,7 +69,8 @@ export function sqliteStores(db: DatabaseSync, clock: () => number = Date.now): 
     const etag = freshEtag();
     const at = clock();
     let changed: number | bigint;
-    if (opts?.onlyIfMatch) changed = updateIf.run(text, etag, at, store, key, opts.onlyIfMatch).changes;
+    // Условие на ETag — и пустой строкой (OPS-3): пустое условие сходится только с пустой отметкой, а не пишет поверх всего.
+    if (opts && 'onlyIfMatch' in opts) changed = updateIf.run(text, etag, at, store, key, opts.onlyIfMatch ?? '').changes;
     else if (opts?.onlyIfNew) changed = insertNew.run(store, key, text, etag, at).changes;
     else changed = upsert.run(store, key, text, etag, at).changes;
     return Number(changed) > 0 ? { modified: true, etag } : { modified: false };

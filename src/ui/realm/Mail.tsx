@@ -31,6 +31,9 @@ import { ReportPanel } from '@/ui/panels/ReportPanel';
 import { mailKeys, rivalKeys, useSeen } from './unread';
 import { CrownCard, CrownDone } from './CrownCard';
 import { crownDone } from '@/game/data/crownWords';
+import { resolveEvent } from '@/game/sim/mail';
+import { overflowOfAct } from '@/game/sim/stockview';
+import { askRoom } from '@/ui/room';
 
 /**
  * Единственная дверь ответа: отдаёт ответ хозяину донесения и возвращает исход
@@ -51,6 +54,17 @@ async function answerDispatch(d: Dispatch, choiceId: string): Promise<string | n
   const err = await useWorld.getState().answerLetter(d.letterId, choiceId === 'yes' ? 'yes' : 'no');
   if (err) return null;
   return d.choices.find((c) => c.id === choiceId)?.hint ?? null;
+}
+
+/**
+ * Ответ на весть, который приносит больше, чем вмещает склад, сначала спрашивает игрока (окно «Склад заполнен», решение
+ * владельца — docs/audit/OWNER-DECISIONS.md, п. 1): что ляжет, видно сухим прогоном той же двери ответа. «Отмена» — ответа
+ * нет, весть ждёт на столе. Письма мира и предложения соседей склада сразу не трогают — их ответ уходит миру и серверу.
+ */
+async function roomOk(d: Dispatch, choiceId: string): Promise<boolean> {
+  if (d.source !== 'event' || !d.eventId) return true;
+  const id = d.eventId;
+  return askRoom(overflowOfAct(useGame.getState().s, (s) => resolveEvent(s, Number(choiceId), id)));
 }
 
 /** Столбцы списка: весть со значком и точкой новой, кто прислал — строкой под ней, срок — до того, как решится сама. */
@@ -127,6 +141,7 @@ export function Mail() {
         d={current}
         onBack={() => openMail(null)}
         onAnswer={async (id) => {
+          if (!(await roomOk(current, id))) return;
           const note = await answerDispatch(current, id);
           openMail(null);
           if (note) setDone({ title: current.title, text: crownDone(current.crown!.id, Number(id)), crown: { d: current, note } });
@@ -142,6 +157,7 @@ export function Mail() {
         letter={letters.find((l) => l.id === current.letterId) ?? null}
         onBack={() => openMail(null)}
         onAnswer={async (id) => {
+          if (!(await roomOk(current, id))) return;
           const text = await answerDispatch(current, id);
           openMail(null);
           if (text) setDone({ title: current.title, text });
@@ -165,6 +181,7 @@ export function Mail() {
 
   // Ответ кнопкой прямо в строке (ДП-1): итог — всплывающей строкой, строка уходит из «Ждут ответа» в «К сведению».
   const quick = async (d: Dispatch, id: string): Promise<void> => {
+    if (!(await roomOk(d, id))) return;
     const text = await answerDispatch(d, id);
     mark(d.key, live);
     if (text) useGame.getState().showToast(text);
@@ -332,6 +349,26 @@ function DispatchCardNew({
           >
             <b>Ратуша</b>
             <small>Просители и совет</small>
+          </button>
+        )}
+        {/* Пустое место командира фланга (ДР-5): кандидаты — в «Дружине», меню «Командующие». */}
+        {d.command && (
+          <button className="nx-ans" onClick={() => goTo(WINDOW.army)}>
+            <b>Дружина</b>
+            <small>Командующие: кандидаты</small>
+          </button>
+        )}
+        {/* Пустое место агента (АГ-1): кандидаты — в Ратуше, раздел «Агенты». */}
+        {d.agents && (
+          <button
+            className="nx-ans"
+            onClick={() => {
+              useGame.getState().setTownTab('agents');
+              goTo({ kind: 'building', type: 'town_hall' });
+            }}
+          >
+            <b>Ратуша</b>
+            <small>Кандидаты на место</small>
           </button>
         )}
       </div>

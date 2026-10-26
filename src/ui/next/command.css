@@ -1,0 +1,37 @@
+/*
+ * Меню «Командующие» в «Дружине» (ДР-3, docs/siege_v2.md, «Решения ДР-3»): карточки агентов (`council.css`, `agents.css`) и
+ * своё — рамка портрета по роду и ярлык рода. Шкалы — docs/ui_audit.md, раздел 3: кегли 12·13, значки 14.
+ */
+
+/* Рамка портрета по роду: лорд — пурпур и золото, безродный — кожа и сталь. */
+.cn-port.lord {
+  background:
+    radial-gradient(120% 90% at 40% 30%, rgba(220, 180, 120, 0.2), transparent 60%),
+    linear-gradient(180deg, #2e1a36, #160c1a);
+}
+.cn-port.tactician {
+  background:
+    radial-gradient(120% 90% at 40% 30%, rgba(200, 190, 170, 0.14), transparent 60%),
+    linear-gradient(180deg, #2c261e, #14110d);
+}
+
+/* Ярлык рода: не хорош и не плох — у каждого своя цена, поэтому цвет свой, а не «добрый» или «худой». */
+.cm-birth.noble {
+  color: var(--accent);
+}
+.cm-birth.low {
+  color: var(--text);
+}
+
+.cm-desk .cn-note {
+  margin: 0 2px 8px;
+}
+.cm-nobles .name b {
+  font-variant-numeric: tabular-nums;
+}
+.cm-nobles .val.good {
+  color: var(--good);
+}
+.cm-nobles .val.bad {
+  color: var(--bad);
+}

@@ -61,6 +61,7 @@ import {
   warningSeconds,
 } from '@/game/derived';
 import { popGrowth } from '@/game/sim/population';
+import { resolvePoints } from '@/game/spiritrules';
 import { surveyInfo } from '@/game/sim/survey';
 import { militiaArchers } from '@/world/bridge';
 import { plural } from './plural';
@@ -259,9 +260,10 @@ const GAUGES: Gauge[] = [
   { id: 'output', read: (s) => jobMultiplier(s, 'woodcutter', STILL), say: grow('к выработке всех рабочих') },
   { id: 'learning', read: (s) => surveyInfo(s).learning, say: grow('к скорости разведки округи') },
   { id: 'growth', read: (s) => popGrowth(s).faith, say: grow('к приросту жителей') },
-  // Стойкость — та, что уезжает в бой во время обряда (`derived.armyResolve`): наклон веры храма, Воевода и сословия в силе
-  // (РТ-2: Статуя поднимает рыцарство, постройки купечества режут его долю) — числом, которое получит мир.
-  { id: 'fervour', read: (s) => armyResolve({ ...s, faith: { ...s.faith, riteUntil: s.time + 1 } }), say: more('к стойкости дружины в обряд') },
+  // Стойкость во время обряда (`derived.armyResolve`: наклон веры храма, Воевода и сословия в силе — РТ-2: Статуя поднимает
+  // рыцарство, постройки купечества режут его долю) идёт в бой строками морали дружины (ДР-1, `spiritrules.resolvePoints`) —
+  // числом, которое получит мир.
+  { id: 'fervour', read: (s) => resolvePoints(armyResolve({ ...s, faith: { ...s.faith, riteUntil: s.time + 1 } })), say: more('к морали дружины в обряд') },
 ];
 
 /**

@@ -17,6 +17,8 @@
 // проедет молча. Решать до первого предмета — не прибавляет ли он кружок, который
 // на пятом уровне упрётся в предел (docs/AGENTS.md, возражение 4).
 
+import { own } from '../guard';
+
 /**
  * Имя предмета. Строка без полей, и поля ей не приделать: элемент владения или
  * ячейки с числом внутри — ошибка компиляции, как ссылка на группу с наградой.
@@ -50,7 +52,7 @@ export type SlotState =
  */
 export function itemIn(slot: ItemId | null, owned: readonly ItemId[]): SlotState {
   if (slot === null) return { kind: 'empty' };
-  const def = Object.prototype.hasOwnProperty.call(ITEMS, slot) ? ITEMS[slot] : undefined;
+  const def = own(ITEMS, slot);
   if (!def) return { kind: 'unknown', id: slot };
   return owned.includes(slot) ? { kind: 'worn', def } : { kind: 'unowned', def };
 }

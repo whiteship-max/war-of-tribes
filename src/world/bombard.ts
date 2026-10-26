@@ -21,7 +21,7 @@
 // Проход обстрел не сужает не исключением, а правилом прохода: рогатки держат те, кто их
 // строил (`works.campPass`, `SiegeWindow.builders`), и выбитые после этого проход не
 // трогают — ни обстрелом, ни боем.
-import { sideWorks, type WoodPlan } from './works';
+import { machineWood, sideWorks, type WoodPlan } from './works';
 import { CAMP_WOOD, CAMP_WORKS_RIPE } from './data/tuning';
 
 /**
@@ -111,11 +111,18 @@ export function reaim(
     const built = firePlan(prev, wood) ?? CAMP_WOOD;
     const raw = wood ?? CAMP_WOOD;
     const from = Math.max(since, at);
+    // Древесина машин обстрелом не рубится: её доля и нарубленное к событию переезжают как есть (MAP-2).
+    const cut = machineWood(since, from, wood);
     plan = {
       front: raw.front,
       rear: raw.rear,
+      ...(wood?.machines !== undefined ? { machines: wood.machines } : {}),
       at: from,
-      base: { front: sideWorks(since, from, 'front', built), rear: sideWorks(since, from, 'rear', built) },
+      base: {
+        front: sideWorks(since, from, 'front', built),
+        rear: sideWorks(since, from, 'rear', built),
+        ...(cut > 0 ? { machines: cut } : {}),
+      },
     };
   }
   const idle = next.slow <= 0 && next.thin <= 0 && base <= 0;

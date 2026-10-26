@@ -14,6 +14,8 @@ import { troopTotal } from '@/game/battle/kinds';
 import { postureOf } from '@/world/muster';
 import { formatCoord, secondsLeft } from '@/world/geo';
 import { CHASE_FROM_CAMP } from '@/world/siege';
+import { takingLine } from '@/world/raidwords';
+import { GAIT_META } from '@/world/gait';
 import type { FigureId, FigureView, MarchView, ReportKind } from '@/world/types';
 import { agentLevel, personName, yearsOf, yearsWord } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
@@ -74,8 +76,11 @@ export function whereWords(f: FigureView, now: number, hire: string): string {
   if (f.held && f.busyUntil > now) return `задержан, отпустят через ${realLeft(secondsLeft(f.busyUntil, now))} · ${f.atName ?? 'у чужих ворот'}`;
   if (f.retiring) return 'дожил до покоя: идёт домой';
   if (f.place === 'city') return 'укрылся в городе';
-  if (f.phase === 'moving') return `в пути · ${realLeft(secondsLeft(f.arriveAt, now))}`;
-  return f.atHome ? 'дома' : (f.atName ?? 'в поле');
+  // Режим марша полководца (ДР-2) — словом при пути и в поле: «налегке», «с обозом»; обычный — без слова.
+  const gait = f.march && f.march.gait !== 'normal' && !f.atHome ? ` · ${GAIT_META[f.march.gait].short}` : '';
+  if (f.march && f.march.haltUntil > now) return `стоит, обоз собирают · ${realLeft(secondsLeft(f.march.haltUntil, now))}${gait}`;
+  if (f.phase === 'moving') return `в пути · ${realLeft(secondsLeft(f.arriveAt, now))}${gait}`;
+  return f.atHome ? 'дома' : `${f.atName ?? 'в поле'}${gait}`;
 }
 
 export function MarchesNew() {
@@ -116,6 +121,8 @@ export function MarchesNew() {
   const now = worldNow();
   const own = ownMarches(marches);
   const incoming = marchesOnUs(marches, homeId);
+  // Чужие отряды, уводящие наших после прорыва (АУ-8, п. 5): догнать можно до самого их двора.
+  const taking = marches.filter((m) => m.hostile && m.phase === 'back' && (m.taking ?? 0) > 0).sort((a, b) => a.arriveAt - b.arriveAt);
   // Полководец в лагере осады — перехвата нет: мир откажет той же строкой (`LocalWorld.chaseBlock`).
   const inCamp = (figures.find((f) => f.id === 'general')?.besieging ?? null) !== null;
 
@@ -165,6 +172,36 @@ export function MarchesNew() {
             }))}
           />
           {inCamp && incoming.some((m) => !m.onCamp) && <p className="nx-tnote bad">{CHASE_FROM_CAMP}</p>}
+        </>
+      )}
+
+      {taking.length > 0 && (
+        <>
+          <h3>Уводят наших</h3>
+          <Table
+            label="Уводят наших"
+            cols={INCOMING_COLS}
+            rows={taking.map((m) => ({
+              key: m.id,
+              cells: {
+                // У идущего домой «куда» — их двор (`turnHome` переставил имена): кто уводит — оттуда.
+                who: <Two top={m.toName} sub={takingLine(m, now)} />,
+                left: <b className="bad">{realLeft(secondsLeft(m.arriveAt, now))}</b>,
+                act: (
+                  <button
+                    type="button"
+                    className="nx-ico44"
+                    disabled={inCamp}
+                    onClick={() => void openChase(m)}
+                    aria-label={inCamp ? `Догнать: ${CHASE_FROM_CAMP}` : `Догнать: ${m.toName}`}
+                  >
+                    <Icon name="ui-target" />
+                  </button>
+                ),
+              },
+            }))}
+          />
+          <p className="nx-tnote">Догнать и разбить — свои вернутся домой. Дойдут — пленных будут держать до выкупа.</p>
         </>
       )}
 

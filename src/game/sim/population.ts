@@ -49,9 +49,12 @@ export function addPop(s: GameState, n: number): number {
 export function losePop(s: GameState, n: number): number {
   let left = Math.min(Math.max(0, Math.round(n)), s.pop);
   const gone = left;
+  // Свободные руки считаются до убыли (ECO-4): после неё `idleCount` уже меньше на ушедших, и они ушли бы второй раз —
+  // со сбора и из зданий.
+  const idle = idleCount(s);
   s.pop -= left;
 
-  left -= Math.min(left, idleCount(s));
+  left -= Math.min(left, idle);
   if (left <= 0) return gone;
 
   for (const job of FREE_JOBS) {

@@ -10,6 +10,7 @@
 import {
   ANCHOR,
   ANNIHILATED_AT,
+  BATTLE_RULES,
   BREAK_AFTER,
   DICE,
   DICE_PHASES,
@@ -26,6 +27,9 @@ import {
   PYRRHIC_BELOW,
   RANGED_RATE,
   RETREAT,
+  SCAR_CAP,
+  SPIRIT,
+  spiritMult,
   CIRCLE_PHASES,
   circleTicks,
   TEMPER,
@@ -41,12 +45,14 @@ import {
   REAR,
   SECTORS,
   SIDES,
+  STAT_IDS,
   UNIT_KINDS,
   type ArmySetup,
   type BattleEvent,
   type BattleInput,
   type BattleResult,
   type EventBody,
+  type FlankSector,
   type GroupMove,
   type Lane,
   type PhaseId,
@@ -104,6 +110,10 @@ type Kills = Record<UnitKind, Record<UnitKind, number>>;
 interface SideState {
   id: Side;
   setup: ArmySetup;
+  /** Множитель урона от дисциплины (`spiritDealt`): один на бой, без поля `spirit` — единица. */
+  drill: number;
+  /** Показатели родов этой стороны с поправками черт (`scarProfile`): одна таблица на бой. */
+  profile: Record<UnitKind, Profile>;
   groups: Group[];
   initialTotal: number;
   /** Мораль армии — средняя по живым группам, взвешенная числом людей. Только для отчёта и условия резерва. */
@@ -290,14 +300,51 @@ function fullMorale(setup: ArmySetup, stack: Stack): number {
   let m = 0;
   for (const k of UNIT_KINDS) m += stack[k] * UNIT_STATS[k].morale;
   const resolve = Math.max(0, setup.resolve ?? 0);
-  return Math.max(0, Math.min(MORALE.max, m / total + resolve));
+  return Math.max(0, Math.min(MORALE.max, (m / total + resolve) * spiritMorale(setup)));
 }
+
+/**
+ * Множитель стартовой морали от морали войска (`ArmySetup.spirit`, ДР-1): ломаная `SPIRIT.morale`; нет поля — единица.
+ * Открыт наружу ради тестов мира и отчётов: бой меряют этой функцией, а не своей копией.
+ */
+export const spiritMorale = (setup: ArmySetup): number => (setup.spirit ? spiritMult(setup.spirit.morale, SPIRIT.morale) : 1);
+
+/** Множитель урона стороны от дисциплины войска (`ArmySetup.spirit`, ДР-1): ломаная `SPIRIT.discipline`; нет поля — единица. */
+export const spiritDealt = (setup: ArmySetup): number => (setup.spirit ? spiritMult(setup.spirit.discipline, SPIRIT.discipline) : 1);
 
 /** Доля полной морали, с которой сторона вышла в бой (`ArmySetup.rest`): 0..1, нет поля или не число — полная. */
 const restOf = (setup: ArmySetup): number => {
   const r = setup.rest ?? 1;
   return Number.isFinite(r) ? Math.max(0, Math.min(1, r)) : 1;
 };
+
+/**
+ * Тактика командира фланга полосы `lane` (ДР-3, `ArmySetup.flanks`): отметки со знаком; у центра (полоса 1) командира фланга
+ * нет — его ведёт полководец. Нет поля, ключа или не число — ноль. Одна дверь на кость полосы (`Battle.laneLuck`) и на окно.
+ */
+export const flankPips = (setup: ArmySetup, lane: Lane): number => {
+  const sector: FlankSector | null = lane === 0 ? 'A' : lane === 2 ? 'C' : null;
+  const n = sector ? (setup.flanks?.[sector] ?? 0) : 0;
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Показатели рода `kind` у стороны (ДР-4): таблица рода (`KIND_PROFILE`) плюс поправка её черт (`ArmySetup.scars`), не дальше
+ * `SCAR_CAP` от таблицы по каждому показателю. Нет поля, рода или показателя, не число — поправки нет, и показатель — таблицы. Одна
+ * дверь на удар и мораль (`Battle.distribute`) и на окно «Дружины».
+ */
+export function scarProfile(setup: ArmySetup, kind: UnitKind): Profile {
+  const base = KIND_PROFILE[kind];
+  const edge = setup.scars?.[kind];
+  if (!edge) return base;
+  const out = { ...base };
+  for (const id of STAT_IDS) {
+    const d = edge[id];
+    if (d === undefined || !Number.isFinite(d) || d === 0) continue;
+    out[id] = base[id] + Math.max(-SCAR_CAP, Math.min(SCAR_CAP, d));
+  }
+  return out;
+}
 
 /** Вид фазы EU4 — огонь или натиск: первая отметка фазы (`PHASE_PIPS`); у фазы без кости — нет. */
 const eu4Phase = (phase: PhaseId | undefined): PipId | null => (phase ? (PHASE_PIPS[phase][0] ?? null) : null);
@@ -454,6 +501,8 @@ class Battle {
       return {
         id,
         setup,
+        drill: spiritDealt(setup),
+        profile: Object.fromEntries(UNIT_KINDS.map((k) => [k, scarProfile(setup, k)])) as Record<UnitKind, Profile>,
         groups,
         initialTotal,
         morale: groups.reduce((n, g) => n + g.morale * g.initial, 0) / Math.max(1, initialTotal),
@@ -1136,11 +1185,25 @@ class Battle {
   }
 
   /**
-   * Общий множитель силы группы — отход. Кость, отметки и показатели — в каждом ударе (`hitMult`). Мораль в урон не входит
-   * — у EU4 урон от силы полка, а не от его морали (поставка 5, docs/battle_eu4.md, 14.33).
+   * Сторонняя часть удара группы `g`: кость стороны в фазе (`luck`) и тактика командира её фланга (`flankPips`, ДР-3) — в цене
+   * отметки, только в фазе, где считаются отметки полководца (`PHASE_PIPS`): погоня и отступление командира не спрашивают.
+   * Полоса — та, где группа бьётся сейчас: резерв, вошедший во фланг, ведёт командир этого фланга.
+   */
+  laneLuck(g: Group): number {
+    const luck = this.luck[g.side];
+    if (g.lane === null || PHASE_PIPS[this.phase].length === 0) return luck;
+    const f = flankPips(this.sides[g.side].setup, g.lane);
+    return f === 0 ? luck : luck + PIP * f;
+  }
+
+  /**
+   * Общий множитель силы группы — отход и дисциплина стороны (`spiritDealt`, ДР-1). Кость, отметки и показатели — в каждом
+   * ударе (`hitMult`). Мораль в урон не входит — у EU4 урон от силы полка, а не от его морали (поставка 5, docs/battle_eu4.md,
+   * 14.33); дисциплина входит, как у EU4.
    */
   dealtMult(g: Group): number {
-    return this.sides[g.side].retreating ? RETREAT.dealt : 1;
+    const s = this.sides[g.side];
+    return (s.retreating ? RETREAT.dealt : 1) * s.drill;
   }
 
   /**
@@ -1163,14 +1226,16 @@ class Battle {
     let weight = 0;
     for (const t of targets) for (const k of UNIT_KINDS) if (reached(k)) weight += t.stack[k];
     if (weight <= 0) return;
-    const by = KIND_PROFILE[kind];
+    // Показатели — стороны, с поправками её черт (`scarProfile`, ДР-4): бьющего — своей, цели — своей.
+    const by = this.sides[from.side].profile[kind];
     for (const t of targets) {
+      const theirs = this.sides[t.side].profile;
       for (const k of UNIT_KINDS) {
         const n = t.stack[k];
         if (!stands(n) || !reached(k)) continue;
         const share = n / weight;
-        const target = KIND_PROFILE[k];
-        const casualties = total * share * hitMult(this.luck[from.side], by, target, ctx.ranged) * (ctx.chase ? 1 : this.taken(t));
+        const target = theirs[k];
+        const casualties = total * share * hitMult(this.laneLuck(from), by, target, ctx.ranged) * (ctx.chase ? 1 : this.taken(t));
         if (casualties > 0) {
           hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank, cover: ctx.cover ?? 1, moraleW: moraleMult(by, target) });
         }
@@ -1556,6 +1621,7 @@ class Battle {
     this.emit({ id: 'result', winner: this.winner, reason: this.reason, pyrrhic });
     return {
       seed: this.input.seed,
+      rules: this.input.rules ?? BATTLE_RULES,
       ticks: this.tick,
       winner: this.winner,
       reason: this.reason,

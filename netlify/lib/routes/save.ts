@@ -31,12 +31,13 @@
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { eraGate } from '../era.js';
 import { allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
-import { readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
+import { GEM_SEEN_PARAM, readGemSeen, readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
 import { STORES } from '../kv.js';
 import { frozenNow, grantsOf, isFrozen, noteOf } from '../admin.js';
-import { booked, invitedBy, observe, tooFast, touched, wrote } from '../watch.js';
+import { booked, invitedBy, noted, observe, readWatchRecord, tooFast, touched, windfallKnown, wrote } from '../watch.js';
 import { readWars, WARS_KEY, type WarFile } from '../war.js';
-import { gemNoteOf, rushesOf, settleGems } from '../gems.js';
+import { gemNoteOf, rushesOf, settleGems, settleRefunds } from '../gems.js';
+import { gemLine } from '../../../src/game/gemrules.js';
 
 /**
  * Потолки на части записи. Партия племени укладывается в десятки килобайт; мир — нет: каждый из тридцати отчётов о бое
@@ -81,14 +82,15 @@ export const save: Route = async (req, io) => {
     const found = await store.getWithMetadata(key);
     // Книга алмазов (docs/gems.md): первый вход в эпоху мира открывает её со стартовыми. Не ответила — без записки.
     const ledger = await settleGems(io.stores, key, now);
-    // Партия на устройстве может быть впереди серверной записи: указы и дела алмазов — все, что лежат; лишние клиент
-    // отсеет номером.
+    // Партия на устройстве может быть впереди серверной записи: указы — все, что лежат, лишние клиент отсеет номером;
+    // дела алмазов — после номера партии на устройстве из строки запроса (FIN-4), без него — по-старому.
+    const seen = readGemSeen(new URL(req.url, 'http://local').searchParams.get(GEM_SEEN_PARAM));
     const body: PullResponse = {
       now,
       etag: found?.etag ?? null,
       record: found ? parseJson(String(found.data)) : null,
       admin: noteOf(frozen, grants, 0),
-      ...(ledger ? { gems: gemNoteOf(ledger.ledger, 0, now) } : {}),
+      ...(ledger ? { gems: gemNoteOf(ledger.ledger, seen, now) } : {}),
     };
     await observe(io.stores, key, (rec) => touched(rec, now, user, ref));
     return json(body);
@@ -137,6 +139,10 @@ export const save: Route = async (req, io) => {
   record.rev = (current?.rev ?? 0) + 1;
   record.updatedAt = now;
 
+  // Эпоха — ещё раз, перед самой записью (OPS-3): стирание, начатое после проверки на входе, уже могло пройти по партиям, и
+  // запись старой эпохи легла бы в новую.
+  const late = await eraGate(req, io);
+  if (late) return late;
   const written = await store.setJSON(
     key,
     record,
@@ -167,22 +173,56 @@ export const save: Route = async (req, io) => {
   const ledger = await settleGems(io.stores, key, now);
   const paid = rushesOf(ledger?.ledger ?? null);
   // Книга запасов (docs/security.md, ЗЩ-2) сверяет убыль склада между прежней описью и этой и слепок обороны с описью.
-  await observe(io.stores, key, (rec) =>
-    booked(wrote(touched(rec, now, user, ref), now, card, record.watch, rev), now, record.watch, seen, grants.list, wars, key, paid, {
+  await observe(io.stores, key, (rec) => {
+    // Добро без дела по книгам (АУ-8, п. 8): дань войны и кража у соседа — записью войн, по разу; выручка невольников — не
+    // больше книги невольников до записи (п. 2).
+    const wf = wars ? windfallKnown(wars, key, seen ?? [], rec.wf ?? []) : null;
+    const bonds = rec.goods?.bonds;
+    const known = {
+      grants: grants.list,
+      ...(wf ? { windfall: wf.known } : {}),
+      ...(bonds ? { bonded: bonds.n + bonds.due.reduce((t, x) => t + x.n, 0) } : {}),
+    };
+    const next = booked(wrote(touched(rec, now, user, ref), now, card, record.watch, rev, known), now, record.watch, seen, grants.list, wars, key, paid, {
       card: rec.card,
       at: rec.cardAt,
       sheet: record.war,
-    }),
-  );
+    });
+    return wf ? { ...next, wf: wf.ids } : next;
+  });
+  // Ускорения «не понадобилось» (FIN-5): возврат — только по книге стройки, которую эта запись только что двинула.
+  const back = await refundsOf(io, key, record.watch?.gemUnneeded ?? [], now);
+  const book = back?.ledger ?? ledger?.ledger;
   const body: PushResponse = {
     now,
     etag: written.etag,
     rev: record.rev,
     admin,
-    ...(ledger ? { gems: gemNoteOf(ledger.ledger, record.watch?.gemSeen ?? 0, now) } : {}),
+    ...(book ? { gems: { ...gemNoteOf(book, record.watch?.gemSeen, now), ...(back ? { settled: back.settled } : {}) } } : {}),
   };
   return json(body);
 };
+
+/**
+ * Рассудить ускорения, которые партия назвала ненужными (FIN-5): книга стройки — из наблюдения, после этой записи;
+ * возврат — дверью книги алмазов (`gems.settleRefunds`), строка — в журнал города. Нечего рассуждать или хранилище не
+ * ответило — `null`: номера подождут следующей записи.
+ */
+async function refundsOf(io: Parameters<Route>[1], key: string, asks: readonly number[], now: number) {
+  if (!asks.length) return null;
+  try {
+    const found = await io.stores(STORES.watch, 'strong').getWithMetadata(key);
+    const town = readWatchRecord(found ? parseJson(String(found.data)) : null).town;
+    const done = await settleRefunds(io.stores, key, asks, { own: town?.own ?? [], levels: town?.levels ?? {} }, now);
+    if (done?.refunded.length) {
+      const lines = done.refunded.map((e) => `Алмазы: ${gemLine(e)} — стройка кончилась сама.`);
+      await observe(io.stores, key, (rec) => lines.reduce((r, line) => noted(r, now, 'deed', line), rec));
+    }
+    return done;
+  } catch {
+    return null;
+  }
+}
 
 /** Запись войн для книги войска — только чтение и попутно: ошибка хранилища не роняет запись партии. */
 async function readWarsSoft(io: Parameters<Route>[1]): Promise<WarFile | null> {

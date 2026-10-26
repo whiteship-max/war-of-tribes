@@ -6,7 +6,8 @@ import { DAY_LENGTH } from '../constants';
 import { GOOD_BY_ID } from '../data/market';
 import { DEALS_KEPT } from '../marketrules';
 import { shiftOf } from '../shift';
-import { marketLevel, storageCap } from '../derived';
+import { marketLevel } from '../derived';
+import { addStock } from './stock';
 import { addBonded } from './population';
 import { log } from './log';
 
@@ -92,10 +93,7 @@ function unload(s: GameState, c: Caravan): void {
     return;
   }
   if (def.resource) {
-    const cap = storageCap(s);
-    const before = s.resources[def.resource];
-    s.resources[def.resource] = Math.min(cap, before + c.count);
-    const fit = Math.round(s.resources[def.resource] - before);
+    const fit = Math.round(addStock(s, def.resource, c.count));
     if (fit < c.count) {
       log(
         s,

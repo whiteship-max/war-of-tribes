@@ -51,19 +51,27 @@ export function riteInfo(s: GameState): RiteInfo {
   if (!id) return { feast: null, food, gold, left, blocked: 'Вера города ещё не ясна.' };
   const feast = FAITH_BY_ID[id].feasts[seasonOf(s.time)];
 
-  let blocked: string | null = null;
-  if (left > 0) blocked = 'Обряд идёт.';
+  const blocked =
+    riteClosed(s) ??
+    (Math.floor(s.resources.food) < food ? 'Не хватает еды.' : Math.floor(s.gold) < gold ? 'Не хватает золота.' : null);
+  return { feast, food, gold, left, blocked };
+}
+
+/**
+ * Почему обряд сейчас нельзя справить, кроме цены: идёт или уже был в этом сезоне. null — можно. Отдельно от `riteInfo`
+ * для вести «Приход зовёт на праздник» (ECO-3): её цену держит весть, а «нельзя» спрашивается в минуту ответа.
+ */
+export function riteClosed(s: GameState): string | null {
+  if (!faithOf(s)) return 'Вера города ещё не ясна.';
+  if ((s.faith?.riteUntil ?? 0) - s.time > 0) return 'Обряд идёт.';
   // Раз в сезон — по номеру сезона, а не по суткам. Считай мы дни, обряд,
   // справленный в последний день лета, открылся бы снова назавтра.
   //
   // «Обряд уже был» узнаётся по `riteUntil`, а не по `riteAt`: у первого обряда
   // партии `riteAt` равен нулю — время начинается с нуля, — и проверка `> 0`
   // молча пропускала бы его. Поймал это тест, а не рассуждение.
-  else if (s.faith.riteUntil > 0 && seasonIndex(s.faith.riteAt) === seasonIndex(s.time)) {
-    blocked = 'Обряд этого сезона уже справили.';
-  } else if (Math.floor(s.resources.food) < food) blocked = 'Не хватает еды.';
-  else if (Math.floor(s.gold) < gold) blocked = 'Не хватает золота.';
-  return { feast, food, gold, left, blocked };
+  if (s.faith.riteUntil > 0 && seasonIndex(s.faith.riteAt) === seasonIndex(s.time)) return 'Обряд этого сезона уже справили.';
+  return null;
 }
 
 /**

@@ -36,8 +36,8 @@ describe('перевод бойцов племени в роды боя', () => 
     const k = kindsOf(GARRISON);
     expect(k.spear).toBe(menOf('spearman', 8));
     expect(k.archer).toBe(menOf('archer', 5));
-    // Дубинщики, топорники и латники выходят одной пехотой.
-    expect(k.infantry).toBe(menOf('clubman', 6) + menOf('axeman', 3) + menOf('legionary', 2));
+    // Дубинщики, топорники и латники выходят одной пехотой — одним округлением суммы весов (BTL-1).
+    expect(k.infantry).toBe(Math.round(6 * battleWeight('clubman') + 3 * battleWeight('axeman') + 2 * battleWeight('legionary')));
     expect(k.cavalry).toBe(0);
   });
 
@@ -52,9 +52,11 @@ describe('перевод бойцов племени в роды боя', () => 
     const sent: TroopStack = { clubman: 4, legionary: 2 };
     const lost = troopLosses(sent, { spear: 0, infantry: 6, archer: 0, cavalry: 0, heavy: 0 });
     expect(lost.clubman).toBe(4);
-    expect(lost.legionary ?? 0).toBe(0);
+    // Два человека строя сверх дубинщиков — остаток одним бойцом первому виду, у которого остались люди (BTL-1): прежде
+    // латник, потерявший меньше половины своего веса, не погибал никогда.
+    expect(lost.legionary).toBe(1);
     const left = troopsAfter(sent, lost);
-    expect(left.legionary).toBe(2);
+    expect(left.legionary).toBe(1);
     expect(left.clubman ?? 0).toBe(0);
   });
 

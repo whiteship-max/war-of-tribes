@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROUTES } from './routes/index.js';
 import { STORES } from './kv.js';
 import { ROSTER_KEY, castleIdOf, readRoster, upsert, emptyRoster } from './roster.js';
-import { readClaim, type RatingResponse, type RosterResponse } from './contract.js';
+import { CASTLE_LIMITS, readClaim, type RatingResponse, type RosterResponse } from './contract.js';
 import { DEFAULT_ARMS, anyArms, armsCode, armsOr, lairArms } from '../../src/heraldry/arms.js';
 import { TEST_TOKEN, signInit, sqliteHome, type Home } from '../vps/testkit.js';
 
@@ -117,5 +117,16 @@ describe('герб в реестре замков', () => {
     expect(readRoster(forged).rows['tg-1'].arms).toBeUndefined();
     // И заявка с пустым гербом — не ошибка: это «не собирал».
     expect(readClaim({ name: 'А', city: '', power: 1, pop: 1, arms: '' })).toEqual({ name: 'А', city: '', power: 1, pop: 1 });
+  });
+});
+
+describe('AC-8: имя вождя в реестре — тем же правилом, что имя города', () => {
+  it('разметка, невидимые и управляющие знаки вырезаются; из одних таких — пусто', () => {
+    const claim = readClaim({ name: '<b>Вождь</b>​‮\u0007 *Олег*', city: 'Псков', power: 1, pop: 1 })!;
+    expect(claim.name).toBe('bВождь/b Олег');
+    expect(readClaim({ name: '​‍‮', city: '', power: 1, pop: 1 })!.name).toBe('');
+    // Потолок длины имени вождя прежний — свой, а не потолок имени города; длиннее — отказ, как прежде.
+    expect(readClaim({ name: 'Я'.repeat(CASTLE_LIMITS.name), city: '', power: 1, pop: 1 })!.name).toBe('Я'.repeat(CASTLE_LIMITS.name));
+    expect(readClaim({ name: 'Я'.repeat(CASTLE_LIMITS.name + 1), city: '', power: 1, pop: 1 })!.name).toBe('');
   });
 });

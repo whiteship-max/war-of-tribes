@@ -1,110 +1,20 @@
-// Найм агента на пустое место — здание владеет тем, как быстро и каким он придёт.
+// Прежний найм агента в здании — только доживание и имена (АГ-1, docs/city_v3.md, «Решения АГ-1»).
 //
-// Место пустует, когда человек погиб или ушёл на покой (`sim/agents`). Нанять можно
-// всегда, пока хватает золота, — тупика нет, как у мятежа: без разведчика не открыть
-// карту, без полководца армия не выходит из ворот, и запирать племя за это нельзя.
-//
-// Что даёт уровень здания — ровно две вещи, и обе видны на кнопке до найма: срок
-// (`HIRE_SECONDS` делится на ту же `levelOutputMult`, которой уровень ускоряет всякую
-// работу) и возраст новичка (моложе на `HIRE_YOUNGER` за уровень). Опыта не даёт —
-// новичок начинает с нуля.
+// С АГ-1 нанимают в Ратуше из кандидатов (`sim/recruits`, запись — `sim/recruit`): сразу, за золото вперёд и жалованье. Здесь
+// остались две вещи шага партии: найм прежнего вида, начатый в здании до АГ-1, доходит своим сроком (старое сохранение: идущий
+// найм заканчивается как раньше, человек встаёт ровным), и безымянным дают имя, как только мир назвал веру.
 import type { FigureId } from '@/world/types';
 import type { GameState } from '../types';
-import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
-import { AGENT_AGE0 } from '../data/agents';
-import { HIRE_AT, HIRE_GOLD_PER_POP, HIRE_SECONDS, HIRE_YOUNGER } from '../data/hire';
-import { buildingOfType, buildingTitle, faithDef, levelOutputMult, population } from '../derived';
-import { drawName, nameAgents, seat, titled, yearsWord } from './agents';
-import { placeBlock } from './tech';
+import { FIGURE_IDS } from '@/world/data/figures';
+import { nameAgents, seat, titled, yearsWord } from './agents';
 import { log } from './log';
-import { outlay } from './pay';
-import { asGame, type GameSec } from '../pace';
-
-/** Как по-русски сказать «нанять где»: «в Дозоре», «в Статуе Героя», «в мечети». */
-const TEMPLE_IN: Record<string, string> = {
-  Костёл: 'в костёле',
-  Храм: 'в храме',
-  Мечеть: 'в мечети',
-  Капище: 'в капище',
-};
-
-export function hireWhere(s: GameState, agent: FigureId): string {
-  const type = HIRE_AT[agent];
-  if (type === 'watch') return 'в Дозоре';
-  if (type === 'statue') return 'в Статуе Героя';
-  const temple = faithDef(s)?.temple;
-  return (temple && TEMPLE_IN[temple]) ?? 'в храме';
-}
-
-export interface HireInfo {
-  agent: FigureId;
-  /** Где нанимают — название здания, как его видит игрок. */
-  building: string;
-  /** Уровень этого здания. */
-  level: number;
-  /** Место пустует, найма нет. */
-  vacant: boolean;
-  /** Найм идёт: сколько игровых секунд осталось. 0 — не идёт. */
-  left: number;
-  /** Кто придёт: имя известно с начала найма. */
-  coming: string | null;
-  /** Золото за найм. */
-  gold: number;
-  /** Сколько идёт найм, игровых секунд. */
-  seconds: GameSec;
-  /** Сколько лет будет новичку. */
-  age0: number;
-  /** Почему нанять нельзя; null — можно. */
-  blocked: string | null;
-}
-
-/** Всё о найме на это место — одна функция на кнопку, на справку и на действие. */
-export function hireInfo(s: GameState, agent: FigureId): HireInfo {
-  const type = HIRE_AT[agent];
-  const building = buildingOfType(s, type);
-  const level = Math.max(1, building?.level ?? 1);
-  const p = s.agents[agent];
-  const gold = Math.ceil(HIRE_GOLD_PER_POP * population(s));
-  const seconds = asGame(Math.round(HIRE_SECONDS / levelOutputMult(level)));
-  const age0 = Math.max(18, AGENT_AGE0 - HIRE_YOUNGER * (level - 1));
-  const hiring = p.hiring;
-  let blocked: string | null = null;
-  // Гейт спрашивается первым и одной дверью: пока место не открыто технологией, его нет
-  // вовсе — нанимать не на что, и причина у отказа та же самая строка, что стоит в списке
-  // мест и в самой ветви (`sim/tech.techBlock`).
-  const closed = placeBlock(s, agent);
-  if (closed) blocked = closed;
-  else if (!p.vacant) blocked = `${FIGURE_BY_ID[agent].name} на месте.`;
-  else if (hiring) blocked = 'Найм уже идёт.';
-  else if (s.gold < gold) blocked = 'Не хватает золота.';
-  return {
-    agent,
-    building: buildingTitle(s, type),
-    level,
-    vacant: p.vacant && !hiring,
-    left: hiring ? Math.max(0, hiring.until - s.time) : 0,
-    coming: hiring?.name ?? null,
-    gold,
-    seconds,
-    age0,
-    blocked,
-  };
-}
 
 /**
- * Нанять человека на пустое место. Золото списывается сразу, человек приходит по
- * сроку — шагом партии (`settleHires`). Имя выдаётся тут же: оно известно заранее, и
- * игрок видит, кого ждёт.
+ * Где нанимают — словами, для строк «место пустует» (летопись, «Походы», кольцо карты): с АГ-1 всех четверых — в Ратуше, в
+ * разделе «Агенты» (`sim/recruits`). Профильные здания работают по-прежнему, а их кнопка найма ведёт туда же.
  */
-export function hireAgent(s: GameState, agent: FigureId): string | null {
-  const info = hireInfo(s, agent);
-  if (info.blocked) return info.blocked;
-  s.gold -= info.gold;
-  if (info.gold > 0) outlay(s);
-  s.agents[agent].hiring = { until: s.time + info.seconds, name: drawName(s), age0: info.age0 };
-  const where = hireWhere(s, agent);
-  log(s, `${where[0].toUpperCase()}${where.slice(1)} нанят ${FIGURE_BY_ID[agent].one}${s.agents[agent].hiring?.name ? ` ${s.agents[agent].hiring?.name}` : ''} за ${info.gold} золота.`);
-  return null;
+export function hireWhere(_s: GameState, _agent: FigureId): string {
+  return 'в Ратуше';
 }
 
 /**

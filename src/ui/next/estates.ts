@@ -138,6 +138,8 @@ export function loyaltyLines(s: GameState, e: EstateId): Line[] {
     if (v) out.push({ label: def.name, value: v, icon: def.icon });
   }
   if (n.parts.greed < 0) out.push({ label: 'Перевес: требует больше', value: n.parts.greed, icon: 'ui-warning' });
+  // Командиры флангов (ДР-3): милость лордам на местах и обида за безродных — слагаемым той же мерки.
+  if (n.parts.lead !== 0) out.push({ label: 'Командиры флангов', value: n.parts.lead, icon: 'hud-army' });
   return out;
 }
 

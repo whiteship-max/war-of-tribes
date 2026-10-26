@@ -6,6 +6,7 @@ import {
   currentSite,
   foodConsumptionPerDay,
   heatingWoodPerDay,
+  housingCapacity,
   maxLevelFor,
   recruitsQueued,
   storageCap,
@@ -18,7 +19,7 @@ import { recruitCheck, startRecruit } from '@/game/sim/army';
 import { forgeCheck, startForge } from '@/game/sim/smithy';
 import { startSurvey } from '@/game/sim/survey';
 import { buyGoods, marketCheck } from '@/game/sim/market';
-import { hireAgent, hireInfo } from '@/game/sim/hire';
+import { hireRecruit, recruitsOf } from '@/game/sim/recruits';
 import { holdRite, riteInfo } from '@/game/sim/faith';
 import { addBonded } from '@/game/sim/population';
 import { creditTech } from '@/game/sim/tech';
@@ -33,7 +34,7 @@ import type { GameState } from '@/game/types';
 import { gameDaysOfMs, gameDaysPerHour, gameSeconds } from '@/game/pace';
 import { playerProfile } from '@/world/bridge';
 import type { WatchCard } from '../../netlify/lib/contract';
-import { GOODS_SLACK, drainCeil, goodsStep, quietBetween, type GoodsBook, type GoodsCtx } from '../../netlify/lib/goods';
+import { GOODS_SLACK, drainCeil, goodsStep, holdsBetween, type GoodsBook, type GoodsCtx } from '../../netlify/lib/goods';
 import { CLOCK_SKEW_SECONDS } from '../../netlify/lib/initdata';
 import { eatFloorOf } from '../../netlify/lib/town';
 import { watchOf } from './snapshot';
@@ -90,7 +91,8 @@ describe('каждая дверь трат — разовая трата опи�
       (s) => {
         // Место разведчика пустует (агент погиб): нанимать есть на что.
         s.agents.scout.vacant = true;
-        return hireInfo(s, 'scout').blocked ?? hireAgent(s, 'scout');
+        const first = recruitsOf(s, 'scout')[0];
+        return first ? hireRecruit(s, 'scout', first.n, null) : 'кандидатов нет';
       },
     ],
     ['обряд', (s) => (riteInfo(s).blocked ? riteInfo(s).blocked : holdRite(s))],
@@ -121,6 +123,9 @@ describe('честная партия тратит всем, чем может: 
     s.army.spearman = 60;
     s.army.rider = 20;
     addBonded(s, 30);
+    // Лишние рты — свободные руки до потолка жилья: хлеб в тихую минуту убывает расходом, и правило спрашивается (точки внутри
+    // области, правило 11). Прежде убыль давал сам посёлок, вымиравший от двойного ухода рабочих (ECO-4).
+    s.pop = housingCapacity(s);
     let a = watchOf(s);
     let book = bookOf(a, 0);
     let asked = 0;
@@ -155,7 +160,7 @@ describe('честная партия тратит всем, чем может: 
       expect(step.hidden, `минута ${m}`).toEqual([]);
       // Точка внутри правила: промежуток тихий и склад убыл расходом — правило спрошено. Подделка той же минуты прячет
       // казну и хлеб целиком.
-      if (quietBetween(a, b) && RESOURCE_IDS.concat().some((r) => (b.stock[r] ?? 0) < (a.stock[r] ?? 0))) {
+      if (holdsBetween(a, b, 60_000) && RESOURCE_IDS.concat().some((r) => (b.stock[r] ?? 0) < (a.stock[r] ?? 0))) {
         asked++;
         const forged = { ...b, stock: { ...b.stock, gold: 0, food: 0 } };
         if (goodsStep(book, a, (m - 1) * 60_000, forged, m * 60_000, ctxOf(b)).hidden.length > 0) caught++;

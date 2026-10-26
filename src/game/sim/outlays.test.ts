@@ -22,7 +22,6 @@ type Why = 'outlay' | 'drain' | 'deed';
 const DOORS: Record<string, { why: Why[]; what: string }> = {
   'sim/pay.ts': { why: ['outlay'], what: 'плата за заказ: стройка, ковка, найм, разведка округи, обряд' },
   'sim/actions.ts': { why: ['outlay'], what: 'пир' },
-  'sim/hire.ts': { why: ['outlay'], what: 'наём агента' },
   'sim/market.ts': { why: ['outlay', 'deed'], what: 'покупка на рынке; продажа торговцам — выручка разовым делом (`stats.windfalls`, РН-1)' },
   'sim/caravan.ts': { why: ['drain'], what: 'закят налогом ниже нуля (шаг рынка, РН-1)' },
   'sim/faith.ts': { why: ['outlay'], what: 'обряд и крещение' },
@@ -36,7 +35,20 @@ const DOORS: Record<string, { why: Why[]; what: string }> = {
   'data/eventKit.ts': { why: ['deed'], what: 'весть отнимает добро' },
   'sim/crown.ts': { why: ['deed'], what: 'ответ на весть державы отнимает золото (СБ-2)' },
   'sim/candidates.ts': { why: ['outlay'], what: 'плата за найм советника за сезон вперёд (РТ-1)' },
+  'sim/recruits.ts': { why: ['outlay'], what: 'найм агента в Ратуше: плата по ртам и жалованье вперёд (АГ-1)' },
+  'sim/commanders.ts': { why: ['outlay'], what: 'найм командира фланга: плата по ртам и жалованье вперёд (ДР-3)' },
   'sim/estates.ts': { why: ['outlay'], what: 'дар сословию золотом (РТ-2)' },
+  'sim/stock.ts': { why: ['outlay', 'drain', 'deed'], what: 'дверь склада (ECO-1): убавку объясняет тот, кто зовёт; излишек сверх вместимости сгорает тратой' },
+};
+
+/**
+ * Кто кладёт на склад дверью склада (`sim/stock.addStock`) только прибавкой: убавить склад они не могут, и объяснять
+ * нечего. Дверь, способная убавить, стоит в `DOORS`. Новый файл, зовущий `addStock`, попадает в один из списков только
+ * правкой теста.
+ */
+const GAINS: Record<string, string> = {
+  'sim/daily.ts': 'награда ежедневки — разовое дело (`stats.dailyWins`)',
+  'sim/minigames.ts': 'добыча промысла — разовое дело (`stats.games`)',
 };
 
 function sources(dir: string): string[] {
@@ -55,6 +67,9 @@ const rel = (p: string): string => relative(ROOT, p).split(sep).join('/');
 /** Запись, которая может убавить склад или казну: вычитание или присваивание через `Math.max(0, …)` (с минусом внутри). */
 const DECREASE = /\.(?:resources(?:\[[^\]]+\]|\.[a-z]+)|gold)\s*(?:-=|=\s*Math\.max\(\s*0\s*,)/;
 
+/** Дверь склада: прибавка или убавка со знаком (`sim/stock.addStock`). */
+const STOCK_DOOR = /\baddStock\(/;
+
 describe('убыль склада и казны — только поимённые двери', () => {
   it('образцы ловят вычитание и «не ниже нуля», а прибавку — нет', () => {
     for (const bad of ['s.gold -= cost;', 's.resources[r] -= n;', 's.resources.food -= eat;', 's.resources[r] = Math.max(0, s.resources[r] - n);', 's.gold = Math.max(0, s.gold + o.gold);']) {
@@ -67,10 +82,13 @@ describe('убыль склада и казны — только поимённ�
 
   it('каждая дверь в списке, и та, что объяснена тратой, зовёт `outlay`', () => {
     const found = sources(ROOT)
-      .filter((p) => DECREASE.test(strip(readFileSync(p, 'utf8'))))
+      .filter((p) => {
+        const code = strip(readFileSync(p, 'utf8'));
+        return DECREASE.test(code) || STOCK_DOOR.test(code);
+      })
       .map(rel)
       .sort();
-    expect(found).toEqual(Object.keys(DOORS).sort());
+    expect(found).toEqual([...Object.keys(DOORS), ...Object.keys(GAINS)].sort());
     for (const [path, door] of Object.entries(DOORS)) {
       const code = strip(readFileSync(join(ROOT, path), 'utf8'));
       if (door.why.includes('outlay') && path !== 'sim/pay.ts') expect(code, path).toMatch(/\boutlay\(s\)/);

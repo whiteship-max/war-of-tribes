@@ -401,7 +401,9 @@ describe('ничего не потеряно: прежнее — в своих �
     const pop = readFileSync(join(SRC, 'panels/PopPanel.tsx'), 'utf8');
     for (const k of ['name="Мораль"', 'name="Свободное жильё"', 'name="Запас еды"', 'Новобранцы', 'Бойцы дружины']) expect(pop, k).toContain(k);
     const army = readFileSync(join(SRC, 'panels/ArmyPanel.tsx'), 'utf8');
-    for (const k of ['Новобранцы', '<Muster', 'Нанять']) expect(army, k).toContain(k);
+    // Найм — в Казармах и Конюшне (ДР-1): в «Дружине» — двери туда, а не кнопка «Нанять».
+    for (const k of ['Новобранцы', '<Muster', '<h3>Найм</h3>', 'openBuilding(barracks.id)']) expect(army, k).toContain(k);
+    expect(army).not.toContain('Нанять');
     // Разбор обороны в «Дружине» — тот же, что у строки сводки.
     expect(army).toContain('defenseTip(s, go)');
   });

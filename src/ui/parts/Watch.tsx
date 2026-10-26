@@ -9,6 +9,7 @@ import { count } from './plural';
 import { waitShort } from './wait';
 import type { IconName } from '@/ui/icons/alias';
 import { Icon } from '@/ui/icons/Icon';
+import { actRoom } from '@/ui/room';
 
 /**
  * Дозор: изучение округи. Десять ступеней, каждая раскрывает вокруг деревни
@@ -44,7 +45,7 @@ export function Watch() {
             label={`Разъезды: ур. ${info.running.n}`}
             text={`~${waitShort(info.left)}`}
           />
-          <button className="btn ghost wide" onClick={() => act((st) => cancelSurvey(st))}>
+          <button className="btn ghost wide" onClick={() => actRoom((st) => cancelSurvey(st))}>
             Отозвать разъезды
           </button>
         </>

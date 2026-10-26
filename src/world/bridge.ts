@@ -15,12 +15,13 @@ import {
   hiddenStash,
   homeArmyPower,
   faithOf,
-  armyResolve,
+  faithTilt,
   intelKeen,
   besiegedSoldierFood,
   grossFoodPerDay,
   mastersFoodPerDay,
   siegeDryIn,
+  storageCap,
   surveyRadius,
   towerSeats,
   townFoodPerDay,
@@ -36,12 +37,15 @@ import {
   setAway,
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
-import { pipsOf, retiring, sightBonusOf, stealthOf, traitNumbers, veilOf } from '@/game/sim/agents';
+import { eloquenceOf, pipsOf, retiring, sightBonusOf, stealthOf, traitNumbers, veilOf } from '@/game/sim/agents';
+import { commandFlanks } from '@/game/sim/command';
 import { readyEngine } from '@/game/sim/tower';
 import { fateLocks } from '@/game/sim/tech';
 import { syncFaith } from '@/game/sim/faith';
 import { woundsHome } from '@/game/sim/infirmary';
 import { dropGates, gateCalls, settleGate } from '@/game/sim/gate';
+import { spiritFedOf, spiritOf } from '@/game/sim/spirit';
+import { scarIds } from '@/game/sim/scars';
 import { tagSince } from '@/game/sim/log';
 import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayOf, homeOf, type Away } from './muster';
@@ -69,7 +73,7 @@ const daysPerHour = gameDaysPerHour;
  * жители. В поле оно выходит пехотой без снаряжения — иначе набеги ИИ, чей
  * потолок считается от `defense()`, били бы по пустому месту.
  */
-export const militiaMen = (s: GameState): number => militiaOf(defense(s), homeArmyPower(s));
+export const militiaMen = (s: GameState): number => militiaOf(defense(s), homeArmyPower(s), faithTilt(s).steadfast);
 
 /**
  * Сколько ополченцев выходит стрелками, а не пехотой. Это и есть работа башни:
@@ -93,9 +97,12 @@ function tower(s: GameState): Pick<PlayerProfile, 'tower'> {
   return engine ? { tower: { slow: engine.slow, thin: engine.thin, crew: engine.crew, seats: towerSeats(s) } } : {};
 }
 
-/** Прибавки навыков агентов для слепка: только ненулевые. */
-function skills(s: GameState): Pick<PlayerProfile, 'pips' | 'sightBonus' | 'stealth' | 'veil'> {
-  const out: Pick<PlayerProfile, 'pips' | 'sightBonus' | 'stealth' | 'veil'> = {};
+/** Прибавки навыков агентов и командиров флангов для слепка: только ненулевые. */
+function skills(s: GameState): Pick<PlayerProfile, 'pips' | 'flanks' | 'sightBonus' | 'stealth' | 'veil' | 'eloquence'> {
+  const out: Pick<PlayerProfile, 'pips' | 'flanks' | 'sightBonus' | 'stealth' | 'veil' | 'eloquence'> = {};
+  // Командиры флангов (ДР-3): нет — поля нет, и слепок тот же, что до них.
+  const flanks = commandFlanks(s);
+  if (Object.keys(flanks).length > 0) out.flanks = flanks;
   const pips = pipsOf(s);
   const sightBonus = sightBonusOf(s);
   const stealth = stealthOf(s);
@@ -104,6 +111,9 @@ function skills(s: GameState): Pick<PlayerProfile, 'pips' | 'sightBonus' | 'stea
   if (sightBonus > 0) out.sightBonus = sightBonus;
   if (stealth > 0) out.stealth = stealth;
   if (veil < 1) out.veil = veil;
+  // Красноречие дипломата (АГ-1): ноль в слепок не едет — слепок своего дипломата прежний байт в байт.
+  const eloquence = eloquenceOf(s);
+  if (eloquence > 0) out.eloquence = eloquence;
   return out;
 }
 
@@ -222,16 +232,25 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // Замки гейта на участь: какие участи игрок объявить не может — готовой строкой
     // двери гейта. Мир не знает ни ветвей, ни уровней, как не знает черт.
     ...locksOut(s),
-    // Вера. В мир едут два числа и ни слова о храме: чем деревня верит — чтобы
-    // сосед мог отнестись к ней прохладнее (`world/faith.faithAttitude`), — и
-    // прибавка к стойкости от идущего обряда. Ни уклада, ни набожности, ни
-    // реликвии мир не видит: это дела прихода, а не карты. К обряду прибавляется
-    // Воевода совета Ратуши (РТ-1) и сословия (РТ-2: рыцари прибавляют, купцы режут — `derived.armyResolve`): стойкость
-    // одна, и мир не спрашивает, откуда она.
+    // Вера. В мир едет одно число и ни слова о храме: чем деревня верит — чтобы сосед мог отнестись к ней прохладнее
+    // (`world/faith.faithAttitude`). Ни уклада, ни набожности, ни реликвии мир не видит: это дела прихода, а не карты.
     faith: faithOf(s),
-    fervour: armyResolve(s),
+    // Дух дружины (ДР-1): мораль и дисциплина. Стойкость обряда, Воеводы совета (РТ-1) и сословий (РТ-2) — строки морали
+    // (`sim/spirit`), а не своя прибавка: дух один, и мир не спрашивает, откуда он.
+    spirit: spiritOf(s),
+    // Черты армии (ДР-4): какие есть сейчас. Где какая действует, решает мир по месту боя и противнику (`scarrules.scarEdge`).
+    ...(() => {
+      const held = scarIds(s);
+      return held.length > 0 ? { scars: held } : {};
+    })(),
+    // Дух отряда с обозом (ДР-2, М5б): без голода. Голода нет — поля нет.
+    ...(() => {
+      const fed = spiritFedOf(s);
+      return fed ? { spiritFed: fed } : {};
+    })(),
     stock,
     stash,
+    storeCap: storageCap(s),
     // Казна едет рядом со складом, а не в нём: платят из них разными дверями,
     // а делит их победитель одним правилом (`spoils.fate`) — тайник прячет
     // столько же золота, сколько зерна. Прежде здесь стояло «золото в слепок не
@@ -287,9 +306,20 @@ export function syncAway(s: GameState, marches: MarchView[], figures: FigureView
     if (!m.own) continue;
     scouts += m.units.scout ?? 0;
   }
-  if (s.scoutsAway === scouts && sameStack(s.away, troops)) return false;
-  setAway(s, troops, scouts);
+  const fed = awayFedOf(figures);
+  if (s.scoutsAway === scouts && sameStack(s.away, troops) && sameStack(s.awayFed ?? {}, fed)) return false;
+  setAway(s, troops, scouts, fed);
   return true;
+}
+
+/**
+ * Кого кормит обоз (ДР-2, М5б): отряд полководца с обозом вне своих стен — дома он в гарнизоне и ест со склада, как все.
+ * Режим и место — словами мира (`FigureView.march`, `atHome`).
+ */
+export function awayFedOf(figures: readonly FigureView[]): TroopStack {
+  const g = figures.find((f) => f.id === 'general');
+  if (!g || g.march?.gait !== 'train' || g.atHome || g.phase === 'down' || g.gone) return {};
+  return { ...g.troops };
 }
 
 /**
@@ -384,6 +414,8 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     prestige: e.prestige,
     morale: e.morale,
     battle: e.battle,
+    // Метка боя для журнала армии (ДР-4): мир её посчитал, племя кладёт в журнал (`sim/scars.noteFight`).
+    ...(e.scar ? { scar: e.scar } : {}),
     sacked: e.sacked ?? 0,
     // Оружие из логова и сам факт того, что логово сожжено: мир отдал число и
     // отметку, во что превратить первое и что засчитать по второй — дело племени.
@@ -402,6 +434,8 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     fallen: e.fallen,
     // Дело и гибель агента: опыт пишет племя, мир только сообщает событие.
     deed: e.deed,
+    // Бой полководца для командиров флангов (ДР-5): опыт и гибель пишет племя.
+    ...(e.flanks ? { flanks: e.flanks } : {}),
     siege: e.siege ?? false,
     fell: e.fell,
     retired: e.retired,

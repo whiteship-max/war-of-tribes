@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readRecord, type SaveRecord } from './contract.js';
+import { WALK_MS_MAX, readArmy, readCounts, readEnergy, readPrefs, readRecord, readWarOrder, type SaveRecord } from './contract.js';
+import { energyAt } from '../../src/world/energy.js';
 
 const LIMITS = { game: 200, world: 100 };
 
@@ -58,5 +59,57 @@ describe('сервер не верит телу запроса', () => {
 
   it('имя длиннее разумного не проезжает', () => {
     expect(readRecord(sent({ card: { name: 'и'.repeat(200) } }), LIMITS)!.card.name).toBe('');
+  });
+});
+
+describe('AC-8: длинный ключ пропускается, а не обрывает разбор', () => {
+  it('readCounts и отметки полководца: ключ длиннее потолка — мимо, остальные читаются', () => {
+    const long = 'x'.repeat(40);
+    expect(readCounts({ [long]: 5, spearman: 3, archer: 2 })).toEqual({ spearman: 3, archer: 2 });
+    const army = readArmy({ troops: { [long]: 1, spearman: 4 }, pips: { [long]: 0.5, shock: 1.5 } })!;
+    expect(army.troops).toEqual({ spearman: 4 });
+    expect(army.pips).toEqual({ shock: 1.5 });
+  });
+});
+
+describe('AC-8: минуты отметки энергии — к часам сервера', () => {
+  const NOW = 1_900_000_000_000;
+  const LATEST = NOW + 5 * 60_000;
+  it('отметка из будущего — не позже часов сервера с допуском; поворот домой и остановка — не раньше отметки', () => {
+    const e = readEnergy({ value: 100, at: NOW + 365 * 86_400_000, mode: 'drain', stopAt: NOW + 400 * 86_400_000 }, LATEST)!;
+    expect(e.at).toBe(LATEST);
+    expect(energyAt(e, NOW + 3_600_000)).toBeLessThan(100);
+    const back = readEnergy({ value: 40, at: NOW, mode: 'drain', homeAt: 0, stopAt: 5 }, LATEST)!;
+    expect(back.homeAt).toBe(NOW);
+    expect(back.stopAt).toBe(NOW);
+    // Честная отметка — как прислана.
+    const fair = readEnergy({ value: 70, at: NOW - 1000, mode: 'drain', homeAt: NOW + 3_600_000 }, LATEST)!;
+    expect(fair).toEqual({ value: 70, at: NOW - 1000, mode: 'drain', homeAt: NOW + 3_600_000 });
+    // Тем же правилом — армия приказа.
+    expect(readArmy({ troops: { spearman: 1 }, energy: { value: 100, at: NOW + 1e12, mode: 'drain' } }, LATEST)!.energy!.at).toBe(LATEST);
+  });
+});
+
+describe('AC-8: пояс игрока — только настоящий', () => {
+  it('выдуманный пояс и мусор — умолчание; настоящий и синоним — как прислан', () => {
+    expect(readPrefs({ tz: 'Mars/Olympus' }).tz).toBe('');
+    expect(readPrefs({ tz: '<b>x</b>' }).tz).toBe('');
+    expect(readPrefs({ tz: 'Europe/Berlin' }).tz).toBe('Europe/Berlin');
+    expect(readPrefs({ tz: 'UTC' }).tz).toBe('UTC');
+    expect(readPrefs({ tz: '' }).tz).toBe('');
+  });
+});
+
+describe('AC-8: срок пути удара и выручки — без среза в сутки', () => {
+  it('честный путь длиннее суток доходит до сервера как есть; бесконечность — нет', () => {
+    const base = { id: 'w1', army: { troops: { spearman: 5 } }, from: { x: 3, y: 4 } };
+    const HOUR = 3_600_000;
+    for (const op of ['strike', 'relief'] as const) {
+      const o = readWarOrder({ op, ...base, walkMs: 30 * HOUR }) as { walkMs: number } | null;
+      expect(o?.walkMs, op).toBe(30 * HOUR);
+      const far = readWarOrder({ op, ...base, walkMs: 1e300 }) as { walkMs: number } | null;
+      expect(Number.isFinite(far!.walkMs)).toBe(true);
+      expect(far!.walkMs).toBe(WALK_MS_MAX);
+    }
   });
 });

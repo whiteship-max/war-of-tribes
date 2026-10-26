@@ -135,6 +135,9 @@ export const castles: Route = async (req, io) => {
     }
 
     const next = prune(upsert(file, key, claim, now, mode), now, key);
+    // Эпоха — ещё раз, перед самой записью (OPS-3): стирание после проверки на входе не воскрешает строку старой эпохи.
+    const late = await eraGate(req, io);
+    if (late) return late;
     const written = await hot.setJSON(KEY, next, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
     if (written.modified) return json(answer(next, key, now));
   }

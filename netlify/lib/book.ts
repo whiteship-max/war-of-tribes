@@ -27,8 +27,9 @@ import { FAITHS, OBSERVANCES, tiltAt } from '../../src/game/data/faiths.js';
 import { MAX_AGENT_LEVEL } from '../../src/game/data/agents.js';
 import { PIP_IDS } from '../../src/battle/index.js';
 import { SIEGE_PIPS_MAX } from '../../src/world/data/siegeroll.js';
-import { readCounts, warFallId, type AdminGrant, type Counts } from './contract.js';
+import { readCounts, warFallId, type AdminGrant, type Counts, type WarSpirit } from './contract.js';
 import type { WarFile } from './war.js';
+import { castleIdOf } from './roster.js';
 import { giftCeil } from '../../src/game/councilrules.js';
 
 /** Подтверждённое войско игрока на минуту `at`. `since` — когда сервер впервые встретил игрока. */
@@ -142,6 +143,9 @@ export function warLosses(file: WarFile, key: string): WarLoss[] {
   const out: WarLoss[] = [];
   for (const w of file.wars) {
     if (w.atk === key) for (const b of w.battles) out.push({ id: b.id, lost: b.atkLost, wounds: true });
+    // Ушедшие налегке на дороге удара и выручки (ДР-5) — больные и отставшие, раненых среди них нет; удар — свой город,
+    // выручка — союзник, по замку.
+    for (const r of w.worn ?? []) if (r.castle === castleIdOf(key)) out.push({ id: r.id, lost: r.lost, wounds: false });
     if (w.def !== key) continue;
     for (const b of w.battles) out.push({ id: b.id, lost: plus(b.homeLost, b.genLost ?? {}), wounds: true });
     if (w.fall) out.push({ id: warFallId(w.id), lost: w.fall.routed, wounds: false });
@@ -321,6 +325,16 @@ export const PIPS_MAX = Math.max(0, MAX_AGENT_LEVEL - 1);
  */
 export const ruleResolve = (r: number, marshal = 0, knights = 0): number =>
   Math.min(RESOLVE_MAX + Math.min(giftCeil('marshal'), Math.max(0, marshal)) + Math.max(0, knights), Math.max(0, r));
+
+/**
+ * Дух в пределах правил (ДР-1): названное слепком или приказом, но не выше потолка книги духа сервера (`watch.spiritCeilOf`).
+ * Ничего не названо — духа нет (клиент до ДР-1: бой по прежним правилам). Потолка нет — названное в пределах шкалы.
+ */
+export function ruleSpirit(claim: WarSpirit | undefined, ceil: WarSpirit | undefined): WarSpirit | undefined {
+  if (!claim) return undefined;
+  const fit = (v: number, top: number): number => Math.max(0, Math.min(100, top, Number.isFinite(v) ? v : 0));
+  return { morale: fit(claim.morale, ceil?.morale ?? 100), discipline: fit(claim.discipline, ceil?.discipline ?? 100) };
+}
 
 /**
  * Отметки в пределах правил: только известные (`PIP_IDS`), целые, сумма не выше `PIPS_MAX` — сверх неё срезаются с конца.

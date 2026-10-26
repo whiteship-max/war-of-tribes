@@ -1,40 +1,56 @@
-// «Дружина» из строки состояния и низа: оборона, кто в ней, передача между гарнизоном и отрядом полководца и вид бойцов
-// карточкой. Передача стоит здесь же, а не за строкой «Раскладка» (UI-4, docs/ui_v2.md, 5.3): решение о том, кто где, —
-// про всё войско, а всё войско видно здесь. Строка вида в передаче — дверь в его карточку; виды, которых в дружине нет,
-// — значками под ней: карточка вида одна, и прежде её открывал список «Состав» всех девяти видов. Кольца контров нет
-// (слово владельца по 14.35, docs/battle_eu4.md): кто кого бьёт, решают показатели.
-import { useState } from 'react';
+// «Дружина» из строки состояния и низа (ДР-1, docs/siege_v2.md, «Решения ДР-1»): уже имеющееся войско — не найм. Сверху мощь
+// обороны и где бойцы, дальше дух — мораль и дисциплина с разбором «что влияет», состав полками по родам (живая сила и
+// раненые), раскладка «Гарнизон | Отряд полководца», жалованье — полное или минимальное — и роспуск с подтверждением. Нанимают
+// в Казармах и Конюшне: здесь к ним кнопки-двери. Передача стоит здесь же, а не за строкой «Раскладка» (UI-4,
+// docs/ui_v2.md, 5.3): решение о том, кто где, — про всё войско, а всё войско видно здесь. Строка вида — дверь в его карточку;
+// виды, которых в дружине нет, — значками внизу: карточка вида одна. Кольца контров нет (слово владельца по 14.35,
+// docs/battle_eu4.md): кто кого бьёт, решают показатели.
+import { Suspense, lazy, useState } from 'react';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { TROOPS } from '@/game/data/troops';
 import { armyPower, armySize, buildingOfType, defense, homeArmy, recruitsQueued } from '@/game/derived';
 import { useWorld, worldNow } from '@/world/store';
-import { WOUND_DAYS } from '@/game/constants';
-import { REST_WHY, restLine } from '../parts/restWords';
-import { waitDays } from '../parts/wait';
+import { restLine } from '../parts/restWords';
 import { count } from '../parts/plural';
 import { TroopCardView } from '../parts/TroopCardView';
 import { Muster, inWallsTip, outWallsTip } from '../parts/Muster';
+import { Dismiss, Roster, SpiritCard, WageChoice } from '../parts/ArmyDesk';
+import { Upkeep } from '../parts/Barracks';
 import { Icon } from '@/ui/icons/Icon';
 import { Num } from '@/ui/kit/Num';
 import { defenseTip, fmtInt, type TipGo } from '@/ui/next/hudTips';
 import { goTo } from '@/ui/kit/nav';
 import { dec } from '@/game/num';
 import { iconName } from '@/ui/icons/registry';
+import { CommandLine } from '../parts/CommandLine';
+import { ScarList } from '../parts/Scars';
+
+// Меню «Командующие» (ДР-3) — своим куском, по кнопке: первой загрузке оно не нужно.
+const CommandDesk = lazy(() => import('@/ui/next/CommandDesk').then((m) => ({ default: m.CommandDesk })));
 
 export function ArmyPanel() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const [open, setOpen] = useState<TroopId | null>(null);
+  const [desk, setDesk] = useState(false);
   const marches = useWorld((g) => g.marches);
   const figures = useWorld((g) => g.figures);
   const barracks = buildingOfType(s, 'barracks');
+  const stable = buildingOfType(s, 'stable');
   const home = homeArmy(s);
   const away = armySize(s) - home;
   const training = recruitsQueued(s);
   const general = figures.find((f) => f.id === 'general');
 
   if (open) return <TroopCardView troop={open} onBack={() => setOpen(null)} />;
+  if (desk) {
+    return (
+      <Suspense fallback={<div className="panel" />}>
+        <CommandDesk onBack={() => setDesk(false)} />
+      </Suspense>
+    );
+  }
 
   const go: TipGo = {
     tab: (t) => goTo({ kind: 'tab', tab: t }),
@@ -69,10 +85,24 @@ export function ArmyPanel() {
           <b className={away > 0 ? 'bad' : ''}>{fmtInt(away)}</b>
         </Num>
       </div>
+
+      {/* Дух — мораль и дисциплина (ДР-1): главные множители силы в бою, с разбором «что влияет» строками. */}
+      <h3>Мораль и дисциплина</h3>
+      <SpiritCard />
+      {general?.rest && <div className="note warn">{restLine(general.rest, 'Отряд дрался', worldNow())}</div>}
+
+      {/* Черты армии (ДР-4): шрамы и привычки по журналу боёв — как получены, что дают, как уходят; разом не больше трёх. */}
+      <h3>Черты</h3>
+      <ScarList />
+
+      <h3>Состав</h3>
+      <Roster />
       {training > 0 && (
         <div className="mod">
-          <span className="ico"><Icon name="ui-target" /></span>
-          <span className="name">Новобранцы</span>
+          <span className="ico">
+            <Icon name="ui-target" />
+          </span>
+          <span className="name">Новобранцы на учениях</span>
           <span className="val">{training}</span>
         </div>
       )}
@@ -81,29 +111,44 @@ export function ArmyPanel() {
       <h3>Гарнизон и отряд</h3>
       <Muster onCard={setOpen} />
 
-      {unhired.length > 0 && (
+      {/* Командиры флангов (ДР-3): кто ведёт левый и правый фланг в отряде полководца; найм и смена — меню «Командующие». */}
+      <h3>Командующие</h3>
+      <CommandLine onOpen={() => setDesk(true)} />
+
+      {/* Жалованье (ДР-1): полное или минимальное; ведомость, доход, долг и терпение — тем же `Upkeep`, что прежде в казармах. */}
+      <h3>Жалованье</h3>
+      <WageChoice />
+      <Upkeep bare />
+
+      {armySize(s) > 0 && (
         <>
-          <h3>Ещё виды</h3>
-          <div className="ms-more">
-            {unhired.map((d) => (
-              <button type="button" key={d.id} className="ms-more-b" onClick={() => setOpen(d.id)} aria-label={`${d.name}: карточка вида`}>
-                <Icon name={iconName('troop', d.id)} />
-              </button>
-            ))}
-          </div>
+          <h3>Роспуск</h3>
+          <Dismiss />
         </>
       )}
 
-      <h3>Мораль между боями</h3>
-      <div className="note">
-        После боя мораль уцелевших проседает и за {waitDays(WOUND_DAYS)} возвращается к полной. {REST_WHY}
+      {/* Найм — в Казармах (пешие) и Конюшне (конница): здесь только двери туда (ДР-1). */}
+      <h3>Найм</h3>
+      <div className="dr-hire">
+        {barracks && (
+          <button type="button" className="btn wide" onClick={() => openBuilding(barracks.id)}>
+            <Icon name="bld-barracks" /> Казармы <small>пешие</small>
+          </button>
+        )}
+        {stable && (
+          <button type="button" className="btn wide" onClick={() => openBuilding(stable.id)}>
+            <Icon name="bld-stable" /> Конюшня <small>конница</small>
+          </button>
+        )}
       </div>
-      {general?.rest && <div className="note warn">{restLine(general.rest, 'Отряд дрался', worldNow())}</div>}
-
-      {barracks && (
-        <button className="btn wide" onClick={() => openBuilding(barracks.id)}>
-          <Icon name="bld-barracks" /> Нанять
-        </button>
+      {unhired.length > 0 && (
+        <div className="ms-more" aria-label="Виды, которых в дружине нет">
+          {unhired.map((d) => (
+            <button type="button" key={d.id} className="ms-more-b" onClick={() => setOpen(d.id)} aria-label={`${d.name}: карточка вида`}>
+              <Icon name={iconName('troop', d.id)} />
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

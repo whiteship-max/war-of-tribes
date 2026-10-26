@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROUTES } from './routes/index.js';
 import { botWith } from './routes/bot.js';
 import { STORES } from './kv.js';
-import { CITY_RULES, WARN, bookOf, buildMult, confirmedOf, confirmedPower, estateCeilOf, flagsBetween, marshalOf, prodOf, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
+import { CITY_RULES, WARN, bookOf, buildMult, confirmedOf, confirmedPower, estateCeilOf, flagsBetween, flagsOf, haulCeil, marshalOf, prodOf, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
 import { ESTATES, LOYAL, estateCeil, influenceOf, loyaltyCeil, privFromRow } from '../../src/game/estaterules.js';
 import { readLedger, settlePurchase } from './gems.js';
 import { ROSTER_KEY, readRoster } from './roster.js';
@@ -10,7 +10,9 @@ import { eatFloorOf, seedTown } from './town.js';
 import { emptyWars, liveSheet, readStoredSheet } from './war.js';
 import type { Telegram } from './telegram.js';
 import { PAY_NOT_COUNTED, PAY_NOT_SOLD } from './words.js';
-import type { GemsResponse, RatingResponse, WarSheet, WatchAdvisor, WatchCard, WatchCouncil, WatchEstates } from './contract.js';
+import type { GemsResponse, RatingResponse, WarSheet, WatchAdvisor, WatchAgent, WatchAgents, WatchCard, WatchCommand, WatchCouncil, WatchEstates } from './contract.js';
+import { commandTier, commanderAt, commanderId } from '../../src/game/commandrules.js';
+import { recruitAdvance, recruitAt, recruitId } from '../../src/game/agentrules.js';
 import { advisorWage, candidateId, councilTier, giftCeil, giftOf, hirePrice, windowOf } from '../../src/game/councilrules.js';
 import type { AdvisorTrait } from '../../src/game/types.js';
 import { RESOLVE_MAX, ruleResolve } from './book.js';
@@ -20,7 +22,7 @@ import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, START_POP, TEST_ARMY_FOOD } from '../../src/game/constants.js';
 import { START_GEMS, fullWork, rushPriceOfWork } from '../../src/game/gemrules.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
-import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
+import { DAY_LENGTH, SPEEDS, gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
 import { STAB_BAND, stabPrice, stabSelfRiseCeil } from '../../src/game/stabrules.js';
 import { crownAnswersCeil, crownEvery } from '../../src/game/crownrules.js';
 import { GOODS_SLACK, drainCeil } from './goods.js';
@@ -126,11 +128,36 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'estates', 'market']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'agents', 'estates', 'market', 'deeds', 'bonded', 'spirit', 'command', 'scars']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
     }
+  });
+
+  // Разовые дела (правило «deeds», AC-1): счётчик дел больше не выключает сверку роста склада — дело даёт допуск по таблице
+  // наград; счёт быстрее 30 в минуту — флаг. Область правила: опись новой сборки (счётчик добра без дела есть), между записями
+  // — минута.
+  it('разовые дела: счётчик +1 и склад из ничего — «рост склада»; 60 дел за минуту — «счёт разовых дел»; честная весть — без флага', async () => {
+    const later = NOW + 60_000;
+    const forged = player(5281);
+    expect(await forged.push(card({ windfalls: 0 }), NOW)).toBe(200);
+    expect(await forged.push(card({ clock: later, time: 1002, windfalls: 0, deeds: 1, stock: { wood: 900_000, stone: 1000, gold: 10 } }), later)).toBe(200);
+    expect(kinds(await forged.watch())).toContain('stock');
+
+    const fast = player(5282);
+    expect(await fast.push(card({ windfalls: 0 }), NOW)).toBe(200);
+    expect(await fast.push(card({ clock: later, time: 1002, windfalls: 0, deeds: 60 }), later)).toBe(200);
+    const rec = await fast.watch();
+    expect(kinds(rec)).toContain('deeds');
+    expect(warnings(rec).some((x) => /Разовых дел \+60 за 1 мин/.test(x)), 'строка «внимание:»').toBe(true);
+
+    const honest = player(5283);
+    expect(await honest.push(card({ windfalls: 0 }), NOW)).toBe(200);
+    expect(await honest.push(card({ clock: later, time: 1002, windfalls: 0, deeds: 1, stock: { wood: 1000, stone: 1000, food: 50, gold: 10 } }), later)).toBe(200);
+    const fair = kinds(await honest.watch());
+    expect(fair).not.toContain('stock');
+    expect(fair).not.toContain('deeds');
   });
 
   // Книга стабильности (docs/stability.md, 2.7): опись везёт ступень и счёт; сервер сверяет их формулами игры (`game/stabrules`).
@@ -294,6 +321,48 @@ describe('таблица правил города: каждое правило 
     expect(storageOf(big)).toBeGreaterThan(cap * 3);
     expect(kinds(rec)).toContain('cap');
     expect(warnings(rec).some((t) => /вместимости подтверждённых построек/.test(t))).toBe(true);
+  });
+
+  it('AC-4: опись назвала вместимость нулём — склад сверх подтверждённой всё равно «внимание:» (архив prove-5-1)', async () => {
+    const p = player(5121);
+    const cap = storageOf(LEVEL1);
+    expect(await p.push(card({ cap: 0, stock: { wood: cap * 3, gold: 10 } }), NOW)).toBe(200);
+    const rec = await p.watch();
+    expect(kinds(rec)).toContain('cap');
+    expect(warnings(rec).some((t) => /вместимости подтверждённых построек/.test(t))).toBe(true);
+    // Честная опись у самой вместимости — без флага: точка у края правила.
+    const q = player(5122);
+    expect(await q.push(card({ cap, stock: { wood: cap, gold: 10 } }), NOW)).toBe(200);
+    expect(kinds(await q.watch())).not.toContain('cap');
+  });
+
+  it('AC-4: потолок добычи промысла считает сервер из выработки, а не берёт из описи', () => {
+    const prod = { wood: 300, food: 600, hides: 40, gold: 20 };
+    const a = card({ prod, games: 0, haul: 0, haulCap: 0 });
+    const ceil = haulCeil(prodOf(a));
+    expect(ceil).toBeGreaterThan(0);
+    const b = (over: Partial<WatchCard>): WatchCard => card({ ...over, prod, clock: NOW + HOUR, time: a.time + gameSecondsOfMs(HOUR) });
+    const flags = (y: WatchCard): FlagKind[] => flagsBetween(a, NOW, y, NOW + HOUR).map((f) => f.kind);
+    // Огромный потолок в описи не пропускает добычу сверх потолка по выработке.
+    expect(flags(b({ games: 2, haul: Math.ceil(ceil * 2) + 50, haulCap: 1e9 }))).toContain('haul');
+    // Честная добыча — до потолка по выработке — без флага, какой бы потолок ни назвала опись.
+    expect(flags(b({ games: 2, haul: Math.floor(ceil * 2), haulCap: 0 }))).not.toContain('haul');
+    // Сама опись с потолком выше выработки — флаг; потолок по выработке — нет.
+    expect(flagsOf(card({ prod, haulCap: 1e9 }), NOW).map((f) => f.kind)).toContain('haul');
+    expect(flagsOf(card({ prod, haulCap: Math.floor(ceil) }), NOW).map((f) => f.kind)).not.toContain('haul');
+  });
+
+  it('AC-8: опережение часов растёт не быстрее высшей скорости проверки — названное сверх не открывает время', () => {
+    const a = card({ lead: 0 });
+    const flags = (y: WatchCard): FlagKind[] => flagsBetween(a, NOW, y, NOW + HOUR).map((f) => f.kind);
+    // Опережение на триста лет за час — время партии за ним не пускается, и сам рост — флаг.
+    const forged = card({ lead: 1e13, time: a.time + gameSecondsOfMs(1e12), clock: NOW + HOUR });
+    expect(flags(forged)).toContain('time');
+    expect(flags(forged)).toContain('haste');
+    // Честная высшая скорость: опережение (120 − 1) часов за час — время партии за ним идёт без флага «время».
+    const top = SPEEDS[SPEEDS.length - 1];
+    const fair = card({ lead: (top - 1) * HOUR, time: a.time + gameSecondsOfMs(top * HOUR), clock: NOW + HOUR });
+    expect(flags(fair)).not.toContain('time');
   });
 
   it('войска больше нанятых: пять тысяч копейщиков с первой записи — сервер подтверждает ноль, в рейтинг они не идут', async () => {
@@ -989,5 +1058,125 @@ describe('РТ-2: сословия на сервере — честная опо
     expect(k).toBeCloseTo(estateCeilOf(knights.card!, LEVEL1).resolve, 9);
     expect(ruleResolve(RESOLVE_MAX + 1e6, 0, k)).toBeCloseTo(RESOLVE_MAX + k, 9);
     expect(marshalOf(readWatchRecord({ first: NOW, card: card() }), NOW).knights, 'опись без сословий — стойкости рыцарей нет').toBeUndefined();
+  });
+});
+
+// Агенты Ратуши (АГ-1, docs/city_v3.md, «Решения АГ-1»): опись несёт людей на местах агентов и сид партии, сервер выводит
+// кандидатов сам (`agentrules.recruitAt`) и пишет книгу агентов (`agentbook.agentsStep`). Область правила: опись с сидом и
+// агентами; найм — между описями; ратуша первого уровня даёт только первую ступень (точка внутри — утверждением в тесте).
+describe('АГ-1: агенты Ратуши на сервере — честный найм без флага, подделка — «внимание:»', () => {
+  const SEED = 777;
+  const seats = (spy: Partial<WatchAgent> = {}): WatchAgent[] => [
+    { role: 'general', person: 0, xp: 0 },
+    { role: 'scout', person: 0, xp: 0 },
+    { role: 'spy', person: 0, xp: 0, ...spy },
+    { role: 'diplomat', person: 0, xp: 0 },
+  ];
+  const agents = (list: WatchAgent[], o: Partial<WatchAgents> = {}): WatchAgents => ({ seats: list, hired: 0, fees: 0, paid: 0, ...o });
+  const hired = (tier: number): Partial<WatchAgent> => ({ person: 1, n: recruitId(windowOf(1000), 'spy', 0), tier, at: 1000 });
+  const advance = (tier: number): number => {
+    const r = recruitAt(SEED, recruitId(windowOf(1000), 'spy', 0), tier);
+    return recruitAdvance(r.level, r.traits);
+  };
+
+  it('честный найм первой ступени — без флага; книга держит сид и человека', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    expect(councilTier(LEVEL1.town_hall ?? 0), 'точка внутри: ратуша 1 даёт первую ступень').toBe(1);
+    const honest = player(5501);
+    expect(await honest.push(card({ seed: SEED, agents: agents(seats()) }), NOW)).toBe(200);
+    expect(await honest.push(card({ clock: later, time: t, seed: SEED, agents: agents(seats(hired(1)), { hired: 1, fees: advance(1) }) }), later)).toBe(200);
+    const rec = await honest.watch();
+    expect(kinds(rec)).not.toContain('agents');
+    expect(rec.agents?.seed).toBe(SEED);
+    expect(rec.agents?.seats.spy?.n).toBe(recruitId(windowOf(1000), 'spy', 0));
+  });
+
+  it('кандидат выше ступени ратуши, найм без счёта, сид сменился — «внимание:»; человек ровный, книга — по новому сиду', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    const high = player(5502);
+    expect(await high.push(card({ seed: SEED, agents: agents(seats()) }), NOW)).toBe(200);
+    expect(await high.push(card({ clock: later, time: t, seed: SEED, agents: agents(seats(hired(3)), { hired: 1, fees: advance(3) }) }), later)).toBe(200);
+    const rec = await high.watch();
+    expect(warnings(rec).some((x) => /ступени 3 при ратуше/.test(x))).toBe(true);
+    expect(rec.agents?.seats.spy?.n, 'человек ровный').toBeUndefined();
+
+    const uncounted = player(5503);
+    expect(await uncounted.push(card({ seed: SEED, agents: agents(seats()) }), NOW)).toBe(200);
+    expect(await uncounted.push(card({ clock: later, time: t, seed: SEED, agents: agents(seats(hired(1))) }), later)).toBe(200);
+    expect(warnings(await uncounted.watch()).some((x) => /наймов в счёте 0/.test(x))).toBe(true);
+
+    const reseed = player(5504);
+    expect(await reseed.push(card({ seed: SEED, agents: agents(seats()) }), NOW)).toBe(200);
+    expect(await reseed.push(card({ clock: later, time: t, seed: SEED + 1, agents: agents(seats()) }), later)).toBe(200);
+    const r2 = await reseed.watch();
+    expect(warnings(r2).some((x) => /сид партии сменился/.test(x))).toBe(true);
+    expect(r2.agents?.seed, 'новая партия — книга по новому сиду').toBe(SEED + 1);
+  });
+});
+
+// Командиры флангов (ДР-3, docs/siege_v2.md, «Решения ДР-3»): опись несёт места (номер кандидата, ступень, минута), сервер выводит
+// кандидата сам по сиду книги агентов и пишет книгу командиров (`commandbook.commandStep`). Область правила: опись с сидом и
+// местами; найм — между описями; Казармы первого уровня дают только первую ступень (точка внутри — утверждением в тесте).
+describe('ДР-3: командиры флангов на сервере — честный найм без флага, подделка — «внимание:» и пустое место', () => {
+  const SEED = 778;
+  const n0 = commanderId(windowOf(1000), 0);
+  const seats = (): WatchAgent[] => ['general', 'scout', 'spy', 'diplomat'].map((role) => ({ role, person: 0, xp: 0 }));
+  const command = (tier: number, o: Partial<WatchCommand> = {}): WatchCommand => {
+    const c = commanderAt(SEED, n0, tier);
+    return { seats: [{ flank: 'left', n: n0, tier, at: 1000 }], hired: 1, fees: recruitAdvance(c.level, c.traits), paid: 0, ...o };
+  };
+
+  it('честный найм первой ступени — без флага; книга держит место', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    expect(commandTier(LEVEL1.barracks ?? 0), 'точка внутри: Казармы 1 дают первую ступень').toBe(1);
+    const honest = player(5511);
+    expect(await honest.push(card({ seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 } }), NOW)).toBe(200);
+    expect(await honest.push(card({ clock: later, time: t, seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 }, command: command(1) }), later)).toBe(200);
+    const rec = await honest.watch();
+    expect(kinds(rec)).not.toContain('command');
+    expect(rec.command?.seats.left?.n).toBe(n0);
+  });
+
+  it('кандидат выше ступени Казарм и найм без счёта — «внимание:»; место пустое', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    const high = player(5512);
+    expect(await high.push(card({ seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 } }), NOW)).toBe(200);
+    expect(await high.push(card({ clock: later, time: t, seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 }, command: command(3) }), later)).toBe(200);
+    const rec = await high.watch();
+    expect(kinds(rec)).toContain('command');
+    expect(warnings(rec).some((x) => /ступени 3 при Казармах/.test(x))).toBe(true);
+    expect(rec.command?.seats.left, 'место пустое').toBeUndefined();
+
+    const uncounted = player(5513);
+    expect(await uncounted.push(card({ seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 } }), NOW)).toBe(200);
+    expect(await uncounted.push(card({ clock: later, time: t, seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 }, command: command(1, { hired: 0, fees: 0 }) }), later)).toBe(200);
+    expect(warnings(await uncounted.watch()).some((x) => /наймов в счёте 0/.test(x))).toBe(true);
+  });
+});
+
+// Черты армии (ДР-4, docs/siege_v2.md, «Решения ДР-4», Ш7): опись несёт черты клиента, номера боёв войны и черты войны по ним; сервер
+// ими не пользуется, а сверяет с правилом и своим журналом (`scarbook.scarFaults`). Область правила: опись с чертами; боёв войны у
+// игрока нет — номеров войны в описи нет (точка внутри — утверждением).
+describe('ДР-4: черты армии на сервере — честная опись без флага, подделка — «внимание:»', () => {
+  it('честные черты из боёв с логовами — без флага: серверу их не проверить, в войну они не идут', async () => {
+    const honest = player(5611);
+    expect(await honest.push(card({ scars: { held: ['ghosts', 'fords'], war: [], warHeld: [] } }), NOW)).toBe(200);
+    const rec = await honest.watch();
+    expect(kinds(rec)).not.toContain('scars');
+    expect(rec.scars, 'журнала сервера нет: боёв войны не было').toBeUndefined();
+  });
+  it('черта не из таблицы, четыре черты и бой войны, которого не было, — «внимание:»', async () => {
+    const forged = player(5612);
+    expect(await forged.push(card({ scars: { held: ['ghosts', 'dragon', 'fords', 'walls'], war: ['w9.0'], warHeld: ['walls'] } }), NOW)).toBe(200);
+    const rec = await forged.watch();
+    expect(kinds(rec)).toContain('scars');
+    const w = warnings(rec).join(' ');
+    expect(w).toMatch(/не из таблицы: «dragon»/);
+    expect(w).toMatch(/больше 3/);
+    expect(w).toMatch(/которых у сервера нет: w9\.0/);
   });
 });

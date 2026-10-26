@@ -9,15 +9,29 @@
  *     засчитается ни второму заказу, ни второму игроку, ни в следующей эпохе.
  *  2. Заказ переходит «оплачен → начислено» один раз; начисленный больше не проверяется.
  *  3. Книга алмазов помнит ключ покупки `pay:<номер>` без обрезки (`GemLedger.paid`).
+ *  4. Вечный замок начисления заказа (FIN-6, АУ-8 — решение владельца 26.10.2026): `credit/<номер>` в том же `tribe-paid`,
+ *     которого `/wipeworld` не трогает, берётся до записи книги и помнит эпоху начисления. Одна оплата — одно начисление за все
+ *     эпохи, и тогда, когда чистый старт пришёлся между записью книги и пометкой «начислено» (`creditLock`).
+ *
+ * Просмотр сети — один на кошелёк проекта, курсором (FIN-1, аудит 25.10.2026): каждая проверка читает транзакции после
+ * последней разобранной (`scan/…` в хранилище заказов) и раскладывает найденное по заказам **любого** игрока через указатель
+ * «номер заказа → игрок» (`order/<номер>`). Прежде проверка игрока смотрела от своего старейшего искомого заказа и молча
+ * обрывалась на пятистах транзакциях: неоплаченный заказ недельной давности или поток чужих транзакций прятал новые
+ * платежи. Курсор не перешагивает транзакцию, ещё не записанную в мастерчейн.
+ *
+ * Перевод, который не начисляется, не пропадает молча (FIN-7): сумма не та, повторная оплата оплаченного заказа, поздний
+ * перевод, неизвестный заказ — запись в очередь возвратов (`refund/<хеш>`) и одно письмо админам в бот. Автоматически
+ * ничего не начисляется и не возвращается (решение владельца, п. 4): возврат — переводом из кошелька проекта, руками.
  *
  * Клиенту здесь не верят ни в чём: он называет набор и адрес своего кошелька, а сумму, комментарий, получателя и
  * кошелёк жетона считает сервер; «я заплатил» (`sent`) только переводит заказ в «ждёт перевода» — начисляет только
  * перевод, найденный в сети. Админ начислить не может: `/payments` только читает (`peekPayments`).
  */
 import { parseJson, WRITE_TRIES } from './http.js';
-import { STORES, type Stores } from './kv.js';
+import { STORES, type Kv, type Stores } from './kv.js';
 import { PAY_ID, payComment, readPayOrder, type PayOrderView, type PayTx } from './contract.js';
 import { settlePurchase } from './gems.js';
+import { eraNow } from './era.js';
 import {
   CHAIN,
   TRANSFER_GAS,
@@ -31,6 +45,7 @@ import {
   unitsOf,
   type Fetch,
   type PayConfig,
+  type TonTx,
 } from './ton.js';
 import { GEM_PACKS } from '../../src/game/data/gems.js';
 
@@ -42,6 +57,8 @@ export interface StoredOrder extends PayOrderView {
   tx?: string;
   /** Номер записи журнала алмазов, когда начислено. */
   n?: number;
+  /** Эпоха мира, в которой заказ сделан (FIN-6): оплата после чистого старта ложится в текущую эпоху, один раз. */
+  era?: number;
 }
 
 export interface PayFile {
@@ -57,8 +74,14 @@ export const PAY_LATE_MS = 7 * 24 * 3600_000;
 export const SIGN_S = 10 * 60;
 /** Заказов, ждущих перевода, разом. */
 export const OPEN_MAX = 3;
-/** Сколько заказов игрока лежит. Открытые и оплаченные не вытесняются. */
+/** Сколько заказов игрока лежит. Открытые, оплаченные и те, чей перевод ещё ищется, сверх этого не вытесняются. */
 export const KEEP = 20;
+/**
+ * Жёсткий потолок заказов игрока (FIN-3): искомые сверх него вытесняются старейшими, оплаченный — никогда. Сито заказов
+ * (`OPEN_MAX` открытых разом) за неделю поиска пускает истёкших больше потолка; перевод на вытесненный не теряется молча —
+ * просмотр кошелька кладёт его в очередь возвратов (FIN-7).
+ */
+export const PAY_HARD_MAX = 200;
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -81,6 +104,7 @@ export function readPayFile(v: unknown): PayFile {
       const s: StoredOrder = { ...o, units };
       if (typeof r.tx === 'string' && /^[0-9a-f]{64}$/.test(r.tx)) s.tx = r.tx;
       if (typeof r.n === 'number' && Number.isInteger(r.n) && r.n > 0) s.n = r.n;
+      if (typeof r.era === 'number' && Number.isSafeInteger(r.era) && r.era >= 0) s.era = r.era;
       orders.push(s);
     }
   }
@@ -89,10 +113,11 @@ export function readPayFile(v: unknown): PayFile {
 
 /** Заказ глазами игрока. */
 export const viewOf = (o: StoredOrder): PayOrderView => {
-  const { units, tx, n, ...view } = o;
+  const { units, tx, n, era, ...view } = o;
   void units;
   void tx;
   void n;
+  void era;
   return view;
 };
 
@@ -101,13 +126,20 @@ const open = (o: StoredOrder, now: number): boolean => (o.state === 'created' ||
 const hunted = (o: StoredOrder, now: number): boolean =>
   (o.state === 'created' || o.state === 'waiting' || o.state === 'expired') && now - o.at <= PAY_LATE_MS;
 
-/** Обрезка: открытые и оплаченные-неначисленные остаются, вытесняются старые закрытые. */
-function trimmed(orders: StoredOrder[], now: number): StoredOrder[] {
+/**
+ * Обрезка до `KEEP`: вытесняются старые закрытые, а открытые, оплаченные-неначисленные и те, чей перевод ещё ищется
+ * (истёкшие в пределах `PAY_LATE_MS` тоже), остаются. Прежде истёкший, но искомый заказ вытеснялся, и поздний перевод на
+ * него не находился (FIN-3). Сверх `PAY_HARD_MAX` — старейшие из искомых; оплаченный не вытесняется никогда.
+ */
+export function trimmed(orders: StoredOrder[], now: number): StoredOrder[] {
   if (orders.length <= KEEP) return orders;
-  const keep = new Set(orders.filter((o) => open(o, now) || o.state === 'paid' || (hunted(o, now) && o.state !== 'expired')).map((o) => o.id));
+  const keep = new Set(orders.filter((o) => open(o, now) || o.state === 'paid' || hunted(o, now)).map((o) => o.id));
   const rest = orders.filter((o) => !keep.has(o.id));
   const drop = new Set(rest.slice(0, orders.length - KEEP).map((o) => o.id));
-  return orders.filter((o) => !drop.has(o.id));
+  const left = orders.filter((o) => !drop.has(o.id));
+  if (left.length <= PAY_HARD_MAX) return left;
+  const cut = new Set(left.filter((o) => o.state !== 'paid').slice(0, left.length - PAY_HARD_MAX).map((o) => o.id));
+  return left.filter((o) => !cut.has(o.id));
 }
 
 /**
@@ -166,9 +198,17 @@ export async function createOrder(
   } catch {
     return 'Сеть TON не ответила. Попробуй ещё раз.';
   }
+  let era: number;
+  try {
+    era = (await eraNow(stores)).era;
+  } catch {
+    return 'Сокровищница не ответила. Попробуй ещё раз.';
+  }
   const id = newOrderId(rand);
   const units = unitsOf(pack.usdt, cfg.decimals);
-  const order: StoredOrder = { id, pack: pack.id, gems: pack.amount, usdt: pack.usdt, at: now, until: now + PAY_TTL_MS, state: 'created', units: units.toString() };
+  const order: StoredOrder = { id, pack: pack.id, gems: pack.amount, usdt: pack.usdt, at: now, until: now + PAY_TTL_MS, state: 'created', units: units.toString(), era };
+  // Указатель «номер → игрок» — раньше, чем номер уйдёт в перевод: перевод, найденный чужой проверкой, ляжет этому заказу.
+  if (!(await indexOrder(stores, id, player))) return 'Сокровищница не ответила. Попробуй ещё раз.';
   const body = transferBody({ units, to: cfg.wallet, back: owner, comment: payComment(id), queryId: BigInt(now) });
   const tx: PayTx = {
     validUntil: Math.floor(now / 1000) + SIGN_S,
@@ -210,8 +250,80 @@ export async function claimTx(stores: Stores, hash: string, player: string, orde
   }
 }
 
-/** Что нашли в сети для заказа: перевод с верной суммой или с неверной (её — словами). */
-type Found = { tx: string } | { wrong: string };
+// ------------------------------------------------ вечный замок начисления (FIN-6) ---
+
+/** Ключ вечного замка начисления заказа в `tribe-paid`: рядом с хешами переводов, не стирается чистым стартом. */
+export const creditKey = (order: string): string => `credit/${order}`;
+
+/**
+ * Замок начисления заказа (FIN-6, АУ-8): чей заказ, в какую эпоху начисляют и легло ли (`done`, с номером записи журнала).
+ * Без `done` — начисление начато: в той же эпохе его доводят (ключ покупки в книге начислит один раз), в другой — неизвестно,
+ * легло ли оно в стёртую книгу, и вслепую не начисляют (письмо админам).
+ */
+export interface CreditLock {
+  v: 1;
+  player: string;
+  order: string;
+  era: number;
+  at: number;
+  done?: true;
+  n?: number;
+}
+
+export function readCreditLock(v: unknown): CreditLock | null {
+  const r = v as Record<string, unknown> | null;
+  if (!r || typeof r !== 'object' || typeof r.player !== 'string' || typeof r.order !== 'string') return null;
+  const era = Number(r.era);
+  if (!Number.isInteger(era) || era < 0) return null;
+  return {
+    v: 1,
+    player: r.player,
+    order: r.order,
+    era,
+    at: Number(r.at) || 0,
+    ...(r.done === true ? { done: true as const } : {}),
+    ...(Number.isInteger(r.n) && Number(r.n) > 0 ? { n: Number(r.n) } : {}),
+  };
+}
+
+/**
+ * Взять замок начисления заказа в эпоху `era` — в пустое место; занят — прочесть. `null` — хранилище не ответило или замок
+ * чужой (другой игрок или порча): начислять нельзя.
+ */
+async function creditLock(stores: Stores, player: string, order: string, era: number, at: number): Promise<CreditLock | null> {
+  const kv = stores(STORES.paid, 'strong');
+  const mine: CreditLock = { v: 1, player, order, era, at };
+  try {
+    if ((await kv.setJSON(creditKey(order), mine, { onlyIfNew: true })).modified) return mine;
+    const found = await kv.getWithMetadata(creditKey(order));
+    const was = readCreditLock(found ? parseJson(String(found.data)) : null);
+    return was && was.player === player && was.order === order ? was : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Начисление легло: замок помнит эпоху и номер записи — навсегда. */
+async function creditDone(stores: Stores, lock: CreditLock, n: number | undefined): Promise<boolean> {
+  try {
+    await stores(STORES.paid, 'strong').setJSON(creditKey(lock.order), { ...lock, done: true, ...(n ? { n } : {}) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Книга отказала — покупка не легла: замок отпускается, следующая проверка начислит. Легло (`done`) — не трогается. */
+async function creditFree(stores: Stores, lock: CreditLock): Promise<void> {
+  const kv = stores(STORES.paid, 'strong');
+  try {
+    const found = await kv.getWithMetadata(creditKey(lock.order));
+    const now = readCreditLock(found ? parseJson(String(found.data)) : null);
+    if (now && !now.done && now.era === lock.era) await kv.delete(creditKey(lock.order));
+  } catch {
+    /* замок той же эпохи доведёт следующая проверка */
+  }
+}
 
 const usdtText = (units: bigint, decimals: number): string => {
   const d = 10n ** BigInt(decimals);
@@ -219,33 +331,277 @@ const usdtText = (units: bigint, decimals: number): string => {
   return `${units / d}${frac ? `.${frac}` : ''}`;
 };
 
+// ------------------------------------------------ просмотр кошелька (FIN-1) ---
+
+/** Где кончил просмотр кошелька проекта: после транзакции `lt` (её минута — `at`); пока транзакций не было — с `since`. */
+export interface ScanCursor {
+  v: 1;
+  lt?: string;
+  at: number;
+  since: number;
+}
+
+/** Ключ курсора: сеть и кошелёк — курсор одного кошелька другому не годится. */
+export const cursorKey = (cfg: PayConfig): string => `scan/${cfg.net}/${cfg.wallet.workChain}_${cfg.wallet.hash.toString('hex')}`;
+/** Ключ указателя «номер заказа → игрок». */
+export const orderKey = (id: string): string => `order/${id}`;
+/** Файл заказов игрока — ключ `tg-<id>`; курсор и указатели лежат в том же хранилище под своими ключами. */
+const isPlayerKey = (key: string): boolean => key.startsWith('tg-');
+
 /**
- * Найти в сети переводы заказов, которые их ждут. Засчитываем только уведомление `transfer_notification`, которое прислал
- * **кошелёк жетона проекта** (адрес — словами мастера USDT), записанное в мастерчейн, с комментарием `TRIBE-<номер>`.
- * Сумма не та — заказ не оплачен, причина словами.
+ * Сколько ждём записи транзакции в мастерчейн, прежде чем курсор её перешагнёт. Блок шарда входит в мастерчейн за
+ * секунды; транзакция, не записанная за час, — из блока, которого в сети нет: перевода не было, а курсор не должен
+ * стоять на ней вечно.
  */
-export async function huntTransfers(cfg: PayConfig, fetcher: Fetch, orders: StoredOrder[], now: number): Promise<Map<string, Found>> {
-  const out = new Map<string, Found>();
-  const wanted = orders.filter((o) => hunted(o, now));
-  if (!wanted.length) return out;
-  const ours = await projectJettonWallet(cfg, fetcher);
-  const since = Math.min(...wanted.map((o) => o.at)) - 60_000;
-  const byId = new Map(wanted.map((o) => [o.id, o]));
-  for (const tx of await incoming(cfg, fetcher, since)) {
-    if (!tx.final || !tx.source || !tx.source.equals(ours)) continue;
-    const notice = readNotice(tx.body);
-    const m = notice ? /^TRIBE-([A-Z0-9]{10})$/.exec(notice.comment.trim()) : null;
-    const o = m && PAY_ID.test(m[1]) ? byId.get(m[1]) : undefined;
-    if (!notice || !o || out.get(o.id) && 'tx' in out.get(o.id)!) continue;
-    if (notice.units === BigInt(o.units)) out.set(o.id, { tx: tx.hash });
-    else out.set(o.id, { wrong: `Пришло ${usdtText(notice.units, cfg.decimals)} USDT вместо ${o.usdt}, алмазы не начислены. Напиши мастерам игры.` });
+export const STUCK_MS = 3600_000;
+
+export function readCursor(v: unknown): ScanCursor | null {
+  const r = v as Record<string, unknown> | null;
+  if (!r || typeof r !== 'object' || typeof r.since !== 'number' || !Number.isFinite(r.since)) return null;
+  const lt = typeof r.lt === 'string' && /^\d{1,20}$/.test(r.lt) ? r.lt : undefined;
+  const at = typeof r.at === 'number' && Number.isFinite(r.at) ? r.at : 0;
+  return { v: 1, ...(lt ? { lt } : {}), at, since: r.since };
+}
+
+/** Указатель заказа из хранилища: чей заказ; кривой или нет — `undefined`. */
+export function readOrderOwner(v: unknown): string | undefined {
+  const player = (v as { player?: unknown } | null)?.player;
+  return typeof player === 'string' && isPlayerKey(player) ? player : undefined;
+}
+
+/** Указатель заказа: чей. Нет — `undefined`; хранилище не ответило — `null`. */
+async function ownerOf(kv: Kv, id: string): Promise<string | undefined | null> {
+  try {
+    const found = await kv.getWithMetadata(orderKey(id));
+    return readOrderOwner(found ? parseJson(String(found.data)) : null);
+  } catch {
+    return null;
   }
-  return out;
+}
+
+/** Завести указатель «номер → игрок» в пустое место. `true` — лежит этот (заведён сейчас или раньше тем же игроком). */
+async function indexOrder(stores: Stores, id: string, player: string): Promise<boolean> {
+  const kv = stores(STORES.pay, 'strong');
+  try {
+    const w = await kv.setJSON(orderKey(id), { player }, { onlyIfNew: true });
+    if (w.modified) return true;
+    return (await ownerOf(kv, id)) === player;
+  } catch {
+    return false;
+  }
+}
+
+/** Первый просмотр кошелька: указатели всем лежащим заказам — заведённым до просмотра курсором. `false` — не все. */
+async function indexAll(stores: Stores): Promise<boolean> {
+  const kv = stores(STORES.pay, 'strong');
+  try {
+    const { blobs } = await kv.list({});
+    for (const { key } of blobs) {
+      if (!isPlayerKey(key)) continue;
+      const found = await kv.getWithMetadata(key);
+      for (const o of readPayFile(found ? parseJson(String(found.data)) : null).orders) {
+        if (!(await indexOrder(stores, o.id, key))) return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Сдвинуть курсор вперёд условной записью; чужой просмотр ушёл дальше — его курсор остаётся. */
+async function moveCursor(kv: Kv, key: string, next: ScanCursor): Promise<void> {
+  for (let tries = 0; tries < WRITE_TRIES; tries++) {
+    const found = await kv.getWithMetadata(key);
+    const cur = readCursor(found ? parseJson(String(found.data)) : null);
+    if (cur?.lt && (!next.lt || BigInt(cur.lt) >= BigInt(next.lt))) return;
+    const w = await kv.setJSON(key, next, found?.etag ? { onlyIfMatch: found.etag } : { onlyIfNew: true });
+    if (w.modified) return;
+  }
 }
 
 /**
- * Проверка заказов игрока: найти переводы в сети, занять их, начислить оплаченное, отметить истёкшие. Сеть не
- * ответила — заказы как были, начисляем то, что уже «оплачено». Возвращает заказы и сколько алмазов легло сейчас.
+ * Разобрать одну финальную транзакцию кошелька проекта. Засчитываем только уведомление `transfer_notification`, которое
+ * прислал **кошелёк жетона проекта** (адрес — словами мастера USDT), с комментарием `TRIBE-<номер>`; заказ ищем
+ * указателем у любого игрока. Сумма та и заказ ищется — перевод занимается вечно и заказ «оплачен»; сумма не та — причина
+ * словами. `false` — хранилище не ответило: курсор встаёт перед этой транзакцией, следующая проверка разберёт её снова.
+ */
+async function settleTx(stores: Stores, cfg: PayConfig, ours: TonTx['source'], tx: TonTx, now: number, tell?: Tell): Promise<boolean> {
+  if (!tx.source || !ours || !tx.source.equals(ours)) return true;
+  const notice = readNotice(tx.body);
+  const m = notice ? /^TRIBE-([A-Z0-9]{10})$/.exec(notice.comment.trim()) : null;
+  if (!notice || !m || !PAY_ID.test(m[1])) return true;
+  const id = m[1];
+  const usdt = usdtText(notice.units, cfg.decimals);
+  // Деньги пришли, а начислять не за что, — в очередь возвратов (FIN-7).
+  const refund = (why: string, player?: string): Promise<boolean> =>
+    queueRefund(stores, { v: 1, hash: tx.hash, at: tx.at, seen: now, units: notice.units.toString(), usdt, order: id, ...(player ? { player } : {}), why }, tell);
+  const player = await ownerOf(stores(STORES.pay, 'strong'), id);
+  if (player === null) return false;
+  if (!player) return refund('заказа с таким номером сервер не выдавал');
+  let orders: StoredOrder[];
+  try {
+    orders = await readOrders(stores, player);
+  } catch {
+    return false;
+  }
+  const o = orders.find((x) => x.id === id);
+  if (!o) return refund('заказа уже нет в списке игрока', player);
+  if (o.state === 'paid' || o.state === 'credited') return o.tx === tx.hash ? true : refund(`повторная оплата: заказ уже оплачен (${o.usdt} USDT)`, player);
+  if (!hunted(o, now)) return refund('поздний перевод: заказ истёк больше недели назад', player);
+  if (notice.units !== BigInt(o.units)) {
+    const note = `Пришло ${usdt} USDT вместо ${o.usdt}, алмазы не начислены. Напиши мастерам игры.`;
+    if (!(await refund(`сумма не та: ждали ${o.usdt} USDT`, player))) return false;
+    return (await noteOrder(stores, player, id, note)) !== null;
+  }
+  const mine = await claimTx(stores, tx.hash, player, id, now);
+  if (mine === null) return false;
+  if (mine === false) return (await noteOrder(stores, player, id, 'Этот перевод уже засчитан другому заказу.')) !== null;
+  const done = await updatePay(stores, player, (f) => {
+    const x = f.orders.find((y) => y.id === id);
+    if (!x || x.state === 'paid' || x.state === 'credited') return null;
+    return {
+      v: 1,
+      orders: f.orders.map((y): StoredOrder => {
+        if (y.id !== id) return y;
+        const { note, ...rest } = y;
+        void note;
+        return { ...rest, state: 'paid', tx: tx.hash };
+      }),
+    };
+  });
+  return done !== null;
+}
+
+// ------------------------------------------------ очередь возвратов (FIN-7) ---
+
+/** Перевод USDT, который не начислен и ждёт возврата руками. */
+export interface RefundEntry {
+  v: 1;
+  /** Хеш транзакции — ключ записи: один перевод — одна запись и одно письмо. */
+  hash: string;
+  /** Минута перевода в сети и минута, когда просмотр его разобрал. */
+  at: number;
+  seen: number;
+  /** Сколько пришло — в наименьших единицах жетона и словами. */
+  units: string;
+  usdt: string;
+  /** Чей заказ и какой — если указатель нашёл. */
+  player?: string;
+  order?: string;
+  /** Почему не начислено — словами для админа. */
+  why: string;
+}
+
+/** Ключ записи очереди возвратов. */
+export const refundKey = (hash: string): string => `refund/${hash}`;
+
+export function readRefund(v: unknown): RefundEntry | null {
+  const r = v as Record<string, unknown> | null;
+  if (!r || typeof r !== 'object' || typeof r.hash !== 'string' || typeof r.why !== 'string') return null;
+  const num = (x: unknown): number => (typeof x === 'number' && Number.isFinite(x) ? x : 0);
+  return {
+    v: 1,
+    hash: r.hash,
+    at: num(r.at),
+    seen: num(r.seen),
+    units: typeof r.units === 'string' && /^\d{1,30}$/.test(r.units) ? r.units : '0',
+    usdt: typeof r.usdt === 'string' ? r.usdt : '?',
+    ...(typeof r.player === 'string' ? { player: r.player } : {}),
+    ...(typeof r.order === 'string' ? { order: r.order } : {}),
+    why: r.why,
+  };
+}
+
+/** Чем сказать админам: письмо в бот (обработчик даёт адаптер Telegram, тесты — подмену). */
+export type Tell = (text: string) => Promise<void>;
+
+/**
+ * Положить перевод в очередь возвратов — в пустое место: запись по хешу одна, и письмо админам уходит один раз, сколько бы
+ * проверок ни разобрали этот перевод. `false` — хранилище не ответило: курсор встанет перед переводом.
+ */
+async function queueRefund(stores: Stores, entry: RefundEntry, tell?: Tell): Promise<boolean> {
+  let fresh: boolean;
+  try {
+    fresh = (await stores(STORES.pay, 'strong').setJSON(refundKey(entry.hash), entry, { onlyIfNew: true })).modified;
+  } catch {
+    return false;
+  }
+  if (fresh && tell) {
+    const who = entry.player ? `${entry.player}, заказ ${entry.order}` : entry.order ? `заказ ${entry.order} (чей — неизвестно)` : 'без заказа';
+    try {
+      await tell(`Возврат USDT: ${entry.usdt} USDT — ${entry.why}. ${who}. Перевод ${entry.hash.slice(0, 12)}…\nНичего не начислено; вернуть руками из кошелька проекта. Очередь — /payments.`);
+    } catch {
+      /* письмо попутное: запись лежит в очереди, её видно в /payments */
+    }
+  }
+  return true;
+}
+
+/** Очередь возвратов — команде админа `/payments`, свежие первыми. Только чтение. */
+export async function peekRefunds(stores: Stores, limit: number): Promise<{ total: number; list: RefundEntry[] }> {
+  const kv = stores(STORES.pay, 'strong');
+  const { blobs } = await kv.list({ prefix: 'refund/' });
+  const all: RefundEntry[] = [];
+  for (const { key } of blobs) {
+    const found = await kv.getWithMetadata(key);
+    const e = readRefund(found ? parseJson(String(found.data)) : null);
+    if (e) all.push(e);
+  }
+  return { total: all.length, list: all.sort((a, b) => b.seen - a.seen || b.at - a.at).slice(0, limit) };
+}
+
+/** Причина словами на неоплаченном заказе. `null` — хранилище не ответило. */
+function noteOrder(stores: Stores, player: string, id: string, note: string): Promise<PayFile | null> {
+  return updatePay(stores, player, (f) => {
+    const x = f.orders.find((y) => y.id === id);
+    if (!x || x.note === note || x.state === 'paid' || x.state === 'credited') return null;
+    return { v: 1, orders: f.orders.map((y) => (y.id === id ? { ...y, note } : y)) };
+  });
+}
+
+/**
+ * Просмотр кошелька проекта от курсора: прочитать новые транзакции (не больше бюджета страниц, `ton.incoming`), разобрать
+ * финальные по порядку (`settleTx`) и сдвинуть курсор до последней разобранной. Нефинальную свежую транзакцию курсор
+ * не перешагивает — следующая проверка посмотрит её снова; зависшая дольше `STUCK_MS` пропускается. Первый просмотр
+ * (курсора нет) заводит указатели лежащим заказам и начинает с минуты, раньше которой искомых заказов нет. Возвращает, дочитана ли история до конца. Сеть не ответила — исключение, курсор не тронут.
+ */
+export async function scanWallet(stores: Stores, cfg: PayConfig, fetcher: Fetch, now: number, pages?: number, tell?: Tell): Promise<boolean> {
+  const kv = stores(STORES.pay, 'strong');
+  const key = cursorKey(cfg);
+  const found = await kv.getWithMetadata(key);
+  let cur = readCursor(found ? parseJson(String(found.data)) : null);
+  if (!cur) {
+    if (!(await indexAll(stores))) return false;
+    cur = { v: 1, at: 0, since: now - PAY_LATE_MS - 60_000 };
+  }
+  const ours = await projectJettonWallet(cfg, fetcher);
+  const got = await incoming(cfg, fetcher, { ...(cur.lt ? { lt: cur.lt } : {}), since: cur.since }, pages);
+  let whole = !got.truncated;
+  let held = false;
+  let next: ScanCursor = cur;
+  for (const tx of got.txs) {
+    if (!tx.final && now - tx.at < STUCK_MS) {
+      // Ждём записи в мастерчейн: курсор встаёт перед ней, а финальные после неё разбираем уже сейчас — повторный
+      // разбор следующей проверкой ничего не задвоит (перевод занят навсегда, «оплачен» ставится один раз).
+      held = true;
+      whole = false;
+      continue;
+    }
+    if (tx.final && !(await settleTx(stores, cfg, ours, tx, now, tell))) {
+      whole = false;
+      break;
+    }
+    if (!held) next = { v: 1, lt: tx.lt, at: tx.at, since: cur.since };
+  }
+  if (!found || next !== cur) await moveCursor(kv, key, next);
+  return whole;
+}
+
+/**
+ * Проверка заказов игрока: просмотреть кошелёк (найденное ложится заказам всех игроков), начислить оплаченное, отметить
+ * истёкшие. Сеть не ответила — заказы как были, начисляем то, что уже «оплачено». Возвращает заказы и сколько алмазов
+ * легло сейчас.
  */
 export async function checkOrders(
   stores: Stores,
@@ -254,6 +610,7 @@ export async function checkOrders(
   player: string,
   now: number,
   chain = true,
+  tell?: Tell,
 ): Promise<{ orders: StoredOrder[]; credited: number; lines: string[] } | null> {
   let orders: StoredOrder[];
   try {
@@ -262,43 +619,18 @@ export async function checkOrders(
     return null;
   }
   const lines: string[] = [];
-  // 1. Сеть: что пришло.
-  let found = new Map<string, Found>();
+  // 1. Сеть: что пришло — заказам всех игроков.
   if (cfg && chain && orders.some((o) => hunted(o, now))) {
     try {
-      found = await huntTransfers(cfg, fetcher, orders, now);
+      await scanWallet(stores, cfg, fetcher, now, undefined, tell);
     } catch {
       /* сеть TON не ответила — проверим в следующий раз */
     }
   }
-  // 2. Занять найденные переводы — вечно, по одному заказу на перевод.
-  const paid = new Map<string, string>();
-  const notes = new Map<string, string>();
-  for (const [id, f] of found) {
-    if ('wrong' in f) {
-      notes.set(id, f.wrong);
-      continue;
-    }
-    const mine = await claimTx(stores, f.tx, player, id, now);
-    if (mine === true) paid.set(id, f.tx);
-    else if (mine === false) notes.set(id, 'Этот перевод уже засчитан другому заказу.');
-  }
-  // 3. Записать: оплачено, причины, истёкшие.
+  // 2. Записать истёкшие (найденное просмотр уже записал).
   const after = await updatePay(stores, player, (f) => {
     let changed = false;
     const next = f.orders.map((o): StoredOrder => {
-      const tx = paid.get(o.id);
-      if (tx && o.state !== 'paid' && o.state !== 'credited') {
-        changed = true;
-        const { note, ...rest } = o;
-        void note;
-        return { ...rest, state: 'paid', tx };
-      }
-      const note = notes.get(o.id);
-      if (note && o.note !== note && o.state !== 'paid' && o.state !== 'credited') {
-        changed = true;
-        o = { ...o, note };
-      }
       if ((o.state === 'created' || o.state === 'waiting') && now > o.until) {
         changed = true;
         return { ...o, state: 'expired' };
@@ -308,12 +640,63 @@ export async function checkOrders(
     return changed ? { v: 1, orders: next } : null;
   });
   if (!after) return { orders, credited: 0, lines };
-  // 4. Начислить оплаченное — дверью книги алмазов, ключом заказа.
+  // 3. Начислить оплаченное — дверью книги алмазов, ключом заказа. В эпоху, открытую сейчас (FIN-6, решение владельца
+  // п. 3): идёт чистый старт — не начисляем ничего, книгу сейчас сотрут; эпоха сменилась или закрылась, пока начисляли, —
+  // «начислено» не ставим: книга, куда легло, стёрта или стирается, и заказ ляжет в новой эпохе ровно один раз (книга
+  // новой эпохи помнит ключ покупки, если запись пережила стирание). Начисленный в прошлой эпохе остаётся «начислено».
   let credited = 0;
   let cur = after.orders;
+  const era = cur.some((x) => x.state === 'paid') ? await eraNow(stores).catch(() => null) : null;
+  const open = (e: { era: number; wiping?: boolean } | null): e is { era: number } => e !== null && !e.wiping;
+  if (!open(era)) return { orders: cur, credited, lines };
   for (const o of cur.filter((x) => x.state === 'paid')) {
-    const done = await settlePurchase(stores, player, { amount: o.gems, key: `pay:${o.id}`, at: now });
-    if (!done || done.error) continue;
+    // Вечный замок заказа (FIN-6, АУ-8): начислен в прошлой эпохе — второй раз не начисляется; начат и не дописан в прошлой —
+    // легло ли, неизвестно, и решает админ.
+    const lock = await creditLock(stores, player, o.id, era.era, now);
+    if (!lock) continue;
+    if (lock.era !== era.era) {
+      if (lock.done) {
+        const marked = await updatePay(stores, player, (f) => {
+          const x = f.orders.find((y) => y.id === o.id);
+          if (!x || x.state !== 'paid') return null;
+          return { v: 1, orders: f.orders.map((y) => (y.id === o.id ? { ...y, state: 'credited' as const, ...(lock.n ? { n: lock.n } : {}) } : y)) };
+        });
+        if (marked) cur = marked.orders;
+        lines.push(`Покупка: заказ ${o.id} уже начислен в эпохе ${lock.era} — второй раз не начисляется.`);
+      } else {
+        await queueRefund(
+          stores,
+          {
+            v: 1,
+            hash: o.tx ?? `order-${o.id}`,
+            at: lock.at,
+            seen: now,
+            units: o.units,
+            usdt: String(o.usdt),
+            player,
+            order: o.id,
+            why: `начисление прервал чистый старт: легло ли оно в эпохе ${lock.era}, неизвестно — решить руками`,
+          },
+          tell,
+        );
+      }
+      continue;
+    }
+    // Эпоха — ещё раз, перед самой записью книги (OPS-3, АУ-8 п. 7): идёт стирание или эпоха сменилась — книга не пишется,
+    // замок отпускается, и заказ ляжет в открытой эпохе.
+    const stillOpen = async (): Promise<boolean> => {
+      const e = await eraNow(stores).catch(() => null);
+      return open(e) && e.era === era.era;
+    };
+    const done = await settlePurchase(stores, player, { amount: o.gems, key: `pay:${o.id}`, at: now }, stillOpen);
+    if (!done || done.error) {
+      await creditFree(stores, lock);
+      continue;
+    }
+    // Книга приняла: замок помнит эпоху до всякой другой записи — чистый старт после этой минуты второго начисления не даст.
+    await creditDone(stores, lock, done.entry?.n);
+    const still = await eraNow(stores).catch(() => null);
+    if (!open(still) || still.era !== era.era) break;
     const n = done.entry?.n;
     const fresh = done.entry !== undefined && done.entry.at === now;
     const marked = await updatePay(stores, player, (f) => {
@@ -324,18 +707,20 @@ export async function checkOrders(
     if (marked) cur = marked.orders;
     if (fresh) {
       credited += o.gems;
-      lines.push(`Покупка: +${o.gems} алмазов (${o.usdt} USDT, заказ ${o.id}).`);
+      const past = o.era !== undefined && o.era !== still.era ? `, заказ эпохи ${o.era} — в эпоху ${still.era}` : '';
+      lines.push(`Покупка: +${o.gems} алмазов (${o.usdt} USDT, заказ ${o.id}${past}).`);
     }
   }
   return { orders: cur, credited, lines };
 }
 
-/** Последние заказы всех игроков — команде админа `/payments`. Только чтение. */
+/** Последние заказы всех игроков — команде админа `/payments`. Только чтение; курсор, указатели и возвраты — не заказы. */
 export async function peekPayments(stores: Stores, limit: number): Promise<{ player: string; order: StoredOrder }[]> {
   const kv = stores(STORES.pay, 'strong');
   const { blobs } = await kv.list({});
   const all: { player: string; order: StoredOrder }[] = [];
   for (const { key } of blobs) {
+    if (!isPlayerKey(key)) continue;
     const found = await kv.getWithMetadata(key);
     for (const order of readPayFile(found ? parseJson(String(found.data)) : null).orders) all.push({ player: key, order });
   }

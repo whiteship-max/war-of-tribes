@@ -21,8 +21,8 @@ import { bootPaint, bootStage } from '@/boot/stage';
 import { mayWrite, provideGame, syncBoot } from '@/net/sync';
 import { provideGrants } from '@/net/admin';
 import { applyGrants } from './sim/admin';
-import { provideGemDeeds } from '@/net/gems';
-import { applyGemDeeds } from './sim/gems';
+import { provideGemDeeds, provideGemSeen, provideGemSettled } from '@/net/gems';
+import { applyGemDeeds, gemSeen, settleUnneeded } from './sim/gems';
 import { provideClaim, rosterBoot } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyBoot } from '@/net/notify';
@@ -40,11 +40,11 @@ import { applyCheat } from './sim/cheat';
 export type Tab = 'people' | 'quests' | 'season' | 'pop' | 'morale' | 'order' | 'army' | 'buildings';
 
 /**
- * Разделы ратуши (РТ-1): «Советники» и «Сословия» (РТ-2, пока закрыт). Живут в сторе, а не в самой панели: на раздел ведут
+ * Разделы ратуши (РТ-1): «Советники», «Агенты» (АГ-1) и «Сословия» (РТ-2). Живут в сторе, а не в самой панели: на раздел ведут
  * двери других окон (весть о пустом месте совета, покои), и вести им некуда, если раздел — местная память компонента, который
  * ещё не открыт. Стройка ушла из ратуши в «Здания» низа (`Tab` `buildings`); «Управление» ушло в державу ещё в UI-7.
  */
-export type TownTab = 'council' | 'estates';
+export type TownTab = 'council' | 'agents' | 'estates';
 
 /**
  * Что показывает нижняя шторка: раздел, конкретное здание или клетка карты мира.
@@ -309,6 +309,15 @@ export const useGame = create<GameStore>((set, get) => ({
       set({ s: { ...st } });
       get().save();
     });
+    // Номер применённого — серверу с чтением и приказом: дела приедут самые старые первыми, порциями (FIN-4).
+    provideGemSeen(() => gemSeen(get().s));
+    // Ускорения «не понадобилось», рассуждённые сервером (FIN-5), — снять из списка партии.
+    provideGemSettled((settled) => {
+      const st = get().s;
+      if (settleUnneeded(st, settled) === 0) return;
+      set({ s: { ...st } });
+      get().save();
+    });
     // Присутствие — первым сетевым вызовом, раньше партии и реестра: вернувшийся игрок не
     // должен ни секунды числиться ушедшим (docs/NOTIFY.md, раздел 4). Выключено — ни запроса.
     if (NOTIFY_ON) notifyBoot();
@@ -468,6 +477,7 @@ export const useGame = create<GameStore>((set, get) => ({
     // Дела алмазов и указы админа — за игроком, а не за партией: сервер отдаёт их все, и новая партия с отметками с
     // нуля положила бы покупки лавки и указы второй раз (docs/bughunt.md, «Начать заново»).
     if (was.gemSeen !== undefined) s.gemSeen = was.gemSeen;
+    if (was.gemUnneeded !== undefined) s.gemUnneeded = was.gemUnneeded;
     if (was.adminSeen !== undefined) s.adminSeen = was.adminSeen;
     set({ s, sheet: null, offlineSeconds: 0 });
     get().save();

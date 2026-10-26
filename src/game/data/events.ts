@@ -4,7 +4,7 @@
 //
 // Люди приходят и уходят толпой. Поимённых жителей в игре нет, поэтому событие
 // про человека — это событие про группу: беженцы у ворот, бродячая артель, мор.
-import type { GameState, LogTopic, RealmBranch, ResourceId } from '../types';
+import type { EventCost, GameState, LogTopic, RealmBranch, ResourceId } from '../types';
 import {
   DAY_LENGTH,
   FAITH_REFUSAL_STRAIN,
@@ -35,7 +35,7 @@ import { troopPower } from '../battle/price';
 import { menOfPower } from '@/world/garrison';
 import { weakCity } from '@/world/lairs';
 import type { GateFoe } from '@/world/types';
-import { addStrain, beginRite, grantRelic, riteInfo } from '../sim/faith';
+import { addStrain, beginRite, grantRelic, riteClosed, riteInfo } from '../sim/faith';
 import { mutinyPay, mutinyRelease, mutinySuppress } from '../sim/mutiny';
 import {
   DECLINE,
@@ -55,10 +55,14 @@ import { chance, roll } from '../sim/roll';
 import { log } from '../sim/log';
 import { MUTINY_EVENT, ORDER_TEXT } from './order';
 import { daysSpan } from '../span';
-import { addRes, amount, crowd, FameWord, fameWord, moraleWord, MoraleWord, moveFame, moveMorale, people } from './eventKit';
+import { addRes, amount, crowd, FameWord, sizeOf, fameWord, moraleWord, MoraleWord, moveFame, moveMorale, people } from './eventKit';
 import { CHAIN_SEASONS, TIDING, TIDINGS } from './tidings';
 import { ADVISOR_POSTS } from '../councilrules';
 import { vacancyDef } from '../sim/council';
+import { agentVacancyDef } from '../sim/recruit';
+import { commandVacancyDef } from '../sim/command';
+import { FLANKS } from '../commandrules';
+import { AGENT_ROLES } from '../agentrules';
 import { BOON_BY_ID, boonWords } from './boons';
 import { SEASON_DAYS } from './seasons';
 import { grantBoon } from '../sim/boons';
@@ -67,8 +71,7 @@ import { crownEvents } from '../sim/crown';
 import { pointsOf, spend } from '../sim/points';
 import { BRANCH_NAME, REALM_BRANCHES } from './realm';
 
-/** Что вариант просит отдать. Золото — не ресурс, но плата бывает и в нём. */
-export type EventCost = Partial<Record<ResourceId | 'gold', number>>;
+export type { EventCost };
 
 export interface EventOption {
   label: string;
@@ -94,6 +97,13 @@ export interface EventOption {
    * списание; списывает одна дверь трат (`sim/points.spend`).
    */
   points?: Partial<Record<RealmBranch, number>>;
+  /**
+   * Почему вариант сейчас не нажимается, кроме цены (ECO-3): условие, при котором весть пришла, с тех пор пропало —
+   * обряд в этом сезоне уже справили, святыня уже стоит, стройки нет. Весть ждёт ответа сутки, и без этого ответ платил бы
+   * за то, чего уже не бывает. null — нажимается. Общего правила «вес ноль — отказ» нет нарочно: в весе есть кость и
+   * календарь, а ярмарка, пришедшая летом, осенью не гаснет. У молчания (`EventDef.silence`) поля нет — это тест.
+   */
+  block?: (s: GameState) => string | null;
   /** Применяет выбор и возвращает текст результата. */
   apply: (s: GameState) => string;
 }
@@ -188,7 +198,7 @@ export const GATE_POP: readonly number[] = [50, 104, 158, 212, 266, 356, 437, 51
  */
 export const gatePower = (s: GameState, foe: EventFoe): number => {
   const row = GATE_POWER[foe];
-  const pop = s.pop;
+  const pop = sizeOf(s).folk;
   if (pop <= GATE_POP[0]) return row[0];
   const hi = GATE_POP.findIndex((p) => p >= pop);
   if (hi < 0) return row[row.length - 1];
@@ -255,6 +265,9 @@ export const EVENT_FAME = {
 
 /** Какую долю стройки делает артель: осевшая — сразу, нанятая на день — за день (числа прежние, из `apply`). */
 export const EVENT_WORK = { settle: 0.2, day: 0.35, storm: 0.5 } as const;
+
+/** Почему гаснет вариант, которому нужна стройка, а её уже нет (ECO-3). */
+const NO_SITE = 'Стройки нет.';
 
 /** «+20%» — доля стройки словами. */
 const share = (f: number): string => `+${Math.round(f * 100)}%`;
@@ -345,6 +358,7 @@ export const EVENTS: EventDef[] = [
         label: 'Нанять на день',
         hint: (s) => (currentSite(s) ? `Стройка ${share(EVENT_WORK.day)}` : 'Стройки нет, работы не будет'),
         cost: (s) => ({ gold: amount(s, 20) }),
+        block: (s) => (currentSite(s) ? null : NO_SITE),
         apply: (s) => {
           const site = currentSite(s);
           if (!site) return 'Золото отдали, а строить нечего. Артель ушла.';
@@ -410,6 +424,7 @@ export const EVENTS: EventDef[] = [
         label: 'Поставить леса заново',
         hint: 'Стройка не пострадает',
         cost: (s) => ({ wood: amount(s, 10) }),
+        block: (s) => (currentSite(s) ? null : NO_SITE),
         apply: () => {
           return 'Леса подняли заново. К полудню снова стучали топоры.';
         },
@@ -600,6 +615,8 @@ export const EVENTS: EventDef[] = [
           const r = riteInfo(s);
           return { food: r.food, gold: r.gold };
         },
+        // Цену держит весть (цена прихода), поэтому здесь — только «нельзя»: обряд идёт или уже был в этом сезоне.
+        block: riteClosed,
         apply: (s) => {
           // Плату уже сняло событие (`payEventCost`), поэтому зовём `beginRite`,
           // а не `holdRite`: тот взял бы её второй раз. Отметки при этом ставит
@@ -767,6 +784,10 @@ export const EVENTS: EventDef[] = [
   ...crownEvents(),
   // Пустое место в совете Ратуши (РТ-1): весть кладёт конец службы (`sim/tick`), случаем она не выпадает.
   ...ADVISOR_POSTS.map(vacancyDef),
+  // Пустое место агента (АГ-1): весть кладёт гибель или покой (`sim/expedition`), случаем она не выпадает.
+  ...AGENT_ROLES.map(agentVacancyDef),
+  // Пустое место командира фланга (ДР-5): весть кладёт гибель в бою (`sim/expedition`) или покой (`sim/tick`).
+  ...FLANKS.map(commandVacancyDef),
   {
     id: 'relic_offer',
     silence: 1,
@@ -786,6 +807,7 @@ export const EVENTS: EventDef[] = [
         label: 'Принять святыню',
         hint: `Набожность +${PIETY_RELIC}, пока святыня в храме`,
         cost: (s) => ({ gold: amount(s, 70), hides: amount(s, 12) }),
+        block: (s) => (s.faith.relic ? 'Святыня уже стоит в храме.' : faithOf(s) ? null : 'Вера города ещё не ясна.'),
         apply: (s) => {
           grantRelic(s);
           return 'Странника накормили и одарили. Святыню поставили на видное место.';
@@ -882,22 +904,26 @@ export const eventFrom = (e: EventDef, s: GameState): string => (typeof e.from =
 export const optionHint = (o: EventOption, s: GameState): string | undefined =>
   typeof o.hint === 'function' ? o.hint(s) : o.hint;
 
-/** Что вариант просит отдать прямо сейчас. Пусто — не просит ничего. */
-export const eventCost = (o: EventOption, s: GameState): EventCost =>
-  o.cost ? o.cost(s) : {};
+/**
+ * Что вариант просит отдать. `frozen` — цена, которую весть посчитала в минуту прихода (`ActiveEvent.cost`, ECO-3): она и
+ * есть цена; нет её — считается сейчас. Пусто — не просит ничего.
+ */
+export const eventCost = (o: EventOption, s: GameState, frozen?: EventCost): EventCost =>
+  frozen ?? (o.cost ? o.cost(s) : {});
 
 /**
  * Почему этот вариант сейчас не нажимается. null — нажимается.
  *
- * Причина одна и всегда одна и та же — не хватает добра, — и считается она по
+ * Причин две. Первая — не хватает добра, — и считается она по
  * тому же складу, который стоит у игрока перед глазами. Гаснущая кнопка здесь
  * не строгость, а честность: окно события закрывает собой всю игру, склад из-под
- * него не посмотреть, и «отдать припасы» нажималось вслепую. Тупика из этого не
- * выйдет — у каждого события есть вариант, который ничего не стоит, и это
- * проверяет тест.
+ * него не посмотреть, и «отдать припасы» нажималось вслепую. Вторая — условие
+ * варианта пропало, пока весть ждала ответа (`EventOption.block`, ECO-3). Тупика
+ * из этого не выйдет — у каждого события есть вариант, который ничего не стоит и
+ * не гаснет, и это проверяет тест.
  */
-export function eventBlock(o: EventOption, s: GameState): string | null {
-  const cost = eventCost(o, s);
+export function eventBlock(o: EventOption, s: GameState, frozen?: EventCost): string | null {
+  const cost = eventCost(o, s, frozen);
   const short: string[] = [];
   for (const r of RESOURCE_IDS) {
     const need = cost[r] ?? 0;
@@ -905,16 +931,16 @@ export function eventBlock(o: EventOption, s: GameState): string | null {
   }
   if ((cost.gold ?? 0) > Math.floor(s.gold)) short.push('золото');
   for (const b of REALM_BRANCHES) if ((o.points?.[b] ?? 0) > pointsOf(s, b)) short.push(BRANCH_NAME[b].toLowerCase());
-  if (short.length === 0) return null;
-  return 'Не хватает';
+  if (short.length > 0) return 'Не хватает';
+  return o.block?.(s) ?? null;
 }
 
 /**
  * Списать цену варианта. Единственное место, где событие берёт со склада: сам
  * `apply` получает состояние уже оплаченным и про цену не знает.
  */
-export function payEventCost(o: EventOption, s: GameState): void {
-  const cost = eventCost(o, s);
+export function payEventCost(o: EventOption, s: GameState, frozen?: EventCost): void {
+  const cost = eventCost(o, s, frozen);
   for (const r of RESOURCE_IDS) {
     const need = cost[r] ?? 0;
     if (need > 0) s.resources[r] = Math.max(0, s.resources[r] - need);

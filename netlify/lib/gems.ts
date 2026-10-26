@@ -3,10 +3,12 @@
  * алмазы больше не живут на устройстве; каждая трата — приказ серверу (`routes/gems.ts`), атомарно, с ключом повтора, и
  * каждая операция — запись в журнале.
  *
- * **Начисление — одна дверь, `creditGems`.** Зовут её ровно два источника: стартовые `START_GEMS` при первом входе игрока
- * в эпоху мира (`openLedger`) и подтверждённая сервером оплата набора (`settlePurchase`, зовёт его только проверка
- * перевода `lib/pay.ts`, docs/payments.md). Больше ниоткуда: админ алмазов не начисляет (`/gems` и `/payments` только
- * читают), приказ игрока только списывает (`spendGems`). Держит это замок `server.test.ts`.
+ * **Начисление — одна дверь, `creditGems`.** Зовут её ровно три источника: стартовые `START_GEMS` при первом входе игрока
+ * в эпоху мира (`openLedger`), подтверждённая сервером оплата набора (`settlePurchase`, зовёт его только проверка
+ * перевода `lib/pay.ts`, docs/payments.md) и возврат ускорения, которое не понадобилось (`refundRushes`, FIN-5): только
+ * то, что сервер сам списал за ускорение, и только если книга стройки подтвердила тот уровень работой посёлка. Больше
+ * ниоткуда: админ алмазов не начисляет (`/gems` и `/payments` только читают), приказ игрока только списывает
+ * (`spendGems`). Держит это замок `server.test.ts`.
  *
  * **Ключ повтора.** Приказ несёт `key`; запись с тем же ключом уже лежит — второй раз не списывается, отвечает прежняя
  * запись. Сеть оборвала ответ, игра спросила снова — алмазы ушли один раз.
@@ -108,13 +110,16 @@ export const byKey = (ledger: GemLedger, key: string): StoredGem | null => ledge
 
 // ------------------------------------------------ начисление: одна дверь ---
 
-/** Источник начисления: стартовые эпохи или подтверждённая покупка набора. Третьего нет. */
+/** Источник начисления: стартовые эпохи, подтверждённая покупка набора или возврат ненужного ускорения. Четвёртого нет. */
 export interface GemGrant {
-  source: Extract<GemKind, 'start' | 'purchase'>;
+  source: Extract<GemKind, 'start' | 'purchase' | 'refund'>;
   amount: number;
-  /** Ключ: `start` у стартовых, номер платежа у покупки. По нему начисление не задваивается. */
+  /** Ключ: `start` у стартовых, номер платежа у покупки, `refund:<номер ускорения>` у возврата. По нему не задваивается. */
   key: string;
   at: number;
+  /** Возврат: постройка и уровень ускорения — для «Истории». */
+  building?: string;
+  level?: number;
 }
 
 /**
@@ -123,12 +128,13 @@ export interface GemGrant {
  * (`openLedger`, стартовые) и оплата набора (`settlePurchase`).
  */
 export function creditGems(ledger: GemLedger, grant: GemGrant): { ledger: GemLedger; entry: StoredGem | null } | string {
-  if (grant.source !== 'start' && grant.source !== 'purchase') return 'Алмазы начисляют только стартовые и покупка.';
+  if (grant.source !== 'start' && grant.source !== 'purchase' && grant.source !== 'refund') return 'Алмазы начисляют только стартовые, покупка и возврат.';
   if (!Number.isInteger(grant.amount) || grant.amount <= 0) return 'Пустое начисление.';
   const was = byKey(ledger, grant.key);
   if (was) return { ledger, entry: was };
   if (ledger.paid.includes(grant.key)) return { ledger, entry: null };
-  const done = entered(ledger, { at: grant.at, delta: grant.amount, kind: grant.source, key: grant.key }, ledger.balance + grant.amount);
+  const what = grant.source === 'refund' && grant.building && grant.level ? { building: grant.building, level: grant.level } : {};
+  const done = entered(ledger, { at: grant.at, delta: grant.amount, kind: grant.source, key: grant.key, ...what }, ledger.balance + grant.amount);
   return grant.source === 'purchase' ? { ledger: { ...done.ledger, paid: [...ledger.paid, grant.key] }, entry: done.entry } : done;
 }
 
@@ -204,6 +210,73 @@ export function applyGemOrder(ledger: GemLedger, order: GemOrder, at: number, le
   return { ledger: { ...done.ledger, rushed }, entry: done.entry };
 }
 
+// ------------------------------------------------ возврат ускорения (FIN-5) ---
+
+/** Что книга стройки знает об ускорениях: какие подтверждены работой посёлка (`TownBook.own`) и подтверждённые уровни. */
+export interface TownProof {
+  own: readonly number[];
+  levels: Counts;
+}
+
+/**
+ * Рассудить ускорения, которые партия назвала ненужными (`WatchCard.gemUnneeded`): дело пришло, когда стройка уже кончилась
+ * сама. Без проверки это был бы станок алмазов — партия может назвать ненужным любое ускорение, — поэтому возврат только
+ * так (FIN-5):
+ *  · номер — запись этой книги, вида `rush`, с постройкой и уровнем; возврата по ней ещё не было (ключ `refund:<номер>`);
+ *  · книга стройки подтвердила этот уровень **работой посёлка**, без этого ускорения (`proof.own`);
+ *  · вернуть — ровно списанное за это ускорение, дверью `creditGems`.
+ * Решено навсегда (`settled`): возвращено сейчас или раньше, номер не ускорение этого игрока, уровень подтверждён самим
+ * ускорением. Не решено — книга стройки ещё не подтвердила уровень: номер ждёт следующей записи.
+ */
+export function refundRushes(ledger: GemLedger, asks: readonly number[], proof: TownProof, at: number): { ledger: GemLedger; settled: number[]; refunded: StoredGem[] } {
+  let cur = ledger;
+  const settled: number[] = [];
+  const refunded: StoredGem[] = [];
+  for (const n of [...new Set(asks)].slice(0, GEM_LIMITS.unneeded)) {
+    const e = cur.list.find((x) => x.n === n);
+    if (!e || e.kind !== 'rush' || !e.building || !e.level || e.delta >= 0) {
+      settled.push(n);
+      continue;
+    }
+    if (byKey(cur, `refund:${n}`)) {
+      settled.push(n);
+      continue;
+    }
+    if (proof.own.includes(n)) {
+      const done = creditGems(cur, { source: 'refund', amount: -e.delta, key: `refund:${n}`, at, building: e.building, level: e.level });
+      if (typeof done === 'string') continue;
+      cur = done.ledger;
+      if (done.entry) refunded.push(done.entry);
+      settled.push(n);
+      continue;
+    }
+    if ((proof.levels[e.building] ?? 0) >= e.level) settled.push(n);
+  }
+  return { ledger: cur, settled, refunded };
+}
+
+/**
+ * Возврат ненужных ускорений — дверью записи книги (`settle`): решённые номера и возвращённые записи. `null` — хранилище не
+ * ответило: ничего не начислено, номера ждут следующей записи.
+ */
+export async function settleRefunds(
+  stores: Stores,
+  player: string,
+  asks: readonly number[],
+  proof: TownProof,
+  at: number,
+): Promise<{ ledger: GemLedger; settled: number[]; refunded: StoredGem[] } | null> {
+  let settled: number[] = [];
+  let refunded: StoredGem[] = [];
+  const done = await settle(stores, player, at, (cur) => {
+    const r = refundRushes(cur, asks, proof, at);
+    settled = r.settled;
+    refunded = r.refunded;
+    return { ledger: r.ledger === cur ? null : r.ledger };
+  });
+  return done ? { ledger: done.ledger, settled, refunded } : null;
+}
+
 /** Уровни, ускоренные за алмазы, — книге стройки (`town.buildStep`): сервер сам списал за них, работы они не требуют. */
 export const rushesOf = (ledger: GemLedger | null): { n: number; building: string; level: number }[] =>
   (ledger?.list ?? []).flatMap((e) => (e.kind === 'rush' && e.building && e.level ? [{ n: e.n, building: e.building, level: e.level }] : []));
@@ -217,12 +290,22 @@ export const shown = (stored: StoredGem): GemEntry => {
   return e;
 };
 
-/** Записка для ответа: баланс, лавка сегодня и дела старше `seen`, которые партия ещё не применила. */
-export const gemNoteOf = (ledger: GemLedger, seen: number, at: number): GemNote => ({
-  balance: ledger.balance,
-  shop: shopToday(ledger, at),
-  deeds: ledger.list.filter((e) => e.n > seen && gemDeed(e)).slice(-GEM_LIMITS.deeds).map(shown),
-});
+/**
+ * Записка для ответа: баланс, лавка сегодня и дела старше `seen`, которые партия ещё не применила, — **самые старые**,
+ * не больше порции, и «ещё», если их больше (FIN-4). Прежде уходили последние пятьдесят: партия на шестьдесят дел позади
+ * ставила номер на последнее и десять старших покупок теряла навсегда. `seen` нет — игра до FIN-4 номера не шлёт: ей
+ * по-старому последние пятьдесят (она их отсеет своим номером сама).
+ */
+export function gemNoteOf(ledger: GemLedger, seen: number | undefined, at: number): GemNote {
+  const fresh = ledger.list.filter((e) => e.n > (seen ?? 0) && gemDeed(e));
+  const deeds = seen === undefined ? fresh.slice(-GEM_LIMITS.deeds) : fresh.slice(0, GEM_LIMITS.deeds);
+  return {
+    balance: ledger.balance,
+    shop: shopToday(ledger, at),
+    deeds: deeds.map(shown),
+    ...(seen !== undefined && fresh.length > GEM_LIMITS.deeds ? { more: true as const } : {}),
+  };
+}
 
 /** Журнал для окна «История» — последние записи без ключей повтора. */
 export const listOf = (ledger: GemLedger): GemEntry[] => ledger.list.slice(-GEM_LIMITS.view).map(shown);
@@ -240,25 +323,49 @@ export function settleGems(
   at: number,
   order: GemOrder | null = null,
   left?: number | null,
+  gate?: WriteGate,
 ): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string; warn?: string } | null> {
-  return settle(stores, player, at, (cur) => (order ? applyGemOrder(cur, order, at, left) : { ledger: null }));
+  return settle(stores, player, at, (cur) => (order ? applyGemOrder(cur, order, at, left) : { ledger: null }), gate);
 }
+
+/**
+ * Страж записи книги (OPS-3, АУ-8 п. 7): эпоха ещё открыта и та же — спрашивается перед самой записью, как у партии и войны.
+ * `false` — пишет не эта эпоха (идёт стирание или эпоха сменилась): книга не пишется, ответ — как «хранилище не ответило».
+ */
+export type WriteGate = () => Promise<boolean>;
 
 /**
  * Начислить оплаченный набор — вторая и последняя дверь, которая зовёт `creditGems` (источник `purchase`, ключ
  * `pay:<номер заказа>`). Зовёт её только проверка перевода (`lib/pay.ts`), когда сервер сам нашёл перевод в сети. Повтор
  * ничего не начисляет. `null` — хранилище не ответило: заказ остаётся «оплачен» и начислится следующей проверкой.
  */
-export function settlePurchase(stores: Stores, player: string, grant: Omit<GemGrant, 'source'>): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string } | null> {
-  return settle(stores, player, grant.at, (cur) => {
-    const done = creditGems(cur, { ...grant, source: 'purchase' });
-    if (typeof done === 'string') return { ledger: null, error: done };
-    return { ledger: done.ledger === cur ? null : done.ledger, ...(done.entry ? { entry: done.entry } : {}) };
-  });
+export function settlePurchase(
+  stores: Stores,
+  player: string,
+  grant: Omit<GemGrant, 'source'>,
+  gate?: WriteGate,
+): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string } | null> {
+  return settle(
+    stores,
+    player,
+    grant.at,
+    (cur) => {
+      const done = creditGems(cur, { ...grant, source: 'purchase' });
+      if (typeof done === 'string') return { ledger: null, error: done };
+      return { ledger: done.ledger === cur ? null : done.ledger, ...(done.entry ? { entry: done.entry } : {}) };
+    },
+    gate,
+  );
 }
 
 /** Одна дверь записи хранилища алмазов: прочитать (открыть со стартовыми), сделать шаг, записать условно. */
-async function settle(stores: Stores, player: string, at: number, act: (cur: GemLedger) => OrderStep): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string; warn?: string } | null> {
+async function settle(
+  stores: Stores,
+  player: string,
+  at: number,
+  act: (cur: GemLedger) => OrderStep,
+  gate?: WriteGate,
+): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string; warn?: string } | null> {
   const kv: Kv = stores(STORES.gems, 'strong');
   try {
     for (let tries = 0; tries < WRITE_TRIES; tries++) {
@@ -270,6 +377,8 @@ async function settle(stores: Stores, player: string, at: number, act: (cur: Gem
       const step = act(cur);
       const next = step.ledger ?? (stored ? null : cur);
       if (!next) return { ledger: cur, ...(step.entry ? { entry: step.entry } : {}), ...(step.error ? { error: step.error } : {}), ...(step.warn ? { warn: step.warn } : {}) };
+      // Эпоха — ещё раз, перед самой записью (OPS-3, АУ-8 п. 7): стирание после проверки на входе не получает книгу старой эпохи.
+      if (gate && !(await gate())) return null;
       const written = await kv.setJSON(player, next, found?.etag ? { onlyIfMatch: found.etag } : { onlyIfNew: true });
       if (written.modified) return { ledger: next, ...(step.entry ? { entry: step.entry } : {}), ...(step.error ? { error: step.error } : {}), ...(step.warn ? { warn: step.warn } : {}) };
     }

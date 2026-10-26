@@ -33,7 +33,9 @@ import { chainPending, scheduleChain } from './chains';
 import { addStrain, grantRelic } from './faith';
 import { killPop, loseBonded, losePop } from './population';
 import { grantPrivilege } from './estates';
+import { unseatLowborn } from './command';
 import { ESTATE_META } from '../data/estates';
+import { signedWhole } from '../num';
 
 /** Пустая книга: так читаются новая и старая партия. */
 const empty = (): CrownState => ({ seen: {}, n: 0, last: [] });
@@ -140,6 +142,9 @@ function applyFx(s: GameState, f: Fx): void {
     case 'priv':
       grantPrivilege(s, f.e);
       return;
+    case 'unseat':
+      unseatLowborn(s);
+      return;
   }
 }
 
@@ -169,8 +174,7 @@ function book(s: GameState, id: string, opt: number): void {
 // ---------- Слова последствий ----------
 
 /** «+21 %», «−43 %» — сдвиг стабильности целыми процентами, минус длинный. */
-const pct = (d: number): string => `${d > 0 ? '+' : '−'}${Math.round(Math.abs(d))}\u00a0%`;
-const signed = (d: number): string => `${d > 0 ? '+' : '−'}${Math.abs(Math.round(d))}`;
+const pct = (d: number): string => `${signedWhole(d)}\u00a0%`;
 
 /** Одно последствие словами. */
 export function fxWord(f: Fx): string {
@@ -180,9 +184,9 @@ export function fxWord(f: Fx): string {
       return b ? `${b.name.toLowerCase()} на ${daysSpan(b.days)}: ${boonWords(b).toLowerCase()}` : '';
     }
     case 'res':
-      return `${RESOURCE_META[f.r].name.toLowerCase()} ${signed(f.n)}`;
+      return `${RESOURCE_META[f.r].name.toLowerCase()} ${signedWhole(f.n)}`;
     case 'gold':
-      return `золото ${signed(f.n)}`;
+      return `золото ${signedWhole(f.n)}`;
     case 'fame':
       return fameWord(f.n);
     case 'morale':
@@ -192,7 +196,7 @@ export function fxWord(f: Fx): string {
     case 'pop':
       return f.died ? `умрут ${people(-f.n)}` : `уйдут ${people(-f.n)}`;
     case 'bonded':
-      return `невольников ${signed(f.n)}`;
+      return `невольников ${signedWhole(f.n)}`;
     case 'relic':
       return 'святыня в храм';
     case 'chain': {
@@ -202,6 +206,8 @@ export function fxWord(f: Fx): string {
     }
     case 'priv':
       return `${ESTATE_META[f.e].to} — привилегия «${f.name}»`;
+    case 'unseat':
+      return 'безродный командир фланга отозван';
   }
 }
 

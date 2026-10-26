@@ -1,7 +1,7 @@
 // `npm run fight` — бой двух сторон ядром, той же дверью, что набег и штурм у мира и сервера (`world/fights.wallFight`):
 // стороны, место, стена, отметки, сид и повторы → исход, потери, ход боя по фазам, доля побед с разбросом.
 // Справка — `npm run fight -- --help`, рецепты — docs/handbook/console.md.
-import { FRONT_WIDTH, type BattleResult, type Side } from '@/battle';
+import { FRONT_WIDTH, SPIRIT, type BattleResult, type Side, type Spirit } from '@/battle';
 import { PHASE_NAME, REASON_NAME, describeEvent } from '@/battle/log';
 import { summarize } from '@/battle/report';
 import { defenceKinds, wallFight } from '@/world/fights';
@@ -33,6 +33,11 @@ import {
   type SideSpec,
 } from './lib';
 import { townSide } from './town';
+import { AXIS_AIM, SPIRIT_AIM, SPIRIT_CHECKS, SPIRIT_MIX, deriveSpirit, strengthOf } from './spirit';
+import { BEST_GENERAL, deriveFlank, flankChecks } from './flank';
+import { TACTICS_TOP } from '@/game/commandrules';
+import { SCARS, SCAR_SIZE, type ScarId } from '@/game/scarrules';
+import { deriveScar, deriveScars, horseShareOfMix, scarChecks } from './scars';
 
 const C = 'fight';
 const HELP = `
@@ -48,6 +53,16 @@ npm run fight -- --a <сторона> --d <сторона> [ключи]
   --pips-a, --pips-d       отметки полководца: "fire:2,shock:1,melee:0,maneuver:3"
   --rest-a, --rest-d       мораль между боями, доля полной 0..1 (1 — свежие)
   --resolve-a, --resolve-d стойкость (обряд), 0 по умолчанию
+  --spirit-a, --spirit-d   дух войска ДР-1 «мораль,дисциплина», шкалы 0..100 (70 — нейтраль, без ключа — без духа)
+  --derive-spirit          вывод точек духа (SPIRIT в src/battle/config.ts) и сила по углам шкал; сторона — --a (по
+                           умолчанию мерка spearman:200,archer:80,legionary:60), сидов — --runs (200);
+                           --check — только сила по углам при записанных, без вывода
+  --derive-flank           вывод вершины тактики командиров флангов (TACTICS_TOP в src/game/commandrules.ts, ДР-3) и сила
+                           командира каждого рода и уровня; сторона — --a (по умолчанию та же мерка), сидов — --runs (200);
+                           --check — только сила при записанной вершине
+  --derive-scars           вывод величин черт армии (SCAR_SIZE в src/game/scarrules.ts, ДР-4): добрая в своём бою — как
+                           шкала духа на верху, дурная — её зеркало; сидов — --runs (100); --check — только сила при записанных;
+                           --scar ИМЯ — одна черта (ghosts, woodfear…)
   --width W                ширина фронта полосы, бойцов строя (по умолчанию W игры = ${FRONT_WIDTH})
   --seed S                 сид первого боя (1); --runs N — боёв подряд на сидах S, S+1, … (1)
   --log                    журнал боя целиком (каждое событие); без него — фазы и ключевые события
@@ -63,6 +78,9 @@ const args = parseArgs();
 helpIf(args, HELP);
 const seed = num(C, args, 'seed', 1, { int: true });
 const runs = num(C, args, 'runs', 1, { int: true, min: 1, max: 100000 });
+if (has(args, 'derive-spirit')) await deriveSpiritCommand();
+if (has(args, 'derive-flank')) await deriveFlankCommand();
+if (has(args, 'derive-scars')) await deriveScarsCommand();
 const aText = text(args, 'a') ?? text(args, 'attacker');
 if (!aText) fail(C, 'нет нападающего: --a "spearman:100"');
 const townLevel = has(args, 'town') ? num(C, args, 'town', 1, { int: true, min: 1, max: 10 }) : null;
@@ -78,6 +96,16 @@ const restA = num(C, args, 'rest-a', 1, { min: 0, max: 1 });
 const restD = num(C, args, 'rest-d', 1, { min: 0, max: 1 });
 const resolveA = num(C, args, 'resolve-a', 0);
 const resolveD = num(C, args, 'resolve-d', 0);
+/** Дух стороны из ключа «мораль,дисциплина»; нет ключа — без духа. */
+function spiritOf(key: string): Spirit | undefined {
+  const v = text(args, key);
+  if (v === undefined) return undefined;
+  const [m, d] = v.split(',').map((x) => Number(x.trim()));
+  if (!Number.isFinite(m) || !Number.isFinite(d) || m < 0 || d < 0 || m > SPIRIT.top || d > SPIRIT.top) fail(C, `--${key}: «мораль,дисциплина», 0..${SPIRIT.top}`);
+  return { morale: m, discipline: d };
+}
+const spiritA = spiritOf('spirit-a');
+const spiritD = spiritOf('spirit-d');
 const log = has(args, 'log');
 const watch = has(args, 'watch');
 const town = townLevel !== null ? await townSide(townLevel, seed) : null;
@@ -96,8 +124,8 @@ const front = assault ? wallFront(assault, width) : null;
 /** Бой одного сида: стена — дверью `wallFight`; поле при своей ширине — тем же составом обороны, что у неё (`defenceKinds`). */
 function battle(s: number): { a: SideSpec; d: SideSpec; field: FieldOutcome; input: FieldInput } {
   const { a, d } = sideAt(s);
-  const attacker = { kinds: a.kinds, resolve: resolveA, ...(pipsA ? { pips: pipsA } : {}), rest: restA };
-  const defender = { kinds: d.kinds, militia, archers, resolve: resolveD, ...(pipsD ? { pips: pipsD } : {}), rest: restD };
+  const attacker = { kinds: a.kinds, resolve: resolveA, ...(pipsA ? { pips: pipsA } : {}), rest: restA, ...(spiritA ? { spirit: spiritA } : {}) };
+  const defender = { kinds: d.kinds, militia, archers, resolve: resolveD, ...(pipsD ? { pips: pipsD } : {}), rest: restD, ...(spiritD ? { spirit: spiritD } : {}) };
   if (front || width === FRONT_WIDTH) {
     const { input, field } = wallFight({ seed: s, attacker, defender, ...(ground ? { ground } : {}), front });
     return { a, d, field, input };
@@ -105,7 +133,13 @@ function battle(s: number): { a: SideSpec; d: SideSpec; field: FieldOutcome; inp
   const input: FieldInput = {
     seed: s,
     attacker,
-    defender: { kinds: defenceKinds(d.kinds, militia, archers), resolve: resolveD, ...(pipsD ? { pips: pipsD } : {}), rest: restD },
+    defender: {
+      kinds: defenceKinds(d.kinds, militia, archers),
+      resolve: resolveD,
+      ...(pipsD ? { pips: pipsD } : {}),
+      rest: restD,
+      ...(spiritD ? { spirit: spiritD } : {}),
+    },
     ...(ground ? { ground } : {}),
     width,
   };
@@ -192,3 +226,75 @@ const file = saveRecord(C, { kind: 'battle', title: `Бой: ${aText} проти
 console.log('');
 replayHint(file);
 if (watch) await (await import('./open')).openReplay(file);
+
+/**
+ * `--derive-spirit` (ДР-1, Д4): точки `SPIRIT` по ориентиру владельца и сила по углам шкал при записанных. Сторона — `--a` (виды
+ * племени), сидов — `--runs`. Больше `LIGHT_BATTLES` сидов — под замком машины.
+ */
+async function deriveSpiritCommand(): Promise<never> {
+  const seeds = num(C, args, 'runs', 200, { int: true, min: 20, max: 2000 });
+  const spec = text(args, 'a');
+  const check = has(args, 'check');
+  rejectUnknown(C, args);
+  const troops = spec ? parseSide(C, spec, 1, 'мерка').troops : SPIRIT_MIX;
+  await heavy(`вывод духа, ${seeds} сидов на точку`);
+  console.log(`=== Дух войска (ДР-1): мерка ${JSON.stringify(troops)}, ${seeds} сидов на точку ===`);
+  console.log(`Ориентир: обе на дне — ×${SPIRIT_AIM.low}, обе на верху — ×${SPIRIT_AIM.high}; каждая шкала на краю — ×${AXIS_AIM.low.toFixed(4)} / ×${AXIS_AIM.high.toFixed(4)}.`);
+  if (!check) {
+    const d = deriveSpirit(troops, seeds);
+    console.log(`Выведено: мораль low ${d.morale.low}, high ${d.morale.high}; дисциплина low ${d.discipline.low}, high ${d.discipline.high}`);
+  }
+  console.log(`Записано: мораль low ${SPIRIT.morale.low}, high ${SPIRIT.morale.high}; дисциплина low ${SPIRIT.discipline.low}, high ${SPIRIT.discipline.high}`);
+  console.log('Сила при записанных (во сколько раз армия с духом стоит ровной без него):');
+  for (const c of SPIRIT_CHECKS) console.log(`  ${c.name.padEnd(28)} ×${strengthOf(troops, c.spirit, seeds).toFixed(3)}`);
+  process.exit(0);
+}
+
+/**
+ * `--derive-flank` (ДР-3, К4): вершина тактики командиров флангов — наибольшая, при которой двое лучших тактиков на обоих флангах
+ * не сильнее лучшего полководца, — и сила командира каждого рода и уровня при записанной. Сторона — `--a` (виды племени), сидов —
+ * `--runs`. Больше `LIGHT_BATTLES` сидов — под замком машины.
+ */
+async function deriveFlankCommand(): Promise<never> {
+  const seeds = num(C, args, 'runs', 200, { int: true, min: 20, max: 2000 });
+  const spec = text(args, 'a');
+  const check = has(args, 'check');
+  rejectUnknown(C, args);
+  const troops = spec ? parseSide(C, spec, 1, 'мерка').troops : SPIRIT_MIX;
+  await heavy(`вывод командиров флангов, ${seeds} сидов на точку`);
+  console.log(`=== Командиры флангов (ДР-3): мерка ${JSON.stringify(troops)}, ${seeds} сидов на точку ===`);
+  if (!check) {
+    const d = deriveFlank(troops, seeds);
+    console.log(`Лучший полководец ${JSON.stringify(BEST_GENERAL)}: ×${d.general.toFixed(3)}`);
+    for (const b of d.both) console.log(`  двое с тактикой ${b.t} на обоих флангах: ×${b.strength.toFixed(3)}${b.strength > d.general ? ' — сильнее полководца' : ''}`);
+    console.log(`Выведено: TACTICS_TOP = ${d.top}`);
+  }
+  console.log(`Записано: TACTICS_TOP = ${TACTICS_TOP}`);
+  console.log('Сила при записанной (во сколько раз армия с командиром стоит той же без него):');
+  for (const c of flankChecks(troops, seeds)) console.log(`  ${c.name.padEnd(30)} тактика ${String(c.tactics).padStart(2)}  ×${c.strength.toFixed(3)}`);
+  process.exit(0);
+}
+
+/**
+ * `--derive-scars` (ДР-4, Ш5): величины черт армии — сила черты в её бою равна ориентиру (шкала духа ДР-1 на верху или на дне) —
+ * и сила каждой при записанных. Сидов — `--runs`. Больше `LIGHT_BATTLES` сидов — под замком машины.
+ */
+async function deriveScarsCommand(): Promise<never> {
+  const seeds = num(C, args, 'runs', 100, { int: true, min: 20, max: 2000 });
+  const check = has(args, 'check');
+  const only = text(args, 'scar');
+  if (only && !SCARS.some((x) => x.id === only)) fail(C, `--scar: черты «${only}» нет — ${SCARS.map((x) => x.id).join(', ')}`);
+  rejectUnknown(C, args);
+  await heavy(`вывод черт армии, ${seeds} сидов на точку`);
+  console.log(`=== Черты армии (ДР-4): ${seeds} сидов на точку; конных в мерке против конницы — ${(100 * horseShareOfMix()).toFixed(1)} % ===`);
+  if (!check) {
+    for (const d of only ? [deriveScar(only as ScarId, seeds, new Map())] : deriveScars(seeds)) {
+      const name = SCARS.find((x) => x.id === d.id)!.name;
+      console.log(`  ${name.padEnd(18)} ориентир ×${d.aim.toFixed(3)}  величина ${d.size.toFixed(2)}  сила ×${d.strength.toFixed(3)}${d.capped ? '  — упёрлась в потолок' : ''}`);
+    }
+  }
+  console.log(`Записано: ${JSON.stringify(SCAR_SIZE)}`);
+  console.log('Сила при записанных (во сколько раз армия с чертой стоит той же без неё в её бою):');
+  for (const c of scarChecks(seeds).filter((x) => !only || x.id === only)) console.log(`  ${SCARS.find((x) => x.id === c.id)!.name.padEnd(18)} ×${c.strength.toFixed(3)}  (ориентир ×${c.aim.toFixed(3)})`);
+  process.exit(0);
+}

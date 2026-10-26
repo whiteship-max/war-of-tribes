@@ -23,6 +23,8 @@ export { Sheet } from '../Sheet';
 export { OfflineModal } from '../OfflineModal';
 export { LegacyModal } from '../LegacyModal';
 export { PaceModal } from '../PaceModal';
+// Окно «Склад заполнен» (ECO-1, решение владельца) — тем же куском: его зовут окна этого куска.
+export { RoomModal } from './RoomModal';
 export { MarchesNew } from './MarchesNew';
 export { WorldNew } from './WorldNew';
 export { ReportBodyNew } from './ReportNew';

@@ -326,6 +326,20 @@ describe('книга рынка сервера', () => {
     return faults(c0, NOW - 500, c1, NOW + 5000);
   };
 
+  it('AC-5: две разные сделки под одним новым номером — флаг двойной сделки (архив prove-8-1)', () => {
+    const s = town();
+    sell(s, GOOD_BY_ID.iron, 1, NOW - 1000);
+    const c0 = card(s);
+    sell(s, GOOD_BY_ID.iron, 5, NOW);
+    const c1 = card(s);
+    expect(faults(c0, NOW - 500, c1, NOW + 5000), 'честная — без флага').toEqual([]);
+    // Второе устройство продало под тем же номером другое: в опись легли обе сделки, счёт сдвинулся на одну.
+    const deals = c1.market!.deals;
+    const last = deals[deals.length - 1];
+    c1.market!.deals = [...deals, { ...last, n: last.n - 3, gold: last.gold + 1 }];
+    expect(faults(c0, NOW - 500, c1, NOW + 5000).join(' ')).toMatch(/двойная сделка/);
+  });
+
   it('продано дороже правила — флаг', () => {
     expect(forged((c) => (c.market!.deals[c.market!.deals.length - 2].gold += 50)).join(' ')).toMatch(/продано за .* не больше/);
   });

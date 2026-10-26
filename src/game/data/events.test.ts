@@ -61,6 +61,8 @@ describe('цена события объявлена, а не спрятана �
         const s = rich();
         const cost = eventCost(o, s);
         if (!paid(o, s)) continue;
+        // Условие варианта пропало (стройки нет) — он гаснет не ценой; это держит `sim/eventfreeze.test.ts` (ECO-3).
+        if (o.block?.(s)) continue;
         const before = { ...s.resources, gold: s.gold };
         s.inbox = [{ defId: e.id, at: s.time }];
         const r = resolveEvent(s, i);

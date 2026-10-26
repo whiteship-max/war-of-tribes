@@ -11,6 +11,7 @@ import { DAY_LENGTH, realTime } from './pace';
 import { MINUTE_MS as MIN } from './time';
 import { MAX_OFFLINE_DAYS } from './constants';
 import { STAB_CALM } from './stabrules';
+import { has, own } from './guard';
 
 /** Нрав вести: добрая, дурная, выбор с ценой; следствие приходит ответом на прежнюю. */
 export type CrownKind = 'good' | 'bad' | 'choice' | 'chain';
@@ -73,6 +74,11 @@ export const CROWN_RULES: Readonly<Record<string, CrownRule>> = {
   cr_plague: { kind: 'chain', rarity: 'common', opts: [o(-2), o(-4)] },
   cr_collector: { kind: 'chain', rarity: 'common', opts: [o(0), o(-2)] },
   cr_interdict: { kind: 'chain', rarity: 'common', opts: [o(1), o(-8)] },
+  // ---------- Знать и командиры флангов (ДР-3) ----------
+  // Дурные: обида и раздор знати, как жалоба сословия — дар и уступка ровно, отказ и молчание — день вниз. Авангард безродному —
+  // очки войны, как дар рыцарства.
+  cr_lord_claim: { kind: 'bad', rarity: 'common', opts: [o(0), o(0), o(-1)] },
+  cr_vanguard: { kind: 'bad', rarity: 'uncommon', opts: [o(0), o(0, ['war', 20]), o(-1)] },
   ...estateRules(),
 };
 
@@ -97,13 +103,13 @@ function estateRules(): Record<string, CrownRule> {
 export const CROWN_IDS: readonly string[] = Object.keys(CROWN_RULES);
 
 /** Весть державы ли это. */
-export const isCrown = (id: string): boolean => id in CROWN_RULES;
+export const isCrown = (id: string): boolean => has(CROWN_RULES, id);
 
 /** Сдвиг стабильности ответа, % ступени: дни тихой жизни × `STAB_CALM`. Нет такого ответа — ноль. */
-export const crownStab = (id: string, opt: number): number => (CROWN_RULES[id]?.opts[opt]?.stab ?? 0) * STAB_CALM;
+export const crownStab = (id: string, opt: number): number => (own(CROWN_RULES, id)?.opts[opt]?.stab ?? 0) * STAB_CALM;
 
 /** Сколько очков ответ даёт (больший вид); нет — ноль. */
-export const crownGain = (id: string, opt: number): number => CROWN_RULES[id]?.opts[opt]?.gain?.[1] ?? 0;
+export const crownGain = (id: string, opt: number): number => own(CROWN_RULES, id)?.opts[opt]?.gain?.[1] ?? 0;
 
 /** Самый большой подъём стабильности, какой даёт одна весть, % ступени: им сервер меряет ответы, которых не видел. */
 export const CROWN_STAB_MAX = Math.max(...CROWN_IDS.flatMap((id) => CROWN_RULES[id].opts.map((_, i) => crownStab(id, i))));
@@ -132,7 +138,7 @@ export const CROWN_EVERY_DAYS: Record<CrownRarity, number> = {
 };
 
 /** Повтор вести — игровых секунд. */
-export const crownEvery = (id: string): number => CROWN_EVERY_DAYS[CROWN_RULES[id]?.rarity ?? 'common'] * DAY_LENGTH;
+export const crownEvery = (id: string): number => CROWN_EVERY_DAYS[own(CROWN_RULES, id)?.rarity ?? 'common'] * DAY_LENGTH;
 
 /** Сколько последних ответов везёт опись серверу. */
 export const CROWN_BOOK = 12;

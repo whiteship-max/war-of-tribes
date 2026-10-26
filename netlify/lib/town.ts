@@ -21,6 +21,7 @@
  * (`routes/gems.ts`). Лежит в записи наблюдения игрока (`WatchRecord.town`). Чистая: без хранилища и без часов.
  */
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
+import { has } from '../../src/game/guard.js';
 import type { BuildingTypeId } from '../../src/game/types.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, START_POP } from '../../src/game/constants.js';
 import { gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
@@ -85,6 +86,13 @@ export interface TownBook {
   /** Уровни, ускоренные за алмазы и ещё не подтверждённые: `тип:уровень`. */
   paid: string[];
   /**
+   * Номера ускорений за алмазы, уровень которых книга подтвердила **работой посёлка**, а не этим ускорением (FIN-5): опись
+   * заявила уровень раньше, чем партия применила дело ускорения, или назвала его ненужным, и работы хватило; или уровень
+   * подтверждён раньше, чем метка ускорения легла. Только по этому списку сервер возвращает алмазы за ускорение, которое
+   * не понадобилось (`gems.refundRushes`). Нет поля — книга до FIN-5.
+   */
+  own: number[];
+  /**
    * Очередь стройки последней описи, которую книга признала (СТ-1): `тип:уровень` по порядку, первое — строящееся. Места,
    * нарушившие правила очереди (`queueFaults`), сюда не ложатся. По ней ускорение за алмазы отказывает ждущему
    * (`rushFloor`). Пусто — очереди нет или опись до очереди.
@@ -136,6 +144,7 @@ export const seedTown = (at: number): TownBook => ({
   letters: LETTER_SLOTS,
   gem: 0,
   paid: [],
+  own: [],
   queue: [],
   peak: { pop: START_POP, power: 0 },
 });
@@ -151,7 +160,7 @@ export function readTown(v: unknown): TownBook | null {
   if (since <= 0 || at <= 0) return null;
   const s = (r.site && typeof r.site === 'object' ? r.site : null) as Record<string, unknown> | null;
   const site =
-    s && typeof s.type === 'string' && (s.type in BUILDING_BY_ID || hasGone([s.type])) && Number.isInteger(s.level)
+    s && typeof s.type === 'string' && (has(BUILDING_BY_ID, s.type) || hasGone([s.type])) && Number.isInteger(s.level)
       ? { type: s.type, level: Math.floor(n0(s.level)), done: n0(s.done) }
       : null;
   const peak = (r.peak && typeof r.peak === 'object' ? r.peak : {}) as Record<string, unknown>;
@@ -168,6 +177,7 @@ export function readTown(v: unknown): TownBook | null {
     letters: Math.min(LETTER_SLOTS, n0(r.letters)),
     gem: Math.floor(n0(r.gem)),
     paid: Array.isArray(r.paid) ? r.paid.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-PAID_MAX) : [],
+    own: Array.isArray(r.own) ? r.own.filter((x): x is number => Number.isSafeInteger(x) && (x as number) > 0).slice(-PAID_MAX) : [],
     queue: Array.isArray(r.queue) ? r.queue.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(0, BUILD_QUEUE_MAX) : [],
     peak: { pop: n0(peak.pop), power: n0(peak.power) },
   });
@@ -214,6 +224,12 @@ export interface TownClaim {
    * растёт той же долей. Нет — единица.
    */
   steward?: number;
+  /**
+   * Номер последнего дела алмазов, которое партия применила (`WatchCard.gemSeen`), и ускорения, которые она назвала
+   * ненужными (`WatchCard.gemUnneeded`; FIN-5): уровень с меткой такого ускорения книга сначала пробует подтвердить работой.
+   */
+  gemSeen?: number;
+  unneeded?: readonly number[];
   /**
    * Множитель прироста от сословий (РТ-2, `watch.estateCeilOf`: крестьянство в силе по подтверждённым уровням и привилегиям,
    * лояльность сверху): потолок жителей растёт той же долей. Нет — единица.
@@ -265,7 +281,7 @@ export function queueFaults(claim: TownClaim, prev?: { site?: TownSite | null })
   q.forEach((e, i) => {
     const key = keyOf(e.type, e.level);
     if (i >= BUILD_QUEUE_MAX) out.push({ key, why: `${i + 1}-е место при очереди в ${BUILD_QUEUE_MAX}` });
-    else if (!(e.type in BUILDING_BY_ID)) out.push({ key, why: 'такой постройки нет' });
+    else if (!has(BUILDING_BY_ID, e.type)) out.push({ key, why: 'такой постройки нет' });
     else if (seen.has(e.type)) out.push({ key, why: 'вторая стройка той же постройки' });
     else if (e.level !== levelIn(claim.buildings, e.type as BuildingTypeId) + 1 || e.level > top(e.type as BuildingTypeId)) {
       out.push({ key, why: `уровень не следующий: постройка ур. ${levelIn(claim.buildings, e.type as BuildingTypeId)}` });
@@ -317,11 +333,19 @@ export function buildStep(prev: TownBook, at: number, claim: TownClaim, gems: re
   let letters = Math.min(LETTER_SLOTS, prev.letters + dt / LETTER_PAUSE_MIN);
   let gem = prev.gem;
   const paid = new Set(prev.paid);
+  // Номер ускорения по метке — последний с этим типом и уровнем: по нему книга знает, применила ли партия это дело (FIN-5).
+  const rushOf = new Map<string, number>();
   for (const g of gems) {
+    const k = keyOf(g.building, g.level);
+    if ((rushOf.get(k) ?? 0) < g.n) rushOf.set(k, g.n);
     if (g.n <= prev.gem) continue;
     gem = Math.max(gem, g.n);
-    paid.add(keyOf(g.building, g.level));
+    paid.add(k);
   }
+  const own = new Set(prev.own);
+  /** Уровень с меткой этого ускорения сначала подтверждаем работой: партия его ещё не применила или назвала ненужным. */
+  const ownFirst = (n: number | undefined): n is number =>
+    n !== undefined && ((claim.gemSeen !== undefined && claim.gemSeen < n) || (claim.unneeded?.includes(n) ?? false));
   const rate = rateOf(prev.levels, claim.buildings, handsOf(prev.pop, claim.bonded ?? 0), claim.steward);
   let work = prev.credit + rate * gameSecondsOfMs(dt) * TOWN_SLACK;
   const free = rushFreeWork();
@@ -337,21 +361,36 @@ export function buildStep(prev: TownBook, at: number, claim: TownClaim, gems: re
       const mine = site && site.type === type && site.level === l ? site : null;
       if (paid.has(k)) {
         paid.delete(k);
+        // Работой — если её хватает и без вестей сверх нужного; не хватает — уровень за алмазы, как прежде, без флага.
+        const n = rushOf.get(k);
+        if (ownFirst(n)) {
+          const full = upgradeWork(BUILDING_BY_ID[type], l);
+          let need = Math.max(0, full - free - (mine?.done ?? 0));
+          let spent = 0;
+          if (need > work && letters >= 1) {
+            spent = Math.min(Math.floor(letters), Math.ceil((need - work) / (EVENT_WORK_MAX * full)));
+            need = Math.max(0, need - spent * EVENT_WORK_MAX * full);
+          }
+          if (need <= work) {
+            work -= need;
+            letters -= spent;
+            own.add(n);
+          }
+        }
       } else {
         const full = upgradeWork(BUILDING_BY_ID[type], l);
-        let need = Math.max(0, full - free - (mine?.done ?? 0));
-        if (need > work && letters >= 1) {
-          const k2 = Math.min(Math.floor(letters), Math.ceil((need - work) / (EVENT_WORK_MAX * full)));
-          letters -= k2;
-          need = Math.max(0, need - k2 * EVENT_WORK_MAX * full);
-        }
-        if (need > work) {
-          // Остальное не подтверждается: сколько не хватило до заявленного — для флага.
-          short += need - work;
+        const need = Math.max(0, full - free - (mine?.done ?? 0));
+        const k2 = need > work && letters >= 1 ? Math.min(Math.floor(letters), Math.ceil((need - work) / (EVENT_WORK_MAX * full))) : 0;
+        const left = Math.max(0, need - k2 * EVENT_WORK_MAX * full);
+        if (left > work) {
+          // Остальное не подтверждается: сколько не хватило до заявленного — для флага (счёт прежний: с вестями). Вести
+          // на неподтверждённый уровень не тратятся (AC-7): прежде они уходили, а уровень оставался неподтверждённым.
+          short += left - work;
           for (let m = l + 1; m <= want; m++) short += Math.max(0, upgradeWork(BUILDING_BY_ID[type], m) - free);
           break;
         }
-        work -= need;
+        letters -= k2;
+        work -= left;
       }
       if (mine) site = null;
       lv = l;
@@ -368,13 +407,23 @@ export function buildStep(prev: TownBook, at: number, claim: TownClaim, gems: re
   } else {
     site = null;
   }
+  // Метка ускорения уровня, который книга уже подтвердила без неё (подтверждён раньше, чем метка легла), — уровень своей
+  // работой: метка снимается, ускорение — в список «своей работой» (FIN-5).
+  for (const k of [...paid]) {
+    const i = k.lastIndexOf(':');
+    const type = k.slice(0, i);
+    if (!has(BUILDING_BY_ID, type) || levelIn(levels, type as BuildingTypeId) < Number(k.slice(i + 1))) continue;
+    paid.delete(k);
+    const n = rushOf.get(k);
+    if (n !== undefined) own.add(n);
+  }
   const credit = Math.min(Math.max(0, work), rate * gameSecondsOfMs(CREDIT_HOLD_MS));
   // Очередь (СТ-1): опись без неё (до очереди) — книга помнит одну идущую стройку, как раньше.
   // Начатое — по прежней описи (`before`): её строящееся с работой; нет её — по книге.
   const faults = claim.queue ? queueFaults(claim, { site: before ?? prev.site }) : [];
   const queue = claim.queue ? queueOf(claim, faults) : site ? [keyOf(site.type, site.level)] : [];
   return {
-    book: { ...prev, at, levels, site, credit, letters, gem, paid: [...paid].slice(-PAID_MAX), queue },
+    book: { ...prev, at, levels, site, credit, letters, gem, paid: [...paid].slice(-PAID_MAX), own: [...own].slice(-PAID_MAX), queue },
     short,
     rate,
     faults,
@@ -462,14 +511,14 @@ export function floorAt(book: TownBook, at: number): { pop: number; power: numbe
 export function townSheet(sheet: WarSheet, book: TownBook, homePower: number): WarSheet {
   const levels: Counts = {};
   for (const [k, v] of Object.entries(sheet.levels)) {
-    const n = k in BUILDING_BY_ID ? Math.min(v, levelIn(book.levels, k as BuildingTypeId)) : 0;
+    const n = has(BUILDING_BY_ID, k) ? Math.min(v, levelIn(book.levels, k as BuildingTypeId)) : 0;
     if (n > 0) levels[k] = n;
   }
   const cap = storageOf(book.levels);
   const stock: Counts = {};
   for (const [k, v] of Object.entries(sheet.stock)) if (v > 0) stock[k] = Math.min(v, cap);
   const pop = Math.min(sheet.pop, book.pop);
-  const ceil = militiaOf(defenseOf(book.levels, book.pop, homePower, STEADFAST_MAX), homePower);
+  const ceil = militiaOf(defenseOf(book.levels, book.pop, homePower, STEADFAST_MAX), homePower, STEADFAST_MAX);
   const militia = Math.min(sheet.militia, ceil);
   const eat = eatFloorOf(pop, sheet.bonded);
   const tower = ruleTower(sheet.tower, levelIn(book.levels, 'tower'));
@@ -558,7 +607,7 @@ export function rushFloor(book: TownBook, claimed: Counts, bonded: number, type:
   for (const k of ahead < 0 ? book.queue : book.queue.slice(0, ahead)) {
     const [t, l] = k.split(':');
     const lv = Number(l);
-    if (!(t in BUILDING_BY_ID) || !Number.isInteger(lv) || lv <= levelIn(book.levels, t as BuildingTypeId)) continue;
+    if (!has(BUILDING_BY_ID, t) || !Number.isInteger(lv) || lv <= levelIn(book.levels, t as BuildingTypeId)) continue;
     const done = book.site && book.site.type === t && book.site.level === lv ? book.site.done : 0;
     work -= Math.max(0, upgradeWork(BUILDING_BY_ID[t as BuildingTypeId], lv) - free - done);
     if (work < 0) return null;

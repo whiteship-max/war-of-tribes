@@ -177,6 +177,13 @@ export const asGame = (seconds: number): GameSec => seconds as GameSec;
  */
 export const SPEEDS = [1, 30, 120] as const;
 
+/**
+ * Сколько опережения могло набежать за `realMs` настоящего времени: не больше высшей ступени скорости проверки (AC-8). Сервер
+ * прибавляет опережение к допуску сверок времени и берёт не больше этого: названное описью сверх открывало бы любое время.
+ */
+export const leadGrowth = (fromLead: number, toLead: number, realMs: number): number =>
+  Math.min(Math.max(0, toLead - fromLead), (SPEEDS[SPEEDS.length - 1] - 1) * Math.max(0, realMs));
+
 let rate = 1;
 let from = 0;
 let base = 0;

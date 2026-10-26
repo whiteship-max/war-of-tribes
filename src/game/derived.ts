@@ -9,6 +9,7 @@ import type {
   Caravan,
   EquipmentId,
   FaithId,
+  Flank,
   GameState,
   JobId,
   ObservanceId,
@@ -78,6 +79,7 @@ import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } 
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { YARD_BY_JOB } from './data/yards';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
+import { fitStock } from './stockrules';
 import { TROOP_BY_ID, TROOP_IDS } from './data/troops';
 import { DESERT_SHARE, MASTER_PAID_AS, UPKEEP_TEXT } from './data/upkeep';
 import { BATTLE_MAN, troopTotal, troopsAfter, type TroopStack } from './battle/kinds';
@@ -104,9 +106,11 @@ import {
 import { daysSpan } from './span';
 import { BOON_BY_ID, type BoonDef } from './data/boons';
 import { ESTATE_META } from './data/estates';
-import { MAX_AGENT_LEVEL } from './data/agents';
 import { STAB_STEP, stabClamp, stabOutputMult } from './stabrules';
 import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
+import { WAGE_MIN_SHARE } from './spiritrules';
+import { AGENT_ROLES, recruitWage, recruitAt, traditionAt } from './agentrules';
+import { FLANKS, commanderSeated, leadLoyalty, type Birth, type Commander } from './commandrules';
 import {
   ESTATES,
   FERVOUR_SCALE,
@@ -750,9 +754,18 @@ export function masterHands(s: GameState, mods: SeasonModifiers = seasonMods(s))
  */
 export const masterWage = (s: GameState): number => wageOf(s, MASTER_PAID_AS) * masterHands(s);
 
+/**
+ * Доля полного жалованья, которую дружине платят сейчас (ДР-1): полное — единица, минимальное — `WAGE_MIN_SHARE`. Пишет режим
+ * одна дверь (`sim/upkeep.setWageMode`); мастеров, совет и агентов он не касается — они не дружина.
+ */
+export const wagePaidShare = (s: GameState): number => (s.pay?.wage?.mode === 'min' ? WAGE_MIN_SHARE : 1);
+
+/** Жалованье бойца этого вида за игровой день при нынешнем жалованье дружине (ДР-1: полное или минимальное). */
+export const troopWage = (s: GameState, troop: TroopId): number => wageOf(s, troop) * wagePaidShare(s);
+
 /** Жалованье войска за игровой день. Новобранцев на учениях оно не касается. */
 export const armyWagesPerDay = (s: GameState): number =>
-  TROOP_IDS.reduce((sum, id) => sum + Math.max(0, s.army?.[id] ?? 0) * wageOf(s, id), 0);
+  TROOP_IDS.reduce((sum, id) => sum + Math.max(0, s.army?.[id] ?? 0) * troopWage(s, id), 0);
 
 /** Жалованье наёмных мастеров за игровой день. */
 export const mastersWagesPerDay = (s: GameState): number => mastersCount(s) * masterWage(s);
@@ -762,7 +775,8 @@ export const mastersWagesPerDay = (s: GameState): number => mastersCount(s) * ma
  * из неё платит `sim/upkeep`, по ней «по средствам» решает, сколько ещё держать, и по ней же
  * уходят недоплаченные. Второй ведомости у мастеров нет.
  */
-export const wagesPerDay = (s: GameState): number => armyWagesPerDay(s) + mastersWagesPerDay(s) + councilWagesPerDay(s);
+export const wagesPerDay = (s: GameState): number =>
+  armyWagesPerDay(s) + mastersWagesPerDay(s) + councilWagesPerDay(s) + agentWagesPerDay(s) + commandWagesPerDay(s);
 
 // ---------- Совет Ратуши (РТ-1) ----------
 //
@@ -794,6 +808,42 @@ export const councilWagesPerDay = (s: GameState): number =>
     const a = councilSeat(s, p);
     return a ? n + advisorWage(a.level, a.trait) : n;
   }, 0);
+
+/**
+ * Жалованье агентов, нанятых в Ратуше (АГ-1), за игровой день — в той же ведомости, что войско, мастера и совет: по уровню
+ * кандидата и чертам (`agentrules.recruitWage`). Свой человек (без метки найма) служит без жалованья, пустое место — тоже.
+ */
+export const agentWagesPerDay = (s: GameState): number =>
+  AGENT_ROLES.reduce((n, id) => {
+    const p = s.agents?.[id];
+    if (!p || p.vacant || !p.cand) return n;
+    const r = recruitAt(s.seed, p.cand.n, p.cand.tier);
+    return n + recruitWage(r.level, r.traits);
+  }, 0);
+
+// ---------- Командиры флангов (ДР-3) ----------
+//
+// Командиры — люди «Командующих» в отряде полководца (docs/siege_v2.md, «Решения ДР-3»): кандидат, род и тактика выводятся из
+// метки найма (`commandrules.commanderAt`). Здесь — только чтение, которое нужно ведомости и сословиям; пишет места одна дверь —
+// `sim/command`.
+
+/** Кандидат человека на месте фланга `f`; места нет — `null`. */
+export function commanderOn(s: GameState, f: Flank): Commander | null {
+  const c = s.command?.seats?.[f];
+  // Служба (ДР-5): опыт за бои поднимает уровень на службе и тактику, жалованье — по уровню найма.
+  return c ? commanderSeated(s.seed, c) : null;
+}
+
+/** Жалованье командиров флангов в игровой день — ступень совета по уровню и чертам кандидата (`agentrules.recruitWage`). */
+export const commandWagesPerDay = (s: GameState): number =>
+  FLANKS.reduce((n, f) => {
+    const c = commanderOn(s, f);
+    return c ? n + recruitWage(c.level, c.traits) : n;
+  }, 0);
+
+/** Слагаемое лояльности рыцарства от людей на местах командиров: милость лордам, обида за безродных (К5). */
+export const commandLead = (s: GameState): number =>
+  leadLoyalty(FLANKS.map((f) => commanderOn(s, f)?.birth).filter((b): b is Birth => b !== undefined));
 
 // ---------- Сословия (РТ-2) ----------
 //
@@ -833,7 +883,8 @@ export function estatesWith(s: GameState, priv: Partial<Record<EstateId, number>
   const dec = estateDecree(s);
   const out = {} as Record<EstateId, EstateNow>;
   for (const e of ESTATES) {
-    const parts = loyaltyParts(e, priv, infl[e], estateMood(s, e));
+    // Командиры флангов (ДР-3): слагаемое знати — одно правило `loyaltyParts` решает, какому сословию оно не безразлично.
+    const parts = loyaltyParts(e, priv, infl[e], estateMood(s, e), commandLead(s));
     const loyalty = loyaltyFrom(parts);
     const strength = strengthOf(infl[e], dec === e);
     out[e] = { id: e, infl: infl[e], loyalty, parts, strength, plus: plusOf(e, strength, loyalty), minus: minusOf(e, strength), decree: dec === e };
@@ -917,11 +968,7 @@ export const payGraceDays = (s: GameState): number => statOf(s, 'statue', 'loyal
  * и втором уровне — ни одного, на девятом и десятом — четыре. Статуи нет — ноль. Входит в отметки полководца одной дверью —
  * уровнем, с которого их считает `sim/agents.pipsAt` (`sim/agents.pipLevel`); лестница отметок та же, 0…4.
  */
-export function tradition(s: GameState): number {
-  const level = buildingOfType(s, 'statue')?.level ?? 0;
-  if (level < 1) return 0;
-  return Math.ceil((Math.min(level, maxLevelFor('statue')) * MAX_AGENT_LEVEL) / maxLevelFor('statue')) - 1;
-}
+export const tradition = (s: GameState): number => traditionAt(buildingOfType(s, 'statue')?.level ?? 0, maxLevelFor('statue'));
 
 /**
  * Какая доля войска не оплачена: нехватка, делённая на жалованье. Пока долга нет,
@@ -987,6 +1034,12 @@ export interface UpkeepInfo {
   leavingPerDay: number;
 }
 
+/** Головы на пайке вне строя — раненые и новобранцы на учениях: их голод уводит поголовно (`sim/upkeep`). */
+const idleHeads = (s: GameState): number => {
+  const m = soldierMouths(s);
+  return troopTotal(m.recruits) + troopTotal(m.wounded);
+};
+
 /** Всё о содержании войска в эту минуту — для казарм, ратуши и тревоги. */
 export function upkeepInfo(s: GameState): UpkeepInfo {
   const wages = wagesPerDay(s);
@@ -1016,11 +1069,11 @@ export function upkeepInfo(s: GameState): UpkeepInfo {
     unpaid,
     unfed,
     why,
-    // Строй и наёмные мастера уходят по большей из двух долей, раненые и новобранцы — только голодом (`sim/upkeep`).
+    // Строй и наёмные мастера уходят по большей из двух долей, раненые и новобранцы — только голодом (`sim/upkeep`), и
+    // уходят головы, а не рты: конь всадника — рот, но не новобранец (BTL-8).
     leavingPerDay:
       why && lateDays >= graceDays
-        ? DESERT_SHARE *
-          (Math.max(unpaid, unfedTroops) * armySize(s) + share * mastersCount(s) + unfedTroops * (mouthCount(s) - armySize(s)))
+        ? DESERT_SHARE * (Math.max(unpaid, unfedTroops) * armySize(s) + share * mastersCount(s) + unfedTroops * idleHeads(s))
         : 0,
   };
 }
@@ -1601,7 +1654,7 @@ export function siegeDryIn(s: GameState): number {
     const net = netAt(t);
     const span = end - t;
     if (net < 0 && food + net * span < 0) return t + food / -net - s.time;
-    food = Math.min(cap, food + net * span);
+    food = fitStock(food, net * span, cap);
     t = end;
     if ((i + 1) % SEASONS.length === 0) {
       if (food >= yearFood && yearOf(t) > 1) return Infinity;

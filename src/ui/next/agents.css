@@ -1,0 +1,129 @@
+/*
+ * Раздел «Агенты» Ратуши (АГ-1, docs/city_v3.md): четыре места карточками совета (`council.css`) и строка характеристик.
+ * Шкалы — docs/ui_audit.md, раздел 3: отступы 2·4·8, кегли 12·13, значки 14, числа цифрами одной ширины; касание по числу —
+ * подсказка (что оно даёт), высота строки — 20; у карточки одна кнопка, чтобы четыре влезали на 390 × 844 без прокрутки.
+ */
+
+.ag-card .cn-body {
+  gap: 1px;
+}
+.ag-stats {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+.ag-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--m-plate-rim);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ag-stat svg {
+  width: 14px;
+  height: 14px;
+}
+.ag-stat i {
+  font-style: normal;
+  font-size: 12px;
+}
+.ag-stat .pos,
+.ag-wage.pos {
+  color: var(--good);
+}
+.ag-stat .neg,
+.ag-wage.neg {
+  color: var(--bad);
+}
+.ag-wage {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ag-wage svg {
+  width: 14px;
+  height: 14px;
+}
+.ag-wage.muted {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.ag-why {
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--muted);
+}
+.ag-age {
+  white-space: nowrap;
+}
+.ag-lock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  color: var(--muted);
+}
+.ag-lock svg {
+  width: 20px;
+  height: 20px;
+}
+/* Нынешний над листом кандидатов: кто он и «Уволить» рядом. */
+.ag-now {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+.ag-now .cn-note {
+  margin: 0 2px;
+}
+.ag-now .kit-btn {
+  min-height: var(--tap);
+  min-width: 96px;
+  font-size: 13px;
+}
+
+/* Рамка портрета по месту: полководец — червлень, разведчик — зелень, лазутчик — чернь, дипломат — лазурь. */
+.cn-port.general {
+  background:
+    radial-gradient(120% 90% at 40% 30%, rgba(240, 140, 110, 0.18), transparent 60%),
+    linear-gradient(180deg, #3a1d18, #1c0f0c);
+}
+.cn-port.scout {
+  background:
+    radial-gradient(120% 90% at 40% 30%, rgba(170, 210, 140, 0.18), transparent 60%),
+    linear-gradient(180deg, #26321e, #131a10);
+}
+.cn-port.spy {
+  background:
+    radial-gradient(120% 90% at 40% 30%, rgba(190, 190, 200, 0.14), transparent 60%),
+    linear-gradient(180deg, #24242a, #111114);
+}
+.cn-port.diplomat {
+  background:
+    radial-gradient(120% 90% at 40% 30%, rgba(140, 180, 230, 0.18), transparent 60%),
+    linear-gradient(180deg, #1c2638, #0e131c);
+}
+
+/* Возраст, черты и жалованье — одной строкой, а не влезли — переносом: жалованье не прячется за краем. */
+.ag-card .cn-meta,
+.ag-cand .cn-meta {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}

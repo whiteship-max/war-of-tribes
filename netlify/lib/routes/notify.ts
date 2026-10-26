@@ -67,6 +67,9 @@ export const notify: Route = async (req, io) => {
     const { record, marks, fail } = accept(rec, put, key, now, auth.user.allowsWrite === true);
     // Отказан список, а больше в запросе ничего и не было — писать нечего.
     if (fail && put.present === undefined && put.prefs === undefined && put.canWrite === undefined) return deny(fail.status, fail.error);
+    // Эпоха — ещё раз, перед самой записью (OPS-3).
+    const late = await eraGate(req, io);
+    if (late) return late;
     const written = await store.setJSON(
       key,
       record,

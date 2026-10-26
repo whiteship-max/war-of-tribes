@@ -9,6 +9,7 @@ import { appAt, keyboard } from './telegram.js';
 import { letterGo } from './deliver.js';
 import { noticeText } from './words.js';
 import { PROPOSALS, answerBlock, endWords } from '../../src/world/proposals.js';
+import { PACT_BREAK_NOTICE } from '../../src/world/data/tuning.js';
 
 const A = 'tg-2001';
 const B = 'tg-2002';
@@ -129,7 +130,9 @@ describe('ДП-1: предложение союза на сервере', () => 
     expect(applyOrder(file, B, { op: 'deal', id, act: 'yes' }, T0 + 1, ctx)).toBeNull();
     const before = newsMap(file);
     expect(applyOrder(file, A, { op: 'unpact', target: castleIdOf(B) }, T0 + 2, ctx)).toBeNull();
-    expect(pacted(file, A, B)).toBe(false);
+    // Разрыв — с отсрочкой (АУ-8, п. 1, pactnotice.test.ts): пакт держится до `PACT_BREAK_NOTICE`.
+    expect(pacted(file, A, B, T0 + 2)).toBe(true);
+    expect(pacted(file, A, B, T0 + 2 + PACT_BREAK_NOTICE)).toBe(false);
     expect(proposalsOf(file, A)[0]).toMatchObject({ end: 'broken', endBy: 'us', city: 'Бета' });
     expect(proposalsOf(file, B)[0]).toMatchObject({ end: 'broken', endBy: 'them', city: 'Альфа' });
     expect(news(before, file).get(B)?.add).toMatchObject([{ p: { pact: 'broken', from: 'Альфа' } }]);

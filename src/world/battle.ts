@@ -8,6 +8,9 @@
 // потерь в старой форме: на них держатся добыча, урон гарнизону и последствия
 // для деревни, и переписывать их из-за нового ядра незачем.
 import {
+  BATTLE_RULES,
+  FIRST_RULES,
+  FRONT_WIDTH,
   deploySetup,
   emptyStack,
   simulateBattle,
@@ -16,12 +19,16 @@ import {
   UNIT_KINDS,
   type ArmySetup,
   type BattleResult,
+  type Flanks,
   type GroundPenalty,
   type Pips,
   type Side,
+  type Spirit,
   type Stack,
   type Widen,
+  type ScarEdge,
 } from '@/battle';
+import { markOf, scarEdge, type FightMark, type ScarSide, type ScarWhere } from '@/game/scarrules';
 
 /**
  * Сторона боя — то, что уходит в ядро. Ни ступени снаряжения, ни вещей в ней нет (слово владельца по 14.35, путь П2): вещи
@@ -44,10 +51,35 @@ export interface FieldSide {
    */
   pips?: Pips;
   /**
+   * Командиры флангов того, кто ведёт сторону (ДР-3, `ArmySetup.flanks`): тактика левого и правого в отметках со знаком. У
+   * нас — люди «Командующих» (`PlayerProfile.flanks`) там же, где отметки полководца; у соседа — книга сервера; у логова —
+   * ничего. Нет поля — командиров нет, и бой байт в байт прежний.
+   */
+  flanks?: Flanks;
+  /**
    * С какой долей полной морали сторона вышла в бой, 0..1: мораль между боями (docs/battle_eu4.md, 14.31). Считает её
    * одна дверь — `world/rest`; нет поля — полная.
    */
   rest?: number;
+  /**
+   * Мораль и дисциплина войска, 0…100 (ДР-1, `ArmySetup.spirit`): у нас — дух дружины (`game/spiritrules`, мост везёт его
+   * слепком `PlayerProfile.spirit`), у соседа — его слепок, срезанный потолком книги сервера, у логова — ничего. Нет поля —
+   * множители единица.
+   */
+  spirit?: Spirit;
+  /**
+   * Черты армии (ДР-4, `game/scarrules`): какие у неё есть и шла ли она голодной. Где какая действует, решает `scarEdge` по месту
+   * боя (`FieldInput.where`) и войску противника, а в ядро едут готовые поправки (`ArmySetup.scars`). У нас — черты по журналу
+   * боёв (`PlayerProfile.scars`), у соседа в войне — черты книги сервера, у логова — ничего. Нет поля или ни одна не действует —
+   * бой байт в байт прежний.
+   */
+  scars?: ScarSide;
+  /**
+   * Сторона — звери, а не люди (стая у ворот, ДР-5): в ядре она лёгкая конница, но для черт армии она не войско — ни метки
+   * «конница противника» (`scarrules.markOf`), ни действия черт, спрашивающих состав противника («Стена копий», «Страх
+   * обстрела»). Нет поля — люди.
+   */
+  beasts?: true;
   /**
    * Какая часть стороны — гарнизон, вышедший из ворот в совместный удар, по родам (`ArmySetup.garrison`): ядро только
    * раскладывает её по секторам в итог, чтобы ролик вывел гарнизон из ворот, а дружину с поля. Исход от поля не зависит.
@@ -80,6 +112,16 @@ export interface FieldInput {
   /** Ширина стрельбы (`BattleInput.fire`): у боя у стены — полная, стреляют со всей стены. Нет — ширина боя. */
   fire?: number;
   widen?: Widen;
+  /**
+   * Где и когда бой (ДР-4, `scarrules.ScarWhere`): лес, река, холмы, ночь, зима, осада — то, что спрашивают черты армий и что
+   * ложится в метку боя (`FieldOutcome.marks`). Ядро места не знает; нет поля — ни одной из этих тем у боя нет.
+   */
+  where?: ScarWhere;
+  /**
+   * Версия правил боя (`BATTLE_RULES`, BTL-0). Двери боя мира и сервера (`world/fights`) пишут нынешнюю, и она едет во
+   * входе боя войны (`WarInput.rules`); нет поля — нынешняя. Вход, прочитанный из записи, — через `recordedField`.
+   */
+  rules?: number;
 }
 
 export interface FieldOutcome {
@@ -94,6 +136,16 @@ export interface FieldOutcome {
    * пару морали армии (`world/rest`). Боя не было — 1 у обеих: никто не дрался.
    */
   rest: Record<Side, number>;
+  /**
+   * Метки боя для журналов армий (ДР-4, `scarrules.markOf`): исход, уверенная победа, бегство, стрелы и конница противника, место
+   * и голод — у каждой стороны своя. Боя не было — `null`: в журнал не идёт ничего.
+   */
+  marks: Record<Side, FightMark> | null;
+  /**
+   * Доля выбитых по секторам флангов, где у стороны бился командир (ДР-5, `FieldSide.flanks`): из неё мир выводит гибель
+   * командира (`LocalWorld.flankDeed`). Нет поля — у сторон командиров не было или боя не было.
+   */
+  flankLoss?: Partial<Record<Side, Partial<Record<'A' | 'C', number>>>>;
 }
 
 /**
@@ -104,13 +156,13 @@ export interface FieldOutcome {
  * Сторона по правилу развёртывания (`setup.deploySetup`). Клещи — две расстановки тем же правилом: строй своей полосы и
  * вторая армия в тылу противника; сектора — их сумма, `behind` — вторая.
  */
-function sideSetup(side: FieldSide): ArmySetup {
+function sideSetup(side: FieldSide, rules: number): ArmySetup {
   const back = side.behind && stackTotal(side.behind) > 0 ? side.behind : null;
-  if (!back) return deploySetup(side.kinds);
+  if (!back) return deploySetup(side.kinds, FRONT_WIDTH, rules);
   const own = emptyStack();
   for (const k of UNIT_KINDS) own[k] = Math.max(0, side.kinds[k] - back[k]);
-  const front = deploySetup(own);
-  const rear = deploySetup(back);
+  const front = deploySetup(own, FRONT_WIDTH, rules);
+  const rear = deploySetup(back, FRONT_WIDTH, rules);
   const sectors = {} as ArmySetup['sectors'];
   for (const id of SECTORS) {
     sectors[id] = emptyStack();
@@ -119,29 +171,74 @@ function sideSetup(side: FieldSide): ArmySetup {
   return { sectors, behind: rear.sectors };
 }
 
+/** Доля выбитых своего сектора у флангов с командиром (ДР-5): пустой сектор — нет поля. */
+function flankLossOf(result: BattleResult, input: FieldInput): Pick<FieldOutcome, 'flankLoss'> {
+  const out: NonNullable<FieldOutcome['flankLoss']> = {};
+  for (const side of ['attacker', 'defender'] as const) {
+    const led = input[side].flanks;
+    if (!led) continue;
+    const by: Partial<Record<'A' | 'C', number>> = {};
+    for (const sec of ['A', 'C'] as const) {
+      if (!led[sec]) continue;
+      const s = result.sides[side].sectors[sec];
+      const was = stackTotal(s.initial);
+      if (was > 0) by[sec] = Math.max(0, Math.min(1, 1 - stackTotal(s.final) / was));
+    }
+    if (Object.keys(by).length) out[side] = by;
+  }
+  return Object.keys(out).length ? { flankLoss: out } : {};
+}
+
 export function resolveField(input: FieldInput): FieldOutcome {
   const atk = stackTotal(input.attacker.kinds);
   const def = stackTotal(input.defender.kinds);
   const fresh = { attacker: 1, defender: 1 };
-  if (atk <= 0) return { won: false, attackerLoss: 0, defenderLoss: 0, result: null, rest: fresh };
-  if (def <= 0) return { won: true, attackerLoss: 0, defenderLoss: 1, result: null, rest: fresh };
+  if (atk <= 0) return { won: false, attackerLoss: 0, defenderLoss: 0, result: null, rest: fresh, marks: null };
+  if (def <= 0) return { won: true, attackerLoss: 0, defenderLoss: 1, result: null, rest: fresh, marks: null };
 
-  const attacker = sideSetup(input.attacker);
-  const defender = deploySetup(input.defender.kinds);
+  // Версия правил — и раскладке: правило развёртывания менялось (BTL-5), запись старше раскладывается по своим.
+  const rules = input.rules ?? BATTLE_RULES;
+  const attacker = sideSetup(input.attacker, rules);
+  const defender = deploySetup(input.defender.kinds, FRONT_WIDTH, rules);
   // Доля морали кладётся, только если сторона не свежая: бой свежих сторон — тот же, что до морали между боями.
   const rested = (r: number | undefined): { rest?: number } => (r !== undefined && r < 1 ? { rest: r } : {});
+  // Дух — только если он есть: бой без него (логово, вход старше ДР-1) — тот же, что до духа, байт в байт.
+  const spirited = (v: Spirit | undefined): { spirit?: Spirit } => (v ? { spirit: { morale: v.morale, discipline: v.discipline } } : {});
+  // Командиры флангов — только если они есть (ДР-3): бой без них — тот же, что до них, байт в байт.
+  const led = (f: Flanks | undefined): { flanks?: Flanks } => (f && (f.A || f.C) ? { flanks: { ...f } } : {});
+  // Черты (ДР-4) — только действующие в этом бою: ни одной — поля нет, и бой тот же, что до черт, байт в байт.
+  const where = input.where ?? {};
+  const scarred = (own: FieldSide, foe: FieldSide): { scars?: ScarEdge } => {
+    const s = own.scars;
+    if (!s || s.held.length === 0) return {};
+    // Звери — не войско (ДР-5): черты «против конницы» и «при виде лучников» против стаи не действуют.
+    const edge = scarEdge(s.held, { ...where, ...(s.hungry ? { hungry: true as const } : {}), foe: foe.beasts ? emptyStack() : foe.kinds });
+    return edge ? { scars: edge } : {};
+  };
 
   const result = simulateBattle({
     seed: input.seed,
+    rules,
     attacker: {
       ...attacker,
       resolve: input.attacker.resolve ?? 0,
       pips: input.attacker.pips ?? {},
       ground: input.ground,
       ...rested(input.attacker.rest),
+      ...spirited(input.attacker.spirit),
+      ...led(input.attacker.flanks),
+      ...scarred(input.attacker, input.defender),
       ...(input.attacker.garrison ? { garrison: input.attacker.garrison } : {}),
     },
-    defender: { ...defender, resolve: input.defender.resolve ?? 0, pips: input.defender.pips ?? {}, ...rested(input.defender.rest) },
+    defender: {
+      ...defender,
+      resolve: input.defender.resolve ?? 0,
+      pips: input.defender.pips ?? {},
+      ...rested(input.defender.rest),
+      ...spirited(input.defender.spirit),
+      ...led(input.defender.flanks),
+      ...scarred(input.defender, input.attacker),
+    },
     ...(input.width !== undefined ? { width: input.width } : {}),
     ...(input.fire !== undefined ? { fire: input.fire } : {}),
     ...(input.widen ? { widen: input.widen } : {}),
@@ -155,5 +252,16 @@ export function resolveField(input: FieldInput): FieldOutcome {
     defenderLoss: d.initial > 0 ? d.losses / d.initial : 0,
     result,
     rest: { attacker: result.sides.attacker.rest ?? 1, defender: result.sides.defender.rest ?? 1 },
+    marks: {
+      attacker: markOf(result, 'attacker', where, input.attacker.scars?.hungry === true, input.defender.beasts === true),
+      defender: markOf(result, 'defender', where, input.defender.scars?.hungry === true, input.attacker.beasts === true),
+    },
+    ...flankLossOf(result, input),
   };
 }
+
+/**
+ * Бой из записанного входа — журнал для ролика боя войны, посчитанного сервером (BTL-0, OWNER-DECISIONS п. 7): по версии
+ * правил этого входа, а вход без версии старше версий (`FIRST_RULES`). Исход не пересчитывается — его везёт запись.
+ */
+export const recordedField = (input: FieldInput): FieldOutcome => resolveField({ ...input, rules: input.rules ?? FIRST_RULES });

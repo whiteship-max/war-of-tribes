@@ -12,6 +12,7 @@
 import type { GroundPenalty } from '@/battle';
 import type { BattleLand, BattlePlace } from '@/game/battle/ground';
 import { FEATURE, featuresAt, terrainAt } from './geography';
+import type { ScarWhere } from '@/game/scarrules';
 import type { Coord, Terrain } from './types';
 
 /**
@@ -63,6 +64,21 @@ export function placeAt(seed: number, x: number, y: number, time?: number): Batt
   if (own === 'forest' || forest >= 3) place.woods = true;
   if (time !== undefined) place.time = time;
   return place;
+}
+
+/**
+ * Место боя глазами черт армии (ДР-4, `scarrules.ScarWhere`): лес и река — те же, что видит ролик; холмы — земля холмов или
+ * гребень рядом; `siege` — бой шёл осадной дверью (стена, вылазка, лагерь, совместный удар). Ночь и зиму кладёт мир клиента по
+ * часам партии (`LocalWorld.whereAt`); у боя войны их нет — часы у каждой партии свои (Ш6). Чистая функция от сида и клетки, как
+ * место боя: сервер повторит её тем же вызовом.
+ */
+export function scarWhere(place: BattlePlace, siege = false): ScarWhere {
+  const w: ScarWhere = {};
+  if (place.woods) w.woods = true;
+  if (place.river) w.river = true;
+  if (place.land === 'hills' || place.ridge) w.hills = true;
+  if (siege) w.siege = true;
+  return w;
 }
 
 // ---------- Штраф кости нападающему ----------

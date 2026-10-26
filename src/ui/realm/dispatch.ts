@@ -15,6 +15,7 @@
 // (`EventDef.silence`). Своего правила «что будет без ответа» у почты нет.
 import type { GameState } from '@/game/types';
 import { EVENT_BY_ID, eventBlock, eventCost, eventFrom, eventText, optionHint } from '@/game/data/events';
+import { atSize } from '@/game/data/eventKit';
 import { eventId, eventLeft } from '@/game/sim/mail';
 import type { ActiveEvent } from '@/game/types';
 import type { LetterView, RivalMail, RivalMarch } from '@/world/types';
@@ -28,11 +29,15 @@ import type { RealmBranch } from '@/game/types';
 import { CROWN_BY_ID, type CrownScene } from '@/game/data/crown';
 import { CROWN_RULES, type CrownKind } from '@/game/crownrules';
 import { crownText } from '@/game/data/crownWords';
+import { commandText } from '@/game/data/commandWords';
+import { tidingText } from '@/game/data/tidingWords';
 import { SEASON_META } from '@/game/data/seasons';
 import { seasonOf, yearOf } from '@/game/derived';
 import { crownLines, type FxLine } from './crownView';
 import { iconName } from '@/ui/icons/registry';
 import { vacancyPost } from '@/game/sim/council';
+import { agentVacancyRole } from '@/game/sim/recruit';
+import { commandVacancyFlank } from '@/game/sim/command';
 
 export interface DispatchChoice {
   /** Номер варианта у события, «yes» / «no» у письма. */
@@ -104,10 +109,22 @@ export interface Dispatch {
   crown?: CrownCardView;
   /** Весть совета о пустом месте (РТ-1): выбор нового — в Ратуше, в карточке дверь туда. */
   council?: true;
+  /** Весть о пустом месте агента (АГ-1): выбор нового — в Ратуше, «Агенты»; весть ведёт туда дверью. */
+  agents?: true;
+  /** Весть о пустом месте командира фланга (ДР-5): выбор нового — «Дружина», «Командующие»; весть ведёт туда дверью. */
+  command?: true;
 }
 
-/** Событие племени, ждущее ответа, — донесением. null — вид события неизвестен. */
+/**
+ * Событие племени, ждущее ответа, — донесением. null — вид события неизвестен. Цена — та, что весть посчитала в минуту
+ * прихода (`ActiveEvent.cost`), прочие числа — от размера посёлка, который весть помнит (`ActiveEvent.size`; ECO-2, ECO-3):
+ * окно показывает то, что спишет и даст ответ.
+ */
 export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispatch | null {
+  return atSize(ev.size, () => eventView(s, ev, now));
+}
+
+function eventView(s: GameState, ev: ActiveEvent, now: number): Dispatch | null {
   const def = EVENT_BY_ID[ev.defId];
   if (!def) return null;
   const quiet = def.options[def.silence];
@@ -121,14 +138,14 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
     iconName: iconName('evt', def.id),
     title: def.title,
     from: eventFrom(def, s),
-    text: crown ? crownText(def.id, s) : eventText(def, s),
+    text: crown ? crownText(def.id, s) : (commandText(def.id, s) ?? tidingText(def.id, s) ?? eventText(def, s)),
     cost: {},
     choices: def.options.map((o, i) => ({
       id: String(i),
       label: o.label,
       hint: optionHint(o, s) ?? null,
-      cost: eventCost(o, s),
-      block: eventBlock(o, s),
+      cost: eventCost(o, s, ev.cost?.[i]),
+      block: eventBlock(o, s, ev.cost?.[i]),
       ...(o.points ? { points: o.points } : {}),
       ...(crown ? { lines: crownLines(s, def.id, i) } : {}),
     })),
@@ -139,6 +156,8 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
     warning: false,
     urgent: def.waits !== undefined,
     ...(vacancyPost(def.id) ? { council: true as const } : {}),
+    ...(agentVacancyRole(def.id) ? { agents: true as const } : {}),
+    ...(commandVacancyFlank(def.id) ? { command: true as const } : {}),
     ...(crown
       ? { crown: { id: def.id, scene: crown.scene, kind: CROWN_RULES[def.id].kind, date: `${SEASON_META[seasonOf(ev.at)].name}, год ${yearOf(ev.at)}` } }
       : {}),

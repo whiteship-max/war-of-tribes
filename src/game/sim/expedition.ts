@@ -24,13 +24,19 @@ import { ORDER_TEXT } from '../data/order';
 import { addBonded, addPop, loseBonded, losePop } from './population';
 import { log, tagSince } from './log';
 import { woundLine, woundsOfBattle } from './infirmary';
-import { recordDeath, recordDeed, recordRetire, recordSiege, reputeMorale, type Deed } from './agents';
+import { personName, recordDeath, recordDeed, recordRetire, recordSiege, reputeMorale, type Deed } from './agents';
+import { agentVacancyEvent, noteGone } from './recruit';
+import { raiseEvent } from './mail';
+import { commandBattle, commandVacancyEvent } from './command';
 import { hireWhere } from './hire';
-import type { HomeEffect } from '@/world/types';
+import type { FigureId, HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
-import { outlay } from './pay';
+import { addStock, outlay, trimStock } from './stock';
 import { stabAfterBattle } from './stability';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
+import { noteBattle } from './spirit';
+import { noteFight } from './scars';
+import type { FightMark } from '../scarrules';
 import { count } from '@/ui/parts/plural';
 
 /** Что случилось с деревней, пока отряд был в пути. */
@@ -64,6 +70,11 @@ export interface ExpeditionOutcome {
   morale: number;
   /** Для статистики племени: только настоящие бои. */
   battle: 'won' | 'lost' | null;
+  /**
+   * Метка боя для журнала армии (ДР-4, `scarrules.FightMark`): исход, место, час и то, из чего выводятся черты. Её посчитал мир
+   * (`world/battle.marks`), у боя войны — сервер. Нет — бой без нашей армии или запись до ДР-4: в журнал не идёт ничего.
+   */
+  scar?: FightMark;
   /**
    * Насколько плохо кончился бой у стены, 0..1. Больше нуля — чужие хозяйничали
    * в поле: см. `sackOutskirts`. Ноль — набега не было или его отбили.
@@ -109,6 +120,8 @@ export interface ExpeditionOutcome {
   deed?: Deed;
   /** Наш лагерь довёл осаду до конца: опыт осад полководца (`sim/agents.recordSiege`). */
   siege?: boolean;
+  /** Бой полководца для командиров флангов (ДР-5): опыт и гибель — `sim/command.commandBattle`. */
+  flanks?: HomeEffect['flanks'];
   /** Агент карты погиб: `sim/agents.recordDeath`. Строка прежнего вида (до смертных агентов) не читается. */
   fell?: HomeEffect['fell'] | string;
   /** Агент карты ушёл на покой: `sim/agents.recordRetire`. */
@@ -292,9 +305,12 @@ export function sendableUnits(s: GameState): { warrior: number; scout: number } 
 }
 
 /** Кто из войска и сколько разведчиков числится не дома. Считается миром и переставляется целиком. */
-export function setAway(s: GameState, away: TroopStack, scouts: number): void {
+export function setAway(s: GameState, away: TroopStack, scouts: number, fed: TroopStack = {}): void {
   s.away = { ...away };
   s.scoutsAway = Math.max(0, Math.round(scouts));
+  // Отряд с обозом (ДР-2): его кормит обоз — голод дома его не трогает (`sim/upkeep`).
+  if (Object.values(fed).some((n) => (n ?? 0) > 0)) s.awayFed = { ...fed };
+  else delete s.awayFed;
 }
 
 /** Убирает не вернувшихся разведчиков. Племя не вымирает целиком из-за разведки. */
@@ -321,7 +337,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
       }
     }
   }
-  if (soldiersLost === 0) soldiersLost = removeSoldiers(s, o.warriorsLost);
+  // «Слабые первыми» — только у похода без состава: бой, назвавший павших, других не убивает, даже если названных в войске
+  // уже нет (BTL-6; прежде их ноль снимал дубинщиков, которых в бою не было).
+  if (!o.troopsLost) soldiersLost = removeSoldiers(s, o.warriorsLost);
   const lost: TroopStack = {};
   for (const id of TROOP_IDS) if ((before[id] ?? 0) > (s.army[id] ?? 0)) lost[id] = (before[id] ?? 0) - (s.army[id] ?? 0);
   const fallen = takeFallenScouts(s, o.scoutsLost);
@@ -341,9 +359,7 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   for (const r of RESOURCE_IDS) {
     const n = o.resources[r];
     if (!n) continue;
-    const before = s.resources[r];
-    s.resources[r] = Math.max(0, Math.min(cap, s.resources[r] + n));
-    const delta = s.resources[r] - before;
+    const delta = addStock(s, r, n, cap);
     if (delta > 0) brought[r] = delta;
     else if (delta < 0) taken[r] = -delta;
   }
@@ -380,14 +396,20 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.morale || repute) s.morale = Math.max(0, Math.min(100, s.morale + o.morale + repute));
   if (o.battle === 'won') recordBattle(s, 'won');
   if (o.battle === 'lost') recordBattle(s, 'lost');
+  // Память духа дружины (ДР-1): тот же итог боя, одной минутой со счётом битв.
+  if (o.battle === 'won' || o.battle === 'lost') noteBattle(s, o.battle === 'won');
+  // Журнал боёв армии (ДР-4): метка боя — той же минутой; из журнала выводятся черты (`sim/scars`).
+  if (o.scar) noteFight(s, o.scar);
   // Бой и падение двигают стабильность одной дверью (docs/stability.md, 2.2): бой — сдвигом мерой его морали, павший город —
   // ступенью вниз.
   stabAfterBattle(s, { battle: o.battle, morale: o.morale, fallen: o.fallen });
   // Добро без дела: последствие положило добро, а ни боя, ни логова, ни замка — счётчиков дел этой двери — в нём нет
   // (дань по договору, кража лазутчика). Оно — разовое дело описи (`stats.windfalls`): иначе рост склада сервер счёл бы
   // флагом (docs/security.md, раздел 8). С боем, логовом или замком дело уже засчитано, второй раз его не считают.
+  // Уведённые без боя (логово, павшее голодом) — тоже добро без дела: книга невольников сервера допускает пленных по делам
+  // боя и добра без дела (АУ-8, п. 2, `deeds.deedBonded`).
   const counted = !!o.battle || o.lair || o.castle;
-  if (!counted && (Object.keys(brought).length > 0 || o.gold > 0)) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
+  if (!counted && (Object.keys(brought).length > 0 || o.gold > 0 || bondedIn > 0)) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
   // Убыль без дела — дань, починка пролома, кража у нас: разовая трата (`sim/pay.outlay`), иначе книга запасов сервера
   // сочла бы её спрятанным добром (docs/security.md, ЗЩ-2).
   if (!counted && (Object.keys(taken).length > 0 || o.gold < 0 || eaten > 0)) outlay(s);
@@ -407,12 +429,21 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // Дело — сразу после строки события: уровень, взятый боем, стоит рядом с самим боем.
   // Павшие и сожжённое логово едут в счёт дел вместе с делом: из них выводятся черты.
   if (o.deed) recordDeed(s, { ...o.deed, lost: o.warriorsLost, lair: o.lair });
+  // Командиры флангов бились в бою полководца (ДР-5): опыт и гибель; опустевшее место — весть на стол.
+  if (o.flanks) for (const f of commandBattle(s, o.flanks)) raiseEvent(s, commandVacancyEvent(f));
   // Осада, доведённая до конца нашим лагерем, — опыт осад полководца (отметка «осада», этап 2е).
   if (o.siege) recordSiege(s);
   // Весть о гибели — объектом с номером человека. Строкой её слал мир до смертных
   // агентов, и значила она «выбыл на `FIGURE_DOWN`»: убивать по ней нельзя.
-  if (o.fell && typeof o.fell === 'object') recordDeath(s, o.fell, (a) => hireWhere(s, a));
-  if (o.retired) recordRetire(s, o.retired, (a) => hireWhere(s, a));
+  // Место опустело — весть на стол (АГ-1): выбор нового в Ратуше, где видны лица, характеристики и цена.
+  if (o.fell && typeof o.fell === 'object') {
+    const name = personName(s, o.fell.agent);
+    if (recordDeath(s, o.fell, (a) => hireWhere(s, a))) vacancyNews(s, o.fell.agent, name, 'fell');
+  }
+  if (o.retired) {
+    const name = personName(s, o.retired.agent);
+    if (recordRetire(s, o.retired, (a) => hireWhere(s, a))) vacancyNews(s, o.retired.agent, name, 'rest');
+  }
   if (sacked.length > 0) {
     log(s, `За стеной разорили: ${sacked.join(', ')}. Работники разбежались.`, 'bad');
   }
@@ -426,6 +457,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.fallen && o.fallen.length > 0) {
     log(s, `Постройки потеряли уровни: ${levelLossText(s, levelsLost, o.fallen.length)}.`, 'bad');
   }
+  // Склад мог потерять уровень: что теперь сверх вместимости, сгорает строкой летописи сразу за строкой о потерянных уровнях,
+  // а не срезом следующего шага.
+  if (levelsLost.length > 0) trimStock(s);
   if (o.gold > 0) log(s, `Золота прибыло: ${Math.round(o.gold)}.`, 'good');
   if (o.gold < 0) log(s, `Золота унесли: ${Math.round(-o.gold)}.`, 'bad');
   const armsText = Object.entries(arms)
@@ -436,4 +470,10 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen}.`, 'bad');
   if (care.laid + care.carried + care.noBed > 0) log(s, woundLine(care), care.noBed > 0 ? 'bad' : 'info');
   if (o.ref) tagSince(s, head, o.ref);
+}
+
+/** Весть о пустом месте агента: кто ушёл и почему — в книгу найма, весть — на стол (`sim/recruit.agentVacancyDef`). */
+function vacancyNews(s: GameState, role: FigureId, name: string, why: 'fell' | 'rest'): void {
+  noteGone(s, role, name, why);
+  raiseEvent(s, agentVacancyEvent(role));
 }

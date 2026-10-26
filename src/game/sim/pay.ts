@@ -4,11 +4,14 @@
 // Возврат был написан четырежды, и копии успели разойтись: три резали вернувшееся
 // вместимостью склада, изучение округи — нет, и отменённые разъезды клали на полный
 // склад сверх потолка. Правило одно, и оно то же, что у выработки, наград и
-// каравана: сверх вместимости на склад не ложится ничего.
+// каравана: сверх вместимости на склад не ложится ничего (`sim/stock.addStock`).
 import type { GameState, ResourceId } from '../types';
 import { RESOURCE_IDS } from '../constants';
 import { storageCap } from '../derived';
 import { recordSpent } from '@/profile/stats';
+import { addStock, outlay } from './stock';
+
+export { outlay } from './stock';
 
 export type Price = Partial<Record<ResourceId, number>>;
 
@@ -20,15 +23,6 @@ export function pay(s: GameState, cost: Price): void {
   for (const r of RESOURCE_IDS) s.resources[r] -= cost[r] ?? 0;
   recordSpent(s, cost);
   if (RESOURCE_IDS.some((r) => (cost[r] ?? 0) > 0)) outlay(s);
-}
-
-/**
- * Разовая трата — склад или казна убыли разом (`stats.outlays`). Её зовёт каждая дверь, которая убавляет склад или
- * казну мимо расхода и разовых дел: без неё книга запасов сервера сочла бы честную трату спрятанным добром (docs/security.md,
- * ЗЩ-2). Какие двери, держит тест (`sim/outlays.test.ts`).
- */
-export function outlay(s: GameState): void {
-  s.stats.outlays = (s.stats.outlays ?? 0) + 1;
 }
 
 /**
@@ -46,7 +40,7 @@ export function refund(s: GameState, cost: Price, k: number, windfall = true): v
   let back = false;
   for (const r of RESOURCE_IDS) {
     const n = cost[r];
-    if (n) s.resources[r] = Math.min(cap, s.resources[r] + Math.floor(n * k));
+    if (n) addStock(s, r, Math.floor(n * k), cap);
     if (n && Math.floor(n * k) > 0) back = true;
   }
   if (back && windfall) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;

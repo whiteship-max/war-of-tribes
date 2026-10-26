@@ -1,17 +1,16 @@
-// Портрет советника в окне (РТ-1): картинку рисует набор персонажа своим куском (`render/chambers/advisor/portrait`), по
+// Портрет советника или агента в окне (РТ-1, АГ-1; `post` — должность совета или место агента): картинку рисует набор персонажа своим куском (`render/chambers/advisor/portrait`), по
 // одной за раз и с передышкой — окно не замирает, пока рисуются четыре просителя. Готовые живут в памяти страницы. Пока
 // портрета нет (кусок едет, WebGL нет) — силуэт в той же рамке, и раскладка окна не прыгает.
 import { useEffect, useState } from 'react';
-import type { AdvisorPost } from '@/game/types';
 
 const ready = new Map<string, string>();
 const asked = new Map<string, Promise<string | null>>();
 let line: Promise<unknown> = Promise.resolve();
 
-const keyOf = (seed: number, age: number, post: AdvisorPost): string => `${post}:${seed >>> 0}:${Math.floor(age)}`;
+const keyOf = (seed: number, age: number, post: string): string => `${post}:${seed >>> 0}:${Math.floor(age)}`;
 
 /** Встать в очередь рисования: следующий портрет — после передышки, чтобы касания окна не ждали. */
-function ask(seed: number, age: number, post: AdvisorPost): Promise<string | null> {
+function ask(seed: number, age: number, post: string): Promise<string | null> {
   const key = keyOf(seed, age, post);
   const had = asked.get(key);
   if (had) return had;
@@ -29,7 +28,7 @@ function ask(seed: number, age: number, post: AdvisorPost): Promise<string | nul
   return job;
 }
 
-export function Portrait({ seed, age, post, big = false }: { seed: number; age: number; post: AdvisorPost; big?: boolean }) {
+export function Portrait({ seed, age, post, big = false }: { seed: number; age: number; post: string; big?: boolean }) {
   const key = keyOf(seed, age, post);
   const [url, setUrl] = useState<string | null>(() => ready.get(key) ?? null);
   useEffect(() => {
@@ -55,7 +54,7 @@ export function Portrait({ seed, age, post, big = false }: { seed: number; age: 
 }
 
 /** Пустое место — силуэт в рамке должности. */
-export function NoPortrait({ post, big = false }: { post: AdvisorPost; big?: boolean }) {
+export function NoPortrait({ post, big = false }: { post: string; big?: boolean }) {
   return (
     <span className={`cn-port ${post} empty${big ? ' big' : ''}`} aria-hidden="true">
       <i className="cn-sil" />

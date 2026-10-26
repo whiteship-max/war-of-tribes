@@ -23,6 +23,8 @@ import { awayOf } from '@/world/muster';
 import type { FigureView, HomeEffect, MarchView } from '@/world/types';
 import { STOCK_KEYS, type WatchCard } from '../../netlify/lib/contract';
 import { flagsBetween, startedCost } from '../../netlify/lib/watch';
+import { bondedStep } from '../../netlify/lib/goods';
+import { emptyWars } from '../../netlify/lib/war';
 import { watchOf } from './snapshot';
 
 /** Минута дневного привоза — рынок РН-1 считает привоз по настоящим часам. */
@@ -115,10 +117,10 @@ describe('рост склада: часы описи — целые игровы
  * не считается — свой тест ниже.
  */
 describe('рост склада: добро без дела', () => {
-  /** Флаги записи и её подделки: те же числа, а разовых дел — сколько было на первой описи. */
+  /** Флаги записи и её подделки: те же числа, а разовых дел (и добра без дела среди них, AC-1) — сколько было на первой описи. */
   const judge = (a: WatchCard, aAt: number, b: WatchCard, bAt: number): { honest: string[]; forged: string[] } => ({
     honest: flagsBetween(a, aAt, b, bAt).map((f) => f.kind),
-    forged: flagsBetween(a, aAt, { ...b, deeds: a.deeds }, bAt).map((f) => f.kind),
+    forged: flagsBetween(a, aAt, { ...b, deeds: a.deeds, windfalls: a.windfalls }, bAt).map((f) => f.kind),
   });
 
   /**
@@ -270,5 +272,21 @@ describe('рост склада: добро без дела', () => {
     const b = watchOf(s);
     expect(b.won - a.won).toBe(1);
     expect(b.deeds - a.deeds, 'одно дело — победа').toBe(1);
+  });
+
+  // АУ-8, п. 2: книга невольников сервера допускает пленных по делам боя и добра без дела (`deeds.deedBonded`). Логово, павшее
+  // голодом, ведёт людей без боя и иногда без добра — такое последствие тоже разовое дело, иначе книга сочла бы их подделкой.
+  it('уведённые без боя и без добра: одно разовое дело — книга невольников сервера их допускает', () => {
+    const s = town();
+    // Лагерь, взявший логово, — бойцы полководца: без бойцов уводить некому.
+    s.army.spearman = 10;
+    tick(s, gameSeconds(30));
+    const a = watchOf(s);
+    applyEffects(s, [{ id: 'siege-lair-1', lost: {}, resources: {}, bonded: 12, prestige: 5, morale: 5, battle: null, siege: true, text: 'Осада кончилась.', good: true }]);
+    const b = watchOf(s);
+    expect((b.bonded ?? 0) - (a.bonded ?? 0), 'уведённые легли невольниками').toBe(12);
+    expect(b.deeds - a.deeds, 'одно разовое дело').toBe(1);
+    expect((b.windfalls ?? 0) - (a.windfalls ?? 0)).toBe(1);
+    expect(bondedStep({ n: a.bonded ?? 0, due: [], led: [] }, a, 0, b, 30_000, { file: emptyWars(), key: 'k', seen: [] }).over).toBe(0);
   });
 });

@@ -84,8 +84,12 @@ export const stashAt = (level: number): number =>
 export const defenseOf = (levels: Levels, villagers: number, homePower: number, steadfast: number): number =>
   (homePower + statSum(levels, 'defense') + BASE_DEFENSE + Math.max(0, villagers) * VILLAGER_DEFENSE) * (1 + steadfast);
 
-/** Ополчение — оборона без войска, людьми по `BATTLE_MAN` (`world/bridge.militiaMen`). */
-export const militiaOf = (defense: number, homePower: number): number => Math.max(0, Math.round((defense - homePower) / BATTLE_MAN));
+/**
+ * Ополчение — оборона без войска, людьми по `BATTLE_MAN` (`world/bridge.militiaMen`). Войско в обороне стоит под стойкостью
+ * веры (`defenseOf`), и вычитается оно с ней же (BTL-3): прежде прибавка войска от веры становилась ополчением.
+ */
+export const militiaOf = (defense: number, homePower: number, steadfast = 0): number =>
+  Math.max(0, Math.round((defense - homePower * (1 + steadfast)) / BATTLE_MAN));
 
 /** Мест лучников на башне этого уровня (`world/bridge.militiaArchers`: из ополчения, не больше его). */
 export const towerArchersAt = (level: number): number => Math.max(0, Math.round(statAt('tower', 'archers', level)));

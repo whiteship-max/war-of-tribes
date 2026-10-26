@@ -78,6 +78,16 @@ export interface BackupInfo {
   at: number;
 }
 
+/**
+ * Ключ новизны копии: у суточной — минута и номер копии в этой минуте (`freeName`: первая без номера — это №1), номер
+ * дополнен нулями. Сравнение имён как строк ставило первую копию минуты новее всех («-» меньше «.», «-10» меньше «-2»), и
+ * поворот удалял самые новые (OPS-1).
+ */
+const freshKey = (name: string): string => {
+  const m = /^tribe-(\d{4}-\d{2}-\d{2}-\d{4})(?:-(\d+))?\.sqlite$/.exec(name);
+  return m ? `tribe-${m[1]}#${(m[2] ?? '1').padStart(6, '0')}` : name;
+};
+
 /** Копии в папке — суточные и снятые перед восстановлением, новые первыми. */
 export function listBackups(dir: string): BackupInfo[] {
   if (!existsSync(dir)) return [];
@@ -87,12 +97,16 @@ export function listBackups(dir: string): BackupInfo[] {
       const st = statSync(join(dir, name));
       return { name, bytes: st.size, at: st.mtimeMs };
     })
-    .sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+    .sort((a, b) => {
+      const ka = freshKey(a.name);
+      const kb = freshKey(b.name);
+      return ka < kb ? 1 : ka > kb ? -1 : 0;
+    });
 }
 
 /**
  * Поворот: суточных копий остаётся `keep` самых новых, остальные удаляются. Новизна — по имени, то
- * есть по минуте снятия, а не по времени файла: скопированный руками файл свежим не станет.
+ * есть по минуте снятия и номеру копии в ней (`freshKey`), а не по времени файла: скопированный руками файл свежим не станет.
  * Копии `before-restore-…` не трогаются никогда.
  */
 export function rotate(dir: string, keep: number): string[] {

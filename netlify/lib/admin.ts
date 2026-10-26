@@ -10,7 +10,7 @@
  */
 import { parseJson, WRITE_TRIES } from './http.js';
 import { STORES, type Kv, type Stores } from './kv.js';
-import { GRANTS_KEEP, readGrant, type AdminGrant, type AdminNote } from './contract.js';
+import { GRANTS_HARD, GRANTS_PAGE, readGrant, type AdminGrant, type AdminNote } from './contract.js';
 
 /**
  * Админы — `ADMIN_IDS` из окружения: идентификаторы Telegram через запятую или пробел. Пусто или кривое — админов
@@ -106,7 +106,7 @@ export function readGrants(v: unknown): GrantsFile {
   list.sort((a, b) => a.n - b.n);
   const top = list.length ? list[list.length - 1].n : 0;
   const seq = typeof r.seq === 'number' && Number.isInteger(r.seq) ? Math.max(r.seq, top) : top;
-  return { v: 1, seq, list: list.slice(-GRANTS_KEEP) };
+  return { v: 1, seq, list: list.slice(-GRANTS_HARD) };
 }
 
 /** Указы игрока. */
@@ -118,8 +118,15 @@ export async function grantsOf(stores: Stores, player: string): Promise<GrantsFi
 /** Записка для клиента: заморожен ли и какие указы младше номера, который партия уже применила. */
 export const noteOf = (frozen: boolean, grants: GrantsFile, seen: number): AdminNote => ({
   frozen,
-  grants: grants.list.filter((g) => g.n > seen).map(({ n, at, stock, troops }) => ({ n, at, stock, troops })),
+  // Самые старые неприменённые, порцией (AC-3): следующая запись партии отдаёт следующую.
+  grants: grants.list
+    .filter((g) => g.n > seen)
+    .slice(0, GRANTS_PAGE)
+    .map(({ n, at, stock, troops }) => ({ n, at, stock, troops })),
 });
+
+/** Указы без применённых партией (номер не выше `seen`, AC-3): их сбрасывает запись нового указа. */
+export const unseenGrants = (file: GrantsFile, seen: number): StoredGrant[] => file.list.filter((g) => g.n > seen);
 
 // ------------------------------------------------ журнал админа ---
 
@@ -165,6 +172,9 @@ export function readAdminLog(v: unknown): AdminLogFile {
 export async function rewrite<T>(kv: Kv, key: string, reader: (v: unknown) => T, change: (cur: T) => T | null): Promise<T | null> {
   for (let tries = 0; tries < WRITE_TRIES; tries++) {
     const was = await kv.getWithMetadata(key);
+    // Запись есть, а ETag нет — условной записи поверх неё не бывает: прежде шло `onlyIfNew` по занятому ключу, и после
+    // всех попыток — тихий `null`, изменение терялось (OPS-3). Теперь — ошибка.
+    if (was && !was.etag) throw new Error(`«${key}»: запись без ETag, условной записи поверх неё нет`);
     const next = change(reader(was ? parseJson(String(was.data)) : null));
     if (next === null) return null;
     const written = await kv.setJSON(key, next, was?.etag ? { onlyIfMatch: was.etag } : { onlyIfNew: true });

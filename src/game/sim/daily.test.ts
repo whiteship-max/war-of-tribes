@@ -71,7 +71,7 @@ describe('ежедневное задание: попытка', () => {
     expect(dailyStatus(s, TODAY).won).toBe(false);
   });
 
-  it('уйти с экрана и зайти заново — не вторая попытка: заход уже записан проигранным', () => {
+  it('уйти с экрана и зайти заново — не вторая попытка: заход уже записан начатым', () => {
     const s = createInitialState();
     startDaily(s, TODAY);
     // Игрок закрыл шторку, ничего не доиграв. Состояние про это уже знает.
@@ -86,10 +86,14 @@ describe('ежедневное задание: попытка', () => {
     expect(finishDaily(s, TODAY, false)).toBeNull();
     for (const r of RESOURCE_IDS) expect(s.resources[r]).toBeCloseTo(before[r], 5);
     expect(s.stats.dailyWins).toBe(0);
-    // Ни повторного старта, ни попытки объявить себя победителем задним числом.
+    // Ни повторного старта, ни попытки объявить себя победителем задним числом (ECO-5, архив prove-13-1).
     expect(startDaily(s, TODAY)).not.toBeNull();
-    expect(finishDaily(s, TODAY, true)).toBeNull();
-    expect(s.stats.dailyWins).toBe(1);
+    expect(finishDaily(s, TODAY, true)).not.toBeNull();
+    expect(s.stats.dailyWins).toBe(0);
+    for (const r of RESOURCE_IDS) expect(s.resources[r]).toBeCloseTo(before[r], 5);
+    // И второго поражения нет: день уже закрыт.
+    expect(finishDaily(s, TODAY, false)).not.toBeNull();
+    expect(deserialize(serialize(s))!.daily).toEqual({ day: TODAY, result: 'lost' });
   });
 
   it('выиграл — награда легла на склад, и второй раз за день выиграть нельзя', () => {

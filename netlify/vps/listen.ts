@@ -15,6 +15,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { MAX_BODY_BYTES, type Route } from '../lib/http.js';
 import type { Stores } from '../lib/kv.js';
+import { own } from '../../src/game/guard.js';
 
 export interface ListenOpts {
   routes: Readonly<Record<string, Route>>;
@@ -67,7 +68,7 @@ export function handleWith(opts: ListenOpts): (req: IncomingMessage, res: Server
     let known: string | null = null;
     try {
       const url = new URL(req.url ?? '/', BASE);
-      const route = Object.hasOwn(opts.routes, url.pathname) ? opts.routes[url.pathname] : undefined;
+      const route = own(opts.routes, url.pathname);
       if (route) known = url.pathname;
       if (!route) {
         send(res, 404, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, '{"error":"not-found"}');

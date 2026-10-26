@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { readWarOrder, warRepairId, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { advance, applyOrder, emptyWars, newsDiff, newsMap, newsOf, pacted, pactsOf, warsOf, type SheetAt, type WarFile, type WarRow } from './war.js';
-import { CAMP_GATE_CLEAR } from '../../src/world/data/tuning.js';
+import { CAMP_GATE_CLEAR, PACT_BREAK_NOTICE } from '../../src/world/data/tuning.js';
 import { breachesOf, breadLeft, hungerStepAt, phaseAt, setPhaseDie, softerFate } from '../../src/world/siegeroll.js';
 import { siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
 import { GUARD_SHARE, machinesAt } from '../../src/world/machines.js';
@@ -233,7 +233,9 @@ describe('пакт и выручка', () => {
       'С этим городом у нас пакт. Сначала разорви его.',
     );
     expect(applyOrder(file, B, { op: 'unpact', target: castleIdOf(C) }, T0 + 3, ctx)).toBeNull();
-    expect(pacted(file, B, C)).toBe(false);
+    // Разрыв — с отсрочкой (АУ-8, п. 1, pactnotice.test.ts): пакт держится до `PACT_BREAK_NOTICE`.
+    expect(pacted(file, B, C, T0 + 3)).toBe(true);
+    expect(pacted(file, B, C, T0 + 3 + PACT_BREAK_NOTICE)).toBe(false);
   });
 
   it('союзник осаждённого бьёт лагерь с тыла в минуту прихода; его дружину город не списывает', () => {

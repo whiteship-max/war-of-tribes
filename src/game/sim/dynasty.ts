@@ -82,6 +82,8 @@ export function livingNames(s: GameState): string[] {
     const a = s.council?.seats?.[post];
     if (a?.name) out.push(a.name);
   }
+  // Командиры флангов (ДР-3) — четвёртый: ни дом, ни совет, ни агенты тёзку командиру не выставят.
+  for (const c of Object.values(s.command?.seats ?? {})) if (c?.name) out.push(c.name);
   return out;
 }
 

@@ -1,0 +1,48 @@
+/* Окно «Склад заполнен» (`RoomModal`): над промыслом и шторкой — его зовёт касание игрока. */
+.modal-backdrop.room-back {
+  z-index: 90;
+}
+
+.modal.room h2 {
+  margin-bottom: 12px;
+}
+
+/* Ряды видов: значок ресурса слева, полоса «ляжет из обещанного» с именем и числом над ней. */
+.room-rows {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 12px;
+  background: var(--m-plate);
+  border: 1px solid var(--m-plate-rim);
+  box-shadow: var(--m-plate-bevel);
+}
+
+.room-rows li {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.room-rows li > .ic-zn {
+  font-size: 28px;
+}
+
+.modal.room p {
+  color: var(--text);
+}
+
+.room-act {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.room-act .kit-btn {
+  width: 100%;
+}

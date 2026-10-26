@@ -28,11 +28,12 @@
 // их жалованье входит в `wagesPerDay`, их паёк — в тех, кто ест последним (`foodShortfall`), и
 // уходят они отсюда же, той же долей и по тем же двум поводам. Жителем ушедший мастер не
 // остаётся: он им не был. Второй двери под мастеров нет.
-import type { GameState, TroopId } from '../types';
+import type { GameState, PayState, TroopId } from '../types';
 import { DAY_LENGTH } from '../constants';
 import { DESERT_SHARE, UPKEEP_TEXT } from '../data/upkeep';
 import { TROOP_BY_ID, TROOP_IDS } from '../data/troops';
 import {
+  armyWagesPerDay,
   homeTroops,
   housingCapacity,
   mastersCount,
@@ -40,8 +41,8 @@ import {
   soldierMouths,
   taxIncomePerDay,
   troopsEat,
+  troopWage,
   unpaidShare,
-  wageOf,
   wagesDue,
 } from '../derived';
 import { addPop } from './population';
@@ -50,6 +51,8 @@ import { loseRecruits } from './army';
 import { loseMasters } from './masters';
 import type { TroopStack } from '../battle/kinds';
 import { log } from './log';
+import { WAGE_MODES, type WageMode } from '../spiritrules';
+import { payShare, wageMode } from './spirit';
 
 /**
  * Голодом уходит доля `rate` каждого вида из `stack`, дробь копится в `carry` до целого человека.
@@ -93,6 +96,9 @@ export function upkeepTick(s: GameState, dt: number, unfed: number): void {
     const paid = Math.min(s.gold, need);
     s.gold -= paid;
     pay.debt += need - paid;
+    // Счёт уплаченного дружине (ДР-1) — для книги духа сервера: жалованье войска этой доли ведомости, без недоплаченного, как
+    // у совета и агентов.
+    pay.paid = (pay.paid ?? 0) + (armyWagesPerDay(s) * (1 - unpaidShare(s)) * dt) / DAY_LENGTH;
   }
   // Долг гасится из того, что осталось в казне: жалованье первым, долг вторым.
   if (pay.debt > 0 && s.gold > 0) {
@@ -143,8 +149,10 @@ export function upkeepTick(s: GameState, dt: number, unfed: number): void {
       delete pay.starved[id];
       continue;
     }
-    // Голод считается первым: он забирает своих совсем, и неуплате остаётся то, что сверх него.
-    const byFood = draw(pay.starved, id, have, have, rateOf(troopHungry));
+    // Голод считается первым: он забирает своих совсем, и неуплате остаётся то, что сверх него. Отряд с обозом (ДР-2, М5б,
+    // `GameState.awayFed`) голод дома не трогает: голодные — из прочих, их же доля.
+    const hungryHave = Math.max(0, have - (s.awayFed?.[id] ?? 0));
+    const byFood = draw(pay.starved, id, hungryHave, hungryHave, rateOf(troopHungry));
     const byPay = draw(pay.gone, id, have, have - byFood, rateOf(troopOwed));
     const whole = byFood + byPay;
     if (whole <= 0) continue;
@@ -217,7 +225,18 @@ export function dismissCheck(s: GameState, troop: TroopId, count: number): Dismi
   else if (max === 0) blocked = 'Дома таких нет, все в походе.';
   else if (n < 1) blocked = 'Сколько распустить?';
   else if (n > max) blocked = `Дома только ${max}.`;
-  return { max, saves: wageOf(s, troop) * Math.min(n, max), blocked };
+  return { max, saves: troopWage(s, troop) * Math.min(n, max), blocked };
+}
+
+/**
+ * Что вернётся, если распустить `n` бойцов вида `troop`: люди — жителями, снаряжение — на склад снаряжения. Одна функция на
+ * роспуск и на окно «Дружины», которое называет это до подтверждения (правило 18).
+ */
+export function dismissReturns(troop: TroopId, n: number): { people: number; gear: Partial<Record<keyof GameState['equipment'], number>> } {
+  const k = Math.max(0, Math.floor(n));
+  const gear: Partial<Record<keyof GameState['equipment'], number>> = {};
+  for (const [id, per] of Object.entries(TROOP_BY_ID[troop].gear)) if (per && k > 0) gear[id as keyof GameState['equipment']] = per * k;
+  return { people: k, gear };
 }
 
 /**
@@ -231,11 +250,48 @@ export function dismissSoldiers(s: GameState, troop: TroopId, count: number): st
   if (check.blocked) return check.blocked;
   const n = Math.floor(count);
   const def = TROOP_BY_ID[troop];
+  const back = dismissReturns(troop, n);
   s.army[troop] = (s.army[troop] ?? 0) - n;
-  for (const [id, per] of Object.entries(def.gear)) {
-    if (per) s.equipment[id as keyof typeof s.equipment] = (s.equipment[id as keyof typeof s.equipment] ?? 0) + per * n;
+  for (const [id, k] of Object.entries(back.gear)) {
+    if (k) s.equipment[id as keyof typeof s.equipment] = (s.equipment[id as keyof typeof s.equipment] ?? 0) + k;
   }
-  addPop(s, n);
+  addPop(s, back.people);
   for (let i = 0; i < n; i++) log(s, UPKEEP_TEXT.dismissed(def.one), 'info', `dismiss:${troop}`);
   return null;
+}
+
+// ---------- Жалованье: полное или минимальное (ДР-1) ----------
+
+/** Почему сменить жалованье нельзя; можно — `null`. */
+export function wageModeBlock(s: GameState, mode: WageMode): string | null {
+  if (!WAGE_MODES.includes(mode)) return 'Такого жалованья нет.';
+  if (wageMode(s) === mode) return mode === 'full' ? 'Дружине уже платят полное.' : 'Дружине уже платят минимальное.';
+  return null;
+}
+
+/**
+ * Сменить жалованье дружине (ДР-1, docs/siege_v2.md, «Решения ДР-1»): с этой минуты казна платит полную долю или
+ * `spiritrules.WAGE_MIN_SHARE` (`derived.armyWagesPerDay`), а дух идёт к потолку или к дну с той доли, на которой стоит
+ * (`payShareAt`): смена на середине пути начинает с середины, а не с края. Пишет `PayState.wage` только она.
+ */
+export function setWageMode(s: GameState, mode: WageMode): string | null {
+  const why = wageModeBlock(s, mode);
+  if (why) return why;
+  const from = payShare(s);
+  s.pay.wage = { mode, since: s.time, from };
+  log(s, UPKEEP_TEXT.wageSet(mode), mode === 'full' ? 'good' : 'bad', 'wage');
+  return null;
+}
+
+/** Жалованье и счёт уплаченного из сохранения: режим — только из списка и с числами; иначе поля нет (полное, давно). */
+export function mergeWage(saved: unknown): Pick<PayState, 'wage' | 'paid'> {
+  const r = (saved && typeof saved === 'object' ? saved : {}) as Record<string, unknown>;
+  const w = (r.wage && typeof r.wage === 'object' ? r.wage : null) as Record<string, unknown> | null;
+  const n = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const wage =
+    w && WAGE_MODES.includes(w.mode as WageMode) && n(w.since) !== null && n(w.from) !== null
+      ? { mode: w.mode as WageMode, since: n(w.since) as number, from: Math.max(0, Math.min(1, n(w.from) as number)) }
+      : undefined;
+  const paid = n(r.paid);
+  return { ...(wage ? { wage } : {}), ...(paid !== null && paid > 0 ? { paid } : {}) };
 }

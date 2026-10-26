@@ -42,7 +42,7 @@ import { beatLease, claimLease, dropLease, leaseHolder, LEASE_BEAT_MS } from './
 import { snapshotOf } from './snapshot';
 import { sheetMark } from './war';
 import { takeNote } from './admin';
-import { gemsQuiet, takeGems } from './gems';
+import { gemSeenQuery, gemsQuiet, takeGems } from './gems';
 import { knownEra } from './era';
 
 const META_KEY = 'tribe.sync.v1';
@@ -391,7 +391,8 @@ export async function syncBoot(hadLocal: boolean): Promise<void> {
   }
 
   say('busy', '');
-  const res = await apiGet<PullResponse>('/api/save');
+  // Номер применённых дел алмазов партии на устройстве: сервер отдаст дела после него, самые старые первыми (FIN-4).
+  const res = await apiGet<PullResponse>(`/api/save${gemSeenQuery()}`);
   if (!res.ok) {
     gemsQuiet(res.why);
     say(res.why === 'auth' ? 'off' : 'offline', WORDS[res.why]);

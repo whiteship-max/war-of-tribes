@@ -14,7 +14,10 @@
  * знать про день и население — и знает это клиент, который опись и складывает.
  */
 import { readArms } from '../../src/heraldry/arms.js';
+import { wholeNonNeg } from '../../src/game/guard.js';
 import type { ProposalAct, ProposalView } from '../../src/world/proposals.js';
+import { GAIT_SPEED, type Gait } from '../../src/world/data/gait.js';
+import type { FightMark } from '../../src/game/scarrules.js';
 
 /** Краткая опись партии — на случай, когда игрок выбирает между двумя. */
 export interface SaveCard {
@@ -253,7 +256,9 @@ export function readClaim(v: unknown): CastleClaim | null {
   if (arms === null) return null;
   const cap = (raw: unknown, max: number): number => Math.min(max, Math.max(0, Math.floor(num(raw) ?? 0)));
   return {
-    name: str(r.name, CASTLE_LIMITS.name) ?? '',
+    // Имя вождя тоже читают соседи и бот: правило очистки — имени города, потолок — свой (AC-8). Прежде резалась только длина,
+    // и разметка с невидимыми знаками уезжала к соседям.
+    name: (str(r.name, CASTLE_LIMITS.name) !== null ? plainText(r.name, CASTLE_LIMITS.name) : null) ?? '',
     // Имя города читают все соседи, поэтому сервер чистит его сам тем же правилом, что
     // и клиент: присланное поддельным клиентом дальше реестра сырым не уедет.
     city: cityName(r.city) ?? '',
@@ -302,12 +307,19 @@ const CITY_SPACE = /[\s\p{Zs}]+/gu;
  * этом целыми знаками, а не по половинке суррогатной пары: последний знак не бывает
  * половиной буквы.
  */
-export function cityName(raw: unknown): string | null {
+export const cityName = (raw: unknown): string | null => plainText(raw, CITY_MAX);
+
+/**
+ * Строка игрока, которую видят другие, по правилу имени города — без управляющих, невидимых и знаков разметки, пробелы сведены,
+ * не длиннее `max` (целыми знаками); `null` — ничего не осталось. Имя города (`cityName`) и имя вождя в реестре (`readClaim`,
+ * AC-8) — одно правило с разными потолками.
+ */
+export function plainText(raw: unknown, max: number): string | null {
   if (typeof raw !== 'string') return null;
   const flat = raw.replace(CITY_CUT, '').replace(CITY_SPACE, ' ').trim();
   let cut = '';
   for (const ch of flat) {
-    if (cut.length + ch.length > CITY_MAX) break;
+    if (cut.length + ch.length > max) break;
     cut += ch;
   }
   cut = cut.trim();
@@ -674,12 +686,26 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
   return out;
 }
 
+/**
+ * Пояс, который знают часы (AC-8): его принимает `Intl.DateTimeFormat`. Проверка — конструктором, а не списком
+ * `Intl.supportedValuesOf`: список даёт только канонические имена, а устройство присылает и синонимы (`UTC`, `Europe/Kiev`).
+ */
+const realZone = (tz: string): boolean => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** Разбор настроек игры: неизвестное и кривое — умолчание, а не отказ. Настройки бота — `notify.readBotPrefs`. */
 export function readPrefs(v: unknown): NotifyPrefs {
   const r = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+  const tz = str(r.tz, 64);
   return {
     on: typeof r.on === 'boolean' ? r.on : DEFAULT_PREFS.on,
-    tz: str(r.tz, 64) ?? DEFAULT_PREFS.tz,
+    tz: tz && realZone(tz) ? tz : DEFAULT_PREFS.tz,
   };
 }
 
@@ -717,7 +743,26 @@ export interface WarSheet {
   /** Стойкость (обряд), отметки полководца у ворот и мораль обороны, 0..1. */
   resolve: number;
   pips: Counts;
+  /**
+   * Полководец в городе в минуту слепка (ДР-3): тогда у стен и его командиры флангов. Тактику флангов слепок не несёт — её ставит
+   * сервер по своей книге командиров (`war.liveSheet`, `commandbook.commandAt`). Нет поля — полководца в городе нет или слепок
+   * старого клиента.
+   */
+  led?: true;
+  /** Тактика командиров флангов обороны — ставит сервер (`war.liveSheet`), из слепка клиента не читается. */
+  flanks?: WarFlanks;
+  /**
+   * Черты армии обороны (ДР-4) и номер её полководца по книге агентов (`scarGen`: его пишет метка боя) — ставит сервер
+   * (`war.liveSheet`), из слепка клиента не читаются. Нет — черт нет.
+   */
+  scars?: string[];
+  scarGen?: number;
   rest: number;
+  /**
+   * Дух обороны (ДР-1): мораль и дисциплина дружины, 0…100. Сервер кладёт в бой не выше потолка своей книги духа
+   * (`war.liveSheet` → `book.ruleSpirit`). Нет поля (клиент до ДР-1) — духа нет, стойкость — прежняя `resolve`.
+   */
+  spirit?: WarSpirit;
   /** Хлеб и расход — часы голода той же дверью, что у осады логова (`siege.openSiege`). */
   food: number;
   townPerHour: number;
@@ -814,11 +859,46 @@ export interface SpyWatch {
   home: boolean;
 }
 
+/** Мораль и дисциплина войска, 0…100 (ДР-1; `battle.Spirit`). */
+export interface WarSpirit {
+  morale: number;
+  discipline: number;
+}
+
+/** Дух из тела записи: обе шкалы числами в пределах 0…100, иначе — нет духа. */
+export function readSpirit(v: unknown): WarSpirit | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  const m = num(r.morale);
+  const d = num(r.discipline);
+  if (m === null || d === null) return undefined;
+  return { morale: Math.max(0, Math.min(100, m)), discipline: Math.max(0, Math.min(100, d)) };
+}
+
+/** Поле духа для записи: есть дух — поле, нет — пусто. */
+const spiritOf = (v: unknown): { spirit?: WarSpirit } => {
+  const sp = readSpirit(v);
+  return sp ? { spirit: sp } : {};
+};
+
 /** Войско в походе: дружина полководца и то, что он кладёт в бой. */
 export interface WarArmy {
   troops: Counts;
   resolve: number;
   pips: Counts;
+  /**
+   * Тактика командиров флангов похода (ДР-3, `ArmySetup.flanks`): ставит сервер по книге командиров в минуту приказа
+   * (`war.ruleArmy`); из приказа клиента не читается. Нет — командиров нет.
+   */
+  flanks?: WarFlanks;
+  /** Дух дружины (ДР-1): сервер кладёт в бой не выше потолка книги духа (`book.ruleSpirit`). Нет — духа нет. */
+  spirit?: WarSpirit;
+  /**
+   * Черты армии похода (ДР-4, `game/scarrules`): ставит сервер по своей книге черт в минуту приказа (`war.ruleArmy`), из
+   * приказа клиента не читается. `scarGen` — номер полководца по книге агентов: его пишет метка боя. Нет — черт нет.
+   */
+  scars?: string[];
+  scarGen?: number;
   /** Мораль между боями (`world/rest.RestPair`). Нет — свежее. */
   rest?: { share: number; at: number; men: number };
   /**
@@ -829,6 +909,9 @@ export interface WarArmy {
   energy?: WarEnergy;
 }
 
+/** Тактика командиров флангов в отметках со знаком: левый (`A`) и правый (`C`) — как поле стороны боя `ArmySetup.flanks`. */
+export type WarFlanks = Partial<Record<'A' | 'C', number>>;
+
 /** Отметка энергии полководца в войне — та же форма, что у двери энергии (`world/energy.EnergyMark`). */
 export interface WarEnergy {
   value: number;
@@ -837,24 +920,50 @@ export interface WarEnergy {
   mode: 'drain' | 'fill' | 'camp' | 'hold';
   homeAt?: number;
   stopAt?: number;
+  /** Темп дороги — множитель скорости режима марша (ДР-2, `world/energy.EnergyMark.rate`). Нет — 1. */
+  rate?: number;
 }
 
+/** Темп дороги из записи: в пределах скоростей режимов марша (`GAIT_SPEED`), иначе — нет поля (1). */
+const readRate = (v: unknown): number | null => {
+  const n = num(v);
+  if (n === null || n === 1) return null;
+  const speeds = Object.values(GAIT_SPEED);
+  return Math.max(Math.min(...speeds), Math.min(Math.max(...speeds), n));
+};
+
+/** Режим марша в записи войны (ДР-2): «налегке» или «с обозом»; обычный — без поля. */
+export type WarGait = Exclude<Gait, 'normal'>;
+
+/** Режим марша из записи (ДР-2, `world/gait.readGait`): «налегке» или «с обозом», иначе — обычный, без поля. */
+export const readGaitField = (v: unknown): { gait?: WarGait } => (v === 'light' || v === 'train' ? { gait: v } : {});
+
 /** Отметка энергии из приказа: новый объект; запас не выше полного, мусор — нет отметки. */
-export function readEnergy(v: unknown): WarEnergy | undefined {
+export function readEnergy(v: unknown, latest = Infinity): WarEnergy | undefined {
   if (!v || typeof v !== 'object') return undefined;
   const r = v as Record<string, unknown>;
   const value = num(r.value);
-  const at = num(r.at);
+  const raw = num(r.at);
   const mode = r.mode === 'drain' || r.mode === 'fill' || r.mode === 'camp' || r.mode === 'hold' ? r.mode : null;
-  if (value === null || at === null || mode === null) return undefined;
-  const homeAt = num(r.homeAt);
-  const stopAt = num(r.stopAt);
+  if (value === null || raw === null || mode === null) return undefined;
+  // Минуты отметки зажаты к часам сервера (AC-8): отметка не позже `latest` (сервер передаёт свои часы с допуском) — до
+  // минуты отметки запас не убывает, и отметка из будущего держала бы армию свежей весь поход; поворот домой и остановка — не
+  // раньше отметки — иначе путь с первой минуты копил бы, а не тратил.
+  const at = Math.min(raw, latest);
+  const turn = (x: unknown): number | null => {
+    const n = num(x);
+    return n === null ? null : Math.max(at, n);
+  };
+  const homeAt = turn(r.homeAt);
+  const stopAt = turn(r.stopAt);
+  const rate = mode === 'drain' ? readRate(r.rate) : null;
   return {
     value: Math.max(0, Math.min(100, value)),
     at,
     mode,
     ...(homeAt !== null ? { homeAt } : {}),
     ...(stopAt !== null ? { stopAt } : {}),
+    ...(rate !== null ? { rate } : {}),
   };
 }
 
@@ -864,6 +973,7 @@ export interface WarSide {
   resolve?: number;
   pips?: Counts;
   rest?: number;
+  spirit?: WarSpirit;
   garrison?: Counts;
 }
 
@@ -881,6 +991,8 @@ export interface WarInput {
   width?: number;
   fire?: number;
   widen?: { round: number; width: number; wall: number };
+  /** Версия правил боя (`battle/config.BATTLE_RULES`, BTL-0): журнал для ролика пересчитывается по ней. Нет — бой старше версий. */
+  rules?: number;
 }
 
 /** Что полководец сделал в своём лагере (`world/siegecraft.Craft`): сколько раз укрепил, сколько залпов дал. */
@@ -998,6 +1110,12 @@ export interface WarBattle {
    * город. Свою дружину город с этого боя не списывает — списывает союзник.
    */
   ally?: string;
+  /**
+   * Метки боя для журналов армий (ДР-4, `scarrules.FightMark`): у похода, у города и у союзника выручки — у тех, чья армия
+   * дралась. Пишет сервер в минуту боя; клиент кладёт свою в журнал как есть, книга черт сервера — в свой (`scarbook`). Ночи,
+   * зимы и голода в них нет (Ш6). Нет поля — бой до ДР-4: в журналы не идёт.
+   */
+  marks?: Partial<Record<'atk' | 'def' | 'ally', FightMark>>;
 }
 
 /** Участь взятого города — посчитана дверью `spoils.fate`, у обеих сторон одними числами. */
@@ -1043,6 +1161,8 @@ export interface WarCamp {
   /** Ход осады фазами (`world/siegeroll`, docs/siege_v2.md, раздел 2): уровень частокола, дни пути лагеря от дома. */
   wall?: number;
   homeDays?: number;
+  /** Лагерь с обозом (ДР-2, `SiegeWindow.gait`): без подвоза из дома. Нет — обычный. */
+  gait?: 'train';
   /**
    * Журнал дел с минутой (`SiegeWindow.log`): залпы и починки; с Р-5 — цель артиллерии лагеря и требушета на стене, кольцо
    * блокады (`world/shelling`, `world/blockade`). Нет поля — лагерь до фаз.
@@ -1118,6 +1238,12 @@ export interface WarStrike {
   army: WarArmy;
   /** Зовут ли гарнизон во фронт — совместный удар. */
   joint: boolean;
+  /**
+   * Режим марша дружины и дорога до лагеря, мс (ДР-2). Налегке уход в пути сервер снял при приказе (ДР-5, `war.roadArmy`): `army` —
+   * дошедшие. Нет — обычный.
+   */
+  gait?: WarGait;
+  walk?: number;
 }
 
 /**
@@ -1151,6 +1277,16 @@ export interface WarView {
   arriveAt: number;
   phase: WarPhase;
   army: WarArmy;
+  /** Режим марша похода (ДР-2, `world/gait`). Нет — обычный, как до ДР-2. */
+  gait?: WarGait;
+  /**
+   * Отрезок пути после смены режима (ДР-2, М6): откуда и с какой минуты войско идёт дальше — после стоянки. Нет — путь от
+   * выхода (`from`, `sentAt`) или от конца войны (`backFrom`, `endAt`).
+   */
+  legFrom?: { x: number; y: number };
+  legAt?: number;
+  /** С какой минуты налегке не списано истощение (ДР-2, М4): списывает сервер в минуты событий. Нет — не налегке. */
+  wornAt?: number;
   /**
    * С кем войско вышло (`army.troops` в минуту выхода): столько сервер вычитает из гарнизона нападающего, пока его слепок
    * лёг раньше выхода (`war.liveSheet`, docs/retinue.md). Нет — война старше поля, берётся нынешнее войско.
@@ -1188,6 +1324,9 @@ export interface WarRelief {
   sent?: number;
   at: number;
   army: WarArmy;
+  /** Режим марша выручки и её дорога, мс (ДР-2). Налегке уход в пути сервер снял при приказе (ДР-5): `army` — дошедшие. Нет — обычный. */
+  gait?: WarGait;
+  walk?: number;
 }
 
 /**
@@ -1212,6 +1351,11 @@ export interface WarPact {
   city: string;
   state: 'pact' | 'offered' | 'asked';
   at: number;
+  /**
+   * Разрыв объявлен (АУ-8, п. 1): до этой минуты пакт ещё держит обе стороны — отсчёт видят обе. Нет — разрыва нет; старый
+   * сервер поля не шлёт.
+   */
+  breakAt?: number;
 }
 
 /** Ответ войны: свои войны и серверное «сейчас»; у отказанного приказа — отказ словами. */
@@ -1327,7 +1471,10 @@ export const spySeenId = (id: string): string => `${id}.spy`;
  */
 export type WarOrder =
   // `blockade` — поход «Блокада» из «Походов» (Р-5): дойдёт, встанет лагерем и замкнёт кольцо, если хватит мощи.
-  | { op: 'march'; target: string; mode: WarMode; fate: NoticeFate; army: WarArmy; blockade?: true }
+  // `gait` — режим марша полководца (ДР-2, `world/gait`): нет — обычный (старый клиент шлёт так).
+  | { op: 'march'; target: string; mode: WarMode; fate: NoticeFate; army: WarArmy; blockade?: true; gait?: WarGait }
+  // Смена режима марша в пути (ДР-2, М6): стоянка и цена — правилом сервера той же дверью, что у мира.
+  | { op: 'gait'; id: string; gait: Gait }
   | { op: 'recall'; id: string }
   | { op: 'storm'; id: string; fate?: NoticeFate; machines?: WarMachine[] }
   | { op: 'wood'; id: string; machines: number }
@@ -1337,7 +1484,7 @@ export type WarOrder =
   | { op: 'sortie'; id: string; troops: Counts }
   | { op: 'craft'; id: string; act: WarCraftAct }
   | { op: 'orders'; id: string; orders: WarOrders }
-  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number; from: Spot }
+  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number; from: Spot; gait?: WarGait }
   | { op: 'repair'; id: string }
   | { op: 'ration'; id: string; on: boolean }
   | { op: 'defend'; id: string; defend: WarDefend }
@@ -1350,7 +1497,7 @@ export type WarOrder =
   | { op: 'surrender'; id: string }
   | { op: 'offer'; id: string; kind: 'terms' | 'tribute'; fate?: NoticeFate }
   | { op: 'answer'; id: string; kind: 'terms' | 'tribute'; yes: boolean }
-  | { op: 'relief'; id: string; army: WarArmy; walkMs: number; from: Spot }
+  | { op: 'relief'; id: string; army: WarArmy; walkMs: number; from: Spot; gait?: WarGait }
   | { op: 'pact'; target: string }
   | { op: 'unpact'; target: string }
   // Ответ на предложение соседа по номеру (ДП-1, `world/proposals`): принять, отклонить или отозвать своё. Проверяет сервер:
@@ -1392,7 +1539,9 @@ export function readCounts(v: unknown): Counts {
   if (!v || typeof v !== 'object') return out;
   let n = 0;
   for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
-    if (n >= WAR_LIMITS.keys || k.length > 32) break;
+    if (n >= WAR_LIMITS.keys) break;
+    // Длинный ключ — мимо, а не конец разбора (AC-8): прежде он обрывал чтение, и всё после него пропадало.
+    if (k.length > 32) continue;
     const x = num(raw);
     if (x === null || x <= 0) continue;
     out[k] = Math.min(WAR_LIMITS.count, Math.floor(x));
@@ -1407,7 +1556,9 @@ const readReals = (v: unknown): Counts => {
   if (!v || typeof v !== 'object') return out;
   let n = 0;
   for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
-    if (n >= WAR_LIMITS.keys || k.length > 32) break;
+    if (n >= WAR_LIMITS.keys) break;
+    // Длинный ключ — мимо, а не конец разбора (AC-8): прежде он обрывал чтение, и всё после него пропадало.
+    if (k.length > 32) continue;
     const x = num(raw);
     if (x === null || x <= 0) continue;
     out[k] = Math.min(WAR_LIMITS.count, x);
@@ -1435,7 +1586,10 @@ export function readSheet(v: unknown): WarSheet | null {
     archers: Math.floor(real(r.archers, WAR_LIMITS.count)),
     resolve: real(r.resolve, 100),
     pips: readReals(r.pips),
+    // Полководец в городе (ДР-3) — признаком; тактику флангов ставит сервер своей книгой, из слепка она не читается.
+    ...(r.led === true ? { led: true as const } : {}),
     rest: Math.min(1, real(r.rest, 1)),
+    ...spiritOf(r.spirit),
     food: real(r.food, 1e12),
     townPerHour: real(r.townPerHour, 1e9),
     perManPerHour: real(r.perManPerHour, 1e9),
@@ -1497,16 +1651,17 @@ export const WAR_OUT_MAX = 4;
 export const WAR_SEEN_MAX = 2000;
 
 /** Войско из приказа: новый объект. */
-export function readArmy(v: unknown): WarArmy | null {
+export function readArmy(v: unknown, latest = Infinity): WarArmy | null {
   if (!v || typeof v !== 'object') return null;
   const r = v as Record<string, unknown>;
   const troops = readCounts(r.troops);
   const rest = r.rest && typeof r.rest === 'object' ? (r.rest as Record<string, unknown>) : null;
-  const energy = readEnergy(r.energy);
+  const energy = readEnergy(r.energy, latest);
   return {
     troops,
     resolve: real(r.resolve, 100),
     pips: readReals(r.pips),
+    ...spiritOf(r.spirit),
     ...(rest && num(rest.at) !== null
       ? { rest: { share: Math.min(1, real(rest.share, 1)), at: num(rest.at) as number, men: Math.floor(real(rest.men, WAR_LIMITS.count)) } }
       : {}),
@@ -1515,7 +1670,14 @@ export function readArmy(v: unknown): WarArmy | null {
 }
 
 /** Приказ войны из тела запроса: новый объект, лишние поля (и всякий «исход») отбрасываются. */
-export function readWarOrder(v: unknown): WarOrder | null {
+/**
+ * Потолок срока пути удара и выручки (`walkMs`) — только против бесконечности (AC-8). Прежде путь резался до суток, и честный
+ * дальний поход сервер считал быстрее пола пути и ставил флаг подделки (`war.walkOf` сверяет срок с полом сам).
+ */
+export const WALK_MS_MAX = 30 * 24 * 3600_000;
+
+/** Приказ войны из тела запроса. `latest` — часы сервера с допуском: позже них отметки энергии не бывает (AC-8). */
+export function readWarOrder(v: unknown, latest = Infinity): WarOrder | null {
   if (!v || typeof v !== 'object') return null;
   const r = v as Record<string, unknown>;
   const id = str(r.id, 64);
@@ -1524,10 +1686,15 @@ export function readWarOrder(v: unknown): WarOrder | null {
       const target = str(r.target, 64);
       const mode = WAR_MODES.find((m) => m === r.mode);
       const fate = NOTICE_FATES.find((f) => f === r.fate);
-      const army = readArmy(r.army);
+      const army = readArmy(r.army, latest);
       // Кольцо — только у осады: штурм с ходу кольца не замыкает.
       const ring = mode === 'siege' && r.blockade === true ? { blockade: true as const } : {};
-      return target && mode && fate && army ? { op: 'march', target, mode, fate, army, ...ring } : null;
+      // Режим — как назван: «налегке» с осадой сервер отклоняет флагом (ДР-2, М9), и стирать его здесь нельзя.
+      return target && mode && fate && army ? { op: 'march', target, mode, fate, army, ...ring, ...readGaitField(r.gait) } : null;
+    }
+    case 'gait': {
+      const gait = r.gait === 'light' || r.gait === 'normal' || r.gait === 'train' ? r.gait : null;
+      return id && gait ? { op: 'gait', id, gait } : null;
     }
     case 'aim': {
       const aim = [...WAR_AIMS, ...WAR_GUN_AIMS].find((a) => a === r.aim);
@@ -1567,11 +1734,11 @@ export function readWarOrder(v: unknown): WarOrder | null {
     case 'orders':
       return id ? { op: 'orders', id, orders: readOrders(r.orders) } : null;
     case 'strike': {
-      const army = readArmy(r.army);
+      const army = readArmy(r.army, latest);
       const walk = num(r.walkMs);
       const from = readSpot(r.from);
       return id && army && walk !== null && from
-        ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)), from }
+        ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(WALK_MS_MAX, Math.max(0, walk)), from, ...readGaitField(r.gait) }
         : null;
     }
     case 'repair':
@@ -1595,10 +1762,12 @@ export function readWarOrder(v: unknown): WarOrder | null {
       return id && machine ? { op: 'sally', id, machine, troops: readCounts(r.troops) } : null;
     }
     case 'relief': {
-      const army = readArmy(r.army);
+      const army = readArmy(r.army, latest);
       const walk = num(r.walkMs);
       const from = readSpot(r.from);
-      return id && army && walk !== null && from ? { op: 'relief', id, army, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)), from } : null;
+      return id && army && walk !== null && from
+        ? { op: 'relief', id, army, walkMs: Math.min(WALK_MS_MAX, Math.max(0, walk)), from, ...readGaitField(r.gait) }
+        : null;
     }
     case 'pact':
     case 'unpact': {
@@ -1618,7 +1787,7 @@ export function readWarOrder(v: unknown): WarOrder | null {
       const chance = num(shown.chance);
       const peril = num(shown.peril);
       const at = num(r.at);
-      const energy = readEnergy(r.energy);
+      const energy = readEnergy(r.energy, latest);
       return target && deed && chance !== null && peril !== null && at !== null
         ? { op: 'spy', target, deed, shown: { chance, peril }, at, ...(energy ? { energy } : {}) }
         : null;
@@ -1650,8 +1819,18 @@ export type TroopKey = (typeof TROOP_KEYS)[number];
 /** Потолок одного числа указа по модулю. Больше на складе и в войске не бывает. */
 export const GRANT_MAX = 1e7;
 
-/** Сколько последних указов игрока лежит на сервере. Номер у партии один, и обрезка списка ничего не теряет. */
-export const GRANTS_KEEP = 50;
+/**
+ * Порция указов в записке игроку (AC-3): самые старые неприменённые, не больше этого числа. Партия применяет их по порядку, и
+ * следующая запись отдаёт следующую порцию — номер у партии один, и порция ничего не теряет. Прежде на сервере лежали 50
+ * последних, и 51-й неприменённый указ вытеснял первый навсегда.
+ */
+export const GRANTS_PAGE = 50;
+
+/**
+ * Жёсткий потолок указов игрока в хранилище (AC-3). Применённые партией (номер не выше `WatchCard.seen`) сбрасывает запись
+ * нового указа; до потолка доходит только игрок, не заходивший, пока админ отдал ему сотни указов.
+ */
+export const GRANTS_HARD = 500;
 
 /** Указ админа глазами клиента: номер, минута и что поменять. Кто отдал — знает только журнал админа. */
 export interface AdminGrant {
@@ -1679,10 +1858,15 @@ export interface AdminNote {
  */
 export const ERA_HEADER = 'x-tribe-era';
 
-/** Эпоха из заголовка: целое не меньше нуля; нет заголовка — 0; порча — −1, она не совпадёт ни с какой эпохой. */
+/**
+ * Эпоха из заголовка: только цифры (AC-8 — `Number` принял бы и «0x1», «1e0», «+1»); нет заголовка — 0; порча — −1, она не
+ * совпадёт ни с какой эпохой.
+ */
 export function readEra(v: string | null | undefined): number {
-  const n = Number((v ?? '').trim() || '0');
-  return Number.isSafeInteger(n) && n >= 0 ? n : -1;
+  const s = (v ?? '').trim() || '0';
+  if (!/^\d+$/.test(s)) return -1;
+  const n = Number(s);
+  return Number.isSafeInteger(n) ? n : -1;
 }
 
 /** Ответ 410: мир начат заново, у сервера эпоха `era`. Старая партия не принимается и не отдаётся. */
@@ -1744,7 +1928,8 @@ export function readAdminNote(v: unknown): AdminNote {
   const r = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
   const grants = Array.isArray(r.grants) ? r.grants.map(readGrant).filter((g): g is AdminGrant => g !== null) : [];
   grants.sort((a, b) => a.n - b.n);
-  return { frozen: r.frozen === true, grants: grants.slice(-GRANTS_KEEP) };
+  // Самые старые: партия применяет по порядку, и порция с конца перепрыгнула бы номера (AC-3).
+  return { frozen: r.frozen === true, grants: grants.slice(0, GRANTS_PAGE) };
 }
 
 /**
@@ -1810,11 +1995,17 @@ export interface WatchCard {
   /** Сколько бойцов казармы и конюшня выучат за игровой день — не больше. */
   train: number;
   /**
-   * Разовые дела партии одним счётчиком: события, бои, логова, набеги, покупки, ежедневки, промыслы, указы. Дело
-   * может разом принести добро, поэтому между двумя описями с одинаковым счётчиком рост склада обязан уложиться в
-   * выработку.
+   * Разовые дела партии одним счётчиком: события, бои, логова, набеги, покупки, ежедневки, промыслы, указы, лавка, добро без
+   * дела. Дело может разом принести добро — сколько, говорит таблица наград (`data/deedgain`, AC-1): рост склада между
+   * описями обязан уложиться в выработку и допуск дел промежутка (`deeds.deedGain`).
    */
   deeds: number;
+  /**
+   * Добро без дела (`stats.windfalls`): возврат цены отменённого заказа, дань по договору, кража лазутчика, продажа — часть
+   * `deeds`, которую таблица наград не держит (до вместимости склада, золото без потолка). Нет поля — опись до AC-1: дела
+   * такой описи допуском без потолка, как прежде.
+   */
+  windfalls?: number;
   /**
    * Разовые траты партии одним счётчиком (`stats.outlays`): плата за заказ, пир, наём, покупка, обряд, мятеж, убыль от мира
    * без боя. Между двумя описями без дел и трат склад убывает только расходом — хлебом, дровами, жалованьем, — и книга
@@ -1849,6 +2040,12 @@ export interface WatchCard {
    */
   gemSeen?: number;
   /**
+   * Ускорения за алмазы, которые не понадобились (FIN-5, `GameState.gemUnneeded`): дело пришло, когда стройка уже кончилась
+   * сама. Сервер возвращает алмазы, только если книга стройки подтвердила тот уровень работой посёлка без этого ускорения.
+   * Нет поля — нечего возвращать или опись до FIN-5.
+   */
+  gemUnneeded?: number[];
+  /**
    * Стабильность державы (docs/stability.md, 2.7): ступень и счёт для книги стабильности — сколько ступеней куплено и
    * очков каждого вида на них ушло, сколько мятежей поднялось и сколько подавлено боем. Нет поля — опись до стабильности.
    */
@@ -1865,6 +2062,26 @@ export interface WatchCard {
    */
   council?: WatchCouncil;
   /**
+   * Агенты, нанятые в Ратуше (АГ-1, docs/city_v3.md, «Решения АГ-1»): кто на месте — место, номер человека, номер кандидата и
+   * ступень найма (свой человек — без номера), минута найма, опыт — и счёт наймов, платы вперёд и жалованья, для книги агентов
+   * сервера (правило «agents», `agentbook.ts`). Характеристик в описи нет: их сервер выводит сам из сида, номера и ступени. Нет
+   * поля — опись до АГ-1.
+   */
+  agents?: WatchAgents;
+  /**
+   * Командиры флангов (ДР-3, docs/siege_v2.md, «Решения ДР-3»): кто на месте левого и правого фланга — номер кандидата,
+   * ступень Казарм и минута найма — и счёт наймов, платы вперёд и жалованья, для книги командиров сервера (правило «command»,
+   * `commandbook.ts`). Рода и тактики в описи нет: их сервер выводит сам из сида. Нет поля — опись до ДР-3 или командиров не
+   * нанимали.
+   */
+  command?: WatchCommand;
+  /**
+   * Сид партии (АГ-1): из него кандидаты выводятся на сервере теми же формулами, что в игре (`agentrules.recruitAt`). Книга
+   * агентов берёт его из описи; сменившийся — флаг, и книга заводится заново (новая партия). Нет поля — опись до АГ-1: кандидатов сервер не выводит, и в войну
+   * идут прежние потолки правил.
+   */
+  seed?: number;
+  /**
    * Сословия (РТ-2, docs/stability.md, «РТ-2»): привилегии по сословиям, указ сословия, влияние и счёт дарований, отнятий и
    * даров — для книги сословий сервера (правило «estates»). Нет поля — опись до сословий.
    */
@@ -1874,6 +2091,57 @@ export interface WatchCard {
    * последние сделки — для книги рынка сервера (правило «market»: цена каждой сделки по правилу привоза). Нет поля — опись до РН-1.
    */
   market?: WatchMarket;
+  /**
+   * Дух дружины (ДР-1, docs/siege_v2.md, «Решения ДР-1»): жалованье (полное или минимальное), мораль и дисциплина в минуту
+   * описи и счёт уплаченного дружине — для книги духа сервера (правило «spirit»): режим — по часам сервера, мораль и
+   * дисциплина — не выше потолка книги, жалованье полного — не меньше ведомости сверх терпения. Нет поля — опись до ДР-1.
+   */
+  spirit?: WatchSpirit;
+  /**
+   * Черты армии (ДР-4, docs/siege_v2.md, «Решения ДР-4», Ш7): черты клиента, номера боёв войны в его журнале и черты войны по
+   * ним — для правила «scars» (`scarbook.scarFaults`). Сервер ими не пользуется: в войну идут черты его книги. Нет поля — опись
+   * до ДР-4 или журнал пуст.
+   */
+  scars?: WatchScars;
+}
+
+/** Черты армии в описи (ДР-4): имена — как назвал клиент (чужое имя — флаг), номера боёв войны — строками. */
+export interface WatchScars {
+  held: string[];
+  war: string[];
+  warHeld: string[];
+}
+
+/** Черты описи: строки разумной длины, не больше сотни; нет списков — нет поля. */
+function readWatchScars(v: unknown): Pick<WatchCard, 'scars'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const list = (x: unknown, len: number): string[] | null =>
+    Array.isArray(x) ? x.filter((t): t is string => typeof t === 'string' && t.length > 0 && t.length <= len).slice(0, 100) : null;
+  const held = list(r.held, 32);
+  const war = list(r.war, 64);
+  const warHeld = list(r.warHeld, 32);
+  return held && war && warHeld ? { scars: { held, war, warHeld } } : {};
+}
+
+/** Дух дружины в описи (ДР-1). */
+export interface WatchSpirit {
+  wage: 'full' | 'min';
+  morale: number;
+  discipline: number;
+  /** Сколько жалованья дружине уплачено за партию, золотом, целым. */
+  paid: number;
+}
+
+/** Дух описи: режим — из двух слов, шкалы — числами (как есть в пределах ±999: вне 0…100 — флаг, а не поправка); нет — нет. */
+function readWatchSpirit(v: unknown): Pick<WatchCard, 'spirit'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const m = num(r.morale);
+  const d = num(r.discipline);
+  if ((r.wage !== 'full' && r.wage !== 'min') || m === null || d === null) return {};
+  const keep = (x: number): number => Math.round(Math.max(-999, Math.min(999, x)) * 10) / 10;
+  return { spirit: { wage: r.wage, morale: keep(m), discipline: keep(d), paid: whole(r.paid, 1e12) } };
 }
 
 /** Сделка в описи: номер, настоящая минута, товар, штук (покупка — плюс, продажа — минус), золото, нажим перед сделкой. */
@@ -1969,6 +2237,96 @@ function readEstates(v: unknown): Pick<WatchCard, 'estates'> {
       gifts: whole(r.gifts, 1e9),
     },
   };
+}
+
+/** Человек на месте агента в описи (АГ-1): место строкой как есть (чужое — флаг книги), числа — целыми и неотрицательными. */
+export interface WatchAgent {
+  role: string;
+  /** Номер человека на месте: новый номер — новый человек. */
+  person: number;
+  /** Номер кандидата Ратуши; свой человек — без поля. */
+  n?: number;
+  /** Ступень совета при найме (1…3); у своего человека нет. */
+  tier?: number;
+  /** Игровая секунда найма; у своего человека нет. */
+  at?: number;
+  /** Опыт человека. */
+  xp: number;
+  /** Место пустует. */
+  vacant?: true;
+}
+
+/** Агенты в описи — то, что сверяет сервер (`agentbook.agentsStep`, правило «agents»). */
+export interface WatchAgents {
+  seats: WatchAgent[];
+  hired: number;
+  fees: number;
+  paid: number;
+}
+
+/** Сколько мест агентов опись везёт самое большее: мест четыре — лишние говорят о подделке. */
+const AGENTS_READ_MAX = 8;
+
+/** Агенты описи: место — строкой до 16 знаков, номера, ступень, минута и опыт — целыми и неотрицательными. */
+function readAgents(v: unknown): Pick<WatchCard, 'agents'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const seats: WatchAgent[] = [];
+  for (const x of (Array.isArray(r.seats) ? r.seats : []).slice(0, AGENTS_READ_MAX)) {
+    if (!x || typeof x !== 'object') continue;
+    const a = x as Record<string, unknown>;
+    const role = str(a.role, 16);
+    if (!role) continue;
+    const hired = Number.isInteger(a.n) && (a.n as number) >= 0;
+    seats.push({
+      role,
+      person: whole(a.person, 1e9),
+      ...(hired ? { n: whole(a.n, 1e12), tier: whole(a.tier, 99), at: whole(a.at, 1e12) } : {}),
+      xp: whole(a.xp, 1e6),
+      ...(a.vacant === true ? { vacant: true as const } : {}),
+    });
+  }
+  return { agents: { seats, hired: whole(r.hired, 1e9), fees: whole(r.fees, 1e12), paid: whole(r.paid, 1e12) } };
+}
+
+/** Командир на месте фланга в описи (ДР-3): место строкой как есть (чужое — флаг книги), числа — целыми и неотрицательными. */
+export interface WatchCommander {
+  flank: string;
+  /** Номер кандидата «Командующих» (`commandrules.commanderId`). */
+  n: number;
+  /** Ступень Казарм при найме (1…3). */
+  tier: number;
+  /** Игровая секунда найма. */
+  at: number;
+  /** Опыт за бои (ДР-5): книга держит его под потолком дел по времени службы (`commandbook.commandStep`). Нет — ноль. */
+  xp?: number;
+}
+
+/** Командиры в описи — то, что сверяет сервер (`commandbook.commandStep`, правило «command»). */
+export interface WatchCommand {
+  seats: WatchCommander[];
+  hired: number;
+  fees: number;
+  paid: number;
+}
+
+/** Сколько мест командиров опись везёт самое большее: мест два — лишние говорят о подделке. */
+const COMMAND_READ_MAX = 4;
+
+/** Командиры описи: место — строкой до 8 знаков, номер, ступень и минута — целыми и неотрицательными. */
+function readCommand(v: unknown): Pick<WatchCard, 'command'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const seats: WatchCommander[] = [];
+  for (const x of (Array.isArray(r.seats) ? r.seats : []).slice(0, COMMAND_READ_MAX)) {
+    if (!x || typeof x !== 'object') continue;
+    const a = x as Record<string, unknown>;
+    const flank = str(a.flank, 8);
+    if (!flank || !Number.isInteger(a.n) || (a.n as number) < 0) continue;
+    const xp = whole(a.xp, 1e6);
+    seats.push({ flank, n: whole(a.n, 1e12), tier: whole(a.tier, 99), at: whole(a.at, 1e12), ...(xp > 0 ? { xp } : {}) });
+  }
+  return { command: { seats, hired: whole(r.hired, 1e9), fees: whole(r.fees, 1e12), paid: whole(r.paid, 1e12) } };
 }
 
 /** Советник в описи: должность и черта — строкой как есть (чужая — флаг книги, а не тихая потеря), уровень — целым. */
@@ -2077,11 +2435,18 @@ function readSite(v: unknown): Pick<WatchCard, 'site'> {
   if (!v || typeof v !== 'object') return {};
   const r = v as Record<string, unknown>;
   const type = str(r.type, 32);
-  const level = num(r.level);
+  const level = r.level;
   const done = num(r.done);
-  if (!type || level === null || !Number.isInteger(level) || level < 2 || level > 100 || done === null || done < 0) return {};
+  if (!type || !isSiteLevel(level) || done === null || done < 0) return {};
   return { site: { type, level, done: Math.min(done, 1e12) } };
 }
+
+/**
+ * Уровень стройки из описи или приказа (SETUP-4): следующий за построенным — от второго (первый стоит с начала партии)
+ * до потолка чтения. Одно правило на идущую стройку и очередь описи и на ускорение за алмазы (`readGemOrder`).
+ */
+const SITE_LEVEL_MAX = 100;
+const isSiteLevel = (v: unknown): v is number => wholeNonNeg(v, SITE_LEVEL_MAX) && v >= 2;
 
 /** Сколько мест очереди стройки читает сервер: больше — подделка, и лишнее ему не нужно, чтобы сказать флаг. */
 export const QUEUE_READ_MAX = 32;
@@ -2094,8 +2459,8 @@ function readQueue(v: unknown): Pick<WatchCard, 'queue'> {
     if (!x || typeof x !== 'object') continue;
     const r = x as Record<string, unknown>;
     const type = str(r.type, 32);
-    const level = num(r.level);
-    if (type && level !== null && Number.isInteger(level) && level >= 2 && level <= 100) queue.push({ type, level });
+    const level = r.level;
+    if (type && isSiteLevel(level)) queue.push({ type, level });
   }
   return { queue };
 }
@@ -2128,6 +2493,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     train: whole(r.train, 1e9),
     deeds: whole(r.deeds, 1e12),
     ...(r.outlays !== undefined ? { outlays: whole(r.outlays, 1e12) } : {}),
+    ...(r.windfalls !== undefined ? { windfalls: whole(r.windfalls, 1e12) } : {}),
     ...(r.starve !== undefined ? { starve: whole(r.starve, 1e9) } : {}),
     won: whole(r.won, 1e9),
     lost: whole(r.lost, 1e9),
@@ -2140,11 +2506,17 @@ export function readWatch(v: unknown): WatchCard | undefined {
     lead: whole(r.lead, 1e12),
     seen: whole(r.seen, 1e9),
     ...(r.gemSeen !== undefined ? { gemSeen: whole(r.gemSeen, 1e12) } : {}),
+    ...readUnneeded(r.gemUnneeded),
     ...readStab(r.stab),
     ...readCrown(r.crown),
     ...readCouncil(r.council),
+    ...readAgents(r.agents),
+    ...readCommand(r.command),
+    ...(Number.isInteger(r.seed) && (r.seed as number) >= 0 ? { seed: whole(r.seed, 0xffffffff) } : {}),
     ...readMarket(r.market),
     ...readEstates(r.estates),
+    ...readWatchSpirit(r.spirit),
+    ...readWatchScars(r.scars),
   };
 }
 
@@ -2309,10 +2681,11 @@ export interface FeedResponse {
 
 /**
  * Виды записей журнала алмазов: стартовые (сервер кладёт при первом входе в эпоху мира), покупка набора (место под
- * оплату; сегодня её нет), покупка в лавке и ускорение стройки. Начисляют только `start` и `purchase` — одной дверью
- * `netlify/lib/gems.creditGems`; `buy` и `rush` только списывают.
+ * оплату; сегодня её нет), покупка в лавке, ускорение стройки и возврат ускорения, которое не понадобилось (FIN-5).
+ * Начисляют только `start`, `purchase` и `refund` — одной дверью `netlify/lib/gems.creditGems`; `buy` и `rush` только
+ * списывают.
  */
-export const GEM_KINDS = ['start', 'purchase', 'buy', 'rush'] as const;
+export const GEM_KINDS = ['start', 'purchase', 'buy', 'rush', 'refund'] as const;
 export type GemKind = (typeof GEM_KINDS)[number];
 
 /** Припасы лавки — виды склада без золота: золото за алмазы не продаётся. */
@@ -2320,7 +2693,7 @@ export const GEM_GOODS = ['wood', 'stone', 'food', 'hides', 'charcoal', 'copper'
 export type GemGood = (typeof GEM_GOODS)[number];
 
 /** Потолки журнала: ключ повтора, сколько записей лежит, сколько уходит в окно «История» и в записку сохранения. */
-export const GEM_LIMITS = { key: 64, keep: 1000, view: 100, deeds: 50, building: 32 } as const;
+export const GEM_LIMITS = { key: 64, keep: 1000, view: 100, deeds: 50, building: 32, unneeded: 20 } as const;
 
 /** Запись журнала алмазов глазами клиента. Номер — по порядку у игрока, как у указов. */
 export interface GemEntry {
@@ -2352,8 +2725,41 @@ export interface GemShop {
 export interface GemNote {
   balance: number;
   shop: GemShop;
-  /** Записи с делом для партии, номер старше присланного в описи (`WatchCard.gemSeen`). */
+  /**
+   * Записи с делом для партии, номер старше присланного партией (`gemSeen`: опись, строка запроса, приказ) — самые старые,
+   * по порядку, не больше `GEM_LIMITS.deeds` (FIN-4). Номера не прислали (игра до FIN-4) — последние, как прежде.
+   */
   deeds: GemEntry[];
+  /** Неприменённых дел больше порции: игра, применив эти, сразу спрашивает следующие. */
+  more?: true;
+  /**
+   * Ускорения «не понадобилось» из описи, которые сервер рассудил (FIN-5): вернул алмазы или отказал навсегда. Игра снимает
+   * их из своего списка; не названные ждут — книга стройки ещё не подтвердила уровень.
+   */
+  settled?: number[];
+}
+
+/** Строка запроса, в которой игра называет номер последнего применённого дела алмазов (`GameState.gemSeen`, FIN-4). */
+export const GEM_SEEN_PARAM = 'gemSeen';
+
+/** Номер применённого дела из строки запроса или приказа: целое от нуля; нет или кривой — `undefined` (игра до FIN-4). */
+export function readGemSeen(v: unknown): number | undefined {
+  const n = typeof v === 'string' && /^\d{1,15}$/.test(v) ? Number(v) : v;
+  return wholeNonNeg(n, 1e12) ? (n as number) : undefined;
+}
+
+/** Номера записей журнала алмазов: целые от единицы, без повторов, не больше `GEM_LIMITS.unneeded`. */
+export function readGemNumbers(v: unknown): number[] {
+  if (!Array.isArray(v)) return [];
+  const out: number[] = [];
+  for (const x of v) if (wholeNonNeg(x, 1e12) && x >= 1 && !out.includes(x)) out.push(x);
+  return out.slice(0, GEM_LIMITS.unneeded);
+}
+
+/** Ускорения «не понадобилось» из описи (FIN-5): пусто — поля нет. */
+function readUnneeded(v: unknown): { gemUnneeded?: number[] } {
+  const list = readGemNumbers(v);
+  return list.length ? { gemUnneeded: list } : {};
 }
 
 /** Ответ `/api/gems`: записка, журнал для «Истории» и, на приказ, — его запись или отказ словами. */
@@ -2372,9 +2778,13 @@ export interface GemsResponse extends GemNote {
  * возвращает прежнюю запись. Ускорение называет постройку, уровень, остаток работы и цену, которую видел игрок: сервер
  * считает свою по остатку не больше полного труда уровня и не берёт больше показанной.
  */
-export type GemOrder =
+export type GemOrder = (
   | { op: 'buy'; key: string; res: GemGood }
-  | { op: 'rush'; key: string; building: string; level: number; work: number; price: number };
+  | { op: 'rush'; key: string; building: string; level: number; work: number; price: number }
+) & {
+  /** Номер последнего применённого партией дела (FIN-4): ответ везёт дела после него. Нет — игра до FIN-4. */
+  seen?: number;
+};
 
 const gemKey = (v: unknown): string | null => (typeof v === 'string' && /^[\w.:-]{6,64}$/.test(v) ? v : null);
 const isGood = (v: unknown): v is GemGood => typeof v === 'string' && (GEM_GOODS as readonly string[]).includes(v);
@@ -2385,15 +2795,15 @@ export function readGemOrder(v: unknown): GemOrder | null {
   const r = v as Record<string, unknown>;
   const key = gemKey(r.key);
   if (!key) return null;
-  if (r.op === 'buy') return isGood(r.res) ? { op: 'buy', key, res: r.res } : null;
+  const n = readGemSeen(r.seen);
+  const seen = n === undefined ? {} : { seen: n };
+  if (r.op === 'buy') return isGood(r.res) ? { op: 'buy', key, res: r.res, ...seen } : null;
   if (r.op === 'rush') {
     const building = str(r.building, GEM_LIMITS.building);
-    const level = num(r.level);
+    const { level, price } = r;
     const work = num(r.work);
-    const price = num(r.price);
-    if (!building || level === null || work === null || price === null) return null;
-    if (!Number.isInteger(level) || work < 0 || price < 0 || !Number.isInteger(price)) return null;
-    return { op: 'rush', key, building, level, work, price };
+    if (!building || !isSiteLevel(level) || work === null || work < 0 || !wholeNonNeg(price, Number.MAX_SAFE_INTEGER)) return null;
+    return { op: 'rush', key, building, level, work, price, ...seen };
   }
   return null;
 }
@@ -2435,7 +2845,9 @@ export function readGemNote(v: unknown): GemNote | null {
   return {
     balance: Math.max(0, Math.floor(bal)),
     shop: { day: Math.max(0, Math.floor(num(shop.day) ?? 0)), used: Math.max(0, Math.floor(num(shop.used) ?? 0)) },
-    deeds: deeds.slice(-GEM_LIMITS.deeds),
+    deeds: deeds.slice(0, GEM_LIMITS.deeds),
+    ...(r.more === true ? { more: true as const } : {}),
+    ...(Array.isArray(r.settled) ? { settled: readGemNumbers(r.settled) } : {}),
   };
 }
 

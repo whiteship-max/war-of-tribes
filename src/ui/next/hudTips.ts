@@ -44,7 +44,7 @@ import {
   taxIncomePerDay,
   townFoodPerDay,
   upkeepInfo,
-  wageOf,
+  troopWage,
 } from '@/game/derived';
 import { BASE_DEFENSE, BASE_HOUSING, ORDER_WARN, RESOURCE_META, VILLAGER_DEFENSE } from '@/game/constants';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
@@ -279,7 +279,8 @@ export function orderTip(s: GameState, go: TipGo): TipContent {
 }
 
 /**
- * Дружина: сколько дома, в походе и на учениях; жалованье за день по видам (`wageOf`) с итогом `upkeepInfo.armyWages`;
+ * Дружина: сколько дома, в походе и на учениях; жалованье за день по видам при нынешнем жалованье (`troopWage`, ДР-1) с итогом
+ * `upkeepInfo.armyWages`;
  * уходят ли бойцы. Главные кнопки — где учат виды (`makersOf('army')`: казармы, конюшня); дверь — «Дружина».
  */
 export function armyTip(s: GameState, go: TipGo): TipContent {
@@ -302,7 +303,7 @@ export function armyTip(s: GameState, go: TipGo): TipContent {
     total: -up.armyWages,
     parts: TROOP_IDS.filter((id) => (s.army?.[id] ?? 0) > 0).map((id) => ({
       label: `${TROOP_BY_ID[id].name} ${fmtInt(s.army[id] ?? 0)}`,
-      value: -(s.army[id] ?? 0) * wageOf(s, id),
+      value: -(s.army[id] ?? 0) * troopWage(s, id),
     })),
     sumLabel: 'Жалованье в день',
     link: { label: 'Дружина', go: () => go.tab('army') },

@@ -146,6 +146,11 @@ export interface SiegeWindow {
    */
   homeDays?: number;
   /**
+   * Режим марша лагеря при постановке (ДР-2, `world/gait`): с обозом — лагерь без подвоза из дома (`siegeroll.wasteOf`).
+   * Налегке лагерь не встаёт. Нет поля — обычный, как до ДР-2.
+   */
+  gait?: 'train';
+  /**
    * Журнал дел с минутой — входы фазы, которые должны быть известны задним числом (docs/siege_v2.md, 2.1): залп ложится
    * сюда, и кость его фазы читает его отсюда. Нет поля — окно из сохранения до фаз: его прежние залпы переводятся в
    * проломы (`siegeroll.breachesOf`).
@@ -307,6 +312,7 @@ export function openSiege(at: {
   /** Ход осады фазами (`world/siegeroll`): стена, путь от дома, журнал дел и фаз, наказы — переносятся при пересчёте. */
   wall?: number;
   homeDays?: number;
+  gait?: 'light' | 'normal' | 'train';
   log?: SiegeDeed[];
   phases?: PhaseRow[];
   orders?: SiegeOrders;
@@ -343,6 +349,7 @@ export function openSiege(at: {
     ...(at.craft !== undefined && (at.craft.fort || at.craft.shots) ? { craft: { ...at.craft } } : {}),
     ...(at.wall ? { wall: Math.max(0, Math.floor(at.wall)) } : {}),
     ...(at.homeDays ? { homeDays: Math.max(0, at.homeDays) } : {}),
+    ...(at.gait === 'train' ? { gait: 'train' as const } : {}),
     ...(at.log !== undefined ? { log: at.log.map((d) => ({ ...d })) } : {}),
     ...(at.phases?.length ? { phases: at.phases.map((r) => ({ ...r, mods: { ...r.mods }, ...(r.orders ? { orders: [...r.orders] } : {}) })) } : {}),
     ...(at.orders ? { orders: { ...at.orders } } : {}),
@@ -385,6 +392,15 @@ export const siegeImmune = (until: number | undefined, now: number): boolean =>
  * отказа.
  */
 export const SIEGE_BLOCK = 'Город в осаде. Выйти можно только вылазкой.';
+
+/**
+ * Полководец один — одно действие (BTL-2, docs/audit/OWNER-DECISIONS.md, п. 9): свой поход на соседа, выручка союзника в пути
+ * и удар по лагерю у своих стен исключают друг друга. Одни слова на сервер войны (`war.generalBusy`) и мир
+ * (`LocalWorld.warGeneralBusy`).
+ */
+export const GENERAL_MARCHES = 'Полководец в походе на соседа.';
+export const GENERAL_RELIEVES = 'Полководец уже идёт на выручку.';
+export const GENERAL_STRIKES = 'Полководец уже идёт на лагерь.';
 
 /**
  * Лагерь игрока. У чужой осады под стенами стоит отряд, и `campId` — номер его

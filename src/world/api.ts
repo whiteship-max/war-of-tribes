@@ -5,6 +5,7 @@
 // компонент интерфейса переписывать не придётся. Поэтому все методы асинхронные,
 // даже те, что сегодня отвечают мгновенно.
 import type { CraftAct } from './siegecraft';
+import type { Gait } from './data/gait';
 import type { SiegeOrders } from './siegeroll';
 import type { MachineId } from './data/machines';
 import type { Aim } from './data/shelling';
@@ -87,6 +88,12 @@ export interface WorldApi {
    * не к той цели или не по меню — отказ. null — пошёл, иначе причина.
    */
   errand(order: ErrandOrder): Promise<string | null>;
+
+  /**
+   * Режим марша полководца (ДР-2, `world/gait`): дома — сразу и даром; в пути и в поле — стоянкой и энергией; в лагере —
+   * нельзя. Поход на город игрока меняет режим приказом серверу войны той же дверью. null — сменил, иначе причина.
+   */
+  setGait(gait: Gait): Promise<string | null>;
 
   /** Развернуть фигуру домой. Обратный путь считается по уже пройденному. */
   recallFigure(id: FigureId): Promise<string | null>;

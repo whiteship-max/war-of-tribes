@@ -144,31 +144,39 @@ function share(stock: Loot, gold: number, stash: number, carry: number): Counts 
 const openTotal = (stock: Loot, stash: number): number =>
   Object.values(stock).reduce((n: number, v) => n + Math.max(0, Math.floor(v ?? 0) - Math.max(0, stash)), 0);
 
-/** Сколько поклажи уносит лазутчик — той же `stackCarry`, что обоз войска. */
-export const theftCarry = (): number => stackCarry({ warrior: RIVAL_POWER.theftCarriers });
+/** Сколько поклажи уносит лазутчик — той же `stackCarry`, что обоз войска; диверсия (`power`, АГ-1) — во столько раз больше. */
+export const theftCarry = (power = 1): number => Math.floor(stackCarry({ warrior: RIVAL_POWER.theftCarriers }) * powerOf(power));
+
+/** Сила диверсии множителем (`agentrules.sabotagePower`), не меньше единицы. */
+const powerOf = (power: number): number => (Number.isFinite(power) ? Math.max(1, power) : 1);
 
 /**
  * Что удавшееся дело сделало с городом. Разведка не трогает ничего. Поджог и кража делят склад той же дверью участи, что
  * и взятый город: тайник не трогают, взятое не больше лежащего на виду. Кража — переход: что ушло у соседа, ровно
- * то и пришло к нападающему (`stolen` одно на обе стороны).
+ * то и пришло к нападающему (`stolen` одно на обе стороны). `power` — сила диверсии лазутчика (АГ-1, `agentrules.sabotagePower`
+ * по книге агентов сервера): доли поджога, кражи и смуты и их потолки — во столько раз; доля — не выше всего, что на виду; дух
+ * города — как у новичка.
  */
-export function rivalHarm(deed: RivalDeedId, city: RivalCity): RivalHarm {
+export function rivalHarm(deed: RivalDeedId, city: RivalCity, power = 1): RivalHarm {
+  const k = powerOf(power);
+  const part = (x: number): number => Math.min(1, x * k);
   if (deed === 'fire') {
     const stock = goodsOf(city.stock);
-    const burn = Math.floor(openTotal(stock, city.stash) * RIVAL_POWER.fireShare);
+    const burn = Math.floor(openTotal(stock, city.stash) * part(RIVAL_POWER.fireShare));
     const burned = share(stock, 0, city.stash, burn);
     return Object.keys(burned).length ? { burned } : {};
   }
   if (deed === 'theft') {
     const all: Loot = { ...goodsOf(city.stock), gold: Math.max(0, Math.floor(city.gold)) };
-    const carry = Math.min(theftCarry(), Math.floor(openTotal(all, city.stash) * RIVAL_POWER.theftShare));
+    const carry = Math.min(theftCarry(k), Math.floor(openTotal(all, city.stash) * part(RIVAL_POWER.theftShare)));
     const stolen = share(goodsOf(city.stock), all.gold ?? 0, city.stash, carry);
     return Object.keys(stolen).length ? { stolen } : {};
   }
   if (deed === 'unrest') {
     const pop = Math.max(0, Math.floor(city.pop));
     // Последний житель не уходит никогда — то же правило, что у участи взятого города.
-    const lured = Math.max(0, Math.min(RIVAL_POWER.unrestCap, Math.floor(pop * RIVAL_POWER.unrestShare), pop - 1));
+    const lured = Math.max(0, Math.min(Math.floor(RIVAL_POWER.unrestCap * k), Math.floor(pop * part(RIVAL_POWER.unrestShare)), pop - 1));
+    // Дух города — не добро: подбитые люди уходят числом, а мораль падает, как у новичка, — иначе смута сравнялась бы с боем.
     return { morale: RIVAL_POWER.unrestMorale, ...(lured > 0 ? { lured } : {}) };
   }
   return {};

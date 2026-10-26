@@ -18,6 +18,8 @@ import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { dayPartAt, seasonOf } from '@/game/derived';
 import { ENERGY_MAX, MINIGAME_BY_ID, MINIGAME_COST, type MinigameId } from '@/game/data/minigames';
 import { beginMinigame, canPlay, energyReadyIn, harvest, minigameHaul, minigameSeed, type Harvest, type Haul, type Outing } from '@/game/sim/minigames';
+import { overflowOf } from '@/game/sim/stockview';
+import { askRoom } from '@/ui/room';
 import { Icon } from '@/ui/icons/Icon';
 import { DAY_PARTS } from '@/ui/icons/registry';
 import { realSpanText } from '@/ui/parts/wait';
@@ -369,7 +371,11 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
    * «Начать»: энергия списывается здесь и партия сразу ложится на диск — закрытое посреди игры приложение трату не
    * вернёт. Второе касание до перерисовки второго похода не выдаёт: поход уже есть.
    */
-  const start = (): void => {
+  const start = async (): Promise<void> => {
+    if (!stageRef.current || outingRef.current) return;
+    // Добыча полного счёта не влезет на склад — спросить до траты энергии (OWNER-DECISIONS, п. 1): добыча ложится сама,
+    // когда выйдет время, и «Отмена» после игры сожгла бы энергию. «Отмена» здесь — энергия не тронута.
+    if (!(await askRoom(overflowOf(useGame.getState().s, minigameHaul(useGame.getState().s, game, 1))))) return;
     const stage = stageRef.current;
     if (!stage || outingRef.current) return;
     const g = useGame.getState();
@@ -506,7 +512,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
             <button className="mg-back" onClick={onExit}>
               Назад
             </button>
-            <button className="mg-go" disabled={!ready} onClick={start}>
+            <button className="mg-go" disabled={!ready} onClick={() => void start()}>
               Начать
             </button>
           </div>

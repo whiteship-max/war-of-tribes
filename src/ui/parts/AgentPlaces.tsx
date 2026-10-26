@@ -1,39 +1,35 @@
-// Места агентов в профильном здании: кто на месте, идёт ли найм, и кнопка «нанять».
+// Места агентов в профильном здании: кто на месте, идёт ли прежний найм, и кнопка «Нанять в Ратуше».
 //
-// Одна часть на три здания — Дозор (разведчик и лазутчик), храм (дипломат) и Статую
-// (полководец). Ни одного своего числа: цена, срок, возраст новичка и причина отказа —
-// из `sim/hire.hireInfo`, возраст и уровень — из `sim/agents`. Кнопка, которая не
-// сработает, гаснет и говорит причину.
+// Одна часть на три здания — Дозор (разведчик и лазутчик), храм (дипломат) и Статую (полководец). С АГ-1 найм, смена и
+// увольнение — только в Ратуше, в разделе «Агенты» (docs/city_v3.md, «Решения АГ-1»): здесь строка места и дверь туда. Ни
+// одного своего числа: возраст и уровень — из `sim/agents`, закрытое державой место — `sim/tech.placeBlock`.
 import { useGame } from '@/game/store';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
-import { agentLevel, ageOf, personName, seated, yearsOf } from '@/game/sim/agents';
-import { hireAgent, hireInfo } from '@/game/sim/hire';
+import { agentLevel, ageOf, personName, retireAgeAt, seated, yearsOf } from '@/game/sim/agents';
 import { placeBlock } from '@/game/sim/tech';
 import { FIGURE_BY_ID } from '@/world/data/figures';
-import { realLeft, waitLeft } from '@/ui/parts/wait';
+import { realLeft } from '@/ui/parts/wait';
 import { tipAt } from '@/ui/next/tip';
 import type { FigureId } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
-import { Cost } from './Cost';
 import { count } from './plural';
 import { iconName } from '@/ui/icons/registry';
 
 function Place({ id }: { id: FigureId }) {
   const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
   const def = FIGURE_BY_ID[id];
   const p = s.agents[id];
-  const info = hireInfo(s, id);
-  // Почему место пустое и что решает найм — подсказкой по строке места (ui_audit.md, 3.7).
+  const openHall = useGame((g) => g.openTownHall);
+  // Почему место пустое и где нанимают — подсказкой по строке места (ui_audit.md, 3.7).
   const why = (e: { currentTarget: Element }) =>
     tipAt(e.currentTarget, {
       title: def.name,
-      body: `Ушедшего не вернуть, место нанимают заново. Чем выше уровень здания, тем быстрее найм и моложе новичок.`,
+      body: 'Ушедшего не вернуть, место нанимают заново — в Ратуше: там кандидаты, их умения, черты и цена.',
     });
 
   if (!p.vacant) {
     const years = yearsOf(s, id);
-    const left = Math.max(0, RETIRE_AGE - ageOf(s, id));
+    const left = Math.max(0, retireAgeAt(s, id) - ageOf(s, id));
     return (
       <div className="mod">
         <span className="ico">
@@ -43,7 +39,7 @@ function Place({ id }: { id: FigureId }) {
           {def.name} · {personName(s, id)}
           <em className="sub">
             {count(years, 'год', 'года', 'лет')}, ур. {agentLevel(s, id)}
-            {years >= RETIRE_WARN
+            {left <= RETIRE_AGE - RETIRE_WARN
               ? left > 0
                 ? ` · до покоя ${count(Math.ceil(left), 'год', 'года', 'лет')}`
                 : ' · уйдёт на покой, как вернётся'
@@ -84,7 +80,7 @@ function Place({ id }: { id: FigureId }) {
             найм, придёт {p.hiring.name ?? 'новичок'}, {count(Math.floor(p.hiring.age0), 'год', 'года', 'лет')}
           </em>
         </span>
-        <span className="val">{realLeft(info.left)}</span>
+        <span className="val">{realLeft(Math.max(0, p.hiring.until - s.time))}</span>
       </div>
     );
   }
@@ -97,24 +93,19 @@ function Place({ id }: { id: FigureId }) {
         </span>
         <span className="name">
           {def.name}
-          <em className="sub">
-            найм {waitLeft(info.seconds)}, новичку {count(Math.floor(info.age0), 'год', 'года', 'лет')}
-          </em>
+          <em className="sub">нанимают в Ратуше</em>
         </span>
         <span className="val">пустует</span>
       </div>
-      <Cost cost={{ gold: info.gold }} />
-      <button className="btn wide" disabled={info.blocked !== null} onClick={() => act((g) => hireAgent(g, id))}>
-        Нанять
+      <button className="btn wide" onClick={() => openHall('agents')}>
+        Нанять в Ратуше
       </button>
-      {info.blocked && <div className="hint">{info.blocked}</div>}
     </>
   );
 }
 
 /**
- * Раздел «Люди» здания. Что даёт уровень здания новичку — срок и возраст — стоит в строке
- * пустого места, почему — в её подсказке. Опыта здание не даёт — новичок начинает с нуля.
+ * Раздел «Люди» здания: кто служит при нём. Нанимают, меняют и увольняют в Ратуше (АГ-1) — пустое место ведёт туда кнопкой.
  */
 export function AgentPlaces({ ids, vacantOnly = false }: { ids: FigureId[]; vacantOnly?: boolean }) {
   const s = useGame((g) => g.s);

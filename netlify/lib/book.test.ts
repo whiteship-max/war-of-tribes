@@ -6,6 +6,7 @@ import { STORES, type Kv, type Stores } from './kv.js';
 import { ROSTER_KEY, castleIdOf, emptyRoster, upsert } from './roster.js';
 import { emptyWars, liveSheet, WARS_KEY, type WarFile, type WarRow } from './war.js';
 import { readWatchRecord } from './watch.js';
+import { grantsKey } from './admin.js';
 import { BOOK_SLACK, PIPS_MAX, RESOLVE_MAX, bookAfter, bookLive, deadOf, levelAt, seedBook, workAllowed, type ArmyBook } from './book.js';
 import { type CastleClaim, type Counts, type WarResponse, type WarSheet, type WatchCard } from './contract.js';
 import { INFIRMARY_HEAL_CAP } from '../../src/game/constants.js';
@@ -459,4 +460,64 @@ describe('подправленный клиент не выставляет в �
     expect(flagsOf(s, A)).not.toContain('forged');
   });
 
+});
+
+/**
+ * AC-2 аудита: указ админа входит в книгу войска только тогда, когда партия его применила (`WatchCard.seen` не ниже номера).
+ * Прежде книга прибавляла бойцов указа на первой же записи, где опись их ещё не называла, тут же срезала до заявленного и
+ * помечала указ учтённым — а на следующей записи, где бойцы уже в описи, ставила флаг «войско сверх подтверждённого».
+ */
+describe('AC-2: указ ждёт, пока партия его применит', () => {
+  let base = T0 + 10_000 * HOUR;
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    base += 100 * HOUR;
+    saved.TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+    process.env.TELEGRAM_BOT_TOKEN = TOKEN;
+    etags.clear();
+  });
+  afterEach(() => {
+    if (saved.TELEGRAM_BOT_TOKEN === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = saved.TELEGRAM_BOT_TOKEN;
+  });
+
+  /** Запись партии с описью `troops` и номером последнего применённого указа `seen`. */
+  async function pushSeen(s: S, at: number, troops: Counts, seen: number): Promise<void> {
+    const record = { v: 1, rev: 0, updatedAt: 0, device: 'dev', game: '{}', world: null, card: { name: 'Вождь', day: 1, pop: 2000, power: 0, army: 0 }, watch: { ...card(troops), seen }, war: defence(troops) };
+    const res = await save(
+      new Request('https://x/api/save', {
+        method: 'PUT',
+        headers: { 'x-telegram-init-data': signInit(idOf(A), at), 'content-type': 'application/json' },
+        body: JSON.stringify({ baseEtag: etags.get(A) ?? null, record }),
+      }),
+      { stores: s.stores, now: at, ip: null },
+    );
+    expect(res.status).toBe(200);
+    etags.set(A, ((await res.json()) as { etag: string }).etag);
+  }
+
+  it('запись до применения — указ ждёт; после — бойцы в книге, флага нет', async () => {
+    const s = memoryStores();
+    await pushSeen(s, base, {}, 0);
+    // Указ №1: сто копейщиков — больше, чем казармы выучат за минуты между записями (точка внутри правила).
+    s.put(STORES.admin, grantsKey(A), { v: 1, seq: 1, list: [{ n: 1, at: base + MIN, by: 1, stock: {}, troops: { spearman: 100 } }] });
+    expect(spearsIn(1, 3 * MIN)).toBeLessThan(100);
+    // Партия ещё не открывала указ: опись без бойцов, seen = 0.
+    await pushSeen(s, base + 2 * MIN, {}, 0);
+    expect(readWatchRecord(s.json(STORES.watch, A)).book?.grant ?? 0, 'указ не съеден').toBe(0);
+    // Применила: бойцы в описи, seen = 1.
+    await pushSeen(s, base + 3 * MIN, { spearman: 100 }, 1);
+    const rec = readWatchRecord(s.json(STORES.watch, A));
+    expect(rec.book?.bodies.spearman, 'бойцы указа в книге').toBe(100);
+    expect(rec.book?.grant).toBe(1);
+    expect(flagsOf(s, A)).not.toContain('forged');
+  });
+
+  it('подделка: опись называет применённым указ, которого нет, — бойцы не подтверждаются', async () => {
+    const s = memoryStores();
+    await pushSeen(s, base, {}, 0);
+    await pushSeen(s, base + MIN, { spearman: 100 }, 5);
+    expect(readWatchRecord(s.json(STORES.watch, A)).book?.bodies.spearman ?? 0).toBeLessThan(100);
+    expect(flagsOf(s, A)).toContain('forged');
+  });
 });

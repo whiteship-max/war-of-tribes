@@ -11,13 +11,14 @@
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { eraGate } from '../era.js';
 import { allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
-import { readGemOrder, type GemOrder, type GemsResponse } from '../contract.js';
+import { GEM_SEEN_PARAM, readGemOrder, readGemSeen, type GemOrder, type GemsResponse } from '../contract.js';
 import { FROZEN_ORDER, frozenNow, isFrozen } from '../admin.js';
 import { gemNoteOf, listOf, settleGems, shown } from '../gems.js';
 import { buildMult, noted, observe, readWatchRecord, townOf, warned } from '../watch.js';
 import { rushFloor } from '../town.js';
 import { STORES } from '../kv.js';
 import { BUILDING_BY_ID } from '../../../src/game/data/buildings.js';
+import { has } from '../../../src/game/guard.js';
 import type { BuildingTypeId } from '../../../src/game/types.js';
 import { gemLine } from '../../../src/game/gemrules.js';
 
@@ -49,14 +50,17 @@ export const gems: Route = async (req, io) => {
   const frozen = order !== null && isFrozen(await frozenNow(io.stores), key);
   // Остаток стройки сервер считает сам — по книге стройки (docs/pvp.md, раздел 7; дыра docs/gems.md, 5.1 закрыта).
   const left = order?.op === 'rush' && !frozen ? await rushLeft(io, key, order.building, order.level, now) : undefined;
-  const done = await settleGems(io.stores, key, now, frozen ? null : order, left);
-  if (!done) return deny(503, 'busy', { 'retry-after': '3' });
+  // Эпоха — ещё раз, перед самой записью книги (OPS-3, АУ-8 п. 7), как у партии и войны.
+  const stillOpen = async (): Promise<boolean> => (await eraGate(req, io)) === null;
+  const done = await settleGems(io.stores, key, now, frozen ? null : order, left, stillOpen);
+  if (!done) return (await eraGate(req, io)) ?? deny(503, 'busy', { 'retry-after': '3' });
 
   const error = frozen ? FROZEN_ORDER : done.error;
-  // Партия применит дела сама, по номеру: все, что лежат, — лишние она отсеет.
+  // Партия применит дела сама, по номеру: самые старые после её номера — из приказа или строки запроса (FIN-4).
+  const seen = order ? order.seen : readGemSeen(new URL(req.url, 'http://local').searchParams.get(GEM_SEEN_PARAM));
   const body: GemsResponse = {
     now,
-    ...gemNoteOf(done.ledger, 0, now),
+    ...gemNoteOf(done.ledger, seen, now),
     list: listOf(done.ledger),
     ...(done.entry ? { entry: shown(done.entry) } : {}),
     ...(error ? { error } : {}),
@@ -78,7 +82,7 @@ export const gems: Route = async (req, io) => {
  * цена по остатку игры, как до книги (ускорение не падает из-за попутного чтения).
  */
 async function rushLeft(io: Parameters<Route>[1], key: string, building: string, level: number, now: number): Promise<number | null | undefined> {
-  if (!(building in BUILDING_BY_ID)) return null;
+  if (!has(BUILDING_BY_ID, building)) return null;
   try {
     const found = await io.stores(STORES.watch, 'strong').getWithMetadata(key);
     const rec = readWatchRecord(found ? parseJson(String(found.data)) : null);

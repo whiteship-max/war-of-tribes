@@ -144,19 +144,34 @@ describe('сервер ничего не начисляет, кроме одно
   /**
    * С 09.10.2026 (docs/payments.md) зовущих два: стартовые и оплата набора (`settlePurchase`, источник `purchase`).
    * `settlePurchase` зовёт только проверка перевода `lib/pay.ts` — после того, как перевод найден в сети и занят.
+   * С FIN-5 (аудит 25.10.2026) — третий: возврат ускорения, которое не понадобилось (`refundRushes`, источник `refund`), —
+   * ровно списанное за это ускорение и только по книге стройки (`proof.own`); зовёт его только запись партии.
    */
-  it('creditGems зовут только стартовые эпохи и оплата, найденная в сети, — ни приказ, ни сохранение, ни админ', () => {
+  it('creditGems зовут только стартовые эпохи, оплата, найденная в сети, и возврат по книге стройки — ни приказ, ни админ', () => {
     const calls = files().flatMap((f) =>
       [...codeOnly(readFileSync(f, 'utf8')).matchAll(/(?<!function )\bcreditGems\(([^;]*)\);/g)].map((m) => `${rel(f)}: ${m[1].replace(/\s+/g, ' ')}`),
     );
-    expect(calls).toEqual(["lib/gems.ts: blank(), { source: '', amount: START_GEMS, key: '', at }", "lib/gems.ts: cur, { ...grant, source: '' }"]);
+    expect(calls).toEqual([
+      "lib/gems.ts: blank(), { source: '', amount: START_GEMS, key: '', at }",
+      "lib/gems.ts: cur, { source: '', amount: -e.delta, key: '', at, building: e.building, level: e.level }",
+      "lib/gems.ts: cur, { ...grant, source: '' }",
+    ]);
+    // Возврат: только запись ускорения (вид, постройка, уровень, списание), только без прежнего возврата и только по книге
+    // стройки — в этом порядке, до начисления. Зовёт его только запись партии (`settleRefunds`).
+    const gemsCode = read('lib/gems.ts');
+    const refund = gemsCode.slice(gemsCode.indexOf('export function refundRushes'), gemsCode.indexOf('export async function settleRefunds'));
+    expect(refund).toMatch(/if \(!e \|\| e\.kind !== 'rush' \|\| !e\.building \|\| !e\.level \|\| e\.delta >= 0\) \{[\s\S]*?continue;[\s\S]*?if \(byKey\(cur, `refund:\$\{n\}`\)\) \{[\s\S]*?continue;[\s\S]*?if \(proof\.own\.includes\(n\)\) \{\n\s*const done = creditGems\(/);
+    const refunders = files().flatMap((f) => [...codeOnly(readFileSync(f, 'utf8')).matchAll(/(?<!function )\b(?:settleRefunds|refundRushes)\(/g)].map(() => rel(f)));
+    expect(refunders.sort()).toEqual(['lib/gems.ts', 'lib/routes/save.ts']);
     const purchases = files().flatMap((f) =>
       [...codeOnly(readFileSync(f, 'utf8')).matchAll(/(?<!function )\bsettlePurchase\(/g)].map(() => rel(f)),
     );
     expect(purchases).toEqual(['lib/pay.ts']);
     // И в `lib/pay.ts` — только после того, как заказ стал «оплачен» (перевод найден и занят).
     const pay = read('lib/pay.ts');
-    expect(pay).toMatch(/for \(const o of cur\.filter\(\(x\) => x\.state === 'paid'\)\) \{\n\s*const done = await settlePurchase\(/);
+    // Между ними — вечный замок заказа (FIN-6, АУ-8): начисленный в прошлой эпохе второй раз не начисляется.
+    expect(pay).toMatch(/for \(const o of cur\.filter\(\(x\) => x\.state === 'paid'\)\) \{\n[^]*?const lock = await creditLock\([^]*?const done = await settlePurchase\(/);
+    expect(pay.match(/settlePurchase\(/g)?.length, 'начисление покупки — одно место').toBe(1);
     // Стартовые кладутся только в пустое место: открытие книги — только когда записи нет.
     const code = codeOnly(readFileSync(join(ROOT, 'lib/gems.ts'), 'utf8'));
     expect(code).toMatch(/const cur = stored \?\? openLedger\(at\);/);
@@ -193,8 +208,10 @@ describe('сервер ничего не начисляет, кроме одно
     // Четвёртый — книга запасов (docs/security.md, ЗЩ-2): склад и казну защитника она держит для войны «не меньше» и не
     // начисляет ничего — читает опись и отдаёт слепку обороны (`goods.goodsSheet`).
     // Пятый — книга рынка (РН-1, docs/city_v3.md, «Решения РН-1»): сверяет золото сделок с правилом привоза и не начисляет
-    // ничего — только флаг.
-    expect(guilty).toEqual(['lib/commands.ts', 'lib/contract.ts', 'lib/goods.ts', 'lib/market.ts', 'lib/war.ts']);
+    // ничего — только флаг. Шестой — допуск разовых дел (AC-1, docs/audit/AU-3.md): сколько дела могли положить на склад и в
+    // казну по таблице наград игры, — сверка и флаг, начислять ему нечего. Седьмой — наблюдение (АУ-8, п. 8): добро без дела по
+    // записи войн (`watch.windfallKnown` — дань и кража у соседа, принятые клиентом) — допуск к той же сверке, не начисление.
+    expect(guilty).toEqual(['lib/commands.ts', 'lib/contract.ts', 'lib/deeds.ts', 'lib/goods.ts', 'lib/market.ts', 'lib/war.ts', 'lib/watch.ts']);
     for (const f of files()) expect(strip(readFileSync(f, 'utf8')), rel(f)).not.toMatch(/\breward/i);
   });
 });
@@ -259,7 +276,15 @@ describe('личность берётся только из подписи', () 
   it('война: каждый слепок идёт в бой с книгами войска, стройки и запасов', () => {
     const code = read('lib/routes/war.ts');
     const sets = [...code.matchAll(/\bsheets\.set\(player,\s*([^;]*)\);/g)].map((m) => m[1].replace(/\s+/g, ' '));
-    expect(sets).toEqual(['null', 'null', '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}), ...marshalOf(rec, now), ...yieldCapOf(rec, now) }']);
+    // Агенты (АГ-1) — книгой агентов сервера (`watch.agentsOf`): отметки, скрытность, диверсия и красноречие — подтверждённые.
+    // Дух дружины (ДР-1) — потолком книги духа (`watch.spiritCeilOf`): жалованье по часам сервера.
+    // Командиры флангов (ДР-3) — книгой командиров (`watch.commandOf`): тактика флангов в войну — числами сервера.
+    // Черты армии (ДР-4) — книгой черт и полководцем книги агентов (`watch.scarsOfRec`): черты в войну выводит сервер сам.
+    expect(sets).toEqual([
+      'null',
+      'null',
+      '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}), ...marshalOf(rec, now), ...yieldCapOf(rec, now), ...agentsOf(rec, now), ...commandOf(rec), ...spiritCeilOf(rec, now), ...scarsOfRec(rec), }',
+    ]);
     expect([...code.matchAll(/\bsheets\.set\(/g)].length).toBe(3);
   });
 
@@ -418,6 +443,10 @@ describe('сервер разбирает ровно названные запи
     }
     expect([...readers].sort()).toEqual([
       'readAdminLog',
+      // оплата алмазов: вечный замок начисления заказа (FIN-6, АУ-8)
+      'readCreditLock',
+      // оплата алмазов (docs/payments.md): курсор просмотра кошелька (FIN-1)
+      'readCursor',
       'readEraFile',
       'readFrozen',
       'readGrants',
@@ -425,11 +454,15 @@ describe('сервер разбирает ровно названные запи
       'readLeaders',
       'readLedger',
       'readNotify',
+      // оплата алмазов: указатель «номер заказа → игрок» (FIN-1)
+      'readOrderOwner',
       // оплата алмазов (docs/payments.md): заказы игрока и метка оплаченного перевода
       'readPaidMark',
       'readPayFile',
       // замеры с телефонов (docs/telemetry.md): сутки устройства замка
       'readPerfDay',
+      // оплата алмазов: очередь возвратов — перевод, который не начислен (FIN-7)
+      'readRefund',
       'readRoster',
       'readStoredReport',
       'readStoredSheet',

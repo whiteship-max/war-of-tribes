@@ -86,8 +86,8 @@ export const CHAIN_SEASONS: Record<string, number> = {
 
 /** Сколько в долг даёт купец — и сколько он придёт взыскать: долг и лихва сверху. */
 const LOAN = 40;
-const loan = (s: GameState): number => amount(s, LOAN);
-const debt = (s: GameState): number => amount(s, LOAN * (1 + TIDING.interest));
+export const loan = (s: GameState): number => amount(s, LOAN);
+export const debt = (s: GameState): number => amount(s, LOAN * (1 + TIDING.interest));
 
 /** Через сколько настоящего времени придёт следствие — словами. */
 const after = (id: string): string => daysSpan(CHAIN_SEASONS[id] * SEASON_DAYS);
@@ -108,15 +108,7 @@ const easeStrain = (s: GameState, n: number): void => {
 };
 
 /** Сколько людей приводят перебежчики — мерой артели. */
-const deserters = (s: GameState): number => crowd(s, 0.03, 4);
-
-/** Куда идут паломники — по вере города. */
-const PILGRIMS: Record<string, string> = {
-  catholic: 'У костёла паломники с посохами и раковинами. Идут к мощам святого Иакова, просят ночлега и хлеба.',
-  orthodox: 'У храма паломники в лаптях и с котомками. Идут поклониться святыням Царьграда, просят ночлега.',
-  islam: 'У мечети хаджи в белом. Идут к Мекке и просят ночлега, как велит обычай.',
-  pagan: 'К священной роще идут люди дальних родов. У капища просят ночлега и огня.',
-};
+export const deserters = (s: GameState): number => crowd(s, 0.03, 4);
 
 /** Кто пишет о вере — служитель веры города; веры ещё нет — управитель. */
 const priest = (s: GameState): string => faithDef(s)?.priest ?? 'Управитель';
@@ -128,7 +120,6 @@ export const TIDINGS: EventDef[] = [
     silence: 2,
     title: 'Праздник урожая',
     from: 'Управитель',
-    text: 'Последний сноп связан, амбары полны до стрех. Люди ждут праздника, старосты — твоего слова.',
     weight: (s) => (seasonOf(s.time) === 'autumn' && jobCounts(s).farmer > 0 ? 3 : 0),
     options: [
       {
@@ -163,7 +154,6 @@ export const TIDINGS: EventDef[] = [
     silence: 2,
     title: 'Ярмарка',
     from: 'Управитель',
-    text: 'Купцы из дальних земель просят места на площади. Везут фламандское сукно, соль и новости.',
     weight: (s) => {
       const season = seasonOf(s.time);
       return (season === 'summer' || season === 'autumn') && dayOf(s.time) >= 5 ? 2 : 0;
@@ -195,7 +185,6 @@ export const TIDINGS: EventDef[] = [
     silence: 1,
     title: 'Весенний разлив',
     from: 'Управитель',
-    text: 'Река вышла из берегов и подступает к нижним полям. До утра вода будет у межи.',
     weight: (s) => (seasonOf(s.time) === 'spring' && jobCounts(s).farmer > 0 ? 3 : 0),
     options: [
       {
@@ -220,7 +209,6 @@ export const TIDINGS: EventDef[] = [
     silence: 1,
     title: 'Ил на полях',
     from: 'Управитель',
-    text: 'Вода ушла и оставила на лугах жирный чёрный ил. Земля просит рук.',
     // Только следствием разлива.
     weight: () => 0,
     options: [
@@ -248,7 +236,6 @@ export const TIDINGS: EventDef[] = [
     silence: 2,
     title: 'Суровая зима',
     from: 'Управитель',
-    text: 'Мороз такой, что трещат брёвна. Поленницы тают на глазах, и старики не помнят такой зимы.',
     weight: (s) => (seasonOf(s.time) === 'winter' ? 3 : 0),
     options: [
       {
@@ -280,7 +267,6 @@ export const TIDINGS: EventDef[] = [
     silence: 2,
     title: 'Паломники',
     from: priest,
-    text: (s) => PILGRIMS[faithOf(s) ?? ''] ?? 'Паломники просят ночлега у нашего храма.',
     weight: (s) => {
       const season = seasonOf(s.time);
       return faithOf(s) !== null && (season === 'spring' || season === 'summer') ? 2 : 0;
@@ -313,7 +299,6 @@ export const TIDINGS: EventDef[] = [
     silence: 0,
     title: 'Дар паломников',
     from: 'Привратник',
-    text: 'Вернулись паломники, что ночевали у нас. Дошли до святыни и на обратном пути принесли дар за ночлег.',
     // Только следствием ночлега.
     weight: () => 0,
     options: [
@@ -335,7 +320,6 @@ export const TIDINGS: EventDef[] = [
     silence: 2,
     title: 'Спор знати',
     from: 'Управитель',
-    text: 'Два старших рода не поделили покос у реки. Оба ждут твоего суда в ратуше, и оба при оружии.',
     weight: (s) => (population(s) >= 40 ? 1.5 : 0),
     options: [
       {
@@ -371,7 +355,6 @@ export const TIDINGS: EventDef[] = [
     silence: 2,
     title: 'Кровная вражда',
     from: 'Старший стражи',
-    text: 'Спор о покосе дошёл до крови. У реки нашли убитого, и род его точит ножи.',
     // Только следствием неразобранного спора.
     weight: () => 0,
     options: [
@@ -410,7 +393,6 @@ export const TIDINGS: EventDef[] = [
     silence: 2,
     title: 'Перебежчики',
     from: 'Старший стражи',
-    text: (s) => `От лесной ватаги отбились ${people(deserters(s))}. Стоят у ворот без оружия и клянутся служить честно.`,
     weight: (s) => (dayOf(s.time) >= 5 ? 1.5 : 0),
     options: [
       {
@@ -439,7 +421,6 @@ export const TIDINGS: EventDef[] = [
     silence: 1,
     title: 'Ночной побег',
     from: 'Старший стражи',
-    text: (s) => `Перебежчики ушли ночью и сманили своих. Пропало ${people(deserters(s))}. Следы ведут к броду.`,
     // Только следствием принятых перебежчиков.
     weight: () => 0,
     options: [
@@ -468,7 +449,6 @@ export const TIDINGS: EventDef[] = [
     silence: 2,
     title: 'Находка в руднике',
     from: 'Рудничный мастер',
-    text: 'Пробили стену забоя, а за ней серебряная жила. Уходит глубоко под старую выработку, крепь там гнилая.',
     weight: (s) => (jobCounts(s).miner > 0 ? 1.5 : 0),
     options: [
       {
@@ -500,7 +480,6 @@ export const TIDINGS: EventDef[] = [
     silence: 1,
     title: 'Обвал в руднике',
     from: 'Рудничный мастер',
-    text: 'Глубокий забой обвалился. Под землёй остались наши. Приложишь ухо к камню — слышно, как стучат.',
     // Только следствием глубокой выработки.
     weight: () => 0,
     options: [
@@ -526,7 +505,6 @@ export const TIDINGS: EventDef[] = [
     silence: 1,
     title: 'Щедрый купец',
     from: 'Управитель',
-    text: (s) => `Заезжий купец из Генуи даёт ${loan(s)} золота в долг. Вернуть просит с лихвой, когда поедет обратно.`,
     // Пока прежний долг не взыскан, второго купец не даёт.
     weight: (s) => (dayOf(s.time) >= 5 && !chainPending(s, 'merchant_due') ? 1 : 0),
     options: [
@@ -547,7 +525,6 @@ export const TIDINGS: EventDef[] = [
     silence: 1,
     title: 'Купец за долгом',
     from: 'Управитель',
-    text: (s) => `Генуэзец вернулся с распиской и печатью. Ждёт ${debt(s)} золота, как уговаривались.`,
     // Только следствием взятого долга.
     weight: () => 0,
     options: [

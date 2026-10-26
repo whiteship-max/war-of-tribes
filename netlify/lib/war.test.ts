@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { readWarOrder, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { advance, applyOrder, emptyWars, fallId, generalCap, liveSheet, newsDiff, newsMap, newsOf, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
-import { FATE_SAME, SIEGE_BLOCK } from '../../src/world/siege.js';
+import { FATE_SAME, GENERAL_MARCHES, SIEGE_BLOCK } from '../../src/world/siege.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { energyAt, energyBlock, priceOf, roadCost, roadOf } from '../../src/world/energy.js';
@@ -193,7 +193,7 @@ describe('приказы: защита слабого, регион, чужое'
     expect(applyOrder(file, A, march, T0, { ...ctx, noShield: true })).toBeNull();
     expect(file.wars).toHaveLength(1);
     // Остальное — как обычно: второй поход того же полководца не уходит.
-    expect(applyOrder(file, A, march, T0 + 1, { ...ctx, noShield: true })).toMatch(/уже в походе/);
+    expect(applyOrder(file, A, march, T0 + 1, { ...ctx, noShield: true })).toBe(GENERAL_MARCHES);
   });
 
   it('войска больше, чем в слепке, не уведёшь', () => {

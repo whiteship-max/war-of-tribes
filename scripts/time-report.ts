@@ -40,7 +40,7 @@ import {
 } from '@/game/derived';
 import { AGENT_AGE0, AGENT_YEAR, MAX_AGENT_LEVEL, RETIRE_AGE, levelOf } from '@/game/data/agents';
 import { YEAR_DAYS } from '@/game/data/seasons';
-import { hireAgent } from '@/game/sim/hire';
+import { hireRecruit, recruitsOf } from '@/game/sim/recruits';
 import { generateWorld, isLair } from '@/world/gen';
 import { lairPhase } from '@/world/lairs';
 import { distance, terrainFactor, travelTime } from '@/world/geo';
@@ -406,7 +406,12 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
         }
         if (now < nextVisit) return;
         nextVisit = now + VISIT * MIN;
-        for (const id of SEATS) if (g.agents[id].vacant && !g.agents[id].hiring) hireAgent(g, id);
+        // Пустое место — первый кандидат окна в Ратуше (АГ-1): найм сразу, плата вперёд и жалованье — как у игрока.
+        for (const id of SEATS) {
+          if (!g.agents[id].vacant || g.agents[id].hiring) continue;
+          const first = recruitsOf(g, id)[0];
+          if (first) hireRecruit(g, id, first.n, null);
+        }
 
         const at = START + now;
         const live = liveLairs(w, at);

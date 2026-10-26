@@ -5,6 +5,7 @@ import { BATTLE_MAN } from '@/game/battle/kinds';
 import { troopsOfKinds } from '@/game/battle/faces';
 import { troopPower } from '@/game/battle/price';
 import { defense } from '@/game/derived';
+import { spiritOf } from '@/game/sim/spirit';
 import { gatePower } from '@/game/data/events';
 import type { GateFoe } from '@/world/types';
 import type { BattleRecord } from '@/world/types';
@@ -57,6 +58,9 @@ npm run gate -- --level L (--wolves [N] | --raiders [P]) [ключи]
   console.log(`=== У ворот: ${name}, посёлок ${level}-го уровня, мир ${worldSeed} ===`);
   console.log(`посёлок: жителей ${b.g.pop}, оборона ${Math.round(defense(b.g))}; войско ${troopsWords(b.g.army)} — мощь ${Math.round(troopPower(b.g.army))}`);
   console.log(`оборона у ворот: дома ${troopsWords(gate.home)}, ополчение ${gate.militia}, стрелков башни ${gate.archers}`);
+  // Дух дружины посёлка мерки (ДР-1): он идёт в бой у ворот (`ArmySetup.spirit`), у волков и разбойников духа нет.
+  const sp = spiritOf(b.g);
+  console.log(`дух дружины: мораль ${sp.morale}, дисциплина ${sp.discipline} (sim/spirit; нейтраль боя — 70)`);
   console.log(`пришли: ${name} мощью ${Math.round(power)} — ${menOfPower(power)} бойцов строя (${kindsWords((p.first.party as { kinds: never }).kinds)}); таблица игры для этого посёлка — ${Math.round(table)} (${menOfPower(table)})`);
   console.log('');
   console.log(`Пришедшие взяли верх: ${shareWords(p.won, runs)}.`);

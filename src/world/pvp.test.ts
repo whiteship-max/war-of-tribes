@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import type { PlayerCastle, PlayerProfile } from './types';
 import { advance, applyOrder, emptyWars, liveSheet, warsOf, type SheetAt } from '../../netlify/lib/war';
+import { warLosses } from '../../netlify/lib/book';
+import { lightShare } from './gait';
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
 import { FATE_SAME, SIEGE_BLOCK, STRIKE_FROM_TOWN, WOOD_FIXED, type SiegeWindow } from './siege';
@@ -72,15 +74,18 @@ function game(b: Partial<PlayerProfile> = {}) {
     new LocalWorld({ seed: me === A ? 11 : 12, now: () => now, storage: null, home: roster.rows[me], castles: castlesFor(me), ...link(me) });
   const a = world(A);
   const bw = world(B);
+  let wornB = 0;
   const pulse = async () => {
     const pa = await a.sync(profile());
     const pb = await bw.sync({ ...profile(), ...b });
+    // Убыль дружины Беты в пути налегке (ДР-5) — из последствий истощения.
+    for (const e of pb.effects) if (e.id.startsWith('gait-wear-')) wornB += troopTotal(e.lostTroops ?? {});
     // Слепки ложатся на сервер, как с записью партии.
     sheets.set(A, { sheet: a.warSheet()!, at: now });
     sheets.set(B, { sheet: bw.warSheet()!, at: now });
     return { pa, pb };
   };
-  return { a, b: bw, file, pulse, now: () => now, step: (ms: number) => (now += ms), target: castleIdOf(B) };
+  return { a, b: bw, file, pulse, now: () => now, step: (ms: number) => (now += ms), target: castleIdOf(B), wornB: () => wornB };
 }
 
 describe('война между игроками: путь от похода до итога у обеих сторон', () => {
@@ -275,7 +280,7 @@ describe('осада под городом игрока: окна обеих с�
    * Дружина полководцу Альфы, поход с осадой, лагерь у стен Беты. `retinue` — у полководца Беты отряд (дома, в гарнизоне);
    * `outside` — он с отрядом в поле.
    */
-  async function camped(opt: { retinue?: boolean; outside?: boolean; b?: Partial<PlayerProfile> } = {}) {
+  async function camped(opt: { retinue?: boolean; outside?: boolean; far?: number; light?: boolean; b?: Partial<PlayerProfile> } = {}) {
     const outside = Boolean(opt.outside);
     const g = game(opt.b);
     await g.pulse();
@@ -289,7 +294,8 @@ describe('осада под городом игрока: окна обеих с�
     const war = g.file.wars[0];
     if (outside) {
       const home = (await g.b.info()).home;
-      expect(await g.b.moveFigure('general', { x: home.x + 3, y: home.y })).toBeNull();
+      if (opt.light) expect(await g.b.setGait('light')).toBeNull();
+      expect(await g.b.moveFigure('general', { x: home.x + (opt.far ?? 3), y: home.y })).toBeNull();
     }
     g.step(war.arriveAt - g.now() + 1000);
     const { pa, pb } = await g.pulse();
@@ -385,6 +391,39 @@ describe('осада под городом игрока: окна обеих с�
     await g.pulse();
     const relief = (await g.a.camp())?.relief;
     expect(relief).toEqual({ from: 'Бета', men: troopTotal(war.strike!.army.troops as TroopStack), at: war.strike!.at, joint: true });
+  }, 120_000);
+
+  it('удар налегке из поля (ДР-5): уход в пути считает сервер, мир списывает ровно его, книга войска вычитает ушедших', async () => {
+    const { g, war } = await camped({ outside: true, far: 40, light: true });
+    // Дошёл до места в поле — стоит там налегке; отрезок до этой минуты списан.
+    for (let i = 0; i < 40 && (await g.b.figures()).find((f) => f.id === 'general')!.phase === 'moving'; i++) {
+      g.step(5 * 60_000);
+      await g.pulse();
+    }
+    expect(war.phase, 'точка внутри области: лагерь стоит').toBe('camp');
+    const before = troopTotal((await g.b.figures()).find((f) => f.id === 'general')!.troops);
+    expect(before, 'точка внутри области: отряд в поле').toBeGreaterThan(0);
+    const wornBefore = g.wornB();
+    expect(await g.b.strikeCamp('home', true)).toBeNull();
+    const strike = war.strike!;
+    expect(strike, 'удар назначен').toBeDefined();
+    expect(strike.gait).toBe('light');
+    expect(lightShare('light', strike.at - g.now()), 'точка внутри области: дорога удара больше суток').toBeGreaterThan(0.005);
+    // Сервер снял ушедших сам: в бой идут дошедшие, ушедшие — в записи войны за замком Беты.
+    const worn = (war.worn ?? []).filter((r) => r.castle === g.target);
+    expect(worn).toHaveLength(1);
+    const gone = troopTotal(worn[0].lost as TroopStack);
+    expect(gone, 'налегке в пути ушли').toBeGreaterThan(0);
+    expect(troopTotal(strike.army.troops as TroopStack)).toBe(before - gone);
+    expect(warLosses(g.file, B).some((l) => l.id === worn[0].id && !l.wounds), 'книга войска вычитает ушедших').toBe(true);
+    // Бой в минуту прихода: мир списал за дорогу ровно ушедших сервера, и в бою у него тот же состав.
+    g.step(strike.at - g.now() + 1000);
+    await g.pulse();
+    const fought = war.battles.find((b) => b.genTroops);
+    expect(fought, 'бой удара был').toBeDefined();
+    expect(fought!.genTroops).toEqual(strike.army.troops);
+    // Племя узнало об ушедших в пути ровно столько, сколько снял сервер, — один раз; дальше дружина стоит у своих стен.
+    expect(g.wornB() - wornBefore).toBe(gone);
   }, 120_000);
 
   it('часы голода под игроком идут за гарнизоном: полководец вернул отряд домой — хлеб кончится раньше', async () => {

@@ -11,11 +11,27 @@
  * (указ, заморозка). Запись наблюдения — попутная: не легла — партия всё равно сохранена, а ответ игроку тот же.
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
-import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchAdvisor, type WatchCard, type WatchCrownEntry } from './contract.js';
-import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, realMs } from '../../src/game/pace.js';
+import {
+  SAVE_HURRY_MS,
+  SAVE_PUSH_MS,
+  STOCK_KEYS,
+  readWatch,
+  spySeenId,
+  warTributeId,
+  type AdminGrant,
+  type Counts,
+  type WarSheet,
+  type WarSpirit,
+  type WatchAdvisor,
+  type WatchCard,
+  type WatchCrownEntry,
+} from './contract.js';
+import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, leadGrowth, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
+import { DEED_TABLE } from '../../src/game/data/deedgain.js';
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
+import { has, own } from '../../src/game/guard.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { prodCeil, storageOf } from '../../src/game/build.js';
 import { GONE_NAME, MERGED_INTO, MERGED_SAVE, foldTown } from '../../src/game/yardmerge.js';
@@ -40,10 +56,18 @@ import { statAt } from '../../src/game/train.js';
 import { powerOfCounts } from '../../src/profile/power.js';
 import type { BuildingTypeId, EstateId, ResourceId } from '../../src/game/types.js';
 import { rewrite } from './admin.js';
-import { bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
+import { RESOLVE_MAX, bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
+import { readSpiritBook, spiritBookAfter, spiritCeil, spiritFaults, type SpiritBook } from './spiritbook.js';
 import { builtForged, buildStep, keyOf, eatFloorOf, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
-import { goodsStep, readGoods, sheetShort, type GoodsBook } from './goods.js';
+import { bondedStep, goodsStep, readGoods, sheetShort, type GoodsBook } from './goods.js';
 import { marketFaults } from './market.js';
+import { agentsAt, agentsStep, gameMsBetween, readAgentBook, recruitOfSeat, type AgentBook, type AgentsAt } from './agentbook.js';
+import { claimedLead, commandAt, commandStep, commanderOfSeat, readCommandBook, type CommandAt, type CommandBook } from './commandbook.js';
+import { readScarBook, scarBookAfter, scarFaults, type ScarBook } from './scarbook.js';
+import { NO_GENERAL } from '../../src/game/scarrules.js';
+import { commanderAt } from '../../src/game/commandrules.js';
+import { recruitAdvance, recruitAt, recruitWage } from '../../src/game/agentrules.js';
+import { DEEDS_PER_MIN_MAX, deedGain, deedTroops, deedsFlag, type DeedKnown } from './deeds.js';
 import { BOOST_MAX } from '../../src/game/marketrules.js';
 import { troopPower } from '../../src/game/battle/price.js';
 import type { TroopStack } from '../../src/game/battle/kinds.js';
@@ -115,9 +139,15 @@ export type FlagKind =
   | 'prod'
   | 'gone'
   | 'council'
+  | 'agents'
   | 'estates'
   | 'market'
-  | 'starve';
+  | 'starve'
+  | 'deeds'
+  | 'bonded'
+  | 'spirit'
+  | 'command'
+  | 'scars';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -146,8 +176,14 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   gone: 'постройки до объединения',
   estates: 'сословия',
   council: 'совет Ратуши',
+  agents: 'агенты Ратуши',
   market: 'сделки рынка',
   starve: 'сдача голодом при хлебе',
+  deeds: 'счёт разовых дел',
+  bonded: 'невольники сверх подтверждённых',
+  spirit: 'дух дружины',
+  command: 'командиры флангов',
+  scars: 'черты армии',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -155,7 +191,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'estates' | 'market' | 'starve';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'agents' | 'estates' | 'market' | 'starve' | 'deeds' | 'bonded' | 'spirit' | 'command' | 'scars';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -242,6 +278,13 @@ export const CITY_RULES: readonly CityRule[] = [
     act: 'в потолки стройки, выработки и стойкости — только подтверждённые; флаг',
   },
   {
+    id: 'agents',
+    rule: 'агенты Ратуши: сид партии — из описи, сменился — флаг и книга заново; кандидат — своего места, из окна своего найма и не выше ступени ратуши книги стройки, врождённое и черты сервер выводит из сида сам; опыт — не быстрее дел (одно за DEED_GAP и запас); наймов и платы вперёд — не меньше новых, жалованье — по ведомости сверх терпения; в войну — отметки, скрытность, диверсия и красноречие подтверждённого человека',
+    formula: 'agentrules.recruitAt, recruitAdvance, recruitWage, deedXp, pipsSpread, sabotagePower, eloquenceCut; agentbook.agentsStep, agentsAt',
+    flag: 'agents',
+    act: 'в войну — числа подтверждённого человека, неподтверждённый найм — ровный; флаг',
+  },
+  {
     id: 'estates',
     rule: 'сословия: привилегий у каждого не больше двух; влияние — по уровням описи и привилегиям; указ сословия — при лояльности, которая могла дойти до порога; привилегий прибавилось не больше дарований, убыло не больше отнятий; польза — по подтверждённым уровням и привилегиям, лояльность сверху',
     formula: 'estaterules.influenceOf, loyaltyCeil, estateCeil, PRIV_MAX, LOYAL',
@@ -254,6 +297,41 @@ export const CITY_RULES: readonly CityRule[] = [
     formula: 'marketrules.lotOf, pressAt, supplyOf, purseOf, shiftOffer; market.marketFaults',
     flag: 'market',
     act: 'флаг',
+  },
+  {
+    id: 'deeds',
+    rule: 'рост склада и войска между описями — не выше выработки, обучения и того, что могли дать разовые дела промежутка по таблице наград (из данных игры, запас ×1.2); разовых дел не больше 30 в минуту',
+    formula: 'deeds.deedGain, deedLoss, deedTroops; data/deedgain (scripts/deeds/derive.ts)',
+    flag: 'deeds',
+    act: 'флаг; сверх скорости дела в допуск не идут',
+  },
+  {
+    id: 'bonded',
+    rule: 'невольники не больше прихода, который подтверждает сервер: уведённые войной, купленные на рынке, пленные боёв мира по таблице наград (уводимые на бойца); расход — книга за описью вниз; продано не больше книги',
+    formula: 'goods.bondedStep, deeds.deedBonded, data/deedgain.fight.led (world/data/units.escort)',
+    flag: 'bonded',
+    act: 'в расход хлеба и руки стройки — подтверждённое; продажа сверх книги — отказ; флаг',
+  },
+  {
+    id: 'spirit',
+    rule: 'дух дружины: жалованье — полное или минимальное — по часам сервера (смена — на выгодную игроку минуту); мораль и дисциплина описи в пределах 0…100 и не выше потолка книги (жалованье книги, подтверждённые Воевода, рыцари и казармы, ступень описи, лучшие прочие причины); счёт уплаченного не убывает; полное жалованье дольше терпения без единой монеты — дух на дне',
+    formula: 'spiritrules.spiritOfIn, payShareAt; spiritbook.spiritBookAfter, spiritCeil, spiritFaults',
+    flag: 'spirit',
+    act: 'в войну — не выше потолка книги; флаг',
+  },
+  {
+    id: 'command',
+    rule: 'командиры флангов: кандидат — из окна своего найма, со своего места в списке и не выше ступени Казарм книги стройки, род, тактику и черты сервер выводит из сида сам; один человек — одно место; минута найма — не позже часов партии; старше покоя — место пустое; наймов и платы вперёд — не меньше новых, жалованье — по ведомости сверх терпения; в войну тактика флангов — книгой сервера, приказ и слепок её не несут; указ рыцарства — при лояльности со слагаемым командиров',
+    formula: 'commandrules.commanderAt, commanderFault, tacticsOf, leadLoyalty, commandRetired; commandbook.commandStep, commandAt, claimedLead',
+    flag: 'command',
+    act: 'в войну — тактика подтверждённых мест, неподтверждённое место — пустое; флаг',
+  },
+  {
+    id: 'scars',
+    rule: 'черты армии: журнал сервера — метки боёв войны, которые он посчитал и записал сам (книга черт), черты — той же функцией, что в игре, с полководцем книги агентов; опись: черты из таблицы, не больше трёх, без обеих черт одной темы, бои войны — те, что есть у сервера, черты войны — те, что выводит сервер по тем же боям; бои с логовами и у своих ворот серверу не видны и в войну не идут',
+    formula: 'scarrules.markOf, scarsOf, scarEdge; scarbook.scarBookAfter, scarsAt, scarFaults',
+    flag: 'scars',
+    act: 'в войну — черты книги, приказ и слепок их не несут; флаг',
   },
 ];
 
@@ -279,6 +357,14 @@ export function foldCard(card: WatchCard): WatchCard {
  * Выработка описи для сверки роста — не выше потолка её же уровней и жителей (правило «prod», `build.prodCeil`): заявленная
  * сверх мест и множителей выработка не объясняет рост склада. Золото — налог и вера — как заявлено.
  */
+/**
+ * Потолок добычи одного промысла при полном счёте (AC-4): доля дневной выработки вида за игру (`DEED_TABLE.game` — вывод из
+ * данных игры с запасом ×1.2, наибольшая по промыслам) на выработку. Им же считает игра (`sim/minigames.minigameCap`), а
+ * `WatchCard.haulCap` описи — только слова клиента: правило спрашивает этот потолок, а названный выше него — флаг.
+ */
+export const haulCeil = (prod: Counts): number =>
+  RESOURCE_IDS.reduce((n, r) => n + (DEED_TABLE.game[r] ?? 0) * Math.max(0, prod[r] ?? 0), 0);
+
 export function prodOf(card: WatchCard): Counts {
   const ceil = prodCeil(card.buildings, card.pop, yardMult(card, card.buildings));
   const out: Counts = { ...card.prod };
@@ -341,6 +427,31 @@ export interface WatchRecord {
    * админа, наград за это нет. Нет — пришёл сам или запись старше поля.
    */
   ref?: string;
+  /**
+   * Добро без дела из записи войн, которое сервер уже засчитал (АУ-8, п. 8; `windfallKnown`): отметки `seen` дани войны и
+   * кражи лазутчика у соседа. Нет — запись старше поля: принятое клиентом засчитывается первой же записью.
+   */
+  wf?: string[];
+  /**
+   * Книга агентов (АГ-1, `agentbook.ts`): сид партии, подтверждённые люди на местах агентов и их опыт. Нет — запись до АГ-1:
+   * заводится первой описью с агентами.
+   */
+  agents?: AgentBook;
+  /**
+   * Книга командиров флангов (ДР-3, `commandbook.ts`): подтверждённые люди на местах левого и правого фланга. Нет — запись до
+   * ДР-3 или командиров не нанимали.
+   */
+  command?: CommandBook;
+  /**
+   * Книга духа дружины (ДР-1, `spiritbook.ts`): жалованье — полное или минимальное — по часам сервера и доля восстановления на
+   * минуту смены. Нет — запись до ДР-1 или жалованье всегда было полным.
+   */
+  spirit?: SpiritBook;
+  /**
+   * Книга черт армии (ДР-4, `scarbook.ts`): метки боёв войны игрока, которые записал сервер. Нет — боёв войны с метками ещё
+   * не было (бои до ДР-4 меток не несут).
+   */
+  scars?: ScarBook;
 }
 
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -368,6 +479,42 @@ export const blankWatch = (): WatchRecord => ({
 
 const FLAG_KINDS = Object.keys(FLAG_WORD) as FlagKind[];
 const ENTRY_KINDS: readonly EntryKind[] = ['visit', 'save', 'deed', 'game', 'war', 'report', 'grant', 'freeze', 'flag'];
+
+/** Сколько отметок засчитанного добра без дела войны помнит запись — с запасом над тем, что лежит в записи войн. */
+const WF_KEEP = 256;
+
+/**
+ * Добро без дела, которое сервер знает по записи войн (АУ-8, п. 8): дань, принятая нашим лагерём (`WarRow.tribute`), и кража
+ * нашего лазутчика у соседа (`SpyOut.stolen`), которые клиент уже принял (`seen` — отметки слепка той же записи) и которых
+ * книга ещё не засчитывала (`done`). Склад и казна — точно; `ids` — засчитанные с этой записью, не старше лежащих у сервера.
+ */
+export function windfallKnown(
+  file: WarFile | null,
+  key: string,
+  seen: readonly string[],
+  done: readonly string[],
+): { known: { stock: Counts; gold: number; items: number }; ids: string[] } {
+  const stock: Counts = {};
+  let gold = 0;
+  let items = 0;
+  const had = new Set(done);
+  const now = new Set(seen);
+  const lying: string[] = [];
+  const take = (id: string, got: Counts | undefined): void => {
+    lying.push(id);
+    if (!now.has(id) || had.has(id)) return;
+    items++;
+    for (const [k, v] of Object.entries(got ?? {})) {
+      const n = Math.max(0, Number(v) || 0);
+      if (k === 'gold') gold += n;
+      else if (n > 0) stock[k] = (stock[k] ?? 0) + n;
+    }
+  };
+  for (const w of file?.wars ?? []) if (w.atk === key && w.tribute) take(warTributeId(w.id), w.tribute.taken);
+  for (const x of file?.spies ?? []) if (x.atk === key && x.out?.stolen) take(spySeenId(x.id), x.out.stolen);
+  const ids = [...new Set([...done, ...lying.filter((id) => now.has(id))])].filter((id) => lying.includes(id)).slice(-WF_KEEP);
+  return { known: { stock, gold, items }, ids };
+}
 
 export function readWatchRecord(v: unknown): WatchRecord {
   const out = blankWatch();
@@ -401,6 +548,15 @@ export function readWatchRecord(v: unknown): WatchRecord {
   if (town) out.town = town;
   const goods = readGoods(r.goods);
   if (goods) out.goods = goods;
+  const agents = readAgentBook(r.agents);
+  if (agents) out.agents = agents;
+  const spirit = readSpiritBook(r.spirit);
+  if (spirit) out.spirit = spirit;
+  const command = readCommandBook(r.command);
+  if (command) out.command = command;
+  const scars = readScarBook(r.scars);
+  if (scars) out.scars = scars;
+  if (Array.isArray(r.wf)) out.wf = r.wf.filter((x): x is string => typeof x === 'string').slice(-WF_KEEP);
   if (Array.isArray(r.journal)) {
     for (const e of r.journal as Record<string, unknown>[]) {
       if (e && ENTRY_KINDS.includes(e.kind as EntryKind)) out.journal.push({ at: n0(e.at), kind: e.kind as EntryKind, text: s0(e.text, 400) });
@@ -457,8 +613,13 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
       out.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости склада ${big(card.cap)} — сверх склада игра не кладёт ничего (или склад потерял уровень).` });
     }
   }
+  // Потолок промысла описи выше потолка по её же выработке (AC-4): игра считает его той же долей, и выше он не бывает.
+  const haulTop = haulCeil(prodOf(card));
+  if (card.haulCap > haulTop + 1) {
+    out.push({ kind: 'haul', text: `Потолок промысла в описи ${big(card.haulCap)} за игру, а по выработке — не больше ${big(haulTop)}.` });
+  }
   // Постройки, ушедшие в дворы (правило «merge», ЗД-1), опись новой сборки не называет: их нет ни в игре, ни в её описи.
-  const gone = Object.keys(card.buildings).filter((t) => Object.prototype.hasOwnProperty.call(MERGED_INTO, t));
+  const gone = Object.keys(card.buildings).filter((t) => has(MERGED_INTO, t));
   if (gone.length > 0 && saveOf(card.build) >= MERGED_SAVE) {
     const list = gone.map((t) => `${GONE_NAME[t] ?? t} ${big(card.buildings[t] ?? 0)}`).join(', ');
     out.push({
@@ -484,15 +645,21 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
 /**
  * Флаги промежутка между двумя описями: что выросло сильнее, чем позволяют правила игры за прошедшее время.
  *
- * Рост склада и войска сверяется, только если между описями не было ни одного разового дела (событие, бой, логово,
- * набег, покупка, ежедневка, промысел, указ админа), никто не ушёл и не вернулся из похода и не пришёл караван: дело
- * может разом принести добро, и тогда рост объяснён. Без дел склад растёт только выработкой, а войско — обучением в
- * казармах и конюшне.
+ * Рост склада и войска сверяется всегда (AC-1): склад растёт выработкой, войско — обучением в казармах и конюшне, а разовые
+ * дела промежутка (событие и весть державы, бой, логово, набег, покупка, ежедневка, промысел, указ, лавка, добро без дела)
+ * прибавляют к допуску столько, сколько они могут дать по данным игры (`deeds.deedGain`, таблица наград `data/deedgain`).
+ * Прежде любое дело выключало сверку целиком, и прибавка счётчика на каждой записи давала любой склад без флага. `known` —
+ * что сервер знает сам: указы админа из книги указов (без неё указ — до потолка указа).
  */
-export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: number): { kind: FlagKind; text: string }[] {
+export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: number, known?: DeedKnown): { kind: FlagKind; text: string }[] {
   const out: { kind: FlagKind; text: string }[] = [];
   const realMs = Math.max(0, bAt - aAt);
-  const leadMs = Math.max(0, b.lead - a.lead);
+  // Опережение под скоростью проверки — не больше высшей ступени (`pace.leadGrowth`, AC-8): названное сверх — флаг, и в допуск
+  // не идёт.
+  const leadMs = leadGrowth(a.lead, b.lead, realMs + CLOCK_SKEW_SECONDS * 1000);
+  if (b.lead - a.lead > leadMs + 1) {
+    out.push({ kind: 'haste', text: `Опережение часов выросло на ${span(b.lead - a.lead)} за ${span(realMs)} — высшая скорость проверки даёт не больше ${span(leadMs)}.` });
+  }
   // Сколько игровых дней могло пройти: настоящее время, опережение под скоростью проверки и допуск на часы.
   const canDays = gameDaysOfMs(realMs + leadMs + CLOCK_SKEW_SECONDS * 1000);
   const wentDays = (b.time - a.time) / DAY_LENGTH;
@@ -502,6 +669,12 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   if (b.deeds < a.deeds) {
     out.push({ kind: 'rollback', text: `Партия откатилась назад: разовых дел было ${big(a.deeds)}, стало ${big(b.deeds)} (другое устройство, восстановленная копия или правка сохранения).` });
   }
+  // Счётчик дел (правило «deeds», AC-1): честная партия не набирает больше `DEEDS_PER_MIN_MAX` дел в минуту; сверх — в допуск не
+  // идёт (`deeds.deedSplit`).
+  const fast = deedsFlag(a, b, realMs);
+  if (fast) {
+    out.push({ kind: 'deeds', text: `Разовых дел ${signed(fast.counted)} за ${span(realMs)} — честная партия набирает не больше ${big(fast.allowed)} (${DEEDS_PER_MIN_MAX} в минуту); сверх них дела в допуск не идут.` });
+  }
   // Сдача голодом (правило «starve», ОС-1): голодом сдаёт только склад, не оплативший прокорм в шаге осады. Город сдан, а склад
   // кормил — ложная сдача (судья осады — мир или сервер войны — разошёлся со складом), и это не может быть честной игрой.
   const fed = (b.starve ?? 0) - (a.starve ?? 0);
@@ -510,57 +683,63 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   }
   // Рост сверяют за верхний край истинного промежутка: часы описи — целые игровые секунды (`CARD_TICK_DAYS`).
   const days = Math.max(0, Math.min(wentDays + CARD_TICK_DAYS, canDays));
-  const quiet = a.deeds === b.deeds && a.seen === b.seen && a.games === b.games && a.away === b.away && a.caravans === b.caravans;
-  if (quiet) {
-    // Возврат отменённой стройки (правило «refund», СТ-1): разовым делом он не считается — положенное сервер выводит сам из
-    // очередей двух описей (`cancelledRefund`), и рост склада сверх выработки и положенного возврата — флаг.
-    const back = cancelledRefund(a, b);
-    // Выработка обеих описей — не выше потолка их мест (правило «prod»): заявленное сверх него рост не объясняет.
-    const pa = prodOf(a);
-    const pb = prodOf(b);
-    for (const k of STOCK_KEYS) {
+  // Возврат отменённой стройки (правило «refund», СТ-1): разовым делом он не считается — положенное сервер выводит сам из
+  // очередей двух описей (`cancelledRefund`), и рост склада сверх выработки, дел и положенного возврата — флаг.
+  const back = cancelledRefund(a, b);
+  // Выработка обеих описей — не выше потолка их мест (правило «prod»): заявленное сверх него рост не объясняет.
+  const pa = prodOf(a);
+  const pb = prodOf(b);
+  const prod = maxCounts(pa, pb);
+  const deedsIn = Math.max(0, b.deeds - a.deeds);
+  const gain = deedGain(a, b, realMs, prod, known);
+  const said = deedsIn > 0 ? `разовых дел ${big(deedsIn)}` : 'без разовых дел';
+  for (const k of STOCK_KEYS) {
+    const could = (prod[k] ?? 0) * days * GROWTH_SLACK + 1 + (gain[k] ?? 0);
+    if (!Number.isFinite(could)) continue;
+    const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
+    const due = back.refund[k as ResourceId] ?? 0;
+    if (grew > could + due) {
+      out.push(
+        back.count > 0
+          ? {
+              kind: 'refund',
+              text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)}: отменено стройки ${big(back.count)}, возврат положен не больше ${big(due)}, выработка и дела — ${big(could)}.`,
+            }
+          : { kind: 'stock', text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)}, ${said}; выработка и дела позволяли не больше ${big(could)}.` },
+      );
+    }
+  }
+  const troopsCould = Math.max(a.train, b.train) * days * GROWTH_SLACK + 1 + deedTroops(a, b, realMs, known);
+  const troopsGrew = total(b.troops) + b.wounded - (total(a.troops) + a.wounded);
+  if (Number.isFinite(troopsCould) && troopsGrew > troopsCould) {
+    out.push({ kind: 'army', text: `Войско ${signed(troopsGrew)} за ${span(realMs)}, ${said}; казармы, конюшня и дела дали бы не больше ${big(troopsCould)}.` });
+  }
+  // Цена списана (правило «paid», `CITY_RULES`): стройка, начатая между описями, унесла со склада цену уровня — ею платит
+  // `sim/actions.startUpgrade`, и другой двери, заводящей стройку, у игры нет. «Начатая» — только если на первой описи
+  // стройки не было вовсе: иначе в очереди могли стоять оплаченные раньше, а опись видит одну первую (`derived.currentSite`).
+  // С очередью в обеих описях оплаченное известно точно (СТ-1): места первой описи уже оплачены, остальное — нет. Дела
+  // промежутка входят в допуск (AC-1): весть могла положить на склад столько же, сколько ушло на цену.
+  const started = a.site && !(a.queue && b.queue) ? null : startedCost(a, b);
+  if (started) {
+    for (const k of RESOURCE_IDS) {
+      const need = started.cost[k] ?? 0;
+      if (need <= 0) continue;
+      const could = (prod[k] ?? 0) * days * GROWTH_SLACK + 1 + (back.refund[k] ?? 0) + (gain[k] ?? 0);
+      if (!Number.isFinite(could)) continue;
       const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
-      const could = Math.max(pa[k] ?? 0, pb[k] ?? 0) * days * GROWTH_SLACK + 1;
-      const due = back.refund[k as ResourceId] ?? 0;
-      if (grew > could + due) {
-        out.push(
-          back.count > 0
-            ? {
-                kind: 'refund',
-                text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)}: отменено стройки ${big(back.count)}, возврат положен не больше ${big(due)}, выработка — ${big(could)}.`,
-              }
-            : { kind: 'stock', text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)} без разовых дел; выработка позволяла не больше ${big(could)}.` },
-        );
-      }
-    }
-    const grew = total(b.troops) + b.wounded - (total(a.troops) + a.wounded);
-    const could = Math.max(a.train, b.train) * days * GROWTH_SLACK + 1;
-    if (grew > could) {
-      out.push({ kind: 'army', text: `Войско ${signed(grew)} за ${span(realMs)} без разовых дел; казармы и конюшня выучили бы не больше ${big(could)}.` });
-    }
-    // Цена списана (правило «paid», `CITY_RULES`): стройка, начатая между описями, унесла со склада цену уровня — ею платит
-    // `sim/actions.startUpgrade`, и другой двери, заводящей стройку, у игры нет. «Начатая» — только если на первой описи
-    // стройки не было вовсе: иначе в очереди могли стоять оплаченные раньше, а опись видит одну первую (`derived.currentSite`).
-    // С очередью в обеих описях оплаченное известно точно (СТ-1): места первой описи уже оплачены, остальное — нет.
-    const started = a.site && !(a.queue && b.queue) ? null : startedCost(a, b);
-    if (started) {
-      for (const k of RESOURCE_IDS) {
-        const need = started.cost[k] ?? 0;
-        if (need <= 0) continue;
-        const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
-        const could = Math.max(pa[k] ?? 0, pb[k] ?? 0) * days * GROWTH_SLACK + 1 + (back.refund[k] ?? 0);
-        // Рост сверх выработки уже сказан флагом «рост склада» — второй раз о том же не говорим.
-        if (grew > could || grew + need <= could) continue;
-        out.push({
-          kind: 'unpaid',
-          text: `Заложено ${big(started.levels)} ур. стройки: ${stockWord(k)} на ${big(need)}, а ${stockWord(k)} ${signed(grew)} за ${span(realMs)} без разовых дел — выработка позволяла не больше ${big(could)}, цена со склада не ушла.`,
-        });
-      }
+      // Рост сверх выработки уже сказан флагом «рост склада» — второй раз о том же не говорим.
+      if (grew > could || grew + need <= could) continue;
+      out.push({
+        kind: 'unpaid',
+        text: `Заложено ${big(started.levels)} ур. стройки: ${stockWord(k)} на ${big(need)}, а ${stockWord(k)} ${signed(grew)} за ${span(realMs)}, ${said} — выработка и дела позволяли не больше ${big(could)}, цена со склада не ушла.`,
+      });
     }
   }
   out.push(...stabFlags(a, b, days, realMs));
   out.push(...crownFlags(a, b, realMs));
   out.push(...councilFlags(a, b, days, realMs));
+  out.push(...agentFlags(a, b, days, realMs));
+  out.push(...commandFlags(a, b, days, realMs));
   out.push(...estateFlags(a, b, realMs));
   // Сделки рынка (правило «market», РН-1): цена каждой новой — по правилу привоза, счёт и кошель — по сделкам.
   for (const text of marketFaults(a, aAt, b, bAt, { boost: Math.max(marketBoost(a), marketBoost(b)), prod: maxCounts(prodOf(a), prodOf(b)), slack: GROWTH_SLACK })) {
@@ -571,7 +750,8 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
     // Энергия: полный запас и приток за прошедшее время партии; игра стоит `MINIGAME_COST`.
     const can = Math.floor((ENERGY_MAX + ((realMs + leadMs) / ENERGY_REFILL) * ENERGY_MAX) / MINIGAME_COST);
     if (played > can) out.push({ kind: 'games', text: `Промыслов ${signed(played)} за ${span(realMs)}; энергии хватало не больше чем на ${big(can)}.` });
-    const cap = Math.max(a.haulCap, b.haulCap);
+    // Потолок игры — по выработке и долям промыслов из данных игры (`haulCeil`, AC-4), а не из описи: опись его только называет.
+    const cap = Math.max(haulCeil(prodOf(a)), haulCeil(prodOf(b)));
     const got = b.haul - a.haul;
     if (got > cap * played + played) {
       out.push({ kind: 'haul', text: `Добыча промыслов ${signed(got)} за ${big(played)} игр; потолок — ${big(cap)} за игру.` });
@@ -655,6 +835,26 @@ export function marshalOf(rec: WatchRecord, at: number): { marshal?: number; kni
 }
 
 /**
+ * Потолок духа дружины для слепка войны и сверки описи (ДР-1, `war.SheetAt.spirit`): книга духа — жалованье по часам сервера,
+ * подтверждённые Воевода совета и рыцари при ратуше и уровнях книги стройки, казармы книги, ступень описи; обряд — наибольший по
+ * правилам. Описи нет — пусто: правила прежние.
+ */
+export function spiritCeilOf(rec: WatchRecord, at: number): { spirit?: WarSpirit } {
+  if (!rec.card) return {};
+  const levels = townOf(rec, at).levels;
+  const known = {
+    ...(rec.card.stab ? { stab: rec.card.stab.level } : {}),
+    marshal: councilResolve(rec.card, levelIn(levels, 'town_hall')),
+    knights: estateCeilOf(rec.card, levels).resolve,
+    barracks: levelIn(levels, 'barracks'),
+  };
+  return { spirit: spiritCeil(rec.spirit, known, at, { rite: RESOLVE_MAX }) };
+}
+
+/** Бойцов в книге войска: есть ли кому платить. */
+const bookMen = (rec: WatchRecord, at: number): number => Object.values(bookOf(rec, at).bodies).reduce((t, x) => t + Math.max(0, x ?? 0), 0);
+
+/**
  * Потолок валовой добычи хлеба в час мира для слепка войны (ОС-1, `war.SheetAt.yieldCap`): правило «prod» — места дел
  * подтверждённых построек при подтверждённых жителях, работником в лучших множителях, с подтверждённым Старостой и
  * крестьянством (`build.prodCeil`, `yardMult`), тем же переводом в час, что у моста. Описи нет — пусто.
@@ -679,7 +879,7 @@ export function estateCeilOf(card: WatchCard, levels: Counts): EstateCeil {
   const priv = privFromRow(card.estates?.priv);
   const dec = decreeEstate(card);
   const infl = influenceOf(levels, priv);
-  const open = dec !== null && loyaltyCeil(dec, priv, infl[dec]) >= LOYAL ? dec : null;
+  const open = dec !== null && loyaltyCeil(dec, priv, infl[dec], claimedLead(card)) >= LOYAL ? dec : null;
   return estateCeil(levels, priv, open);
 }
 
@@ -728,7 +928,7 @@ export function estateFaults(card: WatchCard): string[] {
   if (x.decree !== undefined && !isEstate(x.decree)) out.push(`Сословия: указ сословия «${x.decree}», а такого сословия нет.`);
   const dec = decreeEstate(card);
   if (dec) {
-    const ceil = loyaltyCeil(dec, priv, infl[dec]);
+    const ceil = loyaltyCeil(dec, priv, infl[dec], claimedLead(card));
     if (ceil < LOYAL) out.push(`Сословия: указ «${dec}» при лояльности не выше ${Math.floor(ceil)} — открывает его ${LOYAL}.`);
   }
   if (x.infl.length > 0 && ESTATES.some((e, i) => Math.abs((x.infl[i] ?? 0) - infl[e]) > INFL_SLACK)) {
@@ -804,6 +1004,136 @@ export function councilFlags(a: WatchCard, b: WatchCard, days: number, realMs: n
     out.push({ kind: 'council', text: `Совет: жалованья уплачено ${big(x.paid - y.paid)} за ${span(realMs)}, а ведомость совета сверх терпения — ${big(owed)}.` });
   }
   return out;
+}
+
+/**
+ * Счёт найма агентов между описями (правило «agents», АГ-1): счёт не убывает; новых людей с меткой найма — не больше наймов в
+ * счёте; плата вперёд — не меньше цены новых кандидатов (выведенных из сида сервером); жалованье тех, кто служил весь
+ * промежуток, — уплачено по ведомости сверх терпения. Люди, опыт и сид — книгой (`agentbook.agentsStep`).
+ */
+export function agentFlags(a: WatchCard, b: WatchCard, days: number, realMs: number): { kind: FlagKind; text: string }[] {
+  const out: { kind: FlagKind; text: string }[] = [];
+  const x = b.agents;
+  if (!x) return out;
+  const y = a.agents ?? { seats: [], hired: 0, fees: 0, paid: 0 };
+  if (x.hired < y.hired || x.fees < y.fees || x.paid < y.paid) {
+    out.push({ kind: 'agents', text: `Счёт агентов убыл: наймов ${big(y.hired)} → ${big(x.hired)}, платы вперёд ${big(y.fees)} → ${big(x.fees)}, жалованья ${big(y.paid)} → ${big(x.paid)}.` });
+  }
+  const was = new Map(y.seats.map((s) => [s.role, s.person]));
+  const fresh = x.seats.filter((s) => s.n !== undefined && s.tier !== undefined && !s.vacant && s.person !== was.get(s.role));
+  if (fresh.length > x.hired - y.hired) {
+    out.push({ kind: 'agents', text: `Агенты: новых нанятых в Ратуше ${big(fresh.length)} за ${span(realMs)}, а наймов в счёте ${big(x.hired - y.hired)}.` });
+  }
+  const seed = b.seed ?? a.seed;
+  if (seed === undefined) return out;
+  const fees = fresh.reduce((t, s) => {
+    const r = recruitAt(seed, s.n as number, s.tier as number);
+    return t + recruitAdvance(r.level, r.traits);
+  }, 0);
+  if (x.fees - y.fees < fees) {
+    out.push({ kind: 'agents', text: `Агенты: плата вперёд ${big(x.fees - y.fees)} за ${span(realMs)}, а новые нанятые стоят ${big(fees)}.` });
+  }
+  const sat = x.seats.filter((s) => s.n !== undefined && s.tier !== undefined && !s.vacant && s.person === was.get(s.role));
+  const wage = sat.reduce((t, s) => {
+    const r = recruitAt(seed, s.n as number, s.tier as number);
+    return t + recruitWage(r.level, r.traits);
+  }, 0);
+  const owed = wage * Math.max(0, days - COUNCIL_GRACE_DAYS);
+  if (owed > 0 && (x.paid - y.paid) * GROWTH_SLACK + 1 < owed) {
+    out.push({ kind: 'agents', text: `Агенты: жалованья уплачено ${big(x.paid - y.paid)} за ${span(realMs)}, а ведомость агентов сверх терпения — ${big(owed)}.` });
+  }
+  return out;
+}
+
+/**
+ * Счёт найма командиров флангов между описями (правило «command», ДР-3): счёт не убывает; новых людей на местах — не больше
+ * наймов в счёте; плата вперёд — не меньше цены новых кандидатов (выведенных из сида сервером); жалованье тех, кто служил весь
+ * промежуток, — уплачено по ведомости сверх терпения. Места — книгой (`commandbook.commandStep`).
+ */
+export function commandFlags(a: WatchCard, b: WatchCard, days: number, realMs: number): { kind: FlagKind; text: string }[] {
+  const out: { kind: FlagKind; text: string }[] = [];
+  const x = b.command;
+  if (!x) return out;
+  const y = a.command ?? { seats: [], hired: 0, fees: 0, paid: 0 };
+  if (x.hired < y.hired || x.fees < y.fees || x.paid < y.paid) {
+    out.push({ kind: 'command', text: `Счёт командиров убыл: наймов ${big(y.hired)} → ${big(x.hired)}, платы вперёд ${big(y.fees)} → ${big(x.fees)}, жалованья ${big(y.paid)} → ${big(x.paid)}.` });
+  }
+  const key = (c: { flank: string; n: number; at: number }): string => `${c.flank}:${c.n}:${c.at}`;
+  const was = new Set(y.seats.map(key));
+  const fresh = x.seats.filter((c) => !was.has(key(c)));
+  if (fresh.length > x.hired - y.hired) {
+    out.push({ kind: 'command', text: `Командиры флангов: новых на местах ${big(fresh.length)} за ${span(realMs)}, а наймов в счёте ${big(x.hired - y.hired)}.` });
+  }
+  const seed = b.seed ?? a.seed;
+  if (seed === undefined) return out;
+  const fees = fresh.reduce((t, c) => {
+    const r = commanderAt(seed, c.n, c.tier);
+    return t + recruitAdvance(r.level, r.traits);
+  }, 0);
+  if (x.fees - y.fees < fees) {
+    out.push({ kind: 'command', text: `Командиры флангов: плата вперёд ${big(x.fees - y.fees)} за ${span(realMs)}, а новые нанятые стоят ${big(fees)}.` });
+  }
+  const wage = x.seats
+    .filter((c) => was.has(key(c)))
+    .reduce((t, c) => {
+      const r = commanderAt(seed, c.n, c.tier);
+      return t + recruitWage(r.level, r.traits);
+    }, 0);
+  const owed = wage * Math.max(0, days - COUNCIL_GRACE_DAYS);
+  if (owed > 0 && (x.paid - y.paid) * GROWTH_SLACK + 1 < owed) {
+    out.push({ kind: 'command', text: `Командиры флангов: жалованья уплачено ${big(x.paid - y.paid)} за ${span(realMs)}, а ведомость командиров сверх терпения — ${big(owed)}.` });
+  }
+  return out;
+}
+
+/** Жалованье подтверждённых командиров флангов за игровой день — расход казны в книге запасов, одной ведомостью с советом. */
+export function commandWage(rec: Pick<WatchRecord, 'command' | 'agents'>): number {
+  let n = 0;
+  for (const seat of Object.values(rec.command?.seats ?? {})) {
+    const c = commanderOfSeat(rec.agents?.seed, seat);
+    if (c) n += recruitWage(c.level, c.traits);
+  }
+  return n;
+}
+
+/** Числа подтверждённых командиров для войны (`war.SheetAt.command`): тактика флангов и слагаемое знати. Книги нет — поля нет. */
+export function commandOf(rec: WatchRecord): { command?: CommandAt } {
+  const got = commandAt(rec.command, rec.agents?.seed);
+  return Object.keys(got.flanks).length > 0 || got.lead !== 0 ? { command: got } : {};
+}
+
+/**
+ * Полководец по книге агентов (ДР-4): номер человека на месте, `NO_GENERAL` — места нет. Сида нет (опись до АГ-1) — неизвестен:
+ * смена полководца черт тогда не снимает (`scarrules.scarsOf`).
+ */
+export function generalOf(rec: Pick<WatchRecord, 'agents'>): number | undefined {
+  const book = rec.agents;
+  if (!book || book.seed === undefined) return undefined;
+  const seat = book.seats.general;
+  return seat && !seat.vacant ? seat.person : NO_GENERAL;
+}
+
+/** Книга черт и полководец для войны (ДР-4, `war.SheetAt.scars`): из них сервер выводит черты стороны сам (`scarbook.scarsAt`). */
+export function scarsOfRec(rec: WatchRecord): { scars?: { book?: ScarBook; gen?: number } } {
+  const gen = generalOf(rec);
+  return rec.scars || gen !== undefined ? { scars: { ...(rec.scars ? { book: rec.scars } : {}), ...(gen !== undefined ? { gen } : {}) } } : {};
+}
+
+/** Жалованье подтверждённых агентов за игровой день — расход казны в книге запасов (`goods.drainCeil`), одной ведомостью с советом. */
+export function agentsWage(rec: Pick<WatchRecord, 'agents'>): number {
+  const book = rec.agents;
+  let n = 0;
+  for (const seat of Object.values(book?.seats ?? {})) {
+    const r = recruitOfSeat(book, seat);
+    if (r) n += recruitWage(r.level, r.traits);
+  }
+  return n;
+}
+
+/** Числа подтверждённых агентов для войны (`war.SheetAt.agents`): по книге агентов и Статуе книги стройки. */
+export function agentsOf(rec: WatchRecord, at: number): { agents?: AgentsAt } {
+  const got = agentsAt(rec.agents, levelIn(townOf(rec, at).levels, 'statue'));
+  return Object.keys(got).length > 0 ? { agents: got } : {};
 }
 
 /**
@@ -885,7 +1215,7 @@ export function crownFlags(a: WatchCard, b: WatchCard, realMs: number): { kind: 
   if (!x) return out;
   const { seen } = crownNew(a, b);
   for (const e of seen) {
-    const rule = CROWN_RULES[e.id];
+    const rule = own(CROWN_RULES, e.id);
     if (!rule) out.push({ kind: 'crown', text: `Ответ на весть «${e.id}», которой в игре нет.` });
     else if (e.opt >= rule.opts.length) {
       out.push({ kind: 'crown', text: `Весть «${e.id}»: ответа №${e.opt + 1} нет — у неё ${rule.opts.length}.` });
@@ -895,7 +1225,7 @@ export function crownFlags(a: WatchCard, b: WatchCard, realMs: number): { kind: 
   const book = new Map<number, WatchCrownEntry>();
   for (const e of [...(a.crown?.last ?? []), ...x.last]) book.set(e.n, e);
   for (const e of seen) {
-    const rule = CROWN_RULES[e.id];
+    const rule = own(CROWN_RULES, e.id);
     if (!rule || rule.kind === 'chain') continue;
     const every = crownEvery(e.id);
     const twin = [...book.values()].find((o) => o.id === e.id && o.n !== e.n && Math.abs(o.at - e.at) < every);
@@ -949,7 +1279,7 @@ export function cancelledRefund(a: WatchCard, b: WatchCard): { refund: Partial<R
   const still = new Set(b.queue.map((e) => keyOf(e.type, e.level)));
   let count = 0;
   for (const e of a.queue.slice(0, BUILD_QUEUE_MAX)) {
-    if (!(e.type in BUILDING_BY_ID) || still.has(keyOf(e.type, e.level))) continue;
+    if (!has(BUILDING_BY_ID, e.type) || still.has(keyOf(e.type, e.level))) continue;
     if ((b.buildings[e.type] ?? 0) >= e.level) continue;
     const started = a.site?.type === e.type && a.site.level === e.level && a.site.done > 0;
     for (const [r, v] of Object.entries(cancelRefund(BUILDING_BY_ID[e.type as BuildingTypeId], e.level, started)) as [ResourceId, number][]) refund[r] = (refund[r] ?? 0) + v;
@@ -1038,7 +1368,7 @@ function deedsText(a: WatchCard, b: WatchCard): string {
  * Принятая запись партии: опись, флаги и журнал. Журнал не пишет строку на каждую запись — их сотни за вечер:
  * записи одного захода сводятся в одну строку, отдельно — разовые дела и промыслы.
  */
-export function wrote(rec: WatchRecord, at: number, card: { name: string; power: number; day: number }, raw: WatchCard | undefined, rev: number): WatchRecord {
+export function wrote(rec: WatchRecord, at: number, card: { name: string; power: number; day: number }, raw: WatchCard | undefined, rev: number, known?: DeedKnown): WatchRecord {
   let next: WatchRecord = { ...rec, writes: rec.writes + 1, name: card.name, power: card.power, day: card.day };
   if (raw) {
     // Флаги одной описи — по присланной как есть (правило «merge» смотрит, что назвала сборка); сверка двух описей и запись —
@@ -1047,12 +1377,17 @@ export function wrote(rec: WatchRecord, at: number, card: { name: string; power:
     const watch = foldCard(raw);
     const prev = rec.card;
     if (prev) {
-      found.push(...flagsBetween(prev, rec.cardAt, watch, at));
+      found.push(...flagsBetween(prev, rec.cardAt, watch, at, known));
       const deeds = deedsText(prev, watch);
       if (deeds) next = noted(next, at, 'deed', `Дела: ${deeds}.`);
       if (watch.games > prev.games) next = noted(next, at, 'game', `Промыслы: ${signed(watch.games - prev.games)}, добыча ${signed(watch.haul - prev.haul)}.`);
     }
     next = { ...next, card: watch, cardAt: at };
+    // Книга духа (ДР-1): режим жалованья — по часам сервера, на самую выгодную игроку минуту; опись сверяется с потолком книги.
+    const spirit = spiritBookAfter(rec.spirit, watch.spirit?.wage, rec.cardAt > 0 ? rec.cardAt : at, at);
+    next = spirit ? { ...next, spirit } : next;
+    const ceil = spiritCeilOf(next, at).spirit;
+    if (ceil) for (const text of spiritFaults(prev, rec.cardAt, watch, at, ceil, bookMen(next, at))) found.push({ kind: 'spirit', text });
     // Флаги одной описи не повторяются в журнале каждую минуту: `addFlags` считает их в прежний.
     next = addFlags(next, at, found);
   }
@@ -1087,7 +1422,7 @@ export function booked(
   at: number,
   raw: WatchCard | undefined,
   seen: readonly string[] | undefined,
-  grants: readonly Pick<AdminGrant, 'n' | 'troops'>[],
+  grants: DeedKnown['grants'] & readonly Pick<AdminGrant, 'n' | 'troops'>[],
   wars: WarFile | null,
   key: string,
   gems: readonly PaidLevel[] = [],
@@ -1096,15 +1431,32 @@ export function booked(
   if (!raw) return rec;
   // Опись устройства, ещё не открывшего новую сборку, — прежним форматом: книги считают по сведённой переходом ЗД-1.
   const watch = foldCard(raw);
+  // Книга невольников (АУ-8, п. 2): приход — войны, рынок и бои мира по таблице; в руки стройки и расход хлеба — подтверждённые.
+  const bonds = bondedStep(rec.goods?.bonds, prior.card, prior.at, watch, at, { file: wars, key, seen: seen ?? [] });
   const town0 = townOf(rec, at);
   // Староста подтверждённого совета (РТ-1) — при ратуше книги стройки: его стройка быстрее, и потолок растёт той же долей; цехи
   // в силе (РТ-2) — так же, по подтверждённым уровням. Крестьяне в силе прибавляют прироста — потолок жителей растёт той же долей.
   const steward = buildMult(watch, town0.levels);
   const growth = estateCeilOf(watch, town0.levels).growth;
-  const claim = { buildings: watch.buildings, pop: watch.pop, bonded: watch.bonded, queued: watch.queued, site: watch.site, queue: watch.queue, steward, growth };
+  // Номер применённых дел алмазов и ускорения «не понадобилось» — книга сначала пробует их уровни работой (FIN-5).
+  const claim = {
+    buildings: watch.buildings,
+    pop: watch.pop,
+    bonded: Math.min(watch.bonded ?? 0, bonds.book.n),
+    queued: watch.queued,
+    site: watch.site,
+    queue: watch.queue,
+    steward,
+    growth,
+    gemSeen: watch.gemSeen,
+    unneeded: watch.gemUnneeded,
+  };
   const built = buildStep(town0, at, claim, gems, prior.card?.site);
   const book0 = bookOf(rec, at);
-  const step = bookAfter(book0, at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, grants, wars, key, seen ?? [], built.book.levels);
+  // Указ входит в книгу, когда партия его применила (AC-2): опись называет номер последнего применённого (`seen`). Раньше
+  // книга прибавляла бойцов указа, которых опись ещё не называла, тут же срезала их до заявленного и считала указ учтённым.
+  const applied = grants.filter((g) => g.n <= (watch.seen ?? 0));
+  const step = bookAfter(book0, at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, applied, wars, key, seen ?? [], built.book.levels);
   const army = {
     before: sumOf(book0.bodies),
     after: sumOf(step.book.bodies),
@@ -1116,14 +1468,47 @@ export function booked(
   // Книга запасов (docs/security.md, ЗЩ-2): склад и казна — из описи, «не меньше» объяснимой убыли; бойцы — тела книги
   // войска и ученики книги жителей.
   const goods = goodsStep(rec.goods ?? null, prior.card, prior.at, watch, at, {
+    grants,
     levels: people.book.levels,
     pop: people.book.pop,
     soldiers: army.after + people.book.queued,
-    council: councilWage(watch, levelIn(people.book.levels, 'town_hall')),
+    // Совет и агенты Ратуши (РТ-1, АГ-1) — одна ведомость с войском: подтверждённые советники и нанятые агенты.
+    council: councilWage(watch, levelIn(people.book.levels, 'town_hall')) + agentsWage(rec) + commandWage(rec),
     estates: estateCeilOf(watch, people.book.levels),
+    bonded: bonds.book.n,
   });
-  const next = { ...rec, book: step.book, town: people.book, goods: goods.book };
+  // Книга агентов (АГ-1): сид, люди на местах и опыт под потолком дел; ступень найма — не выше ратуши книги стройки.
+  const agents = agentsStep(rec.agents, watch, at, levelIn(people.book.levels, 'town_hall'), gameMsBetween(prior.card, watch));
+  // Книга командиров флангов (ДР-3): кандидат — по сиду книги агентов, ступень — не выше Казарм книги стройки.
+  const command = commandStep(rec.command, watch, at, agents.book.seed, levelIn(people.book.levels, 'barracks'), gameMsBetween(prior.card, watch));
+  // Книга черт армии (ДР-4): метки боёв войны игрока из записи войн — в свой журнал; черты описи сверяются с ним.
+  const scarBook = scarBookAfter(rec.scars, wars, key);
+  const next = {
+    ...rec,
+    book: step.book,
+    town: people.book,
+    goods: { ...goods.book, bonds: bonds.book },
+    agents: agents.book,
+    command: command.book,
+    ...(scarBook ? { scars: scarBook } : {}),
+  };
   const found: { kind: FlagKind; text: string }[] = [];
+  // Подделки черт — одной строкой: флаги одного рода в окне тишины сливаются, и в журнал попала бы только первая.
+  const scarred = scarFaults(watch.scars, scarBook, generalOf(next));
+  if (scarred.length > 0) found.push({ kind: 'scars', text: `Черты армии: ${scarred.join('; ')}.` });
+  for (const t of agents.found) found.push({ kind: 'agents', text: `Агенты: ${t}.` });
+  for (const t of command.found) found.push({ kind: 'command', text: `Командиры флангов: ${t}.` });
+  if (bonds.refused > 0) {
+    found.push({
+      kind: 'bonded',
+      text: `Продано невольников сверх книги на ${big(bonds.refused)}: столько у города не было по приходу, который знает сервер. Продажу сервер не принимает.`,
+    });
+  } else if (bonds.over > 0) {
+    found.push({
+      kind: 'bonded',
+      text: `Невольников заявлено ${big(watch.bonded ?? 0)}, сервер подтверждает ${big(bonds.book.n)} — сверх уведённых войной, купленных на рынке и пленных боёв на ${big(bonds.over)}. В расход хлеба и руки стройки идут подтверждённые.`,
+    });
+  }
   if (goods.hidden.length) {
     const parts = goods.hidden.map((h) => `${stockWord(h.kind)} −${big(h.drop)} (расход позволял ${big(h.could)})`);
     found.push({
@@ -1173,14 +1558,14 @@ export function booked(
   }
   // Запасы не выше предела (правило «stock», `CITY_RULES`): вместимость — подтверждённых уровней (`build.storageOf`, ею же
   // считает игра, `derived.storageCap`). Опись, назвавшая вместимость не больше подтверждённой, уже сверена в `flagsOf`.
+  // Сверяется всегда, какую бы вместимость опись ни назвала (AC-4): прежде правило спрашивалось, только если опись назвала
+  // больше подтверждённой, и опись с `cap: 0` проходила мимо обоих правил.
   const cap = storageOf(people.book.levels);
-  if (watch.cap > cap) {
-    for (const k of RESOURCE_IDS) {
-      const have = watch.stock[k] ?? 0;
-      if (have > cap + 1) {
-        found.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости подтверждённых построек ${big(cap)} (опись называет ${big(watch.cap)}). В войну идёт не больше вместимости.` });
-        break;
-      }
+  for (const k of RESOURCE_IDS) {
+    const have = watch.stock[k] ?? 0;
+    if (have > cap + 1) {
+      found.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости подтверждённых построек ${big(cap)} (опись называет ${big(watch.cap)}). В войну идёт не больше вместимости.` });
+      break;
     }
   }
   return found.length ? addFlags(next, at, found) : next;

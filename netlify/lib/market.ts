@@ -15,7 +15,7 @@
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { STOCK_KEYS, type Counts, type WatchCard, type WatchDeal } from './contract.js';
-import { gameDaysOfMs } from '../../src/game/pace.js';
+import { gameDaysOfMs, leadGrowth } from '../../src/game/pace.js';
 import { BONDED_GOOD } from '../../src/game/data/market.js';
 import { depthOf, fromPurse, goodOf, lotOf, pressAt, purseOf, shiftOf, shiftOffer, supplyOf } from '../../src/game/marketrules.js';
 
@@ -47,10 +47,19 @@ export function marketFaults(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
     if (x && !sameDeal(x, d)) out.push(`Сделка №${big(d.seq)} записана дважды по-разному — двойная сделка с двух устройств или правка.`);
   }
   const fresh = B.deals.filter((d) => d.seq > A.seq).sort((x, y) => x.seq - y.seq);
+  // Новая сделка под номером, который в той же описи уже занят другой, — двойная сделка с двух устройств (AC-5): прежде
+  // её не видел никто — прежняя опись этого номера ещё не знала.
+  const bySeq = new Map<number, (typeof fresh)[number]>();
+  for (const d of fresh) {
+    const x = bySeq.get(d.seq);
+    if (x && !sameDeal(x, d)) out.push(`Сделка №${big(d.seq)} записана дважды по-разному — двойная сделка с двух устройств или правка.`);
+    if (!x) bySeq.set(d.seq, d);
+  }
   const want = Math.max(0, B.seq - A.seq);
   if (fresh.length < want) out.push(`Сделок между описями ${big(want)}, в описи — ${big(fresh.length)}: часть не дошла до сверки.`);
+  // Цепочка номеров сверяется и при лишних сделках (AC-5), а не только когда их ровно столько, сколько номеров.
   fresh.forEach((d, i) => {
-    if (fresh.length === want && d.seq !== A.seq + i + 1) out.push(`Номера сделок идут с разрывом: №${big(d.seq)} на месте №${big(A.seq + i + 1)}.`);
+    if (fresh.length >= want && d.seq !== A.seq + i + 1) out.push(`Номера сделок идут с разрывом: №${big(d.seq)} на месте №${big(A.seq + i + 1)}.`);
   });
 
   const levels = [...new Set([levelOf(a), levelOf(b)])].filter((l) => l > 0);
@@ -140,7 +149,8 @@ export function marketFaults(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   }
 
   // Продано не больше, чем могло быть: запас прежней описи, выработка за промежуток и купленное (телега могла прийти).
-  const days = gameDaysOfMs(Math.max(0, bAt - aAt) + Math.max(0, b.lead - a.lead) + CLOCK_SKEW_SECONDS * 1000);
+  const span = Math.max(0, bAt - aAt) + CLOCK_SKEW_SECONDS * 1000;
+  const days = gameDaysOfMs(span + leadGrowth(a.lead, b.lead, span));
   const stock = new Set<string>(STOCK_KEYS);
   for (const [g, n] of Object.entries(soldSum)) {
     const def = goodOf(g);

@@ -11,6 +11,7 @@
  */
 import { create } from 'zustand';
 import {
+  GEM_SEEN_PARAM,
   SAVE_PUSH_MS,
   readGemList,
   readGemNote,
@@ -57,21 +58,60 @@ export function gemsOffline(g: Pick<GemsStore, 'balance' | 'at' | 'why'> = useGe
 }
 
 let apply: ((deeds: GemEntry[]) => void) | null = null;
+let seenOf: (() => number) | null = null;
 
 /** Чем применять дела — отдаёт стор игры. */
 export const provideGemDeeds = (fn: (deeds: GemEntry[]) => void): void => {
   apply = fn;
 };
 
+/** Чем читать номер последнего применённого дела партии (`GameState.gemSeen`) — отдаёт стор игры. */
+export const provideGemSeen = (fn: () => number): void => {
+  seenOf = fn;
+};
+
+let settle: ((settled: number[]) => void) | null = null;
+
+/** Чем снимать рассуждённые сервером ускорения «не понадобилось» (FIN-5) — отдаёт стор игры. */
+export const provideGemSettled = (fn: (settled: number[]) => void): void => {
+  settle = fn;
+};
+
+/** Номер последнего применённого дела; стор ещё не отдал — `null` (сервер ответит по-старому). */
+export const gemSeenNow = (): number | null => (seenOf ? seenOf() : null);
+
+/**
+ * Хвост адреса с номером партии: сервер отдаст дела после него, самые старые первыми (FIN-4). Номера нет — пусто.
+ * `first` — первый ли это параметр адреса.
+ */
+export const gemSeenQuery = (first = true): string => {
+  const n = gemSeenNow();
+  return n === null ? '' : `${first ? '?' : '&'}${GEM_SEEN_PARAM}=${n}`;
+};
+
+/** Сколько порций подряд дочитываем по «ещё»: журнал держит тысячу записей — это двадцать порций с запасом. */
+const CHASE_MAX = 30;
+let chased = 0;
+
 /**
  * Записка из ответа сервера: баланс, лавка, дела. Нет её или кривая — ничего не меняется. Дела уходят в партию все:
- * уже применённые дверь отсеет номером.
+ * уже применённые дверь отсеет номером. Сервер сказал «ещё» (FIN-4) — применив эти, сразу спрашиваем следующие; номер
+ * не сдвинулся — не спрашиваем, чтобы не крутиться на месте.
  */
 export function takeGems(raw: unknown): void {
   const note = readGemNote(raw);
   if (!note) return;
   useGems.setState({ balance: note.balance, shop: note.shop, at: serverNow(), why: null });
+  const before = gemSeenNow();
   if (note.deeds.length && apply) apply(note.deeds);
+  if (note.settled?.length && settle) settle(note.settled);
+  const after = gemSeenNow();
+  if (note.more && before !== null && after !== null && after > before && chased < CHASE_MAX) {
+    chased++;
+    void refreshGems();
+  } else {
+    chased = 0;
+  }
 }
 
 /** Сохранение не дошло до сервера — связи нет; баланс остаётся последним известным, тратить нельзя. */
@@ -96,7 +136,7 @@ const fold = (data: GemsResponse): void => {
 /** Прочитать алмазы и журнал — при открытии Сокровищницы. Вне Telegram — тихо ничего. */
 export async function refreshGems(): Promise<void> {
   if (!tgInitData()) return;
-  const res = await apiGet<GemsResponse>('/api/gems');
+  const res = await apiGet<GemsResponse>(`/api/gems${gemSeenQuery()}`);
   if (res.ok) fold(res.data);
   else gemsQuiet(res.why);
 }
@@ -128,9 +168,15 @@ async function order(what: string, body: GemOrder): Promise<string | null> {
   }
 }
 
+/** Номер партии в приказе: ответ привезёт дела после него, и среди них — только что купленное (FIN-4). */
+const seenPart = (): { seen?: number } => {
+  const n = gemSeenNow();
+  return n === null ? {} : { seen: n };
+};
+
 /** Купить в лавке сто единиц припаса. */
-export const orderBuy = (res: GemGood): Promise<string | null> => order(`buy:${res}`, { op: 'buy', key: freshKey(), res });
+export const orderBuy = (res: GemGood): Promise<string | null> => order(`buy:${res}`, { op: 'buy', key: freshKey(), res, ...seenPart() });
 
 /** Ускорить стройку: постройка, уровень, остаток работы и цена, которую видел игрок. */
 export const orderRush = (id: number, building: string, level: number, work: number, price: number): Promise<string | null> =>
-  order(`rush:${id}`, { op: 'rush', key: freshKey(), building, level, work, price });
+  order(`rush:${id}`, { op: 'rush', key: freshKey(), building, level, work, price, ...seenPart() });

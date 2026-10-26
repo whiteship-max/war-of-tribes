@@ -58,16 +58,24 @@ export interface Meeting {
  */
 export function intercept(chaser: Coord, speed: number, target: Moving, now: number): Meeting | null {
   if (speed <= 0) return null;
-  const a = positionAt(target, now);
+  const here = positionAt(target, now);
+  // Уже рядом — встреча в этой же точке и сейчас.
+  if (len(sub(here, chaser)) < 1e-9) return { at: { ...here }, time: now, seconds: 0 };
+  // Цель ещё не вышла и стоит у `from` (MAP-6): успевает погоня туда к выходу — встреча там, в минуту её прихода.
+  const lead = Math.max(0, target.departAt - now);
+  if (lead > 0) {
+    const tau = len(sub(here, chaser)) / speed;
+    if (tau <= lead) return { at: { ...here }, time: now + tau, seconds: tau / 1000 };
+  }
   const span = target.arriveAt - target.departAt;
   const v: Coord =
     span > 0 && now < target.arriveAt
       ? { x: (target.to.x - target.from.x) / span, y: (target.to.y - target.from.y) / span }
       : { x: 0, y: 0 };
+  // Не успевает — встреча после выхода: уравнение решается от виртуального старта `from − v·lead`, откуда цель, идущая с
+  // этой минуты, выходит к `from` ровно в минуту выхода; корень раньше выхода — не встреча (цель ещё стоит).
+  const a: Coord = { x: here.x - v.x * lead, y: here.y - v.y * lead };
   const d = sub(a, chaser);
-
-  // Уже рядом — встреча в этой же точке и сейчас.
-  if (len(d) < 1e-9) return { at: { ...a }, time: now, seconds: 0 };
 
   const qa = dot(v, v) - speed * speed;
   const qb = 2 * dot(d, v);
@@ -78,7 +86,7 @@ export function intercept(chaser: Coord, speed: number, target: Moving, now: num
     // Скорости совпали: уравнение стало линейным. Догнать можно только сзади.
     if (Math.abs(qb) > 1e-12) {
       const t = -qc / qb;
-      if (t >= 0) tau = t;
+      if (t >= lead) tau = t;
     }
   } else {
     const disc = qb * qb - 4 * qa * qc;
@@ -86,7 +94,7 @@ export function intercept(chaser: Coord, speed: number, target: Moving, now: num
       const root = Math.sqrt(disc);
       const t1 = (-qb - root) / (2 * qa);
       const t2 = (-qb + root) / (2 * qa);
-      const good = [t1, t2].filter((t) => t >= 0).sort((x, y) => x - y);
+      const good = [t1, t2].filter((t) => t >= lead).sort((x, y) => x - y);
       if (good.length > 0) tau = good[0];
     }
   }

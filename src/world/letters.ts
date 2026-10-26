@@ -62,6 +62,11 @@ export interface LetterCandidate {
   attitude: number;
   /** Сколько наших там держат после прорвавшегося набега. 0 — никого. */
   captives: number;
+  /**
+   * Логово, а не двор племени (АУ-8, п. 5): дипломатии у него нет, письмо от него одно — выкуп тех, кого увёл его набег.
+   * Нет поля — двор племени.
+   */
+  lair?: true;
   /** Ближний двор чужого племени: против него и зовут вставать. */
   rivalId?: SettlementId;
   rivalName?: string;
@@ -78,18 +83,27 @@ export type LetterDraft = Omit<Letter, 'id' | 'at' | 'until'>;
 function kindsFor(c: LetterCandidate): LetterKindId[] {
   const out: LetterKindId[] = [];
   if (c.captives > 0) out.push('ransom');
+  if (c.lair) return out;
   if (c.standing !== 'pact') out.push('tribute');
   if (c.standing === 'neutral' && c.attitude >= 0) out.push('pact');
   if (c.standing !== 'war' && c.attitude >= 0 && c.rivalId) out.push('alliance');
   return out;
 }
 
-/** Долю добра раскладываем по тому же списку, каким отсюда берут добычу. */
-function spread(total: number, mix: ResourceId[]): Loot {
+/**
+ * Разложить итог по видам добра так, чтобы виды сложились ровно в итог (ECO-7, правило MAP-5): каждому — целая доля вниз,
+ * остаток — по единице первым видам, нули пропускаются. Одна раздача на дань пакта и цену дара и мира (`LocalWorld`).
+ */
+export function splitLoot(total: number, mix: ResourceId[]): Loot {
   const out: Loot = {};
-  if (mix.length === 0 || total <= 0) return out;
-  const share = Math.max(1, Math.round(total / mix.length));
-  for (const r of mix) out[r] = (out[r] ?? 0) + share;
+  const n = Math.max(0, Math.round(total));
+  if (mix.length === 0 || n <= 0) return out;
+  const base = Math.floor(n / mix.length);
+  const rest = n - base * mix.length;
+  mix.forEach((r, i) => {
+    const v = base + (i < rest ? 1 : 0);
+    if (v > 0) out[r] = (out[r] ?? 0) + v;
+  });
   return out;
 }
 
@@ -104,19 +118,23 @@ export const lootTotal = (loot: Loot): number =>
  * посёлок»), а безответное письмо всегда можно не заметить.
  */
 export function letterCost(kind: LetterKindId, c: LetterCandidate, stock: Loot): Loot {
+  // Потолок — доля склада вниз, и он может быть нулём: с пустого амбара не просят (MAP-5). Виды складываются ровно в
+  // итог (`splitLoot`), а не долей вверх на каждый — та просила больше потолка.
+  const cap = Math.floor(lootTotal(stock) * TRIBUTE_MAX_SHARE);
   if (kind === 'tribute') {
     const asked = Math.max(1, Math.round(c.pop * TRIBUTE_PER_POP));
-    const cap = Math.max(1, Math.floor(lootTotal(stock) * TRIBUTE_MAX_SHARE));
-    return spread(Math.min(asked, cap), c.lootMix);
+    return splitLoot(Math.min(asked, cap), c.lootMix);
   }
   if (kind === 'ransom') {
     const men = Math.max(1, Math.round(c.captives));
     const asked = Math.max(1, Math.round(men * RANSOM_PER_MAN));
-    const cap = Math.max(1, Math.floor(lootTotal(stock) * TRIBUTE_MAX_SHARE));
-    return spread(Math.min(asked, cap), c.lootMix);
+    return splitLoot(Math.min(asked, cap), c.lootMix);
   }
   return {};
 }
+
+/** Дань и выкуп — письма с ценой: просить нечего (потолок ноль) — письма нет. */
+const asks = (kind: LetterKindId): boolean => kind === 'tribute' || kind === 'ransom';
 
 /**
  * Какое письмо придёт. Чистая функция от зерна, номера письма и того, что мир
@@ -135,6 +153,7 @@ export function pickLetter(
   let total = 0;
   for (const c of candidates) {
     for (const kind of kindsFor(c)) {
+      if (asks(kind) && lootTotal(letterCost(kind, c, stock)) <= 0) continue;
       const w = LETTER_WEIGHT[kind as keyof typeof LETTER_WEIGHT] ?? 1;
       total += w;
       pool.push({ c, kind, w });

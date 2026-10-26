@@ -34,7 +34,9 @@ export const blobsStores =
         const found = await s.getWithMetadata(key, { type: 'text' });
         return found ? { data: String(found.data), etag: found.etag } : null;
       },
-      setJSON: (key, value, opts) => s.setJSON(key, value, conditions(opts)),
+      // Пустое условие на ETag — не сходится (OPS-3): Blobs без условия писал бы поверх лежащего.
+      setJSON: (key, value, opts) =>
+        opts && 'onlyIfMatch' in opts && !opts.onlyIfMatch ? Promise.resolve({ modified: false }) : s.setJSON(key, value, conditions(opts)),
       set: (key, value) => s.set(key, value),
       list: async (opts) => {
         const { blobs, directories } = await s.list(opts);

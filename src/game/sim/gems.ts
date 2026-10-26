@@ -9,11 +9,11 @@
 // уплачены. Войско за алмазы не продаётся.
 //
 // Цены — общие с сервером (`game/gemrules.ts`): кнопка показывает ровно то, что сервер спишет.
-import type { Building, GameState, ResourceId } from '../types';
-import type { GemEntry } from '../../../netlify/lib/contract';
+import type { Building, GameState } from '../types';
+import { GEM_LIMITS, readGemNumbers, type GemEntry } from '../../../netlify/lib/contract';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { buildingById, buildingTitle, currentSite, isSite, storageCap, underSiege } from '../derived';
-import { RESOURCE_META, SIEGE_NO_TRADE } from '../constants';
+import { buildingTitle, isSite } from '../derived';
+import { RESOURCE_META } from '../constants';
 import { SHOP_LOT, gemLine, rushPriceOfWork, rushSeconds } from '../gemrules';
 import { layStock } from './admin';
 import { log } from './log';
@@ -34,6 +34,19 @@ export {
 /** Номер последней применённой записи журнала алмазов. */
 export const gemSeen = (s: GameState): number => (typeof s.gemSeen === 'number' && Number.isFinite(s.gemSeen) ? s.gemSeen : 0);
 
+/** Ускорения «не понадобилось», которые ждут решения сервера (FIN-5): номера, целые, без повторов. */
+export const gemUnneeded = (s: GameState): number[] => readGemNumbers(s.gemUnneeded);
+
+/** Сервер рассудил эти ускорения (вернул алмазы или отказал навсегда) — снять их из списка. Возвращает, сколько снято. */
+export function settleUnneeded(s: GameState, settled: readonly number[]): number {
+  const was = gemUnneeded(s);
+  const left = was.filter((n) => !settled.includes(n));
+  if (left.length === was.length && was.length === (s.gemUnneeded?.length ?? 0)) return 0;
+  if (left.length) s.gemUnneeded = left;
+  else delete s.gemUnneeded;
+  return was.length - left.length;
+}
+
 // ------------------------------------------------ ускорение ---
 
 /** Остаток работы начатой стройки. Нетронутое здание не ускоряется: стройку сначала начинают и оплачивают. */
@@ -46,62 +59,10 @@ export const rushPrice = (b: Building): number => rushPriceOfWork(rushWork(b));
 export const rushLeft = (b: Building): number => rushSeconds(rushWork(b));
 
 /** Достроить стройку: уровень вверх, стройка снята — следующая в очереди становится первой сама. */
-function finish(b: Building): void {
+export function finish(b: Building): void {
   b.level += 1;
   b.work = 0;
   b.workRequired = 0;
-}
-
-/**
- * Ускорить даром — последние пять минут ожидания. Приказа серверу нет и сеть не нужна: алмазы не тратятся. Дороже —
- * только приказом (`net/gems.orderRush`), и тогда стройку достраивает дело с сервера (`applyGemDeeds`).
- */
-export function rushFree(s: GameState, buildingId: number): string | null {
-  const b = buildingById(s, buildingId);
-  if (!b) return 'Здание не найдено.';
-  if (!isSite(b)) return 'Здесь ничего не строится.';
-  const queued = rushQueued(s, b);
-  if (queued) return queued;
-  if (rushPrice(b) > 0) return 'Даром ускоряются только последние пять минут.';
-  finish(b);
-  log(s, `${buildingTitle(s, b.type)}: ур. ${b.level}, ускорено даром.`, 'good', undefined, 'build');
-  return null;
-}
-
-/**
- * Ускоряется только строящееся — первое в очереди стройки (СТ-1, docs/ui_v2.md): ждущие в очереди ещё не строятся, и
- * ускорить их — то же, что строить два разом. Сервер отказывает в ускорении ждущего по своей книге (`town.rushFloor`).
- */
-export function rushQueued(s: GameState, b: Building): string | null {
-  return isSite(b) && currentSite(s)?.id !== b.id ? 'Ускоряется только строящееся — первое в очереди.' : null;
-}
-
-/**
- * Почему ускорить за алмазы нельзя прямо сейчас; `null` — можно. `balance` — баланс с сервера, `null` — сервера не
- * слышно (без сети траты алмазов нет); `offline` — причина словами, если сервера не слышно.
- */
-export function rushBlocked(b: Building, balance: number | null, offline: string | null): string | null {
-  if (!isSite(b)) return 'Здесь ничего не строится.';
-  if (rushPrice(b) === 0) return null;
-  if (offline !== null || balance === null) return offline ?? 'Нет связи: алмазы тратятся только при связи.';
-  if (balance < rushPrice(b)) return 'Не хватает алмазов.';
-  return null;
-}
-
-// ------------------------------------------------ лавка ---
-
-/** Сколько места на складе под этот припас. */
-export const shopRoom = (s: GameState, r: ResourceId): number => Math.max(0, Math.floor(storageCap(s) - (s.resources[r] ?? 0)));
-
-/** Почему купить в лавке нельзя прямо сейчас; `null` — можно. Сто единиц сверх вместимости не покупаются. */
-export function shopBlocked(s: GameState, r: ResourceId, price: number, balance: number | null, left: number, offline: string | null): string | null {
-  // В осаде торговли нет (`SIEGE_NO_TRADE`): лавка — тот же обоз к городу, и купленное снимало бы голод осады.
-  if (underSiege(s)) return SIEGE_NO_TRADE;
-  if (shopRoom(s, r) < SHOP_LOT) return `Склад полон: ${SHOP_LOT} ${RESOURCE_META[r].name.toLowerCase()} не поместится.`;
-  if (offline !== null || balance === null) return offline ?? 'Нет связи: алмазы тратятся только при связи.';
-  if (left <= 0) return 'На сегодня покупки кончились.';
-  if (balance < price) return 'Не хватает алмазов.';
-  return null;
 }
 
 // ------------------------------------------------ дела с сервера ---
@@ -113,11 +74,16 @@ export function shopBlocked(s: GameState, r: ResourceId, price: number, balance:
  *
  *  · лавка — припас на склад по правилу склада (`layStock`): сверх вместимости не ложится;
  *  · ускорение — достраивает стройку этого здания до названного уровня, если она ещё идёт; уже достроено (дело приехало
- *    позже, чем стройка кончилась сама) — ничего, и летопись говорит об этом.
+ *    позже, чем стройка кончилась сама) — партия не меняется, номер ложится в `gemUnneeded`: сервер вернёт списанное,
+ *    если книга стройки подтвердит уровень работой посёлка (FIN-5), и летопись говорит об этом.
  */
 export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number {
   const fresh = deeds.filter((e) => e.n > gemSeen(s)).sort((a, b) => a.n - b.n);
+  let laid = 0;
   for (const e of fresh) {
+    // Номер — сверкой в шаге, а не один раз до него: тот же номер дважды в одной порции ложится один раз.
+    if (e.n <= gemSeen(s)) continue;
+    laid++;
     s.gemSeen = e.n;
     if (e.kind === 'buy' && e.res && (RESOURCE_META as Record<string, unknown>)[e.res]) {
       const moved = Math.round(layStock(s, e.res, e.amount ?? SHOP_LOT));
@@ -131,11 +97,13 @@ export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number 
         finish(b);
         log(s, `${name}: ур. ${b.level}, ускорено за ${-e.delta} алмазов.`, 'good', undefined, 'build');
       } else {
-        log(s, `${name}: ускорение не понадобилось — стройка до ур. ${e.level} уже не идёт.`, 'info', undefined, 'build');
+        // Номер — серверу описью: он вернёт списанное, если книга стройки подтвердит уровень работой посёлка (FIN-5).
+        s.gemUnneeded = [...gemUnneeded(s).filter((n) => n !== e.n), e.n].slice(-GEM_LIMITS.unneeded);
+        log(s, `${name}: ускорение не понадобилось — стройка до ур. ${e.level} уже не идёт. ${-e.delta} алмазов вернутся, если сервер подтвердит, что она кончилась сама.`, 'info', undefined, 'build');
       }
       continue;
     }
     log(s, `Алмазы: ${gemLine(e)}.`, 'info');
   }
-  return fresh.length;
+  return laid;
 }

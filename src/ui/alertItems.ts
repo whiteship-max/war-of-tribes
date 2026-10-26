@@ -5,13 +5,11 @@ import { MUTINY_EVENT, ORDER_TEXT } from '@/game/data/order';
 import { useWorld, worldNow } from '@/world/store';
 import { realDue } from '@/ui/parts/wait';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
-import { HIRE_AT } from '@/game/data/hire';
 import { hireWhere } from '@/game/sim/hire';
 import { bareGeneral } from '@/game/sim/agents';
 import { placeOpen } from '@/game/sim/tech';
 import { stabOf } from '@/game/sim/stability';
 import { GROUP_META } from '@/game/data/stability';
-import type { BuildingTypeId } from '@/game/types';
 import { useRaidWords } from '@/ui/parts/raidWords';
 import { openRaid, useRealm } from '@/ui/realm/open';
 import { eventKey } from '@/ui/realm/unread';
@@ -58,6 +56,7 @@ export function useAlertItems(): AlertItem[] {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const openTab = useGame((g) => g.openTab);
+  const openHall = useGame((g) => g.openTownHall);
   const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));
   // Письмо о набеге ждёт в почте державы, а не на экране: тревога остаётся предупреждением на виду — и в
   // городе, и на карте. Отсчёт каждой идёт сам, пока кто-то идёт на нас (`useRaidWords`).
@@ -102,32 +101,30 @@ export function useAlertItems(): AlertItem[] {
       goWord: 'К вести',
     });
   }
-  // Пустые места агентов, на которые не идёт найм: тревога на здание, где нанимают. Своего поля тревоги у
-  // них нет — `derived` про людей на местах не знает нарочно (`agents.owners.test.ts`).
-  const empty = new Map<BuildingTypeId, string[]>();
+  // Пустые места агентов, на которые не идёт найм: одна тревога, ведёт в Ратушу, раздел «Агенты» (АГ-1) — там нанимают всех
+  // четверых. Своего поля тревоги у них нет — `derived` про людей на местах не знает нарочно (`agents.owners.test.ts`).
+  const who: string[] = [];
   for (const id of FIGURE_IDS) {
     const p = s.agents[id];
     if (!p.vacant || p.hiring) continue;
     // Место, которого держава ещё не открыла, — не пустое, а отсутствующее.
     if (!placeOpen(s, id)) continue;
-    const at = HIRE_AT[id];
-    empty.set(at, [...(empty.get(at) ?? []), FIGURE_BY_ID[id].name.toLowerCase()]);
+    who.push(FIGURE_BY_ID[id].name.toLowerCase());
   }
-  for (const [type, who] of empty) {
-    const b = buildingOfType(s, type);
+  if (who.length > 0) {
     const isGeneral = who.includes(FIGURE_BY_ID.general.name.toLowerCase());
-    const where = hireWhere(s, FIGURE_IDS.find((id) => HIRE_AT[id] === type) ?? 'scout');
-    // «Нужен разведчик», «Нужны разведчик и лазутчик»: на одно здание найма — одно или два места.
+    const where = hireWhere(s, 'general');
+    // «Нужен разведчик», «Нужны разведчик и лазутчик».
     const need = who.length > 1 ? `Нужны ${who.slice(0, -1).join(', ')} и ${who[who.length - 1]}` : `Нужен ${who[0]}`;
     out.push({
-      key: `vacant-${type}`,
+      key: 'vacant-agents',
       icon: isGeneral ? 'fig-general' : 'fig-scout',
       text: need,
       sub: isGeneral ? 'Без него дружина не выходит.' : undefined,
       title: need,
       body: isGeneral ? `Без полководца дружина не выходит. Нанимают ${where}.` : `Нанимают ${where}.`,
       urgent: false,
-      go: b ? () => openBuilding(b.id) : null,
+      go: () => openHall('agents'),
       goWord: 'Нанять',
     });
   }

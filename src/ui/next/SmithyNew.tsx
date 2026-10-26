@@ -19,6 +19,7 @@ import { waitSpan } from '@/ui/parts/wait';
 import { tipAt } from './tip';
 import { Confirm } from './Confirm';
 import { iconName } from '@/ui/icons/registry';
+import { actRoom } from '@/ui/room';
 
 /** Шаг заказа: −10 −1 +1 +10, от одной до девяноста девяти — как прежде. */
 export const clampCount = (n: number): number => Math.max(1, Math.min(99, n));
@@ -75,7 +76,7 @@ export function SmithyNew({ b }: { b: Building }) {
                     <i style={{ width: `${pct}%` }} />
                   </i>
                 </div>
-                <Confirm label="Отменить" onConfirm={() => act((st) => cancelForge(st, o.id))} />
+                <Confirm label="Отменить" onConfirm={() => actRoom((st) => cancelForge(st, o.id))} />
               </div>
             );
           })}

@@ -11,14 +11,14 @@
 // же проверка, что примет приказ): дома и не в осаде перевод мгновенный (docs/retinue.md, раздел 7). В городе отряд —
 // гарнизон и во время сбора (`world/muster.inTown`, правило владельца 15.10.2026: полководец и его отряд, пока внутри
 // города, в оборонительных боях считаются гарнизоном) — окно говорит это строкой полководца. Мощь — `troopPower`,
-// жалованье — `wageOf` (правило 18); срок сбора там, где он есть, — `musterMs` с чертами полководца, как у мира; сколько
+// жалованье — `troopWage` при нынешнем жалованье дружине (правило 18, ДР-1); срок сбора там, где он есть, — `musterMs` с чертами полководца, как у мира; сколько
 // бойцов вида можно держать — `roomOf`, тем же правилом, каким отказывает мир. Потолка у отряда нет: войско держит цена
 // (`data/upkeep.ts`), а не Статуя.
 import './muster.css';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
-import { armySize, buildingOfType, defense, homeArmy, homeTroops, wageOf } from '@/game/derived';
+import { armySize, buildingOfType, defense, homeArmy, homeTroops, troopWage } from '@/game/derived';
 import { personName, seated, traitNumbers } from '@/game/sim/agents';
 import { troopPower } from '@/game/battle/price';
 import { awayOf, inTown, musterMs, ownOf, plus, postureOf, roomOf, standingTroops, type Posture } from '@/world/muster';
@@ -75,7 +75,7 @@ export interface Side {
 
 export const sideOf = (s: GameState, t: TroopStack): Side => ({
   power: troopPower(t),
-  wages: TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0) * wageOf(s, id), 0),
+  wages: TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0) * troopWage(s, id), 0),
 });
 
 /**

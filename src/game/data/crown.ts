@@ -34,6 +34,8 @@ import { rulerAging } from '../sim/dynasty';
 import { DISLOYAL, ESTATES, ESTATE_DOMINANT, ESTATE_EVEN, LOYAL, PRIV_MAX, privOf } from '../estaterules';
 import { ESTATE_META, estateVerb } from './estates';
 import { estateBoon } from './boons';
+import { FLANKS } from '../commandrules';
+import { commanderOn } from '../derived';
 
 /** Заставка вести — сцена города или покоев, нарисованная кодом (`ui/realm/crownScene.tsx`). */
 export type CrownScene =
@@ -68,7 +70,9 @@ export type Fx =
   /** Следствие: весть `id` через `seasons` сезонов с вероятностью `p`. */
   | { k: 'chain'; id: string; p: number; seasons: number }
   /** Сословию — следующая привилегия (`sim/estates.grantPrivilege`); `name` — её имя, названное окну до ответа. */
-  | { k: 'priv'; e: EstateId; name: string };
+  | { k: 'priv'; e: EstateId; name: string }
+  /** Отозвать безродного командира фланга (ДР-3) — дверью `sim/command.unseatLowborn`. */
+  | { k: 'unseat' };
 
 export interface CrownOpt {
   label: string;
@@ -207,6 +211,60 @@ function estateCrown(): CrownDef[] {
       },
     ];
   });
+}
+
+// ---------- Вести знати о командирах флангов (ДР-3) ----------
+//
+// Знать — дружина и рыцарство (РТ-2): место командира у безродного её оскорбляет, место у лорда ей положено (docs/siege_v2.md,
+// «Решения ДР-3», К8). Без командиров вес у обеих ноль: частота вестей державы (`CROWN_MTTH`) не едет. Последствия — прежними
+// дверями: расположение и обида рыцарства, дар, очки войны; стабильность и очки ответов — в таблице правил (`crownrules`).
+
+/** Сколько безродных и лордов на местах командиров. */
+function seatedBirths(s: GameState): { low: number; noble: number } {
+  let low = 0;
+  let noble = 0;
+  for (const f of FLANKS) {
+    const b = commanderOn(s, f)?.birth;
+    if (b === 'low') low += 1;
+    else if (b === 'noble') noble += 1;
+  }
+  return { low, noble };
+}
+
+function commandCrown(): CrownDef[] {
+  return [
+    {
+      id: 'cr_lord_claim',
+      title: 'Обиженный лорд',
+      from: ESTATE_VOICE.knights,
+      scene: 'hall',
+      // Чем больше безродных на местах, тем чаще знать о них напоминает.
+      weight: (s) => seatedBirths(s).low,
+      silence: 2,
+      opts: [
+        { label: 'Отозвать безродного', fx: () => [{ k: 'unseat' }] },
+        { label: 'Одарить знать', cost: (s) => estateGiftPrice(s, 'knights'), fx: () => [{ k: 'boon', id: estateBoon('gift', 'knights') }] },
+        { label: 'Отказать', fx: () => [down('knights')] },
+      ],
+    },
+    {
+      id: 'cr_vanguard',
+      title: 'Спор за авангард',
+      from: 'Знаменосец',
+      scene: 'field',
+      // Спорят, когда на флангах лорд и безродный: у двух лордов или двух безродных спорить не о чем.
+      weight: (s) => {
+        const b = seatedBirths(s);
+        return on(b.low > 0 && b.noble > 0);
+      },
+      silence: 2,
+      opts: [
+        { label: 'Авангард — лорду', fx: () => [up('knights')] },
+        { label: 'Авангард — безродному', fx: () => [down('knights')] },
+        { label: 'Пусть ведут вместе' },
+      ],
+    },
+  ];
 }
 
 // ---------- Таблица ----------
@@ -592,6 +650,7 @@ export const CROWN: CrownDef[] = [
     opts: [{ label: 'Покаяться и заплатить', cost: gold(60) }, { label: 'Стоять на своём', fx: () => [{ k: 'boon', id: 'cr_interdict' }] }],
   },
   ...estateCrown(),
+  ...commandCrown(),
 ];
 
 /** Доля невольников: не меньше одного, если они есть. */

@@ -9,8 +9,21 @@ import type { GemEntry } from '../../netlify/lib/contract';
  */
 let init = '';
 vi.mock('@/telegram/webapp', () => ({ tgInitData: () => init }));
+/** Сеть игры: куда и что ушло; ответ — записка без «ещё». */
+const asked: { path: string; body?: unknown }[] = [];
+const quiet = { now: 1, balance: 10, shop: { day: 1, used: 0 }, deeds: [], list: [] };
+vi.mock('./api', () => ({
+  apiGet: async (path: string) => {
+    asked.push({ path });
+    return { ok: true, data: quiet };
+  },
+  apiPost: async (path: string, body: unknown) => {
+    asked.push({ path, body });
+    return { ok: true, data: quiet };
+  },
+}));
 
-const { GEMS_STALE_MS, OFFLINE, OUTSIDE, gemsOffline, gemsQuiet, provideGemDeeds, takeGems, useGems } = await import('./gems');
+const { GEMS_STALE_MS, OFFLINE, OUTSIDE, gemsOffline, gemsQuiet, orderBuy, provideGemDeeds, provideGemSeen, takeGems, useGems } = await import('./gems');
 const { serverNow } = await import('./clock');
 
 afterEach(() => {
@@ -53,5 +66,43 @@ describe('записка сервера — единственный источ�
     const src = readFileSync(join(__dirname, 'gems.ts'), 'utf8');
     expect([...src.matchAll(/op: '(\w+)'/g)].map((m) => m[1]).sort()).toEqual(['buy', 'rush']);
     expect(src).not.toMatch(/creditGems|purchase|start/);
+  });
+});
+
+describe('дела по номеру партии: самые старые первыми, порциями (FIN-4)', () => {
+  it('сервер сказал «ещё» — применив порцию, игра сразу спрашивает следующую со своим номером', async () => {
+    init = 'signed';
+    asked.length = 0;
+    let seen = 40;
+    provideGemSeen(() => seen);
+    provideGemDeeds((d) => {
+      seen = Math.max(seen, ...d.map((e) => e.n));
+    });
+    takeGems({ balance: 5, shop: { day: 1, used: 0 }, deeds: [deed(41), deed(42)], more: true });
+    await Promise.resolve();
+    expect(asked.map((a) => a.path)).toEqual(['/api/gems?gemSeen=42']);
+    // Без «ещё» — тихо.
+    takeGems({ balance: 5, shop: { day: 1, used: 0 }, deeds: [deed(43)] });
+    await Promise.resolve();
+    expect(asked).toHaveLength(1);
+  });
+
+  it('«ещё», а номер не сдвинулся (дела не легли), — не спрашиваем: игра не крутится на месте', async () => {
+    init = 'signed';
+    asked.length = 0;
+    provideGemSeen(() => 7);
+    provideGemDeeds(() => undefined);
+    takeGems({ balance: 5, shop: { day: 1, used: 0 }, deeds: [deed(8)], more: true });
+    await Promise.resolve();
+    expect(asked).toEqual([]);
+  });
+
+  it('приказ везёт номер партии — ответ привезёт только что купленное', async () => {
+    init = 'signed';
+    asked.length = 0;
+    provideGemSeen(() => 12);
+    takeGems({ balance: 100, shop: { day: 1, used: 0 }, deeds: [] });
+    expect(await orderBuy('stone')).toBeNull();
+    expect(asked[0]).toMatchObject({ path: '/api/gems', body: { op: 'buy', res: 'stone', seen: 12 } });
   });
 });

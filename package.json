@@ -59,6 +59,7 @@
     "siege": "vite-node scripts/console/siege.ts --",
     "camp": "vite-node scripts/console/siege.ts -- --camp",
     "intercept": "vite-node scripts/console/intercept.ts --",
+    "march": "vite-node scripts/console/march.ts --",
     "gate": "vite-node scripts/console/gate.ts --",
     "sweep": "vite-node scripts/console/sweep.ts --",
     "derive": "vite-node scripts/console/derive.ts --",
