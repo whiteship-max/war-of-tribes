@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { viteNode } from '../lib/fan';
+import { FOES, GATE_SETTLE, NOT_SETTLED_EXIT, W_SWING, gateMove, gateSettled, wMove, type Foe, type Table } from './fixpoint';
 import { ROOT, fail, has, heavy, helpIf, num, parseArgs, rejectUnknown } from './lib';
 
 const C = 'derive';
@@ -25,11 +26,12 @@ npm run derive -- w | gate [--steps N] [--write] [--pause M]
              src/game/data/events.ts (GATE_POWER). Без него — один шаг и печать; записанное не трогается
   --pause M  пауза между шагами, минут (3; бюджет железа: машина остывает между тяжёлыми прогонами)
 
-Правила остановки (правила 16 и 19, как в выводах 19.4, 20.2 и 22.2):
-  w     — выведенное = записанному: точка неподвижна. Качание между двумя (a → b → a) — полусумма, округлённая до целого,
-          и ещё один шаг проверки. Шаги кончились — последнее выведенное, строкой «не сошлось».
-  gate  — строка села, если выведенное в 1 % от записанного; не севшие за все шаги — полусумма записанного и выведенного
-          последним шагом.
+Правила остановки (правила 16 и 19; решение владельца 26.10.2026 — scripts/console/fixpoint.ts):
+  w     — выведенное = записанному: точка неподвижна. Повернуло назад и не дальше 2 от записанного — качание: полусумма,
+          округлённая до целого, строкой «ФЛАГ», и конец. Шаги кончились, а точка не села — «НЕ СОШЛОСЬ»: записанное
+          оставлено, код выхода 3 — стоп и доклад.
+  gate  — строка села, если выведенное в 1 % от записанного; повернувшая назад — полусуммой; все не севшие повернули —
+          «ФЛАГ» и конец; к последнему шагу какие-то идут в одну сторону — «НЕ СОШЛОСЬ», записанное оставлено, код 3.
 Каждый шаг — тяжёлая работа под замком машины и в бюджете ядер (веер отчётов). Число в документ — из вывода приёмки.
 
 Примеры:
@@ -120,9 +122,9 @@ function writeW(w: number, stepValue: number): void {
 }
 
 /** Записать таблицу у ворот: строки `wolves: [...]` и `raiders: [...]` в `GATE_POWER`. */
-function writeGate(table: Record<'wolves' | 'raiders', number[]>): void {
+function writeGate(table: Table): void {
   let s = readFileSync(EVENTS, 'utf8');
-  for (const who of ['wolves', 'raiders'] as const) {
+  for (const who of FOES) {
     const re = new RegExp(`(export const GATE_POWER[^=]*= \\{[\\s\\S]*?${who}: \\[)[\\d, ]+(\\])`);
     if (!re.test(s)) fail(C, `не нашёл строку ${who} в GATE_POWER (src/game/data/events.ts) — правка руками`);
     s = s.replace(re, `$1${table[who].join(', ')}$2`);
@@ -139,6 +141,8 @@ async function stepAt(w: number): Promise<number> {
 
 const t0 = Date.now();
 const history: string[] = [];
+/** Код выхода: «не сошлось» — `NOT_SETTLED_EXIT`, стоп и доклад (решение владельца 26.10.2026, `fixpoint.ts`). */
+let code = 0;
 if (what === 'w') {
   const seen: number[] = [];
   let final: string | null = null;
@@ -148,60 +152,66 @@ if (what === 'w') {
     const r = (await step()) as { was: number; wasStep: number; w: number; step: number; fights: number };
     history.push(`шаг ${k}: при W ${r.was} (шаг ${r.wasStep}) выведено W ${r.w}, шаг ${r.step}, боёв ${r.fights}`);
     seen.push(r.was);
-    if (r.w === r.was) {
+    if (!write && r.w !== r.was) {
+      final = `один шаг: выведено W ${r.w} при записанном ${r.was}; дальше — --write (или правка руками и шаг заново)`;
+      break;
+    }
+    const move = wMove(seen, r.w, k === steps);
+    if (move.kind === 'fixed') {
       final = `W сошёлся: ${r.w} — неподвижная точка (шаг кости ${r.step}${r.step === r.wasStep ? ', как записан' : `; записан ${r.wasStep} — правится на ${r.step}`})`;
       if (write && r.step !== r.wasStep) writeW(r.w, r.step);
       break;
     }
-    // Качание: выведенное уже было записанным на прошлом шаге, а записанное сейчас — выведенным тогда (a → b → a).
-    const swing = seen.length >= 2 && seen[seen.length - 2] === r.w;
-    const next = swing ? Math.round((r.w + r.was) / 2) : r.w;
-    if (!write) {
-      final = `один шаг: выведено W ${r.w} при записанном ${r.was}; дальше — --write (или правка руками и шаг заново)`;
-      break;
-    }
-    if (swing) history.push(`  качание ${r.was} ↔ ${r.w}: полусумма ${next} (правило 16)`);
-    if (k === steps) {
-      final = `не сошлось за ${steps} шагов: последнее выведенное W ${r.w} при записанном ${r.was} — решение по правилу 19`;
+    if (move.kind === 'stuck') {
+      final = `НЕ СОШЛОСЬ за ${steps} шагов: последнее выведенное W ${r.w} при записанном ${r.was}; записанное оставлено — стоп и доклад (код ${NOT_SETTLED_EXIT})`;
+      code = NOT_SETTLED_EXIT;
       break;
     }
     // Шаг кости — функция только W (решётка «Лезвия» размера W): у записанного W он тот, что выводит раздел на этом W.
-    const nextStep = next === r.w ? r.step : await stepAt(next);
-    writeW(next, nextStep);
-    console.log(`  записано: W ${next}, шаг кости ${nextStep} (src/battle/config.ts)`);
+    const nextStep = move.next === r.w ? r.step : await stepAt(move.next);
+    writeW(move.next, nextStep);
+    console.log(`  записано: W ${move.next}, шаг кости ${nextStep} (src/battle/config.ts)`);
+    if (move.kind === 'swing') {
+      final = `ФЛАГ (правило 19): W качается ${r.was} ↔ ${r.w} в пределах ±${W_SWING} — записана полусумма ${move.next}, шаг кости ${nextStep}`;
+      break;
+    }
     await rest(started);
   }
   console.log('');
   for (const h of history) console.log(h);
   console.log(final ?? '');
 } else {
-  type Table = Record<'wolves' | 'raiders', number[]>;
+  const seen: Table[] = [];
   let last: { was: Table; table: Table } | null = null;
-  const sat = (a: number, b: number): boolean => Math.abs(a - b) <= 0.01 * Math.abs(b);
   for (let k = 1; k <= steps; k++) {
     console.log(`--- шаг ${k} из ${steps} ---`);
     const started = Date.now();
     const r = (await step()) as { was: Table; table: Table };
     last = r;
-    const off = (who: 'wolves' | 'raiders'): string => r.table[who].map((x, i) => ((100 * (x - r.was[who][i])) / r.was[who][i]).toFixed(1)).join(' ');
+    seen.push(r.was);
+    const off = (who: Foe): string => r.table[who].map((x, i) => ((100 * (x - r.was[who][i])) / r.was[who][i]).toFixed(1)).join(' ');
     history.push(`шаг ${k}: выведенная против записанной, %: волки ${off('wolves')}; разбойники ${off('raiders')}`);
-    const settled = (['wolves', 'raiders'] as const).every((who) => r.table[who].every((x, i) => sat(x, r.was[who][i])));
-    if (settled) {
-      history.push('  все строки в 1 % от записанной — таблица села');
-      if (write) writeGate(r.table);
+    if (!write) {
+      if (gateSettled(r.was, r.table)) history.push(`  все строки в ${GATE_SETTLE * 100} % от записанной — таблица села`);
       break;
     }
-    if (!write) break;
-    if (k === steps) {
-      // Не севшие за все шаги — полусумма записанного и выведенного последним шагом (правило 19, как 19.4, 20.2, 22.2).
-      const half = (who: 'wolves' | 'raiders'): number[] => r.table[who].map((x, i) => (sat(x, r.was[who][i]) ? x : Math.round((x + r.was[who][i]) / 2)));
-      const table: Table = { wolves: half('wolves'), raiders: half('raiders') };
-      writeGate(table);
-      history.push(`  не севшие строки — полусуммой: волки ${table.wolves.join(', ')}; разбойники ${table.raiders.join(', ')}`);
+    const move = gateMove(seen, r.table, k === steps);
+    if (move.kind === 'settled') {
+      history.push(`  все строки в ${GATE_SETTLE * 100} % от записанной — таблица села`);
+      writeGate(r.table);
       break;
     }
-    writeGate(r.table);
-    console.log('  записано: выведенная таблица (src/game/data/events.ts)');
+    if (move.kind === 'stuck') {
+      history.push(`  НЕ СОШЛОСЬ за ${steps} шагов: в одну сторону идут ${move.rows.join(', ')}; записанное оставлено — стоп и доклад (код ${NOT_SETTLED_EXIT})`);
+      code = NOT_SETTLED_EXIT;
+      break;
+    }
+    writeGate(move.table);
+    if (move.kind === 'swing') {
+      history.push(`  ФЛАГ (правило 19): качаются ${move.rows.join(', ')} — полусуммой; записано: волки ${move.table.wolves.join(', ')}; разбойники ${move.table.raiders.join(', ')}`);
+      break;
+    }
+    console.log('  записано: выведенная таблица, повернувшие назад строки — полусуммой (src/game/data/events.ts)');
     await rest(started);
   }
   console.log('');
@@ -209,4 +219,4 @@ if (what === 'w') {
   if (last && !write) console.log('один шаг; записать и повторить до неподвижной точки — --write');
 }
 console.log(`время вывода: ${((Date.now() - t0) / 60000).toFixed(1)} мин`);
-process.exit(0);
+process.exit(code);
