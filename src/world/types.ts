@@ -12,6 +12,7 @@ import type { OfferKind } from './parley';
 import type { RatioRange } from './siegefood';
 import type { RingOdds } from './blockade';
 import type { GameSec } from '@/game/pace';
+import type { FightMark, ScarId } from '@/game/scarrules';
 import type { Gait } from './data/gait';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -1790,6 +1791,11 @@ export interface HomeEffect {
   /** Настоящий бой — для летописи побед и поражений. null — боя не было. */
   battle: 'won' | 'lost' | null;
   /**
+   * Метка боя нашей армии для её журнала (ДР-4, `world/battle.marks`, `scarrules.markOf`): исход, место, час, голод, стрелы и
+   * конница противника. У боя войны — метка сервера (`WarBattle.marks`). Нет поля — бой без нашей армии или запись до ДР-4.
+   */
+  scar?: FightMark;
+  /**
    * Насколько плохо кончился бой у стены, 0..1. Мир не знает, что с этим числом
    * сделает племя, и знать не должен: у него это просто мера того, насколько
    * чужие похозяйничали вокруг деревни.
@@ -2010,6 +2016,12 @@ export interface PlayerProfile {
    * с обозом. Нет поля — дух сытый совпадает с `spirit` (голода нет или слепок до ДР-2).
    */
   spiritFed?: Spirit;
+  /**
+   * Черты армии (ДР-4, `sim/scars.scarIds`): шрамы и привычки по журналу боёв. Мир кладёт их всем нашим сторонам — гарнизону,
+   * дружине полководца, вылазке (`FieldSide.scars`), а где какая действует, решает правило черт по месту боя и противнику. Нет
+   * поля — черт нет.
+   */
+  scars?: ScarId[];
   /**
    * Сколько еды лежит на складе. То же, что `stock.food`, но отдельным числом:
    * осада считает не добычу, а на сколько дней хватит хлеба, и спрятанное в

@@ -5,6 +5,7 @@ import type { ProfileState } from '@/profile/types';
 import type { FigureId, GateCall } from '@/world/types';
 import type { ItemId } from './data/items';
 import type { TraitId } from './data/traits';
+import type { FightMark } from './scarrules';
 
 export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'charcoal' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
@@ -759,6 +760,15 @@ export interface PayState {
 }
 
 /**
+ * Журнал боёв армии (ДР-4, `GameState.scars`): метки последних `scarrules.SCAR_LOG` боёв по порядку и полководец (номер
+ * человека, `NO_GENERAL` — места нет), при котором набор черт последний раз сменился (`sim/scars.scarsStep`).
+ */
+export interface ScarState {
+  log: FightMark[];
+  gen?: number;
+}
+
+/**
  * Память боёв дружины (ДР-1): отметка духа после боя — победа прибавляет, поражение отнимает, и память тает
  * (`spiritrules.gloryAt`, полураспад настоящим временем). Пишет одна дверь — `sim/spirit.noteBattle`.
  */
@@ -1117,6 +1127,11 @@ export interface GameState {
   stab?: StabilityState;
   /** Дух дружины: память боёв (ДР-1, `sim/spirit`). Необязательное: нет — боёв не помнит, версия сохранения не растёт. */
   spirit?: SpiritState;
+  /**
+   * Шрамы и привычки армии (ДР-4, `sim/scars`): журнал последних боёв — из него выводятся черты. Пишет одна дверь —
+   * `sim/scars.noteFight`. Необязательное: нет — журнал пуст, черт нет, версия сохранения не растёт.
+   */
+  scars?: ScarState;
   /**
    * Вести державы (СБ-2, docs/stability.md, «СБ-2»): когда какая приходила (повтор не чаще срока) и книга ответов для
    * сервера. Пишет одна дверь — `sim/crown`. Поля нет — вестей ещё не было. Необязательное: версию сохранения не поднимает.

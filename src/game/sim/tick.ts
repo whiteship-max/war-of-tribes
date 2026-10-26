@@ -37,6 +37,7 @@ import { upkeepTick } from './upkeep';
 import { councilStep, vacancyEvent } from './council';
 import { recruitStep } from './recruit';
 import { commandStep } from './command';
+import { scarsStep } from './scars';
 import { estatesStep } from './estates';
 import { settleHires } from './hire';
 import { dynastyStep } from './dynasty';
@@ -173,6 +174,8 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   recruitStep(s, dt);
   // 3г″. Командиры флангов (ДР-3): книга уплаченного жалованья и покой по возрасту — строкой летописи.
   commandStep(s, dt);
+  // 3г‴. Черты армии (ДР-4): сменился полководец — «Страх обстрела», пришедший при прежнем, уходит строкой летописи сразу.
+  scarsStep(s);
   // 3д. Сословия (РТ-2): указ сословия держится, пока оно верно — дар кончился, соперник получил привилегию, и указ снят.
   estatesStep(s);
 

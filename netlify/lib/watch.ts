@@ -63,6 +63,8 @@ import { bondedStep, goodsStep, readGoods, sheetShort, type GoodsBook } from './
 import { marketFaults } from './market.js';
 import { agentsAt, agentsStep, gameMsBetween, readAgentBook, recruitOfSeat, type AgentBook, type AgentsAt } from './agentbook.js';
 import { claimedLead, commandAt, commandStep, commanderOfSeat, readCommandBook, type CommandAt, type CommandBook } from './commandbook.js';
+import { readScarBook, scarBookAfter, scarFaults, type ScarBook } from './scarbook.js';
+import { NO_GENERAL } from '../../src/game/scarrules.js';
 import { commanderAt } from '../../src/game/commandrules.js';
 import { recruitAdvance, recruitAt, recruitWage } from '../../src/game/agentrules.js';
 import { DEEDS_PER_MIN_MAX, deedGain, deedTroops, deedsFlag, type DeedKnown } from './deeds.js';
@@ -144,7 +146,8 @@ export type FlagKind =
   | 'deeds'
   | 'bonded'
   | 'spirit'
-  | 'command';
+  | 'command'
+  | 'scars';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -180,6 +183,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   bonded: 'невольники сверх подтверждённых',
   spirit: 'дух дружины',
   command: 'командиры флангов',
+  scars: 'черты армии',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -187,7 +191,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'agents' | 'estates' | 'market' | 'starve' | 'deeds' | 'bonded' | 'spirit' | 'command';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'agents' | 'estates' | 'market' | 'starve' | 'deeds' | 'bonded' | 'spirit' | 'command' | 'scars';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -322,6 +326,13 @@ export const CITY_RULES: readonly CityRule[] = [
     flag: 'command',
     act: 'в войну — тактика подтверждённых мест, неподтверждённое место — пустое; флаг',
   },
+  {
+    id: 'scars',
+    rule: 'черты армии: журнал сервера — метки боёв войны, которые он посчитал и записал сам (книга черт), черты — той же функцией, что в игре, с полководцем книги агентов; опись: черты из таблицы, не больше трёх, без обеих черт одной темы, бои войны — те, что есть у сервера, черты войны — те, что выводит сервер по тем же боям; бои с логовами и у своих ворот серверу не видны и в войну не идут',
+    formula: 'scarrules.markOf, scarsOf, scarEdge; scarbook.scarBookAfter, scarsAt, scarFaults',
+    flag: 'scars',
+    act: 'в войну — черты книги, приказ и слепок их не несут; флаг',
+  },
 ];
 
 /** Ступень сохранения описи — из строки версии игры (`snapshot.buildId`: «сохр. 24 · …»); не названа — 0. */
@@ -436,6 +447,11 @@ export interface WatchRecord {
    * минуту смены. Нет — запись до ДР-1 или жалованье всегда было полным.
    */
   spirit?: SpiritBook;
+  /**
+   * Книга черт армии (ДР-4, `scarbook.ts`): метки боёв войны игрока, которые записал сервер. Нет — боёв войны с метками ещё
+   * не было (бои до ДР-4 меток не несут).
+   */
+  scars?: ScarBook;
 }
 
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -538,6 +554,8 @@ export function readWatchRecord(v: unknown): WatchRecord {
   if (spirit) out.spirit = spirit;
   const command = readCommandBook(r.command);
   if (command) out.command = command;
+  const scars = readScarBook(r.scars);
+  if (scars) out.scars = scars;
   if (Array.isArray(r.wf)) out.wf = r.wf.filter((x): x is string => typeof x === 'string').slice(-WF_KEEP);
   if (Array.isArray(r.journal)) {
     for (const e of r.journal as Record<string, unknown>[]) {
@@ -1084,6 +1102,23 @@ export function commandOf(rec: WatchRecord): { command?: CommandAt } {
   return Object.keys(got.flanks).length > 0 || got.lead !== 0 ? { command: got } : {};
 }
 
+/**
+ * Полководец по книге агентов (ДР-4): номер человека на месте, `NO_GENERAL` — места нет. Сида нет (опись до АГ-1) — неизвестен:
+ * смена полководца черт тогда не снимает (`scarrules.scarsOf`).
+ */
+export function generalOf(rec: Pick<WatchRecord, 'agents'>): number | undefined {
+  const book = rec.agents;
+  if (!book || book.seed === undefined) return undefined;
+  const seat = book.seats.general;
+  return seat && !seat.vacant ? seat.person : NO_GENERAL;
+}
+
+/** Книга черт и полководец для войны (ДР-4, `war.SheetAt.scars`): из них сервер выводит черты стороны сам (`scarbook.scarsAt`). */
+export function scarsOfRec(rec: WatchRecord): { scars?: { book?: ScarBook; gen?: number } } {
+  const gen = generalOf(rec);
+  return rec.scars || gen !== undefined ? { scars: { ...(rec.scars ? { book: rec.scars } : {}), ...(gen !== undefined ? { gen } : {}) } } : {};
+}
+
 /** Жалованье подтверждённых агентов за игровой день — расход казны в книге запасов (`goods.drainCeil`), одной ведомостью с советом. */
 export function agentsWage(rec: Pick<WatchRecord, 'agents'>): number {
   const book = rec.agents;
@@ -1446,8 +1481,19 @@ export function booked(
   const agents = agentsStep(rec.agents, watch, at, levelIn(people.book.levels, 'town_hall'), gameMsBetween(prior.card, watch));
   // Книга командиров флангов (ДР-3): кандидат — по сиду книги агентов, ступень — не выше Казарм книги стройки.
   const command = commandStep(rec.command, watch, at, agents.book.seed, levelIn(people.book.levels, 'barracks'));
-  const next = { ...rec, book: step.book, town: people.book, goods: { ...goods.book, bonds: bonds.book }, agents: agents.book, command: command.book };
+  // Книга черт армии (ДР-4): метки боёв войны игрока из записи войн — в свой журнал; черты описи сверяются с ним.
+  const scarBook = scarBookAfter(rec.scars, wars, key);
+  const next = {
+    ...rec,
+    book: step.book,
+    town: people.book,
+    goods: { ...goods.book, bonds: bonds.book },
+    agents: agents.book,
+    command: command.book,
+    ...(scarBook ? { scars: scarBook } : {}),
+  };
   const found: { kind: FlagKind; text: string }[] = [];
+  for (const t of scarFaults(watch.scars, scarBook, generalOf(next))) found.push({ kind: 'scars', text: `Черты армии: ${t}.` });
   for (const t of agents.found) found.push({ kind: 'agents', text: `Агенты: ${t}.` });
   for (const t of command.found) found.push({ kind: 'command', text: `Командиры флангов: ${t}.` });
   if (bonds.refused > 0) {

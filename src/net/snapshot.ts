@@ -45,6 +45,7 @@ import { councilOf } from '@/game/sim/council';
 import { agentsWatch } from '@/game/sim/recruit';
 import { commandWatch } from '@/game/sim/command';
 import { spiritOf, wageMode } from '@/game/sim/spirit';
+import { scarsWatch } from '@/game/sim/scars';
 import { ADVISOR_POSTS } from '@/game/councilrules';
 import { estatesOf, privList } from '@/game/sim/estates';
 import { ESTATES } from '@/game/estaterules';
@@ -179,6 +180,11 @@ export function watchOf(s: GameState): WatchCard {
     ...(s.market?.seq ? { market: marketCard(s) } : {}),
     // Книга духа (ДР-1): жалованье, мораль и дисциплина в эту минуту и счёт уплаченного дружине — одной дверью (`sim/spirit`).
     spirit: spiritCard(s),
+    // Черты армии (ДР-4): свои, номера боёв войны в журнале и черты войны по ним — для правила «scars» (`sim/scars`).
+    ...(() => {
+      const scars = scarsWatch(s);
+      return scars ? { scars } : {};
+    })(),
   };
 }
 

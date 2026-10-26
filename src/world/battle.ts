@@ -26,7 +26,9 @@ import {
   type Spirit,
   type Stack,
   type Widen,
+  type ScarEdge,
 } from '@/battle';
+import { markOf, scarEdge, type FightMark, type ScarSide, type ScarWhere } from '@/game/scarrules';
 
 /**
  * Сторона боя — то, что уходит в ядро. Ни ступени снаряжения, ни вещей в ней нет (слово владельца по 14.35, путь П2): вещи
@@ -66,6 +68,13 @@ export interface FieldSide {
    */
   spirit?: Spirit;
   /**
+   * Черты армии (ДР-4, `game/scarrules`): какие у неё есть и шла ли она голодной. Где какая действует, решает `scarEdge` по месту
+   * боя (`FieldInput.where`) и войску противника, а в ядро едут готовые поправки (`ArmySetup.scars`). У нас — черты по журналу
+   * боёв (`PlayerProfile.scars`), у соседа в войне — черты книги сервера, у логова — ничего. Нет поля или ни одна не действует —
+   * бой байт в байт прежний.
+   */
+  scars?: ScarSide;
+  /**
    * Какая часть стороны — гарнизон, вышедший из ворот в совместный удар, по родам (`ArmySetup.garrison`): ядро только
    * раскладывает её по секторам в итог, чтобы ролик вывел гарнизон из ворот, а дружину с поля. Исход от поля не зависит.
    */
@@ -98,6 +107,11 @@ export interface FieldInput {
   fire?: number;
   widen?: Widen;
   /**
+   * Где и когда бой (ДР-4, `scarrules.ScarWhere`): лес, река, холмы, ночь, зима, осада — то, что спрашивают черты армий и что
+   * ложится в метку боя (`FieldOutcome.marks`). Ядро места не знает; нет поля — ни одной из этих тем у боя нет.
+   */
+  where?: ScarWhere;
+  /**
    * Версия правил боя (`BATTLE_RULES`, BTL-0). Двери боя мира и сервера (`world/fights`) пишут нынешнюю, и она едет во
    * входе боя войны (`WarInput.rules`); нет поля — нынешняя. Вход, прочитанный из записи, — через `recordedField`.
    */
@@ -116,6 +130,11 @@ export interface FieldOutcome {
    * пару морали армии (`world/rest`). Боя не было — 1 у обеих: никто не дрался.
    */
   rest: Record<Side, number>;
+  /**
+   * Метки боя для журналов армий (ДР-4, `scarrules.markOf`): исход, уверенная победа, бегство, стрелы и конница противника, место
+   * и голод — у каждой стороны своя. Боя не было — `null`: в журнал не идёт ничего.
+   */
+  marks: Record<Side, FightMark> | null;
 }
 
 /**
@@ -145,8 +164,8 @@ export function resolveField(input: FieldInput): FieldOutcome {
   const atk = stackTotal(input.attacker.kinds);
   const def = stackTotal(input.defender.kinds);
   const fresh = { attacker: 1, defender: 1 };
-  if (atk <= 0) return { won: false, attackerLoss: 0, defenderLoss: 0, result: null, rest: fresh };
-  if (def <= 0) return { won: true, attackerLoss: 0, defenderLoss: 1, result: null, rest: fresh };
+  if (atk <= 0) return { won: false, attackerLoss: 0, defenderLoss: 0, result: null, rest: fresh, marks: null };
+  if (def <= 0) return { won: true, attackerLoss: 0, defenderLoss: 1, result: null, rest: fresh, marks: null };
 
   // Версия правил — и раскладке: правило развёртывания менялось (BTL-5), запись старше раскладывается по своим.
   const rules = input.rules ?? BATTLE_RULES;
@@ -158,6 +177,14 @@ export function resolveField(input: FieldInput): FieldOutcome {
   const spirited = (v: Spirit | undefined): { spirit?: Spirit } => (v ? { spirit: { morale: v.morale, discipline: v.discipline } } : {});
   // Командиры флангов — только если они есть (ДР-3): бой без них — тот же, что до них, байт в байт.
   const led = (f: Flanks | undefined): { flanks?: Flanks } => (f && (f.A || f.C) ? { flanks: { ...f } } : {});
+  // Черты (ДР-4) — только действующие в этом бою: ни одной — поля нет, и бой тот же, что до черт, байт в байт.
+  const where = input.where ?? {};
+  const scarred = (own: FieldSide, foe: FieldSide): { scars?: ScarEdge } => {
+    const s = own.scars;
+    if (!s || s.held.length === 0) return {};
+    const edge = scarEdge(s.held, { ...where, ...(s.hungry ? { hungry: true as const } : {}), foe: foe.kinds });
+    return edge ? { scars: edge } : {};
+  };
 
   const result = simulateBattle({
     seed: input.seed,
@@ -170,6 +197,7 @@ export function resolveField(input: FieldInput): FieldOutcome {
       ...rested(input.attacker.rest),
       ...spirited(input.attacker.spirit),
       ...led(input.attacker.flanks),
+      ...scarred(input.attacker, input.defender),
       ...(input.attacker.garrison ? { garrison: input.attacker.garrison } : {}),
     },
     defender: {
@@ -179,6 +207,7 @@ export function resolveField(input: FieldInput): FieldOutcome {
       ...rested(input.defender.rest),
       ...spirited(input.defender.spirit),
       ...led(input.defender.flanks),
+      ...scarred(input.defender, input.attacker),
     },
     ...(input.width !== undefined ? { width: input.width } : {}),
     ...(input.fire !== undefined ? { fire: input.fire } : {}),
@@ -193,6 +222,10 @@ export function resolveField(input: FieldInput): FieldOutcome {
     defenderLoss: d.initial > 0 ? d.losses / d.initial : 0,
     result,
     rest: { attacker: result.sides.attacker.rest ?? 1, defender: result.sides.defender.rest ?? 1 },
+    marks: {
+      attacker: markOf(result, 'attacker', where, input.attacker.scars?.hungry === true),
+      defender: markOf(result, 'defender', where, input.defender.scars?.hungry === true),
+    },
   };
 }
 

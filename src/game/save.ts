@@ -22,6 +22,7 @@ import { mergeMarket } from './sim/caravan';
 import { mergeEstates } from './sim/estates';
 import { mergeWage } from './sim/upkeep';
 import { mergeSpirit } from './sim/spirit';
+import { mergeScars } from './sim/scars';
 import { dynastyStep, mergeRealm, newHouse, skillLine } from './sim/dynasty';
 import { adminNotice, creditTech, fateNotice, gateOf, levelName, techLevel } from './sim/tech';
 import { BRANCH_OF, WAR_FATES } from './data/realm';
@@ -448,6 +449,8 @@ export function deserialize(json: string): GameState | null {
       },
       // Память боёв дружины (ДР-1) — только целой записью; партия до ДР-1 приезжает без неё.
       spirit: mergeSpirit(data.spirit),
+      // Журнал боёв армии (ДР-4): только читаемые метки; нет — черт нет (партия до ДР-4).
+      scars: mergeScars(data.scars),
       // Раненых до лазарета с местами и сроком не было: старая партия приезжает с пустым лазаретом.
       wounded: data.wounded ?? [],
       // Вставших раненых отряда полководца до раскладки не считали: старая партия начинает счёт с нуля.

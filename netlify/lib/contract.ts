@@ -17,6 +17,7 @@ import { readArms } from '../../src/heraldry/arms.js';
 import { wholeNonNeg } from '../../src/game/guard.js';
 import type { ProposalAct, ProposalView } from '../../src/world/proposals.js';
 import { GAIT_SPEED, type Gait } from '../../src/world/data/gait.js';
+import type { FightMark } from '../../src/game/scarrules.js';
 
 /** Краткая опись партии — на случай, когда игрок выбирает между двумя. */
 export interface SaveCard {
@@ -750,6 +751,12 @@ export interface WarSheet {
   led?: true;
   /** Тактика командиров флангов обороны — ставит сервер (`war.liveSheet`), из слепка клиента не читается. */
   flanks?: WarFlanks;
+  /**
+   * Черты армии обороны (ДР-4) и номер её полководца по книге агентов (`scarGen`: его пишет метка боя) — ставит сервер
+   * (`war.liveSheet`), из слепка клиента не читаются. Нет — черт нет.
+   */
+  scars?: string[];
+  scarGen?: number;
   rest: number;
   /**
    * Дух обороны (ДР-1): мораль и дисциплина дружины, 0…100. Сервер кладёт в бой не выше потолка своей книги духа
@@ -886,6 +893,12 @@ export interface WarArmy {
   flanks?: WarFlanks;
   /** Дух дружины (ДР-1): сервер кладёт в бой не выше потолка книги духа (`book.ruleSpirit`). Нет — духа нет. */
   spirit?: WarSpirit;
+  /**
+   * Черты армии похода (ДР-4, `game/scarrules`): ставит сервер по своей книге черт в минуту приказа (`war.ruleArmy`), из
+   * приказа клиента не читается. `scarGen` — номер полководца по книге агентов: его пишет метка боя. Нет — черт нет.
+   */
+  scars?: string[];
+  scarGen?: number;
   /** Мораль между боями (`world/rest.RestPair`). Нет — свежее. */
   rest?: { share: number; at: number; men: number };
   /**
@@ -1097,6 +1110,12 @@ export interface WarBattle {
    * город. Свою дружину город с этого боя не списывает — списывает союзник.
    */
   ally?: string;
+  /**
+   * Метки боя для журналов армий (ДР-4, `scarrules.FightMark`): у похода, у города и у союзника выручки — у тех, чья армия
+   * дралась. Пишет сервер в минуту боя; клиент кладёт свою в журнал как есть, книга черт сервера — в свой (`scarbook`). Ночи,
+   * зимы и голода в них нет (Ш6). Нет поля — бой до ДР-4: в журналы не идёт.
+   */
+  marks?: Partial<Record<'atk' | 'def' | 'ally', FightMark>>;
 }
 
 /** Участь взятого города — посчитана дверью `spoils.fate`, у обеих сторон одними числами. */
@@ -2075,6 +2094,31 @@ export interface WatchCard {
    * дисциплина — не выше потолка книги, жалованье полного — не меньше ведомости сверх терпения. Нет поля — опись до ДР-1.
    */
   spirit?: WatchSpirit;
+  /**
+   * Черты армии (ДР-4, docs/siege_v2.md, «Решения ДР-4», Ш7): черты клиента, номера боёв войны в его журнале и черты войны по
+   * ним — для правила «scars» (`scarbook.scarFaults`). Сервер ими не пользуется: в войну идут черты его книги. Нет поля — опись
+   * до ДР-4 или журнал пуст.
+   */
+  scars?: WatchScars;
+}
+
+/** Черты армии в описи (ДР-4): имена — как назвал клиент (чужое имя — флаг), номера боёв войны — строками. */
+export interface WatchScars {
+  held: string[];
+  war: string[];
+  warHeld: string[];
+}
+
+/** Черты описи: строки разумной длины, не больше сотни; нет списков — нет поля. */
+function readWatchScars(v: unknown): Pick<WatchCard, 'scars'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const list = (x: unknown, len: number): string[] | null =>
+    Array.isArray(x) ? x.filter((t): t is string => typeof t === 'string' && t.length > 0 && t.length <= len).slice(0, 100) : null;
+  const held = list(r.held, 32);
+  const war = list(r.war, 64);
+  const warHeld = list(r.warHeld, 32);
+  return held && war && warHeld ? { scars: { held, war, warHeld } } : {};
 }
 
 /** Дух дружины в описи (ДР-1). */
@@ -2466,6 +2510,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...readMarket(r.market),
     ...readEstates(r.estates),
     ...readWatchSpirit(r.spirit),
+    ...readWatchScars(r.scars),
   };
 }
 

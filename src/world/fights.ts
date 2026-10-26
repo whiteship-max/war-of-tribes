@@ -15,9 +15,13 @@ import { siegeWear } from './siege';
 import { CAMP_WOOD, CAMP_WORKS_RIPE } from './data/tuning';
 import { mixRest } from './rest';
 import { weakest } from './muster';
+import type { ScarSide, ScarWhere } from '@/game/scarrules';
 
 /** Командиры флангов в сторону боя — только если они есть (ДР-3): бой без них тот же, что до них, и запись входа та же. */
 const led = (f: Flanks | undefined): { flanks?: Flanks } => (f ? { flanks: f } : {});
+/** Черты армии в сторону боя и место во вход (ДР-4) — только если они есть: бой без них тот же, и запись входа та же. */
+const scarred = (v: ScarSide | undefined): { scars?: ScarSide } => (v ? { scars: v } : {});
+const placed = (w: ScarWhere | undefined): { where?: ScarWhere } => (w ? { where: w } : {});
 
 /**
  * Оборона дома в родах боя: гарнизон и дружина у ворот плюс ополчение — частокол, башня и сами жители.
@@ -45,6 +49,8 @@ export interface WallDefence {
   rest?: number;
   /** Мораль и дисциплина обороны (ДР-1, `FieldSide.spirit`); нет — множители единица. */
   spirit?: Spirit;
+  /** Черты армии обороны (ДР-4, `FieldSide.scars`); нет — черт нет. */
+  scars?: ScarSide;
 }
 
 /** Бой у стены: обе стороны, место и фронт штурма. Ни мира, ни часов. */
@@ -55,6 +61,8 @@ export interface WallFightIn {
   ground?: GroundPenalty;
   /** Фронт штурма (`wall.wallFront`); нет — бой в поле у ворот: стены между сторонами нет (волки — на выгоне). */
   front?: WallFront | null;
+  /** Где и когда бой (ДР-4, `FieldInput.where`): место клетки, час партии, осада. Нет — ни одной темы черт. */
+  where?: ScarWhere;
 }
 
 /** Конница нападающего, которая в бой не входит: на лестницы и с башни кони не лезут (`WallFront.horse`). */
@@ -83,7 +91,16 @@ export function wallFight(input: WallFightIn): { input: FieldInput; field: Field
     rules: BATTLE_RULES,
     ...(ground ? { ground } : {}),
     attacker: { ...input.attacker, kinds },
-    defender: { kinds: defenceKinds(d.kinds, d.militia, d.archers), resolve: d.resolve, pips: d.pips, ...led(d.flanks), rest: d.rest, ...(d.spirit ? { spirit: d.spirit } : {}) },
+    defender: {
+      kinds: defenceKinds(d.kinds, d.militia, d.archers),
+      resolve: d.resolve,
+      pips: d.pips,
+      ...led(d.flanks),
+      rest: d.rest,
+      ...(d.spirit ? { spirit: d.spirit } : {}),
+      ...scarred(d.scars),
+    },
+    ...placed(input.where),
     ...(front ? { width: front.width, fire: front.fire } : {}),
     ...(front?.widen ? { widen: front.widen } : {}),
   };
@@ -106,7 +123,7 @@ export function homeLosses(home: TroopStack, field: FieldOutcome): TroopStack {
 export interface MachineFightIn {
   seed: number;
   /** Охрана машины — сторона лагеря у города (`machines.GUARD_SHARE`), в родах боя. */
-  guard: { kinds: Stack; resolve?: number; pips?: Pips; flanks?: Flanks; rest: number; spirit?: Spirit };
+  guard: { kinds: Stack; resolve?: number; pips?: Pips; flanks?: Flanks; rest: number; spirit?: Spirit; scars?: ScarSide };
   /** Кто вышел из ворот, с моралью между боями и износом осады. */
   sortie: CampPartIn;
   /** Стойкость, отметки, командиры флангов и дух вышедших — кто их ведёт и чьё это войско. */
@@ -114,7 +131,11 @@ export interface MachineFightIn {
   pips?: Pips;
   flanks?: Flanks;
   spirit?: Spirit;
+  /** Черты армии вышедших (ДР-4); нет — черт нет. */
+  scars?: ScarSide;
   ground?: GroundPenalty;
+  /** Где и когда бой (ДР-4): у стены осаждённого города — осада. */
+  where?: ScarWhere;
 }
 
 /** Охрана машины в родах боя: доля `share` каждого рода лагеря, вниз до целого. */
@@ -135,7 +156,16 @@ export function machineFight(input: MachineFightIn): { input: FieldInput; field:
     seed: input.seed,
     rules: BATTLE_RULES,
     ...(input.ground ? { ground: input.ground } : {}),
-    attacker: { kinds: input.sortie.kinds, resolve: input.resolve, pips: input.pips, ...led(input.flanks), rest: input.sortie.rest ?? 1, ...(input.spirit ? { spirit: input.spirit } : {}) },
+    ...placed(input.where),
+    attacker: {
+      kinds: input.sortie.kinds,
+      resolve: input.resolve,
+      pips: input.pips,
+      ...led(input.flanks),
+      rest: input.sortie.rest ?? 1,
+      ...(input.spirit ? { spirit: input.spirit } : {}),
+      ...scarred(input.scars),
+    },
     defender: {
       kinds: input.guard.kinds,
       resolve: input.guard.resolve,
@@ -143,6 +173,7 @@ export function machineFight(input: MachineFightIn): { input: FieldInput; field:
       ...led(input.guard.flanks),
       rest: input.guard.rest,
       ...(input.guard.spirit ? { spirit: input.guard.spirit } : {}),
+      ...scarred(input.guard.scars),
     },
   };
   return { input: fieldIn, field: resolveField(fieldIn) };
@@ -162,7 +193,7 @@ export interface CampFightIn {
   /** Рогатки лагеря: с какой минуты стоит, кто строил, занятость проходов, древесина. */
   sight: CampSight;
   /** Лагерь — кто в нём стоит, в родах боя. */
-  camp: { kinds: Stack; resolve?: number; pips?: Pips; flanks?: Flanks; rest: number; spirit?: Spirit };
+  camp: { kinds: Stack; resolve?: number; pips?: Pips; flanks?: Flanks; rest: number; spirit?: Spirit; scars?: ScarSide };
   /** Со стороны города (вылазка, гарнизон в совместном ударе) и с тыла (дружина из поля). */
   front?: CampPartIn;
   rear?: CampPartIn;
@@ -174,7 +205,11 @@ export interface CampFightIn {
   pips?: Pips;
   flanks?: Flanks;
   spirit?: Spirit;
+  /** Черты армии нападающих (ДР-4): у гарнизона и дружины одни — армия одна. Нет — черт нет. */
+  scars?: ScarSide;
   ground?: GroundPenalty;
+  /** Где и когда бой (ДР-4): бой у лагеря — осадный. Нет — ни одной темы черт. */
+  where?: ScarWhere;
   /**
    * Укрепления лагеря в гранях кости (`siegecraft.fortFaces`): штраф нападающим на лагерь, поверх земли. Нет — ноль, и бой
    * тот же, что до укреплений.
@@ -231,6 +266,7 @@ export function campFight(input: CampFightIn): CampFightOut {
     seed: input.seed,
     rules: BATTLE_RULES,
     ...(ground ? { ground } : {}),
+    ...placed(input.where),
     attacker: {
       kinds,
       resolve: input.resolve,
@@ -239,6 +275,7 @@ export function campFight(input: CampFightIn): CampFightOut {
       // Мораль между боями (14.31): у каждой части своя, вместе — по прошедшим.
       rest: mixRest(parts.map(({ part, t }) => ({ rest: part.rest ?? 1, men: t.passed }))),
       ...(input.spirit ? { spirit: input.spirit } : {}),
+      ...scarred(input.scars),
       ...(garrison ? { garrison } : {}),
       ...(behind ? { behind } : {}),
     },
@@ -249,6 +286,7 @@ export function campFight(input: CampFightIn): CampFightOut {
       ...led(input.camp.flanks),
       rest: input.camp.rest,
       ...(input.camp.spirit ? { spirit: input.camp.spirit } : {}),
+      ...scarred(input.camp.scars),
     },
   };
   const field = resolveField(fieldIn);
@@ -268,12 +306,12 @@ export function holdMinute(since: number, wood: WoodPlan = CAMP_WOOD): number {
 }
 
 /** Всё, чем решается «садиться ли»: лагерь в минуту дозревания и гарнизон, выходящий на вылазку весь. */
-export interface HoldIn extends Omit<CampFightIn, 'at' | 'front' | 'rear' | 'resolve' | 'pips' | 'flanks' | 'spirit'> {
+export interface HoldIn extends Omit<CampFightIn, 'at' | 'front' | 'rear' | 'resolve' | 'pips' | 'flanks' | 'spirit' | 'scars'> {
   /**
    * Гарнизон на вылазке: все, кто дома, без ополчения — оно за ворота не выходит. Мораль — между боями, на минуту
    * дозревания; износ осады к этой минуте дверь кладёт сама (`siege.siegeWear`).
    */
-  sortie: CampPartIn & { resolve?: number; pips?: Pips; flanks?: Flanks; spirit?: Spirit };
+  sortie: CampPartIn & { resolve?: number; pips?: Pips; flanks?: Flanks; spirit?: Spirit; scars?: ScarSide };
   /** Путь износа гарнизона до дна — срок голода окна, которое встало бы (`siege.wearSpan`). */
   wearSpan: number;
 }
@@ -302,6 +340,8 @@ export function campHolds(input: HoldIn): boolean {
     pips: sortie.pips,
     ...led(sortie.flanks),
     ...(sortie.spirit ? { spirit: sortie.spirit } : {}),
+    ...scarred(sortie.scars),
+    ...placed(input.where),
     ground: input.ground,
     fort: input.fort,
   });

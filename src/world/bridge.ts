@@ -45,6 +45,7 @@ import { syncFaith } from '@/game/sim/faith';
 import { woundsHome } from '@/game/sim/infirmary';
 import { dropGates, gateCalls, settleGate } from '@/game/sim/gate';
 import { spiritFedOf, spiritOf } from '@/game/sim/spirit';
+import { scarIds } from '@/game/sim/scars';
 import { tagSince } from '@/game/sim/log';
 import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayOf, homeOf, type Away } from './muster';
@@ -237,6 +238,11 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // Дух дружины (ДР-1): мораль и дисциплина. Стойкость обряда, Воеводы совета (РТ-1) и сословий (РТ-2) — строки морали
     // (`sim/spirit`), а не своя прибавка: дух один, и мир не спрашивает, откуда он.
     spirit: spiritOf(s),
+    // Черты армии (ДР-4): какие есть сейчас. Где какая действует, решает мир по месту боя и противнику (`scarrules.scarEdge`).
+    ...(() => {
+      const held = scarIds(s);
+      return held.length > 0 ? { scars: held } : {};
+    })(),
     // Дух отряда с обозом (ДР-2, М5б): без голода. Голода нет — поля нет.
     ...(() => {
       const fed = spiritFedOf(s);
@@ -408,6 +414,8 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     prestige: e.prestige,
     morale: e.morale,
     battle: e.battle,
+    // Метка боя для журнала армии (ДР-4): мир её посчитал, племя кладёт в журнал (`sim/scars.noteFight`).
+    ...(e.scar ? { scar: e.scar } : {}),
     sacked: e.sacked ?? 0,
     // Оружие из логова и сам факт того, что логово сожжено: мир отдал число и
     // отметку, во что превратить первое и что засчитать по второй — дело племени.

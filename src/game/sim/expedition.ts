@@ -34,6 +34,8 @@ import { addStock, outlay, trimStock } from './stock';
 import { stabAfterBattle } from './stability';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 import { noteBattle } from './spirit';
+import { noteFight } from './scars';
+import type { FightMark } from '../scarrules';
 import { count } from '@/ui/parts/plural';
 
 /** Что случилось с деревней, пока отряд был в пути. */
@@ -67,6 +69,11 @@ export interface ExpeditionOutcome {
   morale: number;
   /** Для статистики племени: только настоящие бои. */
   battle: 'won' | 'lost' | null;
+  /**
+   * Метка боя для журнала армии (ДР-4, `scarrules.FightMark`): исход, место, час и то, из чего выводятся черты. Её посчитал мир
+   * (`world/battle.marks`), у боя войны — сервер. Нет — бой без нашей армии или запись до ДР-4: в журнал не идёт ничего.
+   */
+  scar?: FightMark;
   /**
    * Насколько плохо кончился бой у стены, 0..1. Больше нуля — чужие хозяйничали
    * в поле: см. `sackOutskirts`. Ноль — набега не было или его отбили.
@@ -388,6 +395,8 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.battle === 'lost') recordBattle(s, 'lost');
   // Память духа дружины (ДР-1): тот же итог боя, одной минутой со счётом битв.
   if (o.battle === 'won' || o.battle === 'lost') noteBattle(s, o.battle === 'won');
+  // Журнал боёв армии (ДР-4): метка боя — той же минутой; из журнала выводятся черты (`sim/scars`).
+  if (o.scar) noteFight(s, o.scar);
   // Бой и падение двигают стабильность одной дверью (docs/stability.md, 2.2): бой — сдвигом мерой его морали, павший город —
   // ступенью вниз.
   stabAfterBattle(s, { battle: o.battle, morale: o.morale, fallen: o.fallen });

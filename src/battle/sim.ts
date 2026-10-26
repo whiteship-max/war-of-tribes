@@ -27,6 +27,7 @@ import {
   PYRRHIC_BELOW,
   RANGED_RATE,
   RETREAT,
+  SCAR_CAP,
   SPIRIT,
   spiritMult,
   CIRCLE_PHASES,
@@ -44,6 +45,7 @@ import {
   REAR,
   SECTORS,
   SIDES,
+  STAT_IDS,
   UNIT_KINDS,
   type ArmySetup,
   type BattleEvent,
@@ -110,6 +112,8 @@ interface SideState {
   setup: ArmySetup;
   /** Множитель урона от дисциплины (`spiritDealt`): один на бой, без поля `spirit` — единица. */
   drill: number;
+  /** Показатели родов этой стороны с поправками черт (`scarProfile`): одна таблица на бой. */
+  profile: Record<UnitKind, Profile>;
   groups: Group[];
   initialTotal: number;
   /** Мораль армии — средняя по живым группам, взвешенная числом людей. Только для отчёта и условия резерва. */
@@ -324,6 +328,24 @@ export const flankPips = (setup: ArmySetup, lane: Lane): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/**
+ * Показатели рода `kind` у стороны (ДР-4): таблица рода (`KIND_PROFILE`) плюс поправка её черт (`ArmySetup.scars`), не дальше
+ * `SCAR_CAP` от таблицы по каждому показателю. Нет поля, рода или показателя, не число — поправки нет, и показатель — таблицы. Одна
+ * дверь на удар и мораль (`Battle.distribute`) и на окно «Дружины».
+ */
+export function scarProfile(setup: ArmySetup, kind: UnitKind): Profile {
+  const base = KIND_PROFILE[kind];
+  const edge = setup.scars?.[kind];
+  if (!edge) return base;
+  const out = { ...base };
+  for (const id of STAT_IDS) {
+    const d = edge[id];
+    if (d === undefined || !Number.isFinite(d) || d === 0) continue;
+    out[id] = base[id] + Math.max(-SCAR_CAP, Math.min(SCAR_CAP, d));
+  }
+  return out;
+}
+
 /** Вид фазы EU4 — огонь или натиск: первая отметка фазы (`PHASE_PIPS`); у фазы без кости — нет. */
 const eu4Phase = (phase: PhaseId | undefined): PipId | null => (phase ? (PHASE_PIPS[phase][0] ?? null) : null);
 
@@ -480,6 +502,7 @@ class Battle {
         id,
         setup,
         drill: spiritDealt(setup),
+        profile: Object.fromEntries(UNIT_KINDS.map((k) => [k, scarProfile(setup, k)])) as Record<UnitKind, Profile>,
         groups,
         initialTotal,
         morale: groups.reduce((n, g) => n + g.morale * g.initial, 0) / Math.max(1, initialTotal),
@@ -1203,13 +1226,15 @@ class Battle {
     let weight = 0;
     for (const t of targets) for (const k of UNIT_KINDS) if (reached(k)) weight += t.stack[k];
     if (weight <= 0) return;
-    const by = KIND_PROFILE[kind];
+    // Показатели — стороны, с поправками её черт (`scarProfile`, ДР-4): бьющего — своей, цели — своей.
+    const by = this.sides[from.side].profile[kind];
     for (const t of targets) {
+      const theirs = this.sides[t.side].profile;
       for (const k of UNIT_KINDS) {
         const n = t.stack[k];
         if (!stands(n) || !reached(k)) continue;
         const share = n / weight;
-        const target = KIND_PROFILE[k];
+        const target = theirs[k];
         const casualties = total * share * hitMult(this.laneLuck(from), by, target, ctx.ranged) * (ctx.chase ? 1 : this.taken(t));
         if (casualties > 0) {
           hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank, cover: ctx.cover ?? 1, moraleW: moraleMult(by, target) });

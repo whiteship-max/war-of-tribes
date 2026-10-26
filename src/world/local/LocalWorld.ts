@@ -9,6 +9,7 @@ import {
   emptyStack,
   stackTotal,
   type Flanks,
+  type Side,
   type Pips,
   type Spirit,
   type Stack,
@@ -403,7 +404,9 @@ import {
 } from '../works';
 import { faithAt, faithAttitude, faithPressure } from '../faith';
 import { beyondNote, inHomeTheatre } from '../theatre/theatre';
-import { groundAt, placeAt } from '../place';
+import { groundAt, placeAt, scarWhere } from '../place';
+import { readMark, type FightMark, type ScarSide, type ScarWhere } from '@/game/scarrules';
+import { dayPartAt, seasonOf } from '@/game/derived';
 import { siegeRecordOf, type SiegeEnd, type SiegeFight, type SiegeRecord } from '../siegerecord';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
 import { UNKNOWN, estimate, precisionOf, readIntel } from '../intel';
@@ -549,6 +552,19 @@ export interface LocalWorldOptions {
 /** Соль кости гибели разбитого полководца: своё число из сида того же боя. */
 /** Дух нашей стороны в приказ и слепок сервера (ДР-1, `WarArmy.spirit`, `WarSheet.spirit`): нет духа — нет поля. */
 const spiritField = (v: Spirit | undefined): { spirit?: Spirit } => (v ? { spirit: { morale: v.morale, discipline: v.discipline } } : {});
+
+/** Метка боя нашей стороны `us` в последствие (ДР-4): её кладёт племя в журнал армии (`sim/scars`). Боя не было — поля нет. */
+const scarOf = (field: FieldOutcome, us: Side): { scar?: FightMark } => (field.marks ? { scar: field.marks[us] } : {});
+
+/**
+ * Метка боя войны нашей роли в последствие (ДР-4, Ш6): её записал сервер (`WarBattle.marks`), племя кладёт как есть, с номером и
+ * минутой боя — по ним сервер сверяет журнал. Боя до ДР-4 или нашей армии в бою не было — поля нет.
+ */
+const warScarOf = (b: WarBattle, role: 'atk' | 'def' | 'ally'): { scar?: FightMark } => {
+  const m = b.marks?.[role];
+  const read = m ? readMark({ ...m, war: { id: b.id, at: b.at } }) : null;
+  return read ? { scar: read } : {};
+};
 
 const ROUT_SALT = 0x726f7574;
 
@@ -2089,6 +2105,8 @@ export class LocalWorld implements WorldApi {
     pips?: Pips;
     /** Командиры флангов нашего лагеря (ДР-3): там же, где отметки полководца. */
     flanks?: Flanks;
+    /** Черты армии нашего лагеря (ДР-4): дружина полководца. У чужого — никаких. */
+    scars?: ScarSide;
     /** Сколько бойцов строя стоит в лагере. */
     men: number;
     power: number;
@@ -2117,6 +2135,7 @@ export class LocalWorld implements WorldApi {
         spirit: this.generalSpirit(),
         pips: this.generalPips(),
         ...this.generalFlanks(),
+        scars: this.generalScars(),
         men: stackTotal(kinds),
         power: troopPower(troops) * (1 - thin),
         name: 'наш лагерь',
@@ -2248,10 +2267,13 @@ export class LocalWorld implements WorldApi {
       at,
       sight: { since: siegeSince(w), builders: this.buildersOf(w, at), gateAt: w.gateAt, rearGateAt: w.rearGateAt, wood: camp.wood },
       // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого её нет.
-      camp: { kinds: camp.kinds, resolve: camp.resolve, pips: camp.pips, flanks: camp.flanks, rest: camp.rest, spirit: camp.spirit },
+      camp: { kinds: camp.kinds, resolve: camp.resolve, pips: camp.pips, flanks: camp.flanks, rest: camp.rest, spirit: camp.spirit, scars: camp.scars },
       front: partOf(attack.front),
       rear: partOf(attack.rear),
       spirit: own ? (attack.general ? this.generalSpirit() : this.ownSpirit()) : undefined,
+      // Черты армии (ДР-4): у наших — по журналу боёв, у дружины в поле — сытые с обозом; место — клетка города, бой осадный.
+      scars: own ? (attack.general ? this.generalScars() : this.ownScars()) : undefined,
+      ...(cell ? { where: this.whereAt(cell, true) } : {}),
       pips: own ? (attack.general ? this.generalPips() : this.homePips(at)) : undefined,
       ...(own ? (attack.general ? this.generalFlanks() : this.homeFlanks(at)) : {}),
       ground: cell ? groundAt(this.save.seed, cell, attack.from) : undefined,
@@ -3390,6 +3412,7 @@ export class LocalWorld implements WorldApi {
       prestige: field.won ? 4 : 0,
       morale: field.won ? 6 : -5,
       battle: field.won ? 'won' : 'lost',
+      ...scarOf(field, 'attacker'),
       text: field.won ? 'Вылазка сняла осаду.' : 'Вылазка отбита, лагерь стоит.',
       good: field.won,
     });
@@ -5054,10 +5077,19 @@ export class LocalWorld implements WorldApi {
       // Место боя — клетка цели; переправа — если полководец вышел на неё через русло.
       ground: groundAt(this.save.seed, target, came ?? this.save.figures.general.from),
       // Мораль между боями — у обеих сторон одним правилом (14.31): дружина и гарнизон логова своими парами.
-      attacker: { kinds: kindsOf(troops), spirit: this.generalSpirit(), pips: this.generalPips(), ...this.generalFlanks(), rest: this.generalRest(at) },
+      attacker: {
+        kinds: kindsOf(troops),
+        spirit: this.generalSpirit(),
+        pips: this.generalPips(),
+        ...this.generalFlanks(),
+        rest: this.generalRest(at),
+        scars: this.generalScars(),
+      },
       // Штурм из своего лагеря: гарнизон дерётся с духом осады и обстрела (`besiegedRest`); стен у двора мира нет — штурм
       // идёт в поле, во всю ширину (стена-проход, `world/wall`, — только у города игрока).
       defender: { kinds: garrison.kinds, rest: this.besiegedRest(target.id, at, garrisonMen, camp) },
+      // Место и час для черт (ДР-4): клетка цели; штурм из своего лагеря — осадный бой.
+      where: this.whereAt(target, camp !== null),
     });
     if (field.result) {
       f.rest = restAfter(field.rest.attacker, at, this.menOf(troopsAfter(troops, troopLosses(troops, field.result.sides.attacker.losses))));
@@ -5203,6 +5235,7 @@ export class LocalWorld implements WorldApi {
       prestige: field.won ? 4 : 0,
       morale: field.won ? 4 : -6,
       battle: field.won ? 'won' : 'lost',
+      ...scarOf(field, 'attacker'),
       // Бой полководца — его дело. Пустой бой (некому было драться) делом не считается.
       ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
       text: burned
@@ -5365,6 +5398,36 @@ export class LocalWorld implements WorldApi {
   private generalSpirit(): Spirit | undefined {
     const fed = fedOnRoad(this.save.figures.general.gait) ? this.save.profile?.spiritFed : undefined;
     return fed ? { morale: fed.morale, discipline: fed.discipline } : this.ownSpirit();
+  }
+
+  /**
+   * Черты нашей стороны (ДР-4): черты армии из слепка (`PlayerProfile.scars`) и голод — дух со строкой голода
+   * (`PlayerProfile.spiritFed` есть) и без сытого обоза (`fed`). Сторона несёт их всегда, и без черт: голод нужен метке боя
+   * («Голодный ропот»), а черт нет — поправок в бою нет. Стоит рядом с духом: наша сторона узнаётся по обоим.
+   */
+  private ownScars(fed = false): ScarSide {
+    const held = this.save.profile?.scars ?? [];
+    const hungry = !fed && this.save.profile?.spiritFed !== undefined;
+    return { held: [...held], ...(hungry ? { hungry: true as const } : {}) };
+  }
+
+  /** Черты отряда полководца (ДР-4): с обозом в пути — сытые (М5б), как его дух. */
+  private generalScars(): ScarSide {
+    return this.ownScars(fedOnRoad(this.save.figures.general.gait));
+  }
+
+  /**
+   * Где и когда бой (ДР-4): место клетки (`place.scarWhere`) и час партии из слепка — ночь и зима той же меркой, что строка
+   * состояния (`derived.dayPartAt`, `seasonOf`); `siege` — осадной дверью.
+   */
+  private whereAt(cell: Coord, siege = false): ScarWhere {
+    const place = this.placeOf(cell);
+    const w = scarWhere(place, siege);
+    if (place.time !== undefined) {
+      if (dayPartAt(place.time) === 'night') w.night = true;
+      if (seasonOf(place.time) === 'winter') w.winter = true;
+    }
+    return w;
   }
 
   /** Дома — у своих ворот, не в пути и не в походе на игрока — режим меняют сразу и даром (М2). */
@@ -5714,8 +5777,17 @@ export class LocalWorld implements WorldApi {
       // Место боя — клетка встречи; нападает полководец, и переправа — его шаг на неё (бой на воде — переправа).
       ground: groundAt(this.save.seed, spot, f.from),
       // Мораль между боями (14.31): дружина — своей парой, отряд — своей.
-      attacker: { kinds: kindsOf(troops), spirit: this.generalSpirit(), pips: this.generalPips(), ...this.generalFlanks(), rest: this.generalRest(at) },
+      attacker: {
+        kinds: kindsOf(troops),
+        spirit: this.generalSpirit(),
+        pips: this.generalPips(),
+        ...this.generalFlanks(),
+        rest: this.generalRest(at),
+        scars: this.generalScars(),
+      },
       defender: { kinds: party.kinds, rest: restAt(m.rest, at, partyMen) },
+      // Место и час для черт (ДР-4): клетка встречи.
+      where: this.whereAt(spot),
     });
     if (field.result) {
       f.rest = restAfter(field.rest.attacker, at, this.menOf(troopsAfter(troops, troopLosses(troops, field.result.sides.attacker.losses))));
@@ -5788,6 +5860,7 @@ export class LocalWorld implements WorldApi {
       prestige: field.won ? 4 : 0,
       morale: field.won ? 5 : -5,
       battle: field.won ? 'won' : 'lost',
+      ...scarOf(field, 'attacker'),
       ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
       text: field.won
         ? regained
@@ -6014,6 +6087,7 @@ export class LocalWorld implements WorldApi {
       prestige: outcome.won ? 0 : 3,
       morale: outcome.won ? -GATE_MORALE_LOST : GATE_MORALE_WON,
       battle: outcome.won ? 'lost' : 'won',
+      ...scarOf(field, 'defender'),
       // Прорвались — значит, дошли и до хозяйства за стеной. Насколько плохо,
       // решает то, сколько от заслона осталось; что с этим делать, знает племя.
       sacked: outcome.won ? Math.max(0.35, outcome.defenderLoss) : 0,
@@ -6072,8 +6146,11 @@ export class LocalWorld implements WorldApi {
         pips: this.homePips(at),
         ...this.homeFlanks(at),
         rest: this.homeRest(held, at, militia),
+        scars: this.ownScars(),
       },
       front,
+      // Место и час для черт (ДР-4): своя деревня; приступ к стене — осадный бой, бой события перед воротами — нет.
+      where: this.whereAt(this.save.home, front !== null),
     });
     return { profile, held, home, militia, archers, field, at, front };
   }
@@ -6214,6 +6291,7 @@ export class LocalWorld implements WorldApi {
       prestige: field.won || def.townsfolk ? 0 : 3,
       morale: def.townsfolk ? 0 : field.won ? -GATE_MORALE_LOST : GATE_MORALE_WON,
       battle: field.won ? 'lost' : 'won',
+      ...scarOf(field, 'defender'),
       text,
       good: !field.won,
     });
@@ -6901,6 +6979,7 @@ export class LocalWorld implements WorldApi {
       prestige: field.won ? 4 : 0,
       morale: field.won ? 5 : -4,
       battle: field.won ? 'won' : 'lost',
+      ...scarOf(field, 'attacker'),
       ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
       text: field.won ? `Лагерь ${camp.name} разбит: осада снята.` : `Лагерь ${camp.name} устоял.`,
       good: field.won,
@@ -9332,7 +9411,10 @@ export class LocalWorld implements WorldApi {
       spirit: this.ownSpirit(),
       pips: this.homePips(now),
       ...this.homeFlanks(now),
+      scars: this.ownScars(),
       ground: groundAt(this.save.seed, this.save.home),
+      // Место и час для черт (ДР-4): своя деревня, прорыв кольца — осадный бой.
+      where: this.whereAt(this.save.home, true),
     });
     const lostTroops = field.result ? troopLosses(going, field.result.sides.attacker.losses) : {};
     const lostMen = troopTotal(lostTroops);
@@ -9378,6 +9460,7 @@ export class LocalWorld implements WorldApi {
       prestige: field.won ? 2 : 0,
       morale: field.won ? 4 : -3,
       battle: field.won ? 'won' : 'lost',
+      ...scarOf(field, 'attacker'),
       text: field.won ? 'Вылазка прорвала кольцо.' : 'Вылазка на кольцо отбита.',
       good: field.won,
     });
@@ -10404,6 +10487,7 @@ export class LocalWorld implements WorldApi {
       prestige: won ? 4 : 0,
       morale: won ? 4 : -4,
       battle: won ? 'won' : 'lost',
+      ...warScarOf(b, 'ally'),
       ...(field.result ? { deed: { agent: 'general' as const, ok: won, at: b.at } } : {}),
       text: title,
       good: won,
@@ -10517,6 +10601,8 @@ export class LocalWorld implements WorldApi {
       prestige: won && !lifted ? 4 : 0,
       morale: won ? 4 : lifted ? 0 : -6,
       battle: lifted ? null : won ? 'won' : 'lost',
+      // Метка боя войны (ДР-4) — сервера, своей роли: выручку союзника город не дрался, его метки в бою нет.
+      ...(lifted ? {} : warScarOf(b, ours)),
       ...(general && field.result ? { deed: { agent: 'general' as const, ok: won, at: b.at } } : {}),
       text: title,
       good: won,

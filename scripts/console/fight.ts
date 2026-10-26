@@ -36,6 +36,8 @@ import { townSide } from './town';
 import { AXIS_AIM, SPIRIT_AIM, SPIRIT_CHECKS, SPIRIT_MIX, deriveSpirit, strengthOf } from './spirit';
 import { BEST_GENERAL, deriveFlank, flankChecks } from './flank';
 import { TACTICS_TOP } from '@/game/commandrules';
+import { SCARS, SCAR_SIZE } from '@/game/scarrules';
+import { deriveScars, horseShareOfMix, scarChecks } from './scars';
 
 const C = 'fight';
 const HELP = `
@@ -58,6 +60,8 @@ npm run fight -- --a <сторона> --d <сторона> [ключи]
   --derive-flank           вывод вершины тактики командиров флангов (TACTICS_TOP в src/game/commandrules.ts, ДР-3) и сила
                            командира каждого рода и уровня; сторона — --a (по умолчанию та же мерка), сидов — --runs (200);
                            --check — только сила при записанной вершине
+  --derive-scars           вывод величин черт армии (SCAR_SIZE в src/game/scarrules.ts, ДР-4): добрая в своём бою — как
+                           шкала духа на верху, дурная — её зеркало; сидов — --runs (100); --check — только сила при записанных
   --width W                ширина фронта полосы, бойцов строя (по умолчанию W игры = ${FRONT_WIDTH})
   --seed S                 сид первого боя (1); --runs N — боёв подряд на сидах S, S+1, … (1)
   --log                    журнал боя целиком (каждое событие); без него — фазы и ключевые события
@@ -75,6 +79,7 @@ const seed = num(C, args, 'seed', 1, { int: true });
 const runs = num(C, args, 'runs', 1, { int: true, min: 1, max: 100000 });
 if (has(args, 'derive-spirit')) await deriveSpiritCommand();
 if (has(args, 'derive-flank')) await deriveFlankCommand();
+if (has(args, 'derive-scars')) await deriveScarsCommand();
 const aText = text(args, 'a') ?? text(args, 'attacker');
 if (!aText) fail(C, 'нет нападающего: --a "spearman:100"');
 const townLevel = has(args, 'town') ? num(C, args, 'town', 1, { int: true, min: 1, max: 10 }) : null;
@@ -266,5 +271,27 @@ async function deriveFlankCommand(): Promise<never> {
   console.log(`Записано: TACTICS_TOP = ${TACTICS_TOP}`);
   console.log('Сила при записанной (во сколько раз армия с командиром стоит той же без него):');
   for (const c of flankChecks(troops, seeds)) console.log(`  ${c.name.padEnd(30)} тактика ${String(c.tactics).padStart(2)}  ×${c.strength.toFixed(3)}`);
+  process.exit(0);
+}
+
+/**
+ * `--derive-scars` (ДР-4, Ш5): величины черт армии — сила черты в её бою равна ориентиру (шкала духа ДР-1 на верху или на дне) —
+ * и сила каждой при записанных. Сидов — `--runs`. Больше `LIGHT_BATTLES` сидов — под замком машины.
+ */
+async function deriveScarsCommand(): Promise<never> {
+  const seeds = num(C, args, 'runs', 100, { int: true, min: 20, max: 2000 });
+  const check = has(args, 'check');
+  rejectUnknown(C, args);
+  await heavy(`вывод черт армии, ${seeds} сидов на точку`);
+  console.log(`=== Черты армии (ДР-4): ${seeds} сидов на точку; конных в мерке против конницы — ${(100 * horseShareOfMix()).toFixed(1)} % ===`);
+  if (!check) {
+    for (const d of deriveScars(seeds)) {
+      const name = SCARS.find((x) => x.id === d.id)!.name;
+      console.log(`  ${name.padEnd(18)} ориентир ×${d.aim.toFixed(3)}  величина ${d.size.toFixed(2)}  сила ×${d.strength.toFixed(3)}${d.capped ? '  — упёрлась в потолок' : ''}`);
+    }
+  }
+  console.log(`Записано: ${JSON.stringify(SCAR_SIZE)}`);
+  console.log('Сила при записанных (во сколько раз армия с чертой стоит той же без неё в её бою):');
+  for (const c of scarChecks(seeds)) console.log(`  ${SCARS.find((x) => x.id === c.id)!.name.padEnd(18)} ×${c.strength.toFixed(3)}  (ориентир ×${c.aim.toFixed(3)})`);
   process.exit(0);
 }

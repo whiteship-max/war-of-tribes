@@ -55,6 +55,10 @@ import { wallRepairCost } from '../../src/game/build.js';
 import { statAt } from '../../src/game/train.js';
 import { ENGINES } from '../../src/game/data/engines.js';
 import { campFight, guardKinds, homeLosses, machineFight, wallFight } from '../../src/world/fights.js';
+import { placeAt, scarWhere } from '../../src/world/place.js';
+import type { FieldOutcome } from '../../src/world/battle.js';
+import { isScarId, type ScarSide, type ScarWhere } from '../../src/game/scarrules.js';
+import { scarsAt, type ScarBook } from './scarbook.js';
 import { SCALING, wallFront } from '../../src/world/wall.js';
 import {
   PROPOSALS,
@@ -689,6 +693,11 @@ export interface SheetAt {
    * стен, пока полководец в городе (`liveSheet`), и в походе (`ruleArmy`), — числами сервера, а не клиента. Нет — командиров нет.
    */
   command?: CommandAt;
+  /**
+   * Книга черт армии и полководец по книге агентов (ДР-4, `watch.scarsOfRec`): из них и из меток нынешней записи войн сервер
+   * выводит черты стороны сам (`scarbook.scarsAt`) — у стен в слепке (`liveSheet`) и в походе (`ruleArmy`). Нет — черт нет.
+   */
+  scars?: { book?: ScarBook; gen?: number };
 }
 
 // ------------------------------------------------ счёт по видам ---
@@ -885,7 +894,43 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
     ...(led ? flanksField(s.command?.flanks) : {}),
     resolve: ruleResolve(sheet.resolve, s.marshal ?? 0, s.knights ?? 0),
     ...spiritField(ruleSpirit(sheet.spirit, s.spirit)),
+    // Черты армии обороны (ДР-4) — книгой черт сервера и метками записи войн; слепок клиента их не несёт (`contract.readSheet`).
+    ...scarsField(file, key, s),
   };
+}
+
+/**
+ * Черты армии игрока `key` в войну (ДР-4, Ш6): книга черт и метки записи войн, полководец — книгой агентов; и номер полководца
+ * для метки боя. Ни книги, ни полководца — пусто.
+ */
+export function scarsField(file: WarFile, key: string, s: SheetAt | null | undefined): { scars?: string[]; scarGen?: number } {
+  const gen = s?.scars?.gen;
+  const held = scarsAt(s?.scars?.book, file, key, gen);
+  return { ...(held.length > 0 ? { scars: held } : {}), ...(gen !== undefined ? { scarGen: gen } : {}) };
+}
+
+/** Черты стороны в бой (ДР-4): имена, поставленные сервером; голода в бою войны нет (Ш6). Нет черт — поля нет. */
+const scarSide = (held: readonly string[] | undefined): { scars?: ScarSide } => {
+  const ids = (held ?? []).filter(isScarId);
+  return ids.length > 0 ? { scars: { held: ids } } : {};
+};
+
+/** Место боя войны для черт (ДР-4): клетка города — лес, река, холмы; часа нет; бой войны всегда осадный. */
+const warWhere = (w: WarRow): ScarWhere => scarWhere(placeAt(0, w.to.x, w.to.y), true);
+
+/**
+ * Метки боя для журналов армий (ДР-4): у каждой дравшейся стороны — её роль в войне и полководец, при котором она дралась
+ * (`scarGen`). Боя не было — поля нет.
+ */
+function marksOf(field: FieldOutcome, roles: Partial<Record<'attacker' | 'defender', { role: 'atk' | 'def' | 'ally'; gen?: number }>>): { marks?: WarBattle['marks'] } {
+  if (!field.marks) return {};
+  const out: NonNullable<WarBattle['marks']> = {};
+  for (const side of ['attacker', 'defender'] as const) {
+    const r = roles[side];
+    if (!r) continue;
+    out[r.role] = { ...field.marks[side], ...(r.gen !== undefined ? { gen: r.gen } : {}) };
+  }
+  return Object.keys(out).length > 0 ? { marks: out } : {};
 }
 
 /** Командиры флангов — полем, когда они есть (ДР-3): бой без них идёт байт в байт прежним. */
@@ -987,6 +1032,7 @@ function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly Machin
       ...flanksField(w.army.flanks),
       rest: armyRest(w.army, at),
       ...spiritField(w.army.spirit),
+      ...scarSide(w.army.scars),
     },
     defender: {
       kinds: kindsOf(asTroops(sheet.home)),
@@ -997,8 +1043,11 @@ function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly Machin
       pips: sheet.pips as Pips,
       ...flanksField(sheet.flanks),
       rest: garrisonRest(w, sheet, at),
+      ...scarSide(sheet.scars),
     },
     front,
+    // Место для черт (ДР-4): клетка города, бой у стены.
+    where: warWhere(w),
   });
   const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.attacker.losses) as Counts) : {};
   const homeLost = homeLosses(asTroops(sheet.home), field) as Counts;
@@ -1017,6 +1066,8 @@ function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly Machin
     ...craftOf(w),
     // Проёмы штурма — только показ: ролик рисует выбранный способ (лестницы, таран, башня, пролом).
     openings: front.openings,
+    // Метки боя для журналов армий (ДР-4): поход и город.
+    ...marksOf(field, { attacker: { role: 'atk', gen: w.army.scarGen }, defender: { role: 'def', gen: sheet.scarGen } }),
   };
   w.battles.push(battle);
   w.army = wear(w.army, atkLost, field.rest.attacker, at);
@@ -1423,12 +1474,14 @@ function burnMachine(w: WarRow, at: number, sheet: WarSheet, id: MachineId, troo
   const side = campSide(w, at);
   const { input, field } = machineFight({
     seed: warSeed(w.id, n),
-    guard: { kinds: guardKinds(side.kinds, GUARD_SHARE), resolve: side.resolve, pips: side.pips, flanks: side.flanks, rest: side.rest },
+    guard: { kinds: guardKinds(side.kinds, GUARD_SHARE), resolve: side.resolve, pips: side.pips, flanks: side.flanks, rest: side.rest, scars: side.scars },
     sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
     resolve: sheet.resolve,
     pips: sheet.pips as Pips,
     ...flanksField(sheet.flanks),
     ...spiritField(sheet.spirit),
+    ...scarSide(sheet.scars),
+    where: warWhere(w),
   });
   const homeLost = field.result ? (troopLosses(asTroops(troops), field.result.sides.attacker.losses) as Counts) : {};
   const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.defender.losses) as Counts) : {};
@@ -1445,6 +1498,9 @@ function burnMachine(w: WarRow, at: number, sheet: WarSheet, id: MachineId, troo
     homeLost,
     burn: id,
     ...craftOf(w),
+
+    // Метки боя (ДР-4): вышли из ворот — город, охрана — поход.
+    ...marksOf(field, { attacker: { role: 'def', gen: sheet.scarGen }, defender: { role: 'atk', gen: w.army.scarGen } }),
   });
   // Дралась охрана, а не весь лагерь: убыль — её потери, мораль лагеря прежняя.
   w.army = { ...w.army, troops: minus(w.army.troops, atkLost) };
@@ -1485,12 +1541,14 @@ function breakout(w: WarRow, at: number, sheet: WarSheet, troops: Counts): strin
   const side = campSide(w, at);
   const { input, field } = machineFight({
     seed: warSeed(w.id, n),
-    guard: { kinds: guardKinds(side.kinds, BREAKOUT_SHARE), resolve: side.resolve, pips: side.pips, flanks: side.flanks, rest: side.rest },
+    guard: { kinds: guardKinds(side.kinds, BREAKOUT_SHARE), resolve: side.resolve, pips: side.pips, flanks: side.flanks, rest: side.rest, scars: side.scars },
     sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
     resolve: sheet.resolve,
     pips: sheet.pips as Pips,
     ...flanksField(sheet.flanks),
     ...spiritField(sheet.spirit),
+    ...scarSide(sheet.scars),
+    where: warWhere(w),
   });
   const homeLost = field.result ? (troopLosses(asTroops(troops), field.result.sides.attacker.losses) as Counts) : {};
   const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.defender.losses) as Counts) : {};
@@ -1507,6 +1565,9 @@ function breakout(w: WarRow, at: number, sheet: WarSheet, troops: Counts): strin
     homeLost,
     breakout: true,
     ...craftOf(w),
+
+    // Метки боя (ДР-4): вышли из ворот — город, охрана — поход.
+    ...marksOf(field, { attacker: { role: 'def', gen: sheet.scarGen }, defender: { role: 'atk', gen: w.army.scarGen } }),
   });
   // Дрался пост, а не весь лагерь: убыль — его потери, мораль лагеря прежняя.
   w.army = { ...w.army, troops: minus(w.army.troops, atkLost) };
@@ -1574,6 +1635,8 @@ const campSide = (w: WarRow, at: number) => ({
   flanks: flanksField(w.army.flanks).flanks,
   rest: armyRest(w.army, at),
   ...spiritField(w.army.spirit),
+  // Черты армии похода (ДР-4) — поставленные сервером в минуту приказа (`ruleArmy`).
+  ...scarSide(w.army.scars),
 });
 
 const sightOf = (c: WarCamp) => ({
@@ -1612,6 +1675,9 @@ function hitCamp(
     ...flanksField(hit.rear ? hit.rear.flanks : sheet.flanks),
     // Дух — чьё войско бьёт: гарнизон и дружина одного города, дух у них один.
     ...spiritField(hit.rear ? hit.rear.spirit : sheet.spirit),
+    // Черты армии (ДР-4) — того же войска: у дружины с поля — поставленные в минуту приказа, у вылазки — книги в слепке.
+    ...scarSide(hit.rear ? hit.rear.scars : sheet.scars),
+    where: warWhere(w),
     // Укрепления лагеря — та же дверь, что у лагеря игрока под логовом (`siegecraft.fortFaces`).
     fort: fortFaces(camp.craft),
   });
@@ -1648,6 +1714,11 @@ function hitCamp(
     ...craftOf(w),
     // Выручка союзника: его дружина в `genTroops`, списывает её он, а не город.
     ...(hit.ally ? { ally: hit.ally } : {}),
+    // Метки боя (ДР-4): бил город — его метка, выручка — союзника; лагерь — похода.
+    ...marksOf(field, {
+      attacker: { role: hit.ally ? 'ally' : 'def', gen: hit.rear ? hit.rear.scarGen : sheet.scarGen },
+      defender: { role: 'atk', gen: w.army.scarGen },
+    }),
   };
   w.battles.push(battle);
   w.army = wear(w.army, atkLost, field.rest.defender, at);
@@ -2170,7 +2241,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (tired) return tired;
       const at = now + Math.round(walkMs / pace);
       if (at >= (w.starvesAt ?? Infinity)) return 'Не успеть: хлеб в городе кончится раньше.';
-      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army, s), ...gaitField(order.gait) }];
+      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army, s, file, key), ...gaitField(order.gait) }];
       markGeneral(file, key, have, now);
       // Ключ союзника — для вестей ему о его выручке (19.2); наружу не уходит.
       w.allies = { ...(w.allies ?? {}), [me]: { key, city: cityOr(ctx.roster.rows[key]?.city) } };
@@ -2201,7 +2272,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
       const tired = energyBlock(have, priceOf('strike'), walkMs, gaitSpeed(order.gait));
       if (tired) return tired;
-      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(order.army, s), joint: order.joint, ...gaitField(order.gait) };
+      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(order.army, s, file, key), joint: order.joint, ...gaitField(order.gait) };
       markGeneral(file, key, have, now);
       return null;
     }
@@ -2212,12 +2283,16 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
  * Войско приказа в пределах правил: стойкость и отметки полководца не выше, чем бывает у игрока (`book.ts`); стойкость —
  * сверх обряда ещё Воеводой подтверждённого совета (РТ-1, `SheetAt.marshal`).
  */
-const ruleArmy = (a: WarArmy, s: SheetAt | null): WarArmy => {
-  // Командиры флангов — числами книги командиров сервера (ДР-3): названное приказом не читается, ставит сервер.
-  const { flanks: told, ...army } = a;
+const ruleArmy = (a: WarArmy, s: SheetAt | null, file: WarFile, key: string): WarArmy => {
+  // Командиры флангов — числами книги командиров сервера (ДР-3): названное приказом не читается, ставит сервер. Черты армии
+  // (ДР-4) — так же: книгой черт и метками записи войн в минуту приказа.
+  const { flanks: told, scars: claimed, scarGen: claimedGen, ...army } = a;
   void told;
+  void claimed;
+  void claimedGen;
   return {
     ...army,
+    ...scarsField(file, key, s),
     resolve: ruleResolve(a.resolve, s?.marshal ?? 0, s?.knights ?? 0),
     // Дух — не выше потолка книги духа сервера (ДР-1, `book.ruleSpirit`); приказ без духа — без духа.
     ...spiritField(ruleSpirit(a.spirit, s?.spirit)),
@@ -2353,7 +2428,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     sentAt: now,
     arriveAt: now + walkMs,
     phase: 'march',
-    army: { ...ruleArmy(order.army, mine), energy },
+    army: { ...ruleArmy(order.army, mine, file, key), energy },
     went: { ...order.army.troops },
     ...(order.blockade && order.mode === 'siege' ? { ring: true as const } : {}),
     ...gaitField(gait),
