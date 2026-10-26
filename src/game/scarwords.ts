@@ -32,7 +32,7 @@ export function gainWords(id: ScarId): string {
   switch (d.gain.by) {
     case 'wins':
       return d.theme === 'horse'
-        ? `${COUNT[n]} победы подряд над войском, где конницы не меньше ${part(HORSE_HEAVY)}`
+        ? `${COUNT[n]} победы подряд над войском, где конницы не меньше ${part(HORSE_HEAVY)} (стаи зверей не в счёт)`
         : `${COUNT[n]} победы подряд ${THEME_WHERE[d.theme]}`;
     case 'losses':
       return `${DEFEATS[n]} поражения подряд ${THEME_WHERE[d.theme]}`;

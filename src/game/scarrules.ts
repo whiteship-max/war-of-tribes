@@ -262,9 +262,10 @@ export const scarActive = (id: ScarId, ctx: ScarCtx): boolean => inTheme(SCAR_BY
 /**
  * Метка боя для журнала (Ш4) — из итога ядра: исход для стороны `us`, уверенная победа, бегство, доля выбитых стрелами и
  * конница противника. Место и час (`where`) и голод кладёт тот, кто знает, где и с чем бились. Полководца дописывает племя
- * (`sim/scars.noteFight`), а у боя войны — сервер.
+ * (`sim/scars.noteFight`), а у боя войны — сервер. Звери (`beasts`, стая у ворот, ДР-5) — не конница: «Стену копий» учат только
+ * всадники.
  */
-export function markOf(result: BattleResult, us: Side, where: ScarWhere, hungry = false): FightMark {
+export function markOf(result: BattleResult, us: Side, where: ScarWhere, hungry = false, beasts = false): FightMark {
   const them: Side = us === 'attacker' ? 'defender' : 'attacker';
   const ours = result.sides[us];
   const theirs = result.sides[them];
@@ -275,7 +276,7 @@ export function markOf(result: BattleResult, us: Side, where: ScarWhere, hungry 
   if (out === 'win' && lost <= SURE.lost && theirs.total.initial >= SURE.foe * men && (result.reason === 'morale' || result.reason === 'annihilated')) mark.sure = true;
   if (out === 'loss' && result.reason === 'morale') mark.fled = true;
   if (hungry) mark.hungry = true;
-  if (shareOf(theirs.initial, HORSE_KINDS) >= HORSE_HEAVY) mark.horse = true;
+  if (!beasts && shareOf(theirs.initial, HORSE_KINDS) >= HORSE_HEAVY) mark.horse = true;
   const arrows = men > 0 ? Math.round((100 * theirs.rangedTotal) / men) / 100 : 0;
   if (arrows > 0) mark.arrows = Math.min(1, arrows);
   return mark;

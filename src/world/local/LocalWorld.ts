@@ -6264,7 +6264,8 @@ export class LocalWorld implements WorldApi {
    */
   private gateParty(call: GateCall): FieldSide & { gear: Partial<Record<UnitKind, number>> } {
     // Сторона боя и ступень снаряжения отряда — только для показа (запись боя одевает им пришедших); у зверей её нет.
-    if (GATE_FOES[call.foe].beasts) return { kinds: { ...emptyStack(), cavalry: menOfPower(call.power) }, gear: {} };
+    // Звери (ДР-5): для черт армии стая не войско — ни метки «конница», ни черт против её состава (`FieldSide.beasts`).
+    if (GATE_FOES[call.foe].beasts) return { kinds: { ...emptyStack(), cavalry: menOfPower(call.power) }, gear: {}, beasts: true };
     // Мятежники — свои горожане: пехота без вещей (docs/stability.md, 2.4).
     if (GATE_FOES[call.foe].townsfolk) return { kinds: { ...emptyStack(), infantry: menOfPower(call.power) }, gear: {} };
     const band = raidingParty(this.save.seed, call.id, call.power);

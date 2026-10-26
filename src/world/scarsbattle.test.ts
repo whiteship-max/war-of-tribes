@@ -98,3 +98,32 @@ describe('метка боя', () => {
     expect(resolveField({ seed: 1, attacker: { kinds: emptyStack() }, defender: { kinds: ARMY } }).marks).toBeNull();
   });
 });
+
+describe('«Стена копий» — только против всадников (ДР-5)', () => {
+  // Стая у ворот — лёгкая конница ядра, но звери: ни метки «конница», ни действия черты.
+  const PACK: Stack = { ...emptyStack(), cavalry: 120 };
+  it('победа над стаей не пишет метку «конница», победа над тем же числом всадников — пишет', () => {
+    let horse = 0;
+    for (const seed of SEEDS.slice(0, 8)) {
+      const riders = resolveField({ seed, attacker: { kinds: PACK }, defender: { kinds: ARMY } });
+      const pack = resolveField({ seed, attacker: { kinds: PACK, beasts: true }, defender: { kinds: ARMY } });
+      // Точка внутри области: конных у противника больше четверти, и мы выиграли.
+      expect(riders.won, `сид ${seed}`).toBe(false);
+      expect(riders.marks?.defender.horse, `сид ${seed}`).toBe(true);
+      expect(pack.marks?.defender.horse, `сид ${seed}`).toBeUndefined();
+      // Бой тот же — звери отличаются только меткой (без черт у защитника).
+      expect(JSON.stringify(pack.result)).toBe(JSON.stringify(riders.result));
+      horse++;
+    }
+    expect(horse).toBe(8);
+  });
+  it('черта против стаи не действует: бой тот же, что без черт; против всадников — действует', () => {
+    for (const seed of SEEDS.slice(0, 3)) {
+      const plain = (beasts: boolean) => JSON.stringify(resolveField({ seed, attacker: { kinds: PACK, ...(beasts ? { beasts: true as const } : {}) }, defender: { kinds: ARMY } }).result);
+      const spears = (beasts: boolean) =>
+        JSON.stringify(resolveField({ seed, attacker: { kinds: PACK, ...(beasts ? { beasts: true as const } : {}) }, defender: { kinds: ARMY, scars: { held: ['pikewall'] } } }).result);
+      expect(spears(true)).toBe(plain(true));
+      expect(spears(false)).not.toBe(plain(false));
+    }
+  });
+});

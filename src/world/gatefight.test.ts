@@ -159,6 +159,9 @@ describe('волки и разбойники — настоящий бой', () 
       expect(wolves.cavalry, 'стая — лёгкая конница, и только она').toBe(total(wolves));
       expect(total(kindsIn(f.input!.defender)), 'у ворот стоят люди').toBeGreaterThan(0);
       expect(f.report?.battle?.beasts, 'в записи боя — звери').toBe('attacker');
+      // Звери — не конница для черт армии (ДР-5): метка боя «конницы противника» не несёт, «Стену копий» стая не учит.
+      expect(f.effect?.scar, 'метка боя легла').toBeDefined();
+      expect(f.effect?.scar?.horse).toBeUndefined();
       // Место для показа (ролик TW): бой перед воротами.
       expect(f.report?.battle?.site, 'место — у ворот').toBe('gate');
       if (f.report!.battle!.result.sides.defender.total.losses > 0) costly++;

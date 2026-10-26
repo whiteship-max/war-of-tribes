@@ -75,6 +75,12 @@ export interface FieldSide {
    */
   scars?: ScarSide;
   /**
+   * Сторона — звери, а не люди (стая у ворот, ДР-5): в ядре она лёгкая конница, но для черт армии она не войско — ни метки
+   * «конница противника» (`scarrules.markOf`), ни действия черт, спрашивающих состав противника («Стена копий», «Страх
+   * обстрела»). Нет поля — люди.
+   */
+  beasts?: true;
+  /**
    * Какая часть стороны — гарнизон, вышедший из ворот в совместный удар, по родам (`ArmySetup.garrison`): ядро только
    * раскладывает её по секторам в итог, чтобы ролик вывел гарнизон из ворот, а дружину с поля. Исход от поля не зависит.
    */
@@ -182,7 +188,8 @@ export function resolveField(input: FieldInput): FieldOutcome {
   const scarred = (own: FieldSide, foe: FieldSide): { scars?: ScarEdge } => {
     const s = own.scars;
     if (!s || s.held.length === 0) return {};
-    const edge = scarEdge(s.held, { ...where, ...(s.hungry ? { hungry: true as const } : {}), foe: foe.kinds });
+    // Звери — не войско (ДР-5): черты «против конницы» и «при виде лучников» против стаи не действуют.
+    const edge = scarEdge(s.held, { ...where, ...(s.hungry ? { hungry: true as const } : {}), foe: foe.beasts ? {} : foe.kinds });
     return edge ? { scars: edge } : {};
   };
 
@@ -223,8 +230,8 @@ export function resolveField(input: FieldInput): FieldOutcome {
     result,
     rest: { attacker: result.sides.attacker.rest ?? 1, defender: result.sides.defender.rest ?? 1 },
     marks: {
-      attacker: markOf(result, 'attacker', where, input.attacker.scars?.hungry === true),
-      defender: markOf(result, 'defender', where, input.defender.scars?.hungry === true),
+      attacker: markOf(result, 'attacker', where, input.attacker.scars?.hungry === true, input.defender.beasts === true),
+      defender: markOf(result, 'defender', where, input.defender.scars?.hungry === true, input.attacker.beasts === true),
     },
   };
 }
