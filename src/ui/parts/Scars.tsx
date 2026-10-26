@@ -11,11 +11,14 @@ import { signed } from './signed';
 
 /** В счёт ли черта в войне с соседями (Ш6): у сервера свой журнал — бои войны. */
 function warWords(id: ScarId, mine: boolean, war: boolean): string {
-  if (WAR_BLIND.includes(SCAR_BY_ID[id].theme)) return 'В войне с соседями не действует: ночи, зимы и голода у боя войны сервер не судит.';
-  if (mine && war) return 'В войне с соседями в счёт: заслужена в боях войны, их видел сервер.';
-  if (mine) return 'В войне с соседями не в счёт: получена в боях, которых сервер не видел.';
-  return 'Держится в войне с соседями: сервер помнит её по боям войны, а дружина своими боями её уже избыла.';
+  if (WAR_BLIND.includes(SCAR_BY_ID[id].theme)) return 'Не действует: ночи, зимы и голода у боя войны сервер не судит.';
+  if (mine && war) return 'В счёт: заслужена в боях войны, их видел сервер.';
+  if (mine) return 'Не в счёт: получена в боях, которых сервер не видел.';
+  return 'Держится: сервер помнит её по боям войны, а своими боями дружина её уже избыла.';
 }
+
+/** Первая буква — заглавная: слова черт — середина фразы летописи, а в разборе они начинают строку. */
+const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
 
 /** Одна черта: строка и разбор касанием. */
 function ScarRow({ id, mine, war }: { id: ScarId; mine: boolean; war: boolean }) {
@@ -39,14 +42,19 @@ function ScarRow({ id, mine, war }: { id: ScarId; mine: boolean; war: boolean })
       {open && (
         <dl className="dr-scar-why">
           <dt>Как получена</dt>
-          <dd>{gainWords(id)}.</dd>
+          <dd>{cap(gainWords(id))}.</dd>
           <dt>Что даёт</dt>
           <dd>
-            {EFFECT_WORDS[id]}: {edgeLines(id, (n) => `${signed(n, 2)} отм.`).join('; ')}.
+            {cap(EFFECT_WORDS[id])}.
+            {edgeLines(id, (n) => signed(n, 2)).map((line) => (
+              <span key={line} className="dr-scar-num">
+                {cap(line)} (в отметках)
+              </span>
+            ))}
           </dd>
           <dt>{def.good ? 'От чего уйдёт' : 'Как снять'}</dt>
           <dd>
-            {loseWords(id)}.{def.lose === 'sureOrGeneral' || def.lose === 'sureFed' ? ` ${SURE_WORDS[0].toUpperCase()}${SURE_WORDS.slice(1)}.` : ''}
+            {cap(loseWords(id))}.{def.lose === 'sureOrGeneral' || def.lose === 'sureFed' ? ` ${cap(SURE_WORDS)}.` : ''}
           </dd>
           <dt>Война с соседями</dt>
           <dd>{warWords(id, mine, war)}</dd>

@@ -339,3 +339,8 @@
 .dr-scar-why dd {
   margin: 0;
 }
+.dr-scar-num {
+  display: block;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

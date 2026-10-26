@@ -80,10 +80,14 @@ export const EFFECT_WORDS: Record<ScarId, string> = {
   grumble: 'на голодный желудок бьют вяло и бегут раньше',
 };
 
-/** Где действует — словами («в бою в лесу»). */
+/** Где действует — коротко, для строки черты («в бою в лесу»); порог доли — в разборе (`gainWords`, `THEME_WHERE`). */
 export function activeWords(id: ScarId): string {
   const d: ScarDef = SCAR_BY_ID[id];
-  return d.theme === 'hunger' ? 'в бою на голодный желудок' : d.theme === 'siege' ? 'в осадном бою' : `в бою ${THEME_WHERE[d.theme]}`;
+  if (d.theme === 'hunger') return 'в бою на голодный желудок';
+  if (d.theme === 'siege') return 'в осадном бою';
+  if (d.theme === 'horse') return 'против конницы';
+  if (d.theme === 'arrows') return 'при виде лучников';
+  return `в бою ${THEME_WHERE[d.theme]}`;
 }
 
 /** Строка летописи (Ш9): черта пришла. */
