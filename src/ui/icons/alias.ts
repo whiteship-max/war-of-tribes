@@ -146,6 +146,9 @@ export const ALIAS = {
   'evt-cr_match': 'ui-handshake',
   'evt-cr_tournament': 'ui-trophy',
   'evt-cr_deserters': 'ui-dagger',
+  // Знать и командиры флангов (ДР-3): обида знати — рыцарство, спор за авангард — знамя.
+  'evt-cr_lord_claim': 'est-knights',
+  'evt-cr_vanguard': 'ui-banner',
   'evt-cr_missionaries': 'ui-dove',
   'evt-cr_tsargrad': 'ui-crown',
   'evt-cr_rain': 'ui-storm',

@@ -5,7 +5,7 @@
 // docs/ui_v2.md, 5.3): решение о том, кто где, — про всё войско, а всё войско видно здесь. Строка вида — дверь в его карточку;
 // виды, которых в дружине нет, — значками внизу: карточка вида одна. Кольца контров нет (слово владельца по 14.35,
 // docs/battle_eu4.md): кто кого бьёт, решают показатели.
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { TROOPS } from '@/game/data/troops';
@@ -23,11 +23,16 @@ import { defenseTip, fmtInt, type TipGo } from '@/ui/next/hudTips';
 import { goTo } from '@/ui/kit/nav';
 import { dec } from '@/game/num';
 import { iconName } from '@/ui/icons/registry';
+import { CommandLine } from '../parts/CommandLine';
+
+// Меню «Командующие» (ДР-3) — своим куском, по кнопке: первой загрузке оно не нужно.
+const CommandDesk = lazy(() => import('@/ui/next/CommandDesk').then((m) => ({ default: m.CommandDesk })));
 
 export function ArmyPanel() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const [open, setOpen] = useState<TroopId | null>(null);
+  const [desk, setDesk] = useState(false);
   const marches = useWorld((g) => g.marches);
   const figures = useWorld((g) => g.figures);
   const barracks = buildingOfType(s, 'barracks');
@@ -38,6 +43,13 @@ export function ArmyPanel() {
   const general = figures.find((f) => f.id === 'general');
 
   if (open) return <TroopCardView troop={open} onBack={() => setOpen(null)} />;
+  if (desk) {
+    return (
+      <Suspense fallback={<div className="panel" />}>
+        <CommandDesk onBack={() => setDesk(false)} />
+      </Suspense>
+    );
+  }
 
   const go: TipGo = {
     tab: (t) => goTo({ kind: 'tab', tab: t }),
@@ -93,6 +105,10 @@ export function ArmyPanel() {
       {/* Кто в гарнизоне, кто с полководцем — передача здесь, одна на всю игру (docs/retinue.md, docs/ui_v2.md, 5.3). */}
       <h3>Гарнизон и отряд</h3>
       <Muster onCard={setOpen} />
+
+      {/* Командиры флангов (ДР-3): кто ведёт левый и правый фланг в отряде полководца; найм и смена — меню «Командующие». */}
+      <h3>Командующие</h3>
+      <CommandLine onOpen={() => setDesk(true)} />
 
       {/* Жалованье (ДР-1): полное или минимальное; ведомость, доход, долг и терпение — тем же `Upkeep`, что прежде в казармах. */}
       <h3>Жалованье</h3>

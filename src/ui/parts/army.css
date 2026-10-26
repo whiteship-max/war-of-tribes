@@ -245,6 +245,10 @@
   opacity: 0.75;
   font-size: 12px;
 }
+/* «Командующие» (ДР-3) — одна кнопка во всю ширину: подпись не ломается в столбик. */
+.dr-hire .cm-open {
+  grid-column: 1 / -1;
+}
 .dr-hire .btn svg,
 .dr-hire .btn .icon {
   width: 20px;

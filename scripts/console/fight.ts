@@ -34,6 +34,8 @@ import {
 } from './lib';
 import { townSide } from './town';
 import { AXIS_AIM, SPIRIT_AIM, SPIRIT_CHECKS, SPIRIT_MIX, deriveSpirit, strengthOf } from './spirit';
+import { BEST_GENERAL, deriveFlank, flankChecks } from './flank';
+import { TACTICS_TOP } from '@/game/commandrules';
 
 const C = 'fight';
 const HELP = `
@@ -53,6 +55,9 @@ npm run fight -- --a <сторона> --d <сторона> [ключи]
   --derive-spirit          вывод точек духа (SPIRIT в src/battle/config.ts) и сила по углам шкал; сторона — --a (по
                            умолчанию мерка spearman:200,archer:80,legionary:60), сидов — --runs (200);
                            --check — только сила по углам при записанных, без вывода
+  --derive-flank           вывод вершины тактики командиров флангов (TACTICS_TOP в src/game/commandrules.ts, ДР-3) и сила
+                           командира каждого рода и уровня; сторона — --a (по умолчанию та же мерка), сидов — --runs (200);
+                           --check — только сила при записанной вершине
   --width W                ширина фронта полосы, бойцов строя (по умолчанию W игры = ${FRONT_WIDTH})
   --seed S                 сид первого боя (1); --runs N — боёв подряд на сидах S, S+1, … (1)
   --log                    журнал боя целиком (каждое событие); без него — фазы и ключевые события
@@ -69,6 +74,7 @@ helpIf(args, HELP);
 const seed = num(C, args, 'seed', 1, { int: true });
 const runs = num(C, args, 'runs', 1, { int: true, min: 1, max: 100000 });
 if (has(args, 'derive-spirit')) await deriveSpiritCommand();
+if (has(args, 'derive-flank')) await deriveFlankCommand();
 const aText = text(args, 'a') ?? text(args, 'attacker');
 if (!aText) fail(C, 'нет нападающего: --a "spearman:100"');
 const townLevel = has(args, 'town') ? num(C, args, 'town', 1, { int: true, min: 1, max: 10 }) : null;
@@ -235,5 +241,30 @@ async function deriveSpiritCommand(): Promise<never> {
   console.log(`Записано: мораль low ${SPIRIT.morale.low}, high ${SPIRIT.morale.high}; дисциплина low ${SPIRIT.discipline.low}, high ${SPIRIT.discipline.high}`);
   console.log('Сила при записанных (во сколько раз армия с духом стоит ровной без него):');
   for (const c of SPIRIT_CHECKS) console.log(`  ${c.name.padEnd(28)} ×${strengthOf(troops, c.spirit, seeds).toFixed(3)}`);
+  process.exit(0);
+}
+
+/**
+ * `--derive-flank` (ДР-3, К4): вершина тактики командиров флангов — наибольшая, при которой двое лучших тактиков на обоих флангах
+ * не сильнее лучшего полководца, — и сила командира каждого рода и уровня при записанной. Сторона — `--a` (виды племени), сидов —
+ * `--runs`. Больше `LIGHT_BATTLES` сидов — под замком машины.
+ */
+async function deriveFlankCommand(): Promise<never> {
+  const seeds = num(C, args, 'runs', 200, { int: true, min: 20, max: 2000 });
+  const spec = text(args, 'a');
+  const check = has(args, 'check');
+  rejectUnknown(C, args);
+  const troops = spec ? parseSide(C, spec, 1, 'мерка').troops : SPIRIT_MIX;
+  await heavy(`вывод командиров флангов, ${seeds} сидов на точку`);
+  console.log(`=== Командиры флангов (ДР-3): мерка ${JSON.stringify(troops)}, ${seeds} сидов на точку ===`);
+  if (!check) {
+    const d = deriveFlank(troops, seeds);
+    console.log(`Лучший полководец ${JSON.stringify(BEST_GENERAL)}: ×${d.general.toFixed(3)}`);
+    for (const b of d.both) console.log(`  двое с тактикой ${b.t} на обоих флангах: ×${b.strength.toFixed(3)}${b.strength > d.general ? ' — сильнее полководца' : ''}`);
+    console.log(`Выведено: TACTICS_TOP = ${d.top}`);
+  }
+  console.log(`Записано: TACTICS_TOP = ${TACTICS_TOP}`);
+  console.log('Сила при записанной (во сколько раз армия с командиром стоит той же без него):');
+  for (const c of flankChecks(troops, seeds)) console.log(`  ${c.name.padEnd(30)} тактика ${String(c.tactics).padStart(2)}  ×${c.strength.toFixed(3)}`);
   process.exit(0);
 }

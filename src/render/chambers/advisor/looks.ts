@@ -114,6 +114,9 @@ const ROBES: Readonly<Record<string, readonly number[]>> = {
   scout: [0x2c4a28, 0x4a3a24, 0x3a4a2c],
   spy: [0x24242a, 0x2e2a26, 0x1e2228],
   diplomat: [0x1e2a4a, 0x2a3a5a, 0x3e1e44],
+  // Командиры флангов (ДР-3): лорд — пурпур и бархат старого рода, безродный — кожа и сукно походного плаща.
+  lord: [0x3e1e44, 0x4c1a26, 0x1e2648],
+  tactician: [0x4a3a24, 0x3a3c44, 0x2e2a26],
 };
 const FURS = [0x5e3e28, 0x847c72, 0xe8e2d4, 0x3a2c22] as const;
 const GEMS = [0x9a1424, 0x2a4a8a, 0x1a6a4a, 0x6a2a8a] as const;
