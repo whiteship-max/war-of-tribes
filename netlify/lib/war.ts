@@ -878,8 +878,12 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
       if (back) home = plus(home, w.army.troops);
     }
   }
+  // Черты армии и полководец (ДР-4) — только числами сервера: названное слепком снимается, даже если разбор его пропустил.
+  const { scars: toldScars, scarGen: toldGen, ...given } = sheet;
+  void toldScars;
+  void toldGen;
   return {
-    ...sheet,
+    ...given,
     army,
     home,
     stock,

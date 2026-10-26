@@ -279,10 +279,11 @@ describe('личность берётся только из подписи', () 
     // Агенты (АГ-1) — книгой агентов сервера (`watch.agentsOf`): отметки, скрытность, диверсия и красноречие — подтверждённые.
     // Дух дружины (ДР-1) — потолком книги духа (`watch.spiritCeilOf`): жалованье по часам сервера.
     // Командиры флангов (ДР-3) — книгой командиров (`watch.commandOf`): тактика флангов в войну — числами сервера.
+    // Черты армии (ДР-4) — книгой черт и полководцем книги агентов (`watch.scarsOfRec`): черты в войну выводит сервер сам.
     expect(sets).toEqual([
       'null',
       'null',
-      '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}), ...marshalOf(rec, now), ...yieldCapOf(rec, now), ...agentsOf(rec, now), ...commandOf(rec), ...spiritCeilOf(rec, now), }',
+      '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}), ...marshalOf(rec, now), ...yieldCapOf(rec, now), ...agentsOf(rec, now), ...commandOf(rec), ...spiritCeilOf(rec, now), ...scarsOfRec(rec), }',
     ]);
     expect([...code.matchAll(/\bsheets\.set\(/g)].length).toBe(3);
   });

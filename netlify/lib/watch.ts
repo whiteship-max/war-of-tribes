@@ -1493,7 +1493,9 @@ export function booked(
     ...(scarBook ? { scars: scarBook } : {}),
   };
   const found: { kind: FlagKind; text: string }[] = [];
-  for (const t of scarFaults(watch.scars, scarBook, generalOf(next))) found.push({ kind: 'scars', text: `Черты армии: ${t}.` });
+  // Подделки черт — одной строкой: флаги одного рода в окне тишины сливаются, и в журнал попала бы только первая.
+  const scarred = scarFaults(watch.scars, scarBook, generalOf(next));
+  if (scarred.length > 0) found.push({ kind: 'scars', text: `Черты армии: ${scarred.join('; ')}.` });
   for (const t of agents.found) found.push({ kind: 'agents', text: `Агенты: ${t}.` });
   for (const t of command.found) found.push({ kind: 'command', text: `Командиры флангов: ${t}.` });
   if (bonds.refused > 0) {

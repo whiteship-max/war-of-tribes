@@ -1,6 +1,8 @@
 // Слова черт армии (ДР-4, docs/siege_v2.md, «Решения ДР-4», Ш9–Ш10): как черта получена, что даёт, как уходит — строкой летописи
 // и разбором в «Дружине». Числа берутся из таблицы правил (`scarrules`), своей арифметики у слов нет (правило 18).
-import { ARCHERS_SEEN, ARROWS_HEAVY, HORSE_HEAVY, SCAR_BY_ID, SURE, type ScarDef, type ScarId, type ScarTheme } from './scarrules';
+import type { StatId, UnitKind } from '../battle/types';
+import { UNIT_KINDS } from '../battle/types';
+import { ARCHERS_SEEN, ARROWS_HEAVY, HORSE_HEAVY, SCAR_BY_ID, SCAR_SIZE, SURE, type ScarDef, type ScarId, type ScarTheme } from './scarrules';
 
 /** Доля словами: «четверти», «пятой части», «десятой части». */
 function part(share: number): string {
@@ -100,3 +102,44 @@ export function loseLine(id: ScarId, why: string): string {
 export function forgetLine(id: ScarId): string {
   return `Дружина забыла «${SCAR_BY_ID[id].name}»: помнит она лишь последние уроки.`;
 }
+
+/** Показатель словами — как его зовёт «Дружина». */
+const STAT_WORD: Record<StatId, string> = {
+  fireAtk: 'огонь',
+  fireDef: 'защита от стрел',
+  shockAtk: 'натиск',
+  shockDef: 'защита в натиске',
+  moraleAtk: 'удар по морали',
+  moraleDef: 'стойкость',
+};
+
+const KINDS_WORD = (kinds: readonly UnitKind[]): string =>
+  kinds.length === UNIT_KINDS.length
+    ? 'у всех родов'
+    : kinds.length === 1 && kinds[0] === 'archer'
+      ? 'у лучников'
+      : kinds.every((k) => k === 'spear' || k === 'infantry')
+        ? 'у копий и пехоты'
+        : `у родов: ${kinds.join(', ')}`;
+
+/**
+ * Что черта даёт числами (Ш5): показатели и рода её направления на её величину (`SCAR_SIZE`), в отметках, со знаком. Одна
+ * строка на группу родов: «натиск +0,49, защита от стрел +0,49 — у всех родов».
+ */
+export function edgeLines(id: ScarId, fmt: (n: number) => string): string[] {
+  const shape = SCAR_BY_ID[id].shape;
+  const k = SCAR_SIZE[id];
+  const groups = new Map<string, { kinds: UnitKind[]; stats: [StatId, number][] }>();
+  for (const kind of UNIT_KINDS) {
+    const stats = Object.entries(shape[kind] ?? {}).filter(([, v]) => v) as [StatId, number][];
+    if (stats.length === 0) continue;
+    const key = stats.map(([s, v]) => `${s}${v}`).join('|');
+    const g = groups.get(key) ?? { kinds: [], stats };
+    g.kinds.push(kind);
+    groups.set(key, g);
+  }
+  return [...groups.values()].map((g) => `${g.stats.map(([s, v]) => `${STAT_WORD[s]} ${fmt(v * k)}`).join(', ')} — ${KINDS_WORD(g.kinds)}`);
+}
+
+/** Чего сервер у боя войны не судит — у таких черт в войне с соседями нет действия (Ш6). */
+export const WAR_BLIND: readonly ScarTheme[] = ['night', 'winter', 'hunger'];

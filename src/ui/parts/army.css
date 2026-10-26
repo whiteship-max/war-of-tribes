@@ -254,3 +254,88 @@
   width: 20px;
   height: 20px;
 }
+
+/* ---------- Черты армии (ДР-4, parts/Scars.tsx) ---------- */
+.dr-scars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dr-scar {
+  border: 1px solid var(--m-plate-rim);
+  border-radius: 12px;
+  background: var(--m-plate);
+  overflow: hidden;
+}
+.dr-scar.bad {
+  border-color: color-mix(in srgb, var(--bad, #c0503c) 45%, var(--m-plate-rim));
+}
+.dr-scar.war-only {
+  border-style: dashed;
+}
+.dr-scar-head {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.dr-scar-head .ic svg,
+.dr-scar-head .ic .icon {
+  width: 24px;
+  height: 24px;
+}
+.dr-scar-head > svg,
+.dr-scar-head > .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+.dr-scar-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.dr-scar-name b {
+  font-size: 14px;
+  line-height: 1.25;
+}
+.dr-scar.good .dr-scar-name b {
+  color: var(--good, inherit);
+}
+.dr-scar.bad .dr-scar-name b {
+  color: var(--bad, inherit);
+}
+.dr-scar-name small {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--muted);
+}
+.dr-scar-why {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  margin: 0;
+  padding: 0 10px 10px 46px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.dr-scar-why dt {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dr-scar-why dd {
+  margin: 0;
+}

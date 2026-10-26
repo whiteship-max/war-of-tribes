@@ -196,22 +196,24 @@ export const SCAR_IDS: readonly ScarId[] = SCARS.map((d) => d.id);
 export const isScarId = (v: unknown): v is ScarId => typeof v === 'string' && (SCAR_IDS as readonly string[]).includes(v);
 
 /**
- * Величина каждой черты — во сколько отметок её направление (Ш5). **Выведена** (`npm run fight -- --derive-scars`, docs/siege_v2.md,
- * 27.2): добрая в своём бою стоит, как одна шкала духа ДР-1 на верху, дурная — как одна на дне.
+ * Величина каждой черты — во сколько отметок её направление (Ш5). **Выведена** (`npm run fight -- --derive-scars`, 100 сидов на
+ * точку; «Лесной морок» и «Ночная паника» — 200, `--scar woodfear --runs 200`: проверка на 200 отошла от ориентира; docs/siege_v2.md,
+ * 27.2): добрая в своём бою стоит, как одна шкала духа ДР-1 на верху (мораль 100 при дисциплине 70), дурная отнимает столько же — её
+ * зеркало. Меняет её только вывод (консоль ставит пробные величины и возвращает записанные).
  */
 export const SCAR_SIZE: Record<ScarId, number> = {
-  ghosts: 0.5,
+  ghosts: 0.49,
   fords: 0.5,
-  highland: 0.5,
-  pikewall: 0.5,
-  walls: 0.5,
-  nightwolves: 0.5,
-  arrowfear: 0.5,
-  woodfear: 0.5,
-  wallshy: 0.5,
-  nightpanic: 0.5,
-  frostbit: 0.5,
-  grumble: 0.5,
+  highland: 0.56,
+  pikewall: 0.61,
+  walls: 0.29,
+  nightwolves: 0.33,
+  arrowfear: 0.36,
+  woodfear: 0.4,
+  wallshy: 0.35,
+  nightpanic: 0.4,
+  frostbit: 0.54,
+  grumble: 0.35,
 };
 
 // ---------- Признаки ----------

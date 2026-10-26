@@ -128,7 +128,7 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'agents', 'estates', 'market', 'deeds', 'bonded', 'spirit', 'command']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'agents', 'estates', 'market', 'deeds', 'bonded', 'spirit', 'command', 'scars']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
@@ -1155,5 +1155,28 @@ describe('ДР-3: командиры флангов на сервере — че
     expect(await uncounted.push(card({ seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 } }), NOW)).toBe(200);
     expect(await uncounted.push(card({ clock: later, time: t, seed: SEED, agents: { seats: seats(), hired: 0, fees: 0, paid: 0 }, command: command(1, { hired: 0, fees: 0 }) }), later)).toBe(200);
     expect(warnings(await uncounted.watch()).some((x) => /наймов в счёте 0/.test(x))).toBe(true);
+  });
+});
+
+// Черты армии (ДР-4, docs/siege_v2.md, «Решения ДР-4», Ш7): опись несёт черты клиента, номера боёв войны и черты войны по ним; сервер
+// ими не пользуется, а сверяет с правилом и своим журналом (`scarbook.scarFaults`). Область правила: опись с чертами; боёв войны у
+// игрока нет — номеров войны в описи нет (точка внутри — утверждением).
+describe('ДР-4: черты армии на сервере — честная опись без флага, подделка — «внимание:»', () => {
+  it('честные черты из боёв с логовами — без флага: серверу их не проверить, в войну они не идут', async () => {
+    const honest = player(5611);
+    expect(await honest.push(card({ scars: { held: ['ghosts', 'fords'], war: [], warHeld: [] } }), NOW)).toBe(200);
+    const rec = await honest.watch();
+    expect(kinds(rec)).not.toContain('scars');
+    expect(rec.scars, 'журнала сервера нет: боёв войны не было').toBeUndefined();
+  });
+  it('черта не из таблицы, четыре черты и бой войны, которого не было, — «внимание:»', async () => {
+    const forged = player(5612);
+    expect(await forged.push(card({ scars: { held: ['ghosts', 'dragon', 'fords', 'walls'], war: ['w9.0'], warHeld: ['walls'] } }), NOW)).toBe(200);
+    const rec = await forged.watch();
+    expect(kinds(rec)).toContain('scars');
+    const w = warnings(rec).join(' ');
+    expect(w).toMatch(/не из таблицы: «dragon»/);
+    expect(w).toMatch(/больше 3/);
+    expect(w).toMatch(/которых у сервера нет: w9\.0/);
   });
 });

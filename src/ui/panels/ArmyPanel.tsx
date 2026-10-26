@@ -24,6 +24,7 @@ import { goTo } from '@/ui/kit/nav';
 import { dec } from '@/game/num';
 import { iconName } from '@/ui/icons/registry';
 import { CommandLine } from '../parts/CommandLine';
+import { ScarList } from '../parts/Scars';
 
 // Меню «Командующие» (ДР-3) — своим куском, по кнопке: первой загрузке оно не нужно.
 const CommandDesk = lazy(() => import('@/ui/next/CommandDesk').then((m) => ({ default: m.CommandDesk })));
@@ -89,6 +90,10 @@ export function ArmyPanel() {
       <h3>Мораль и дисциплина</h3>
       <SpiritCard />
       {general?.rest && <div className="note warn">{restLine(general.rest, 'Отряд дрался', worldNow())}</div>}
+
+      {/* Черты армии (ДР-4): шрамы и привычки по журналу боёв — как получены, что дают, как уходят; разом не больше трёх. */}
+      <h3>Черты</h3>
+      <ScarList />
 
       <h3>Состав</h3>
       <Roster />
