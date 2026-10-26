@@ -189,7 +189,7 @@ export function resolveField(input: FieldInput): FieldOutcome {
     const s = own.scars;
     if (!s || s.held.length === 0) return {};
     // Звери — не войско (ДР-5): черты «против конницы» и «при виде лучников» против стаи не действуют.
-    const edge = scarEdge(s.held, { ...where, ...(s.hungry ? { hungry: true as const } : {}), foe: foe.beasts ? {} : foe.kinds });
+    const edge = scarEdge(s.held, { ...where, ...(s.hungry ? { hungry: true as const } : {}), foe: foe.beasts ? emptyStack() : foe.kinds });
     return edge ? { scars: edge } : {};
   };
 
