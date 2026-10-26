@@ -225,7 +225,7 @@ export const RANGED_RATE = 0.011;
  * раздел; docs/siege_v2.md, 22.2). Слияние `game/rt-2` — 0.0349 на W 101, **0.0357 на W 102** (`npm run derive -- w`, тот же
  * раздел; docs/siege_v2.md, 22.4).
  */
-export const DICE = { faces: DICE_FACES, step: 0.0357, hold: 0.8 };
+export const DICE = { faces: DICE_FACES, step: 0.0341, hold: 0.8 };
 
 /**
  * Ширина фронта полосы, бойцов строя (docs/battle_eu4.md, пачка 2, раздел 8). В ряду полосы — фронте и тылу —
@@ -275,7 +275,7 @@ export const DICE = { faces: DICE_FACES, step: 0.0357, hold: 0.8 };
  * кости на нём 0.0357. После новой таблицы у ворот и сословий при W 102 — 100 (1296 и на приёмке 1299 боёв): в прежнем качании
  * ±2, оставлено 102 (решение владельца 23.10.2026).
  */
-export const FRONT_WIDTH = 102;
+export const FRONT_WIDTH = 113;
 
 /**
  * Какие отметки полководца идут к кости фазы. Фазы у боя — как у EU4 (слово владельца по 14.35, п. 2): огонь и натиск.
