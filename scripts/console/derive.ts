@@ -51,7 +51,7 @@ if (child) {
   if (what === 'w') {
     const { hiringSection } = await import('../raid-hiring');
     const { widthOfHired } = await import('../raid-width');
-    const { spiritOfHired } = await import('../raid-spirit');
+    const { spiritOfHired, spiritSection } = await import('../raid-spirit');
     const { DICE, FRONT_WIDTH } = await import('@/battle');
     // Разделы «Найма» печатают свои таблицы — для вывода они шум: молчат, пока считаются.
     const log = console.log;
@@ -64,6 +64,7 @@ if (child) {
     // Дух нашей стороны в тех же боях (ДР-1): цель весов причин — мораль обычного города около нейтрали (раздел «Дух дружины»).
     const sp = spiritOfHired(hired);
     if (sp) console.log(`  дух нашей стороны в боях выборки: мораль — медиана ${sp.morale.toFixed(1)} (10-я…90-я ${sp.low.toFixed(1)}…${sp.high.toFixed(1)}), дисциплина — медиана ${sp.discipline.toFixed(1)}`);
+    spiritSection(hired);
     console.log(`DERIVE ${JSON.stringify({ was: FRONT_WIDTH, wasStep: DICE.step, w: r.w, step: r.step, fights: r.fights })}`);
   } else if (what === 'gate') {
     const { gateEvens, gateValue } = await import('../raid-defense-mix');
