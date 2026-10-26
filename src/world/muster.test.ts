@@ -168,7 +168,9 @@ describe('где стоит боец — одно правило', () => {
     // свойство ведущих, а не раскладка; ядро кладёт его в кость своей полосы (`flankPips`).
     // Черты армии (ДР-4, docs/siege_v2.md, 27) дописали `scars` — шрамы и привычки войска и его голод: свойство войска, как дух, а
     // не раскладка; ядро кладёт их поправками к показателям родов (`scarProfile`).
-    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'flanks', 'rest', 'spirit', 'scars', 'garrison', 'behind']);
+    // Звери (ДР-5) дописали `beasts` — сторона-стая для черт армии не войско: признак того, кто пришёл, а не раскладка; в ядро он
+    // не едет вовсе.
+    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'flanks', 'rest', 'spirit', 'scars', 'beasts', 'garrison', 'behind']);
     // Версия правил боя (`rules`, BTL-0) идёт в правило вместе с составом: запись старше версии раскладывается по своим (BTL-5).
     expect(src, 'обе стороны — правилом').toMatch(/const attacker = sideSetup\(input\.attacker, rules\);/);
     expect(src, 'клещи — тем же правилом').toMatch(
