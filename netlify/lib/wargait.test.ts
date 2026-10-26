@@ -10,7 +10,8 @@ import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { advance, applyOrder, emptyWars, type SheetAt, type WarFile } from './war.js';
 import { distance, terrainFactor, travelTimeAt } from '../../src/world/geo.js';
 import { fieldWalkFloorMs, warWalkMs } from '../../src/world/pvp.js';
-import { gaitHaltMs, lightShare, LIGHT_NO_CAMP, roadLosses } from '../../src/world/gait.js';
+import { gaitHaltMs, gaitHaul, lightShare, LIGHT_NO_CAMP, roadLosses } from '../../src/world/gait.js';
+import { UNIT_BY_ID } from '../../src/world/data/units.js';
 import { FIGURE_BY_ID } from '../../src/world/data/figures.js';
 import { MARCH_MIN_SECONDS } from '../../src/world/data/tuning.js';
 import { ENERGY_PRICE } from '../../src/world/data/energy.js';
@@ -196,5 +197,30 @@ describe('сервер войны: обоз — второй склад лаге
     }
     expect(waste.normal, 'точка внутри области: амбар пуст — обычный лагерь тает вдвое').toBeGreaterThan(2 * CAMP_WASTE);
     expect(waste.train).toBeCloseTo(CAMP_WASTE, 12);
+  });
+});
+
+describe('сервер войны: вывоз добычи по режиму (ДР-5)', () => {
+  // Город без войска и с большим складом: штурм берёт его, и поклажа упирается в обоз, а не в склад.
+  const rich = (): WarSheet => ({ ...sheet(), army: {}, home: {}, militia: 0, archers: 0, stock: { food: 900_000, wood: 900_000, stone: 900_000 }, gold: 0, stash: 0 });
+  const total = (c: Record<string, number | undefined>): number => Object.values(c).reduce<number>((a, b) => a + (b ?? 0), 0);
+  it('налегке увозит половину того, что увёз бы обычный, с обозом — на четверть больше; той же дверью, что мир', () => {
+    const took: Record<string, { taken: number; men: number }> = {};
+    for (const g of ['light', undefined, 'train'] as const) {
+      const { ctx, file, sheets } = setup();
+      sheets.set(B, { sheet: rich(), at: T0 });
+      expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army(HOST), ...(g ? { gait: g } : {}) }, T0, ctx)).toBeNull();
+      const w = file.wars[0];
+      advance(file, w.arriveAt + 1, sheets);
+      expect(w.fall, `город взят (${g ?? 'normal'})`).toBeDefined();
+      const taken = total(w.fall!.taken);
+      // Точка внутри области: обоз меньше открытого склада — вывоз упирается в поклажу.
+      expect(taken).toBeLessThan(900_000);
+      took[g ?? 'normal'] = { taken, men: total(w.battles[0]?.atkTroops ?? HOST) - total(w.battles[0]?.atkLost ?? {}) };
+    }
+    const per = (k: string): number => took[k].taken / took[k].men;
+    expect(per('normal')).toBeCloseTo(UNIT_BY_ID.warrior.carry, 0);
+    expect(per('light') / per('normal')).toBeCloseTo(gaitHaul('light'), 2);
+    expect(per('train') / per('normal')).toBeCloseTo(gaitHaul('train'), 2);
   });
 });

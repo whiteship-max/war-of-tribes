@@ -1,5 +1,6 @@
-// Режим марша полководца (ДР-2, docs/siege_v2.md, 25.1) — таблицей выбора: срок, убыль налегке, встанет ли лагерь. Числа —
-// мира (`GaitRow`: та же дорога в каждом режиме, теми же функциями, что исполнят приказ), слова — дверью `world/gait`.
+// Режим марша полководца (ДР-2, docs/siege_v2.md, 25.1) — таблицей выбора: срок, убыль налегке, вывоз добычи (ДР-5), встанет
+// ли лагерь. Числа — мира (`GaitRow`: та же дорога в каждом режиме, теми же функциями, что исполнят приказ), слова — дверью
+// `world/gait`.
 // Дома режим меняют даром: касание строки и есть выбор (таблица выбора, как паёк и налог). Не дома — строки только для
 // сравнения, а сменить режим можно в окне отряда: стоянкой и энергией.
 import { GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, GAITS, type Gait } from '@/world/gait';
@@ -17,8 +18,12 @@ const COLS: readonly Col[] = [
   { key: 'gait', title: 'Режим' },
   { key: 'walk', title: 'Срок', align: 'right', w: '76px' },
   { key: 'lost', title: 'Убыль', align: 'right', w: '52px' },
+  { key: 'carry', title: 'Вывоз', align: 'right', w: '64px' },
   { key: 'siege', title: 'Осада', align: 'center', w: '52px' },
 ];
+
+/** Вывоз добычи словами (ДР-5): до десяти тысяч — числом, дальше — «162,8 тыс.». */
+export const haulWords = (n: number): string => (n < 10_000 ? num(n, 0) : `${num(n / 1000, n < 100_000 ? 1 : 0)} тыс.`);
 
 /** Скорость режима словами: «×1,5». */
 export const gaitPace = (g: Gait): string => `×${num(GAIT_SPEED[g], 1)}`;
@@ -63,6 +68,7 @@ export function GaitPick({
           ),
           walk: realLeft(r.walkMs / 1000),
           lost: r.lost > 0 ? <span className="bad">−{r.lost}</span> : '—',
+          carry: r.carry > 0 ? haulWords(r.carry) : '—',
           siege: r.siege ? <span className="bad">нет</span> : <span className="good">да</span>,
         },
       },
@@ -75,6 +81,7 @@ export function GaitPick({
       <p className="nx-tnote">
         {GAIT_META[current].about}
         {current === 'light' ? ` Тает ${lightWasteWords()}; убыль в таблице — ожидание к приходу.` : ''}
+        {' Вывоз — сколько добра поднимут дошедшие: без обоза меньше, с обозом больше.'}
         {free ? '' : ' Полководец не дома: режим меняют в окне отряда, стоянкой и энергией.'}
       </p>
     </div>

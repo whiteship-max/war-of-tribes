@@ -290,3 +290,41 @@ describe('режим марша в мире: старое сохранение',
     expect(wasteOf('calm', 10, true)).toBeCloseTo(wasteOf('calm', 10, true, false), 12);
   });
 });
+
+describe('режим марша в мире: вывоз добычи (ДР-5)', () => {
+  type Hauling = { haul(units: { warrior?: number }, ours: boolean): { carry: number; escort: number } };
+  it('поклажа отряда полководца — по режиму, чужой отряд — без него; пленных режим не касается', async () => {
+    const r = await ready();
+    const h = r.world as unknown as Hauling;
+    const by: Record<string, { carry: number; escort: number }> = {};
+    for (const g of ['light', 'normal', 'train'] as const) {
+      if (g === 'normal') delete r.inner.save.figures.general.gait;
+      else r.inner.save.figures.general.gait = g;
+      by[g] = h.haul({ warrior: 40 }, true);
+      // Чужой отряд (набег на наш город) обоза нашего полководца не несёт.
+      expect(h.haul({ warrior: 40 }, false).carry).toBe(by.normal?.carry ?? h.haul({ warrior: 40 }, false).carry);
+    }
+    expect(by.normal.carry).toBeGreaterThan(0);
+    expect(by.light.carry / by.normal.carry).toBeCloseTo(0.5, 12);
+    expect(by.train.carry / by.normal.carry).toBeCloseTo(1.25, 12);
+    expect(by.light.escort).toBe(by.normal.escort);
+    expect(by.train.escort).toBe(by.normal.escort);
+  });
+
+  it('окно выбора показывает вывоз дошедших — той же дверью, что возьмёт добычу', async () => {
+    const r = await ready();
+    const h = r.world as unknown as Hauling;
+    const rows = (await r.world.settlement(r.lair.id))?.assault?.gaits ?? [];
+    const men = troopTotal(r.inner.save.figures.general.troops ?? {});
+    expect(men, 'точка внутри области: отряд есть').toBeGreaterThan(0);
+    expect(rows.find((x) => x.gait === 'light')?.lost, 'точка внутри области: налегке к приходу уходят').toBeGreaterThan(0);
+    for (const row of rows) {
+      if (row.gait === 'normal') delete r.inner.save.figures.general.gait;
+      else r.inner.save.figures.general.gait = row.gait;
+      expect(row.carry).toBe(Math.floor(h.haul({ warrior: men - row.lost }, true).carry));
+    }
+    const by = Object.fromEntries(rows.map((x) => [x.gait, x.carry]));
+    expect(by.light).toBeLessThan(by.normal);
+    expect(by.train).toBeGreaterThan(by.normal);
+  });
+});

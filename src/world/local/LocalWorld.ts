@@ -183,6 +183,7 @@ import {
   fedOnRoad,
   gaitHaltMs,
   gaitSpeed,
+  gaitHaul,
   lightShare,
   readGait,
   roadLosses,
@@ -4296,11 +4297,12 @@ export class LocalWorld implements WorldApi {
    * Сколько поднимет и скольких устережёт отряд победителя — одна дверь на все
    * пять мест, где город взят. Обоз полководца (`ours`) множит черта «Добычливый»;
    * чужой отряд, взявший наш город, — никогда. Прежде `stackCarry` звали пять мест
-   * порознь, и черта, дошедшая до двух из них, разошлась бы с тремя молча.
+   * порознь, и черта, дошедшая до двух из них, разошлась бы с тремя молча. Режим марша (ДР-5) множит поклажу своего
+   * отряда той же дверью, что у сервера войны (`gait.gaitHaul`): налегке без обоза везут меньше, с обозом — больше.
    */
-  private haul(units: UnitStack, ours: boolean): { carry: number; escort: number } {
+  private haul(units: UnitStack, ours: boolean, gait: Gait | undefined = this.save.figures.general.gait): { carry: number; escort: number } {
     const carry = stackCarry(units);
-    return { carry: ours ? carry * this.traitOf('carry') : carry, escort: stackEscort(units) };
+    return { carry: ours ? carry * this.traitOf('carry') * gaitHaul(gait) : carry, escort: stackEscort(units) };
   }
 
   /** Доля приходов, в которые часовые берут разведчика: «Неприметный» реже, «Приметный» чаще. */
@@ -5484,6 +5486,8 @@ export class LocalWorld implements WorldApi {
         gait: g,
         walkMs,
         lost: Math.round(men * lightShare(g, walkMs)),
+        // Вывоз дошедших в этом режиме (ДР-5) — той же дверью, что возьмёт добычу.
+        carry: Math.floor(this.haul({ warrior: Math.max(0, men - Math.round(men * lightShare(g, walkMs))) }, true, g).carry),
         siege: siegeBlockOf(g),
         energy: this.energyCost('general', action, now, walkMs, g),
       };

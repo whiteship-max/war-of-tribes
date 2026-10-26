@@ -158,7 +158,7 @@ import {
 } from '../../src/world/parley.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
 import { energyAt, energyBlock, onRoad, priceOf, remark, spend, type EnergyMark } from '../../src/world/energy.js';
-import { gaitField, gaitHaltMs, gaitName, gaitSpeed, readGait, roadLosses, siegeBlockOf, type Gait } from '../../src/world/gait.js';
+import { gaitField, gaitHaltMs, gaitHaul, gaitName, gaitSpeed, readGait, roadLosses, siegeBlockOf, type Gait } from '../../src/world/gait.js';
 import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
@@ -1095,7 +1095,8 @@ function fateOfWar(w: WarRow, at: number, sheet: WarSheet, fated: WarRow['fate']
     stash: sheet.stash,
     pop: sheet.pop,
     bonded: sheet.bonded,
-    carry: stackCarry({ warrior: survivors }),
+    // Вывоз — по режиму марша похода (ДР-5): налегке без обоза меньше, с обозом больше — той же дверью, что у мира.
+    carry: stackCarry({ warrior: survivors }) * gaitHaul(w.gait),
     escort: stackEscort({ warrior: survivors }),
     levels: sheet.levels,
     seed: fallSeed(warSeed(w.id, 0xfa11), at),

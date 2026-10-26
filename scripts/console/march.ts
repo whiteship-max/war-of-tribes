@@ -1,8 +1,9 @@
 // `npm run march` — режим марша полководца (ДР-2, docs/siege_v2.md, 25): правила режимов и таблица по длинам пути —
 // срок, убыль налегке к приходу, истощение лагеря за фазу у обычного и у обоза (при полном и пустом амбаре дома), энергия
-// дороги. Все числа — дверями игры (`world/gait`, `world/siegeroll.wasteOf`, `world/energy.roadCost`, `geo.travelTime`):
+// дороги, вывоз добычи по режиму (ДР-5). Все числа — дверями игры (`world/gait`, `world/siegeroll.wasteOf`, `world/energy.roadCost`, `geo.travelTime`):
 // своей арифметики у команды нет. Лёгкая: без мира и боёв, замка машины не берёт. Справка — `--help`.
-import { GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, GAITS, gaitHaltMs, gaitSpeed, lightShare, type Gait } from '@/world/gait';
+import { GAIT_HAUL, GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, GAITS, TRAIN_SHARE, gaitHaltMs, gaitSpeed, lightShare, type Gait } from '@/world/gait';
+import { UNIT_BY_ID } from '@/world/data/units';
 import { CAMP_WASTE, CAMP_WASTE_DAYS, CAMP_WASTE_HUNGRY } from '@/world/data/siegeroll';
 import { wasteOf } from '@/world/siegeroll';
 import { roadCost } from '@/world/energy';
@@ -34,6 +35,10 @@ console.log('=== Режим марша: правила (world/gait) ===');
 for (const g of GAITS) console.log(`  ${pad(GAIT_META[g].name, 10)} скорость ×${GAIT_SPEED[g]}  ${GAIT_META[g].about}`);
 console.log(
   `  истощение налегке: CAMP_WASTE ${CAMP_WASTE} × CAMP_WASTE_HUNGRY ${CAMP_WASTE_HUNGRY} / 4 игр. дн. фазы = ${pct(GAIT_LIGHT_WASTE, 3)} отряда в игр. день`,
+);
+console.log(
+  `  вывоз добычи (ДР-5): доля обоза TRAIN_SHARE = 1 / CAMP_WASTE_HUNGRY = ${TRAIN_SHARE}; налегке 1 − доля = ×${GAIT_HAUL.light}, ` +
+    `с обозом 1 + доля × (1 − доля) = ×${GAIT_HAUL.train}; на бойца — ${GAITS.map((g) => `${GAIT_META[g].name.toLowerCase()} ${UNIT_BY_ID.warrior.carry * GAIT_HAUL[g]}`).join(', ')} добра`,
 );
 const halt = gaitHaltMs();
 console.log(

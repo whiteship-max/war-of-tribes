@@ -6,7 +6,7 @@
 // - лагерь с обозом — без подвоза: путь от дома > 0 и пустой амбар, где обычный лагерь тает сильнее;
 // - энергия дороги — по пройденному пути: та же дорога стоит ту же энергию в любом режиме.
 import { describe, expect, it, vi } from 'vitest';
-import { GAIT_LIGHT_WASTE, GAIT_SPEED, GAITS, gaitHaltMs, gaitSpeed, lightShare, readGait, roadLosses, siegeBlockOf } from './gait';
+import { GAIT_LIGHT_WASTE, GAIT_SPEED, GAITS, gaitHaltMs, gaitHaul, gaitSpeed, lightShare, readGait, roadLosses, siegeBlockOf } from './gait';
 import { generalSpeed, warWalkMs, fieldWalkFloorMs, fieldReach } from './pvp';
 import { CAMP_WASTE, CAMP_WASTE_DAYS, CAMP_WASTE_HUNGRY, SIEGE_PHASE } from './data/siegeroll';
 import { wasteOf } from './siegeroll';
@@ -134,5 +134,22 @@ describe('режим марша: энергия и смена', () => {
     expect(readGait('train')).toBe('train');
     expect(readGait('fast')).toBe('normal');
     expect(readGait(undefined)).toBe('normal');
+  });
+});
+
+describe('режим марша: вывоз добычи (ДР-5)', () => {
+  it('выведено из доли обоза: налегке — только на себе, с обозом — второй обоз за вычетом хлеба лагеря', () => {
+    const h = 1 / CAMP_WASTE_HUNGRY;
+    expect(gaitHaul('light')).toBeCloseTo(1 - h, 12);
+    expect(gaitHaul('normal')).toBe(1);
+    expect(gaitHaul('train')).toBeCloseTo(1 + h * (1 - h), 12);
+    // Ориентиры владельца при нынешних числах лагеря.
+    expect(gaitHaul('light')).toBeCloseTo(0.5, 12);
+    expect(gaitHaul('train')).toBeCloseTo(1.25, 12);
+    // Порядок: чем больше обоза, тем больше вывоз; мусор и нет поля — обычный.
+    expect(gaitHaul('light')).toBeLessThan(gaitHaul('normal'));
+    expect(gaitHaul('normal')).toBeLessThan(gaitHaul('train'));
+    expect(gaitHaul(undefined)).toBe(1);
+    expect(gaitHaul('fast' as never)).toBe(1);
   });
 });

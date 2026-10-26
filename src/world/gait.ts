@@ -4,17 +4,18 @@
 // меняется сразу и даром; в пути и в поле — стоянкой и ценой (`gaitHaltMs`, `ENERGY_PRICE.gait`); в лагере — никак.
 //
 // ЧТО РЕЖИМ ДАЁТ И ОТНИМАЕТ — только здесь: скорость (`gaitSpeed`, её множат все дороги полководца у мира и у сервера),
+// вывоз добычи (`gaitHaul`, ДР-5),
 // истощение налегке в пути и в поле (`lightShare`, `roadLosses`), может ли отряд встать лагерем (`siegeBlockOf`), лагерь
 // с обозом без подвоза из дома (`siegeroll.wasteOf` читает `campFed`), темп энергии дороги (`gaitSpeed` — та же дорога, та
 // же энергия). Своей арифметики у окна, у мира и у сервера нет.
 //
 // Модуль чистый: часов не читает, время приходит доводом. Без `@/`: его собирает и сервер.
-import { GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, type Gait } from './data/gait';
+import { GAIT_HAUL, GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, type Gait } from './data/gait';
 import { wasteLosses } from './siegeroll';
 import { travelTime } from './geo';
 import { gameDaysOfMs, realMs } from '../game/pace';
 
-export { GAITS, GAIT_META, GAIT_SPEED, GAIT_LIGHT_WASTE, type Gait } from './data/gait';
+export { GAITS, GAIT_HAUL, GAIT_META, GAIT_SPEED, GAIT_LIGHT_WASTE, TRAIN_SHARE, type Gait } from './data/gait';
 
 /** Режим из записи: «налегке» или «с обозом», иначе — обычный (старый поход, мусор, нет поля). */
 export const readGait = (v: unknown): Gait => (v === 'light' || v === 'train' ? v : 'normal');
@@ -24,6 +25,12 @@ export const gaitField = (g: Gait | undefined): { gait?: 'light' | 'train' } => 
 
 /** Множитель скорости полководца в режиме: им множат скорость в `geo.travelTime`, им же — темп энергии дороги. */
 export const gaitSpeed = (g: Gait | undefined): number => GAIT_SPEED[readGait(g)];
+
+/**
+ * Множитель вывоза добычи в режиме (ДР-5): им множат поклажу отряда полководца (`stackCarry`) у мира (`LocalWorld.haul`) и
+ * у сервера войны (`war.fateOfWar`), им же — строку «Вывоз» в окне выбора. Пленных не касается.
+ */
+export const gaitHaul = (g: Gait | undefined): number => GAIT_HAUL[readGait(g)];
 
 /** Отказ лагеря налегке — одна строка на кнопку, приказ, минуту прихода и сервер (М7). */
 export const LIGHT_NO_CAMP = 'Налегке лагерь не ставят: обоза нет. Смени режим марша на «Обычный» или «С обозом».';

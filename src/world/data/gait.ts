@@ -35,6 +35,25 @@ export const figureSpeed = (id: FigureId, g?: Gait): number => (id === 'general'
  */
 export const GAIT_LIGHT_WASTE = (CAMP_WASTE * CAMP_WASTE_HUNGRY) / gameDaysOfMs(SIEGE_PHASE);
 
+/**
+ * Доля поклажи колонны, которую везёт её обоз (ДР-5): та же доля, что кормит лагерь, — пустой амбар дома удваивает истощение
+ * лагеря (`CAMP_WASTE_HUNGRY`), значит половину нужды колонны везёт она сама на возах. Выводится, а не пишется рукой.
+ */
+export const TRAIN_SHARE = 1 / CAMP_WASTE_HUNGRY;
+
+/**
+ * Вывоз добычи по режиму марша (ДР-5, решение владельца: налегке ×0,5, с обозом ×1,25 — ориентиры), множитель поклажи
+ * бойца (`units.warrior.carry`). Налегке обоза нет — везут только на себе: `1 − TRAIN_SHARE`. С обозом — второй обоз (М5:
+ * «обоз — второй склад лагеря»; потому и вдвое медленнее), и его доля `TRAIN_SHARE` занята хлебом лагеря, а свободно —
+ * остальное: `1 + TRAIN_SHARE × (1 − TRAIN_SHARE)`. При `CAMP_WASTE_HUNGRY` = 2 — ×0,5 и ×1,25 (`npm run march`).
+ * Пленных это не касается: они идут сами.
+ */
+export const GAIT_HAUL: Readonly<Record<Gait, number>> = {
+  light: 1 - TRAIN_SHARE,
+  normal: 1,
+  train: 1 + TRAIN_SHARE * (1 - TRAIN_SHARE),
+};
+
 /** Слова режима: имя на кнопке и строка «что это» для окна. */
 export const GAIT_META: Readonly<Record<Gait, { name: string; short: string; about: string }>> = {
   light: {
