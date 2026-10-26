@@ -8,10 +8,11 @@ import { CELL_COST_MIN } from './geography';
 import { FIGURE_BY_ID } from './data/figures';
 import { asGame, gameSecondsOfMs, realMs, type GameSec } from '../game/pace';
 import { FIRST_RULES, RELIEF_WIN_RULES } from '../battle/config';
-import { GAIT_SPEED, gaitSpeed, type Gait } from './gait';
+import { GAIT_SPEED, type Gait } from './gait';
+import { generalSpeed } from './data/gait';
 
-/** Скорость полководца в режиме марша (ДР-2, М3): одна мерка на мир и на сервер войны. */
-export const generalSpeed = (g?: Gait): number => FIGURE_BY_ID.general.speed * gaitSpeed(g);
+/** Скорость полководца в режиме марша (ДР-2, М3) — объявлена в данных режима (`data/gait.generalSpeed`). */
+export { generalSpeed };
 
 /**
  * Сид земли для пути между замками. Переправы и броды выводятся из сида мира, а сид у каждого игрока свой;

@@ -173,7 +173,8 @@ import {
   type WarSheet,
   type WarView,
 } from '../../../netlify/lib/contract';
-import { fieldWalkSeconds, foodLeft, generalSpeed, reliefCredit, spyWalkMs, warWalkMs } from '../pvp';
+import { fieldWalkSeconds, foodLeft, reliefCredit, spyWalkMs, warWalkMs } from '../pvp';
+import { figureSpeed } from '../data/gait';
 import {
   GAITS,
   campFed,
@@ -5221,7 +5222,7 @@ export class LocalWorld implements WorldApi {
    * перехват и погоню (MAP-9). `gait` — режим для плана «а если так» (окно выбора); нет — нынешний.
    */
   private speedOf(id: FigureId, gait?: Gait): number {
-    return id === 'general' ? generalSpeed(gait ?? this.save.figures.general.gait) : FIGURE_BY_ID[id].speed;
+    return figureSpeed(id, gait ?? this.save.figures.general.gait);
   }
 
   // ---------- Режим марша полководца (ДР-2, docs/siege_v2.md, 25.1) ----------
