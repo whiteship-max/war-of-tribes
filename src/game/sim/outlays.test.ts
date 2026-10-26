@@ -36,6 +36,7 @@ const DOORS: Record<string, { why: Why[]; what: string }> = {
   'sim/crown.ts': { why: ['deed'], what: 'ответ на весть державы отнимает золото (СБ-2)' },
   'sim/candidates.ts': { why: ['outlay'], what: 'плата за найм советника за сезон вперёд (РТ-1)' },
   'sim/recruits.ts': { why: ['outlay'], what: 'найм агента в Ратуше: плата по ртам и жалованье вперёд (АГ-1)' },
+  'sim/commanders.ts': { why: ['outlay'], what: 'найм командира фланга: плата по ртам и жалованье вперёд (ДР-3)' },
   'sim/estates.ts': { why: ['outlay'], what: 'дар сословию золотом (РТ-2)' },
   'sim/stock.ts': { why: ['outlay', 'drain', 'deed'], what: 'дверь склада (ECO-1): убавку объясняет тот, кто зовёт; излишек сверх вместимости сгорает тратой' },
 };
