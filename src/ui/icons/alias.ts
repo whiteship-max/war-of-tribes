@@ -33,6 +33,9 @@ export const ALIAS = {
   'evt-agent_scout': 'fig-scout',
   'evt-agent_spy': 'fig-spy',
   'evt-agent_diplomat': 'fig-diplomat',
+  // Пустое место командира фланга (ДР-5): тот же знак, что строка «Командующие» в «Дружине».
+  'evt-command_left': 'hud-army',
+  'evt-command_right': 'hud-army',
   // Характеристики агентов (АГ-1, docs/icons.md, «АГ-1»): отметки — знаки фаз боя, зоркость — труба, скрытность — сомкнутый
   // глаз, диверсия — огонь, красноречие — речь.
   'stat-fire': 'bat-volley',
