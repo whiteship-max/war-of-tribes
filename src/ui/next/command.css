@@ -17,7 +17,7 @@
 
 /* Ярлык рода: не хорош и не плох — у каждого своя цена, поэтому цвет свой, а не «добрый» или «худой». */
 .cm-birth.noble {
-  color: var(--m-gilt, #c8a048);
+  color: var(--accent);
 }
 .cm-birth.low {
   color: var(--text);

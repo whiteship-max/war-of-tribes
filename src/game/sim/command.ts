@@ -47,12 +47,12 @@ export function commandAge(s: GameState, f: Flank): number {
 
 /** Тактика людей на местах — поле стороны боя (`ArmySetup.flanks`): мост везёт его в мир (`PlayerProfile.flanks`). */
 export function commandFlanks(s: GameState): Flanks {
-  const seats: Partial<Record<Flank, number>> = {};
+  const tactics: Partial<Record<Flank, number>> = {};
   for (const f of FLANKS) {
     const c = commanderOn(s, f);
-    if (c) seats[f] = c.tactics;
+    if (c) tactics[f] = c.tactics;
   }
-  return flanksFrom(seats);
+  return flanksFrom(tactics);
 }
 
 /** Готовый кандидат — то, что ложится в найм (`sim/commanders`): номер, ступень, имя и плата вперёд. */
@@ -78,7 +78,7 @@ export function seatCommander(s: GameState, f: Flank, c: CommandHire): void {
   b.fees += Math.max(0, c.advance);
   const was = b.seats[f];
   if (was) log(s, `${was.name} оставил место командира ${FLANK_OF[f]}.`, 'info');
-  b.seats[f] = { n: c.n, tier: c.tier, at: s.time, name: c.name };
+  b.seats = { ...b.seats, [f]: { n: c.n, tier: c.tier, at: s.time, name: c.name } };
   log(s, `${c.name} принял ${FLANK_WORD[f]} фланг в отряде полководца.`, 'good');
 }
 
@@ -155,7 +155,7 @@ export function mergeCommand(v: unknown): CommandState | undefined {
   // Взятые — только номера кандидатов своего окна: чужой номер в книге не прячет никого.
   const took = { w, n: Array.isArray(t.n) ? t.n.filter((x): x is number => Number.isInteger(x) && x >= 0 && windowOfCommander(x) === w) : [] };
   const count = (x: unknown): number => (finite(x) ? Math.max(0, x) : 0);
-  const seats: CommandState['seats'] = {};
+  const kept: [Flank, CommandSeat][] = [];
   const raw = r.seats && typeof r.seats === 'object' ? (r.seats as Record<string, unknown>) : {};
   const used = new Set<number>();
   for (const [f, x] of Object.entries(raw)) {
@@ -166,7 +166,8 @@ export function mergeCommand(v: unknown): CommandState | undefined {
     // Один человек — одно место: второй раз тот же номер не садится.
     if (used.has(c.n as number)) continue;
     used.add(c.n as number);
-    seats[f] = { n: c.n as number, tier: Math.max(1, c.tier as number), at: c.at, name };
+    kept.push([f, { n: c.n as number, tier: Math.max(1, c.tier as number), at: c.at, name }]);
   }
+  const seats = Object.fromEntries(kept) as CommandState['seats'];
   return { seats, took, hired: Math.floor(count(r.hired)), fees: count(r.fees), paid: count(r.paid) };
 }
