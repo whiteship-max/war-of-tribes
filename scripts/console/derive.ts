@@ -63,7 +63,7 @@ if (child) {
     console.log(`  при W ${FRONT_WIDTH}, шаге ${DICE.step}: боёв выборки ${r.fights}, W = ${r.w}, шаг кости на нём ${r.step} (решётка «Лезвия» ${r.size})`);
     // Дух нашей стороны в тех же боях (ДР-1): цель весов причин — мораль обычного города около нейтрали (раздел «Дух дружины»).
     const sp = spiritOfHired(hired);
-    if (sp) console.log(`  дух нашей стороны в боях выборки: мораль — медиана ${sp.morale.toFixed(1)} (10-я…90-я ${sp.low.toFixed(1)}…${sp.high.toFixed(1)}), дисциплина — медиана ${sp.discipline.toFixed(1)}`);
+    if (sp) console.log(`  дух нашей стороны в боях выборки: мораль — медиана ${sp.morale.toFixed(1)} (10-я…90-я ${sp.low.toFixed(1)}…${sp.high.toFixed(1)}), дисциплина — медиана ${sp.discipline.toFixed(1)}; потолок — мораль ${sp.moraleCeil.toFixed(1)}, дисциплина ${sp.disciplineCeil.toFixed(1)}`);
     spiritSection(hired);
     console.log(`DERIVE ${JSON.stringify({ was: FRONT_WIDTH, wasStep: DICE.step, w: r.w, step: r.step, fights: r.fights })}`);
   } else if (what === 'gate') {

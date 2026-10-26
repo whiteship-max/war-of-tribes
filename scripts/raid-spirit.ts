@@ -5,8 +5,11 @@
 // пульсом (`lib/spirited.ts`): тот же, что мост везёт в мир. Своих чисел у раздела нет.
 //
 // Цель весов причин духа (решение владельца 26.10.2026): **армия обычного города держит мораль около 70** — нейтрали боя
-// (`SPIRIT.even`). Обычный город — партии «Найма», из боёв которых выводится W (набор правила 16 назван один раз: бои выборки
-// W, наша сторона на входе); мера — медиана морали по этим боям. Её же печатает шаг вывода W (`npm run derive -- w`).
+// (`SPIRIT.even`). Обычный город — партии «Найма», из боёв которых выводится W (набор правила 16: бои выборки W, наша сторона
+// на входе). Мера — медиана **потолка** морали по этим боям: веса причин (`spiritrules`, Д5) складывают потолок шкалы, а
+// значение — это путь от дна к потолку, который держат жалованье и терпение (Д3), и его не сдвигает ни один вес. Значение
+// печатается рядом — сколько боёв идёт с долгом по жалованью, видно по строке «терпение». Тот же разбор печатает шаг вывода W
+// (`npm run derive -- w`).
 import { SPIRIT } from '@/battle';
 import type { SpiritLineId } from '@/game/spiritrules';
 import { pad, q } from './raid-common';
@@ -24,11 +27,21 @@ const sample = (ss: readonly Spirited[]): Spirited[] => ss.filter((s) => !s.gate
 const cut = (xs: number[]): string => (xs.length ? [0.1, 0.25].map((p) => q(xs, p).toFixed(1)).join('…') + `…${median(xs).toFixed(1)}…` + [0.75, 0.9].map((p) => q(xs, p).toFixed(1)).join('…') : '—');
 
 /** Дух в боях выборки W: сколько боёв, медианы морали и дисциплины. Боёв нет — `null`. */
-export function spiritOfHired(hired: Hired): { fights: number; morale: number; discipline: number; low: number; high: number } | null {
+export function spiritOfHired(
+  hired: Hired,
+): { fights: number; morale: number; discipline: number; low: number; high: number; moraleCeil: number; disciplineCeil: number } | null {
   const all = sample(every(hiredOuts(hired)));
   if (all.length === 0) return null;
   const m = all.map((s) => s.morale);
-  return { fights: all.length, morale: median(m), discipline: median(all.map((s) => s.discipline)), low: q(m, 0.1), high: q(m, 0.9) };
+  return {
+    fights: all.length,
+    morale: median(m),
+    discipline: median(all.map((s) => s.discipline)),
+    low: q(m, 0.1),
+    high: q(m, 0.9),
+    moraleCeil: median(all.map((s) => s.moraleCeil)),
+    disciplineCeil: median(all.map((s) => s.disciplineCeil)),
+  };
 }
 
 /** Порядок строк причин — как в окне «Дружины» (`parts/spiritWords`). */
@@ -48,26 +61,37 @@ const LINES: readonly [SpiritLineId, string][] = [
   ['patience', 'терпение'],
 ];
 
-function row(label: string, ss: Spirited[]): void {
-  console.log(` ${label.padEnd(30)} ${pad(ss.length, 5)}  ${pad(cut(ss.map((s) => s.morale)), 32)}  ${pad(cut(ss.map((s) => s.discipline)), 32)}`);
+function row(label: string, ss: Spirited[], ceil = false): void {
+  const mo = ss.map((s) => (ceil ? s.moraleCeil : s.morale));
+  const di = ss.map((s) => (ceil ? s.disciplineCeil : s.discipline));
+  console.log(` ${label.padEnd(30)} ${pad(ss.length, 5)}  ${pad(cut(mo), 32)}  ${pad(cut(di), 32)}`);
+}
+
+/** Строки по частям «Найма»: значение или потолок. */
+function parts(hired: Hired, ceil: boolean): void {
+  const ladder = Object.entries(hired.ladder);
+  const levels = [...new Set(ladder.map(([k]) => Number(k.split(':')[1])))].sort((a, b) => a - b);
+  for (const level of levels) row(`А. лестница мерки, ур. ${level}`, sample(ladder.filter(([k]) => Number(k.split(':')[1]) === level).flatMap(([, outs]) => every(outs))), ceil);
+  row('Б. партия с первой секунды', sample(every(Object.values(hired.fresh).flat())), ceil);
+  row('В. уведённые люди', sample(every(hired.captives)), ceil);
+  const all = every(hiredOuts(hired));
+  row('все бои выборки W', sample(all), ceil);
+  row('у ворот по событиям (вне W)', all.filter((s) => s.gate), ceil);
 }
 
 export function spiritSection(hired: Hired): void {
   console.log('');
   console.log('=== Дух дружины: с какой моралью и дисциплиной наша сторона входит в бой (ДР-1, docs/siege_v2.md, 24.1) ===');
   console.log(`Бои — те же записи боя, что у «Ширины поля»; дух — слепок перед пульсом, тот же, что мост везёт в бой (sim/spirit). Нейтраль боя — ${SPIRIT.even}.`);
-  console.log('Цель весов причин (решение владельца 26.10.2026): армия обычного города держит мораль около нейтрали — медиана морали боёв выборки W.');
+  console.log('Цель весов причин (решение владельца 26.10.2026): армия обычного города держит мораль около нейтрали — медиана потолка морали');
+  console.log('боёв выборки W (потолок — основа и причины, его задают веса; значение — путь от дна к потолку, его держат жалованье и терпение).');
+  console.log('Значение на входе в бой:');
   console.log(' бои                             боёв  мораль: 10-я…25-я…медиана…75-я…90-я  дисциплина: 10-я…25-я…медиана…75-я…90-я');
-  const ladder = Object.entries(hired.ladder);
-  const levels = [...new Set(ladder.map(([k]) => Number(k.split(':')[1])))].sort((a, b) => a - b);
-  for (const level of levels) row(`А. лестница мерки, ур. ${level}`, sample(ladder.filter(([k]) => Number(k.split(':')[1]) === level).flatMap(([, outs]) => every(outs))));
-  row('Б. партия с первой секунды', sample(every(Object.values(hired.fresh).flat())));
-  row('В. уведённые люди', sample(every(hired.captives)));
-  const outs = hiredOuts(hired);
-  const all = every(outs);
-  const inW = sample(all);
-  row('все бои выборки W', inW);
-  row('у ворот по событиям (вне W)', all.filter((s) => s.gate));
+  parts(hired, false);
+  console.log('Потолок (без жалованья и терпения):');
+  console.log(' бои                             боёв  мораль: 10-я…25-я…медиана…75-я…90-я  дисциплина: 10-я…25-я…медиана…75-я…90-я');
+  parts(hired, true);
+  const inW = sample(every(hiredOuts(hired)));
   if (inW.length === 0) return;
   console.log('Причины в боях выборки W — среднее по боям, мораль / дисциплина (сумма строк — дух на входе):');
   for (const [id, name] of LINES) {

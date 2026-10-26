@@ -17,6 +17,9 @@ export interface Spirited {
   gate: boolean;
   morale: number;
   discipline: number;
+  /** Потолок шкал — основа и причины строками, без жалованья и терпения (`spiritrules.axisOf`): то, что задают веса причин. */
+  moraleCeil: number;
+  disciplineCeil: number;
   lines: SpiritLines;
 }
 
@@ -34,4 +37,12 @@ export function linesOf(v: SpiritView): SpiritLines {
 
 /** Бои пульса (записи боя — те же, что у «Ширины поля») с духом, который ушёл в этот пульс. */
 export const spiritedOf = (fronts: readonly Front[], spirit: Spirit, view: SpiritView): Spirited[] =>
-  fronts.map((f) => ({ kind: f.kind, gate: f.gate, morale: spirit.morale, discipline: spirit.discipline, lines: linesOf(view) }));
+  fronts.map((f) => ({
+    kind: f.kind,
+    gate: f.gate,
+    morale: spirit.morale,
+    discipline: spirit.discipline,
+    moraleCeil: view.morale.ceil,
+    disciplineCeil: view.discipline.ceil,
+    lines: linesOf(view),
+  }));
