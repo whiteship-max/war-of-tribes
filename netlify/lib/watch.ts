@@ -1480,7 +1480,7 @@ export function booked(
   // Книга агентов (АГ-1): сид, люди на местах и опыт под потолком дел; ступень найма — не выше ратуши книги стройки.
   const agents = agentsStep(rec.agents, watch, at, levelIn(people.book.levels, 'town_hall'), gameMsBetween(prior.card, watch));
   // Книга командиров флангов (ДР-3): кандидат — по сиду книги агентов, ступень — не выше Казарм книги стройки.
-  const command = commandStep(rec.command, watch, at, agents.book.seed, levelIn(people.book.levels, 'barracks'));
+  const command = commandStep(rec.command, watch, at, agents.book.seed, levelIn(people.book.levels, 'barracks'), gameMsBetween(prior.card, watch));
   // Книга черт армии (ДР-4): метки боёв войны игрока из записи войн — в свой журнал; черты описи сверяются с ним.
   const scarBook = scarBookAfter(rec.scars, wars, key);
   const next = {

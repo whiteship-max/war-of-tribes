@@ -110,7 +110,7 @@ import { STAB_STEP, stabClamp, stabOutputMult } from './stabrules';
 import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
 import { WAGE_MIN_SHARE } from './spiritrules';
 import { AGENT_ROLES, recruitWage, recruitAt, traditionAt } from './agentrules';
-import { FLANKS, commanderAt, leadLoyalty, type Birth, type Commander } from './commandrules';
+import { FLANKS, commanderSeated, leadLoyalty, type Birth, type Commander } from './commandrules';
 import {
   ESTATES,
   FERVOUR_SCALE,
@@ -830,7 +830,8 @@ export const agentWagesPerDay = (s: GameState): number =>
 /** Кандидат человека на месте фланга `f`; места нет — `null`. */
 export function commanderOn(s: GameState, f: Flank): Commander | null {
   const c = s.command?.seats?.[f];
-  return c ? commanderAt(s.seed, c.n, c.tier) : null;
+  // Служба (ДР-5): опыт за бои поднимает уровень на службе и тактику, жалованье — по уровню найма.
+  return c ? commanderSeated(s.seed, c) : null;
 }
 
 /** Жалованье командиров флангов в игровой день — ступень совета по уровню и чертам кандидата (`agentrules.recruitWage`). */

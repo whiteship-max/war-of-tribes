@@ -282,6 +282,10 @@ export interface CommandSeat {
   /** Игровая секунда найма: от неё растёт возраст. */
   at: number;
   name: string;
+  /** Опыт за бои (ДР-5): лестницей агентов (`DEED_XP`, не чаще `DEED_GAP`), рост — `commandrules.servedCommander`. Нет — ноль. */
+  xp?: number;
+  /** Минута мира последнего засчитанного боя (мс): следующий — не раньше `DEED_GAP`. Нет — боёв не было. */
+  deedAt?: number;
 }
 
 /**
@@ -298,6 +302,8 @@ export interface CommandState {
   fees: number;
   /** Сколько золота ушло на жалованье командиров за партию. */
   paid: number;
+  /** Кто ушёл с места и почему (ДР-5) — его называет весть о пустом месте (`sim/command.commandVacancyDef`). Нет — никто. */
+  left?: Partial<Record<Flank, { name: string; why: 'fell' | 'rest' }>>;
 }
 
 /**

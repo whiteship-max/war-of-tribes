@@ -434,6 +434,8 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     fallen: e.fallen,
     // Дело и гибель агента: опыт пишет племя, мир только сообщает событие.
     deed: e.deed,
+    // Бой полководца для командиров флангов (ДР-5): опыт и гибель пишет племя.
+    ...(e.flanks ? { flanks: e.flanks } : {}),
     siege: e.siege ?? false,
     fell: e.fell,
     retired: e.retired,

@@ -60,6 +60,8 @@ import { CHAIN_SEASONS, TIDING, TIDINGS } from './tidings';
 import { ADVISOR_POSTS } from '../councilrules';
 import { vacancyDef } from '../sim/council';
 import { agentVacancyDef } from '../sim/recruit';
+import { commandVacancyDef } from '../sim/command';
+import { FLANKS } from '../commandrules';
 import { AGENT_ROLES } from '../agentrules';
 import { BOON_BY_ID, boonWords } from './boons';
 import { SEASON_DAYS } from './seasons';
@@ -784,6 +786,8 @@ export const EVENTS: EventDef[] = [
   ...ADVISOR_POSTS.map(vacancyDef),
   // Пустое место агента (АГ-1): весть кладёт гибель или покой (`sim/expedition`), случаем она не выпадает.
   ...AGENT_ROLES.map(agentVacancyDef),
+  // Пустое место командира фланга (ДР-5): весть кладёт гибель в бою (`sim/expedition`) или покой (`sim/tick`).
+  ...FLANKS.map(commandVacancyDef),
   {
     id: 'relic_offer',
     silence: 1,

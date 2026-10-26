@@ -351,6 +351,13 @@ function DispatchCardNew({
             <small>Просители и совет</small>
           </button>
         )}
+        {/* Пустое место командира фланга (ДР-5): кандидаты — в «Дружине», меню «Командующие». */}
+        {d.command && (
+          <button className="nx-ans" onClick={() => goTo(WINDOW.army)}>
+            <b>Дружина</b>
+            <small>Командующие: кандидаты</small>
+          </button>
+        )}
         {/* Пустое место агента (АГ-1): кандидаты — в Ратуше, раздел «Агенты». */}
         {d.agents && (
           <button

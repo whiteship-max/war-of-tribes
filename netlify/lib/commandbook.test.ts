@@ -9,14 +9,15 @@ import { commandFlags, estateFaults, readWatchRecord } from './watch.js';
 import type { CastleClaim, WarArmy, WarSheet, WatchCard } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { applyOrder, emptyWars, liveSheet, type SheetAt, type WarFile, type WarRow } from './war.js';
-import { COMMONER_SLIGHT, LORD_FAVOR, commandRetireAge, commanderAt, commanderId, windowOfCommander } from '../../src/game/commandrules.js';
-import { AGENT_YEAR } from '../../src/game/data/agents.js';
+import { COMMONER_SLIGHT, LORD_FAVOR, commandGrowth, commandRetireAge, commanderAt, commanderId, windowOfCommander } from '../../src/game/commandrules.js';
+import { AGENT_YEAR, DEED_GAP } from '../../src/game/data/agents.js';
+import { gameSecondsOfMs } from '../../src/game/pace.js';
 import { AGENT_ROLES } from '../../src/game/agentrules.js';
 import { createInitialState } from '../../src/game/state.js';
 import { QUESTS } from '../../src/game/data/quests.js';
 import { buildingOfType, commandLead } from '../../src/game/derived.js';
 import { creditTech } from '../../src/game/sim/tech.js';
-import { commandFlanks, commandWatch } from '../../src/game/sim/command.js';
+import { commandBattle, commandFlanks, commandSeat, commandWatch } from '../../src/game/sim/command.js';
 import { commandersOf, hireCommander } from '../../src/game/sim/commanders.js';
 import type { GameState } from '../../src/game/types.js';
 
@@ -227,3 +228,50 @@ describe('война: тактика флангов книги, а не прик
   });
 });
 
+
+describe('служба командиров (ДР-5): опыт под потолком дел, ушедший не возвращается', () => {
+  it('честный опыт — без флага, и тактика книги в войну — по опыту, та же, что у игры', () => {
+    const s = staffed(911, 7);
+    const t0 = 1_000_000;
+    // Бои полководца не ближе срока между делами — честно растёт.
+    for (let k = 0; k < 12; k++) commandBattle(s, { at: t0 + k * DEED_GAP, ok: true, seed: k + 1, peril: { left: 0, right: 0 } });
+    const xp = commandSeat(s, 'right')?.xp ?? 0;
+    expect(commandGrowth(xp), 'точка внутри области: командир вырос').toBeGreaterThan(0);
+    // Партия сыграна с минуты найма достаточно долго, чтобы двенадцать дел уместились.
+    s.time = commandSeat(s, 'right')!.at + gameSecondsOfMs(12 * DEED_GAP);
+    const c = card(s);
+    const { book, found } = commandStep(undefined, c, T0, c.seed, 7);
+    expect(found).toEqual([]);
+    expect(book.seats.right?.xp).toBe(xp);
+    expect(commandAt(book, c.seed).flanks).toEqual(commandFlanks(s));
+  });
+
+  it('опыт быстрее дел — флаг, в книгу — потолок; тактика не выше потолка', () => {
+    const s = staffed(912, 7);
+    const c = card(s);
+    const seat = c.command!.seats.find((x) => x.flank === 'right')!;
+    // Только что нанят: за минуты службы дел не больше одного.
+    seat.xp = 60;
+    const { book, found } = commandStep(undefined, c, T0, c.seed, 7);
+    expect(found.some((t) => t.includes('опыт командира 60'))).toBe(true);
+    expect(book.seats.right?.xp ?? 0).toBeLessThan(60);
+    expect(commandGrowth(book.seats.right?.xp ?? 0)).toBe(0);
+  });
+
+  it('ушедший с места назад не садится: флаг и пустое место', () => {
+    const s = staffed(913, 7);
+    const c1 = card(s);
+    const first = commandStep(undefined, c1, T0, c1.seed, 7).book;
+    const n = first.seats.right!.n;
+    // Пал — места нет в следующей описи: номер ушёл в память книги.
+    const c2 = card(s);
+    c2.command!.seats = c2.command!.seats.filter((x) => x.flank !== 'right');
+    const second = commandStep(first, c2, T0 + 60_000, c2.seed, 7);
+    expect(second.found).toEqual([]);
+    expect(second.book.gone).toContain(n);
+    // Тот же номер снова на месте — флаг, место пустое; книга помнит его и после чтения.
+    const back = commandStep(readCommandBook(JSON.parse(JSON.stringify(second.book))), card(s), T0 + 120_000, c1.seed, 7);
+    expect(back.found.some((t) => t.includes(`№${n} ушёл с места и вернулся`))).toBe(true);
+    expect(back.book.seats.right).toBeUndefined();
+  });
+});

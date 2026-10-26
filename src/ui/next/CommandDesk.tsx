@@ -231,6 +231,8 @@ function FlankCard({ flank, onPick }: { flank: Flank; onPick: () => void }) {
             <Trait key={t} t={t} />
           ))}
           <Wage wage={recruitWage(c.level, c.traits)} />
+          {/* Выслужился в боях (ДР-5): тактика — по уровню на службе, жалованье — по уровню найма. */}
+          {(c.rank ?? c.level) > c.level && <span className="good">выслужился до ур. {c.rank}</span>}
         </span>
         <Stats list={statsOf(c)} />
       </div>

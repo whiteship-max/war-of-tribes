@@ -18,6 +18,7 @@ import type { TroopStack } from '@/game/battle/kinds';
 import { troopTotal } from '@/game/battle/kinds';
 import { distance, marchPosition } from './geo';
 import { shieldVillagers } from './lairs';
+import { routPeril } from './peril';
 import { ENERGY_PRICE } from './data/energy';
 import { CAMP_WASTE, SIEGE_PHASE } from './data/siegeroll';
 import { setPhaseDie, wasteOf } from './siegeroll';
@@ -355,5 +356,40 @@ describe('режим марша в мире: дорога удара и выру
     const after = strikeWorn(came, 'light', extra, legs.wearSeed(t0 + ms)).came;
     expect(f.troops).toEqual(after);
     expect(troopTotal(after), 'точка внутри области: после дороги тоже тают').toBeLessThan(troopTotal(came));
+  });
+});
+
+describe('командиры флангов в бою полководца (ДР-5)', () => {
+  it('последствие боя несёт бой флангов: исход, кость боя и долю гибели — гибель разбитого у этой клетки × доля выбитых фланга', async () => {
+    const r = await ready(7, { flanks: { A: 2, C: -1 } });
+    expect(await r.world.assault(r.lair.id, 'plunder')).toBeNull();
+    const out = await r.gen();
+    r.at(out.arriveAt + 1000);
+    const res = await r.world.sync(r.p);
+    const eff = res.effects.find((e) => e.deed?.agent === 'general');
+    expect(eff, 'точка внутри области: бой полководца был').toBeDefined();
+    const fb = eff!.flanks;
+    expect(fb, 'бой флангов в последствии').toBeDefined();
+    expect(fb!.ok).toBe(eff!.deed!.ok);
+    expect(fb!.at).toBe(eff!.deed!.at);
+    const report = (await r.world.reports()).find((x) => x.battle?.result.seed === fb!.seed);
+    expect(report, 'та же кость, что у боя').toBeDefined();
+    const sides = report!.battle!.result.sides.attacker.sectors;
+    const peril = routPeril(distance(r.inner.save.home, r.lair));
+    const sum = (x: Record<string, number>): number => Object.values(x).reduce((a, b) => a + b, 0);
+    for (const [f, sec] of [['left', 'A'], ['right', 'C']] as const) {
+      expect(fb!.peril[f]).toBeCloseTo(peril * (1 - sum(sides[sec].final) / sum(sides[sec].initial)), 9);
+    }
+    expect(Math.max(fb!.peril.left ?? 0, fb!.peril.right ?? 0), 'точка внутри области: фланги теряли людей').toBeGreaterThan(0);
+  });
+
+  it('без командиров бой флангов в последствие не кладётся', async () => {
+    const r = await ready();
+    expect(await r.world.assault(r.lair.id, 'plunder')).toBeNull();
+    r.at((await r.gen()).arriveAt + 1000);
+    const res = await r.world.sync(r.p);
+    const eff = res.effects.find((e) => e.deed?.agent === 'general');
+    expect(eff, 'точка внутри области: бой полководца был').toBeDefined();
+    expect(eff!.flanks).toBeUndefined();
   });
 });

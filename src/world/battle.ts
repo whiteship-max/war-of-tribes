@@ -141,6 +141,11 @@ export interface FieldOutcome {
    * и голод — у каждой стороны своя. Боя не было — `null`: в журнал не идёт ничего.
    */
   marks: Record<Side, FightMark> | null;
+  /**
+   * Доля выбитых по секторам флангов, где у стороны бился командир (ДР-5, `FieldSide.flanks`): из неё мир выводит гибель
+   * командира (`LocalWorld.flankDeed`). Нет поля — у сторон командиров не было или боя не было.
+   */
+  flankLoss?: Partial<Record<Side, Partial<Record<'A' | 'C', number>>>>;
 }
 
 /**
@@ -164,6 +169,24 @@ function sideSetup(side: FieldSide, rules: number): ArmySetup {
     for (const k of UNIT_KINDS) sectors[id][k] = front.sectors[id][k] + rear.sectors[id][k];
   }
   return { sectors, behind: rear.sectors };
+}
+
+/** Доля выбитых своего сектора у флангов с командиром (ДР-5): пустой сектор — нет поля. */
+function flankLossOf(result: BattleResult, input: FieldInput): Pick<FieldOutcome, 'flankLoss'> {
+  const out: NonNullable<FieldOutcome['flankLoss']> = {};
+  for (const side of ['attacker', 'defender'] as const) {
+    const led = input[side].flanks;
+    if (!led) continue;
+    const by: Partial<Record<'A' | 'C', number>> = {};
+    for (const sec of ['A', 'C'] as const) {
+      if (!led[sec]) continue;
+      const s = result.sides[side].sectors[sec];
+      const was = stackTotal(s.initial);
+      if (was > 0) by[sec] = Math.max(0, Math.min(1, 1 - stackTotal(s.final) / was));
+    }
+    if (Object.keys(by).length) out[side] = by;
+  }
+  return Object.keys(out).length ? { flankLoss: out } : {};
 }
 
 export function resolveField(input: FieldInput): FieldOutcome {
@@ -233,6 +256,7 @@ export function resolveField(input: FieldInput): FieldOutcome {
       attacker: markOf(result, 'attacker', where, input.attacker.scars?.hungry === true, input.defender.beasts === true),
       defender: markOf(result, 'defender', where, input.defender.scars?.hungry === true, input.attacker.beasts === true),
     },
+    ...flankLossOf(result, input),
   };
 }
 

@@ -12,7 +12,7 @@
 // жалованье, черты, возраст и покой — шаги лестниц агентов.
 import type { FlankSector, Flanks } from '../battle/types';
 import type { Flank } from './types';
-import { AGENT_YEAR } from './data/agents';
+import { AGENT_YEAR, MAX_AGENT_LEVEL, levelOf } from './data/agents';
 import { AGENT_TRAITS, SECOND_TRAIT, clash, recruitAge, retireAgeOf, type AgentTrait } from './agentrules';
 import { MAX_ADVISOR_LEVEL, candidateCount, candidateLevel, councilTier } from './councilrules';
 import { DISLOYAL, LOYAL, LOYALTY_BASE } from './estaterules';
@@ -118,6 +118,11 @@ export interface Commander {
   age0: number;
   /** Зерно облика: портрет набором персонажа. */
   look: number;
+  /**
+   * Уровень на службе (ДР-5): уровень найма и рост за бои (`servedCommander`). Нет поля — кандидат, не служивший. Жалованье —
+   * по уровню найма (`level`), тактика — по этому.
+   */
+  rank?: number;
 }
 
 /** Соль кости кандидатов в командиры: свой поток — кость партии, агенты и совет не едут. */
@@ -175,6 +180,28 @@ export const commandAgeAt = (age0: number, hiredAt: number, now: number): number
 /** Ушёл ли бы на покой командир этого кандидата, нанятый в `hiredAt`, к игровой секунде `now`. */
 export const commandRetired = (c: Commander, hiredAt: number, now: number): boolean =>
   commandAgeAt(c.age0, hiredAt, now) >= commandRetireAge(c.traits);
+
+/**
+ * Ступеней командира за опыт (ДР-5, «медленно» — выводом): опыт копится той же лестницей, что у агентов (`levelOf`, дела не
+ * чаще `DEED_GAP`, `DEED_XP`), а лестница командира короче — три ступени против пяти, — и ступень агента сжимается на неё:
+ * `⌊(ступень агента − 1) × (3 − 1) / (5 − 1)⌋`. Командир поднимается на ступень за две ступени агента.
+ */
+export const commandGrowth = (xp: number): number =>
+  Math.floor(((levelOf(Math.max(0, Number.isFinite(xp) ? xp : 0)) - 1) * (MAX_ADVISOR_LEVEL - 1)) / (MAX_AGENT_LEVEL - 1));
+
+/**
+ * Командир на месте с опытом `xp` (ДР-5): уровень на службе — уровень найма и рост, не выше вершины лестницы; тактика — по нему
+ * (`tacticsOf`, с уровнем не убывает — и у тактика, и у лорда). Жалованье остаётся по уровню найма: книга платы сервера
+ * сверяет его с ценой кандидата. Одна функция на игру (`derived.commanderOn`) и на книгу сервера (`commandbook.commandAt`).
+ */
+export function servedCommander(c: Commander, xp: number): Commander {
+  const rank = Math.min(MAX_ADVISOR_LEVEL, c.level + commandGrowth(xp));
+  return { ...c, rank, tactics: tacticsOf(c.birth, rank) };
+}
+
+/** Человек на месте по его метке найма и опыту (ДР-5): кандидат номера и ступени, выросший за службу. */
+export const commanderSeated = (seed: number, seat: { n: number; tier: number; xp?: number }): Commander =>
+  servedCommander(commanderAt(seed, seat.n, seat.tier), seat.xp ?? 0);
 
 // ---------- В бой ----------
 

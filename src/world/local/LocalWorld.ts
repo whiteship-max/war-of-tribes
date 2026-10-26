@@ -25,6 +25,7 @@ import type { WorldApi } from '../api';
 import type {
   AssaultMode,
   AssaultPlan,
+  FlankBattle,
   GaitRow,
   GaitView,
   AttackOrder,
@@ -343,6 +344,7 @@ import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId, ResourceId } from '@/game/types';
 import { RESOURCE_META } from '@/game/constants';
 import { recordedField, resolveField, type FieldInput, type FieldOutcome, type FieldSide } from '../battle';
+import { FLANKS, FLANK_SECTOR } from '@/game/commandrules';
 import { campFight, campHolds, guardKinds, holdMinute, homeLosses, machineFight, wallFight, type CampPartIn, type HoldIn } from '../fights';
 import { AIM_NAME, GUN_AIM_NAME, aimBlock, artilleryAimOf as artilleryAim, aimWords, artilleryAt, gunAfter, gunAimBlock, gunAimOf, gunAimWords, gunBlock, gunsAt, idleBuildings, lostLevel, shotsApplied, shotsText } from '../shelling';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
@@ -4306,6 +4308,24 @@ export class LocalWorld implements WorldApi {
     return { carry: ours ? carry * this.traitOf('carry') * gaitHaul(gait) : carry, escort: stackEscort(units) };
   }
 
+  /**
+   * Бой полководца для командиров его флангов (ДР-5): доля гибели фланга — гибель разбитого у этой клетки (`peril.routPeril`, та же,
+   * что у полководца, чью дружину перебили) × доля выбитых его фланга (`FieldOutcome.flankLoss`): фланг перебит до последнего —
+   * командир гибнет так же часто, как полководец. Опыт и кость гибели кладёт племя (`sim/command.commandBattle`). Командиров в бою
+   * не было — поля нет.
+   */
+  private flankDeed(field: FieldOutcome, us: Side, ok: boolean, at: number, spot: Coord): { flanks?: FlankBattle } {
+    const loss = field.flankLoss?.[us];
+    if (!loss || !field.result) return {};
+    const peril = routPeril(distance(this.save.home, spot));
+    const out: FlankBattle['peril'] = {};
+    for (const f of FLANKS) {
+      const share = loss[FLANK_SECTOR[f]];
+      if (share !== undefined) out[f] = peril * share;
+    }
+    return Object.keys(out).length > 0 ? { flanks: { at, ok, seed: field.result.seed, peril: out } } : {};
+  }
+
   /** Доля приходов, в которые часовые берут разведчика: «Неприметный» реже, «Приметный» чаще. */
   private scoutCatch(): number {
     return Math.min(1, FIGURE_SCOUT_CATCH * this.traitOf('catch'));
@@ -5241,6 +5261,7 @@ export class LocalWorld implements WorldApi {
       ...scarOf(field, 'attacker'),
       // Бой полководца — его дело. Пустой бой (некому было драться) делом не считается.
       ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
+      ...this.flankDeed(field, 'attacker', field.won, at, target),
       text: burned
         ? `Логово ${target.name} сожжено.`
         : field.won
@@ -5898,6 +5919,7 @@ export class LocalWorld implements WorldApi {
       battle: field.won ? 'won' : 'lost',
       ...scarOf(field, 'attacker'),
       ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
+      ...this.flankDeed(field, 'attacker', field.won, at, spot),
       text: field.won
         ? regained
           ? `Добычу отбили: ${name} разбиты в поле, ${formatCoord(spot)}.`
@@ -7018,6 +7040,7 @@ export class LocalWorld implements WorldApi {
       battle: field.won ? 'won' : 'lost',
       ...scarOf(field, 'attacker'),
       ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
+      ...this.flankDeed(field, 'attacker', field.won, at, target ?? this.save.home),
       text: field.won ? `Лагерь ${camp.name} разбит: осада снята.` : `Лагерь ${camp.name} устоял.`,
       good: field.won,
     });
@@ -10528,6 +10551,7 @@ export class LocalWorld implements WorldApi {
       battle: won ? 'won' : 'lost',
       ...warScarOf(b, 'ally'),
       ...(field.result ? { deed: { agent: 'general' as const, ok: won, at: b.at } } : {}),
+      ...this.flankDeed(field, 'attacker', won, b.at, w.to),
       text: title,
       good: won,
     });
@@ -10645,6 +10669,7 @@ export class LocalWorld implements WorldApi {
       // Метка боя войны (ДР-4) — сервера, своей роли: выручку союзника город не дрался, его метки в бою нет.
       ...(lifted ? {} : warScarOf(b, ours)),
       ...(general && field.result ? { deed: { agent: 'general' as const, ok: won, at: b.at } } : {}),
+      ...(general ? this.flankDeed(field, weStruck ? 'attacker' : 'defender', won, b.at, w.to) : {}),
       text: title,
       good: won,
     });

@@ -420,7 +420,7 @@ HEAD один на всех, см. правило 8). Значит развес�
 - `src/game/sim/command.ts`, `src/game/sim/commanders.ts` и `src/game/commandrules.ts` — командиры флангов (ДР-3, docs/siege_v2.md,
   «Решения ДР-3»): `GameState.command` — необязательное поле (люди на местах левого и правого фланга меткой кандидата, взятые окна,
   счёт наймов, платы и жалованья), пишет его одна дверь `sim/command` (`seatCommander`, `releaseCommander`, `unseatLowborn`,
-  `commandStep`, чтение `mergeCommand`); кандидаты и найм — `sim/commanders` (докачкой с меню «Командующие»); кандидат, род,
+  `commandStep`, `commandBattle` — опыт и гибель в бою полководца (ДР-5), чтение `mergeCommand`); кандидаты и найм — `sim/commanders` (докачкой с меню «Командующие»); кандидат, род,
   тактика, милость и обида знати, покой — `commandrules`, одни на игру и на книгу командиров сервера (`netlify/lib/commandbook.ts`,
   правило «command»). Разойдись они у двоих — сервер счёл бы подделкой честного командира, пропустил бы кандидата, которого Казармы
   не давали, или поставил бы в бой тактику, которой у фланга нет;
@@ -770,7 +770,10 @@ HEAD один на всех, см. правило 8). Значит развес�
   `ArmySetup.flanks` одной дверью ядра `flankPips` (кость своей полосы, там же, где отметки полководца: `LocalWorld.generalFlanks`,
   `homeFlanks`), без поля — бой прежний; знать — слагаемым `loyaltyParts.lead` у рыцарства, стабильность — ропотом той же двери;
   вести «Обиженный лорд» и «Спор за авангард» — вести державы; сервер — правило «command», в войну — тактика книги, приказ и слепок
-  её не несут (`flank.test.ts`, `command.test.ts`, `commandbook.test.ts`; docs/siege_v2.md, «Решения ДР-3»).
+  её не несут; служба (ДР-5) — опыт делом боя полководца (`HomeEffect.flanks`, рост `commandrules.servedCommander`, тактика — по
+  уровню на службе, жалованье — по уровню найма), гибель — `routPeril` × доля выбитых фланга, весть о пустом месте `command_left` /
+  `command_right`, сервер — опыт под потолком дел и ушедшие не возвращаются (`flank.test.ts`, `command.test.ts`,
+  `commandserve.test.ts`, `commandbook.test.ts`; docs/siege_v2.md, «Решения ДР-3», «Решения ДР-5»).
 - **Черты армии** — журнал боёв пишет одна дверь `sim/scars` (метку боя считает мир — `world/battle.marks`, у боя войны — сервер,
   `WarBattle.marks`), черты — `scarrules.scarsOf` (не больше `SCARS_MAX`, память — `SCAR_LOG` боёв), величины — вывод `npm run fight --
   --derive-scars`; в бой — `ArmySetup.scars` одной дверью ядра `scarProfile` (поправки к показателям родов, потолок `SCAR_CAP`), где

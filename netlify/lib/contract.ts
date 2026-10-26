@@ -2298,6 +2298,8 @@ export interface WatchCommander {
   tier: number;
   /** Игровая секунда найма. */
   at: number;
+  /** Опыт за бои (ДР-5): книга держит его под потолком дел по времени службы (`commandbook.commandStep`). Нет — ноль. */
+  xp?: number;
 }
 
 /** Командиры в описи — то, что сверяет сервер (`commandbook.commandStep`, правило «command»). */
@@ -2321,7 +2323,8 @@ function readCommand(v: unknown): Pick<WatchCard, 'command'> {
     const a = x as Record<string, unknown>;
     const flank = str(a.flank, 8);
     if (!flank || !Number.isInteger(a.n) || (a.n as number) < 0) continue;
-    seats.push({ flank, n: whole(a.n, 1e12), tier: whole(a.tier, 99), at: whole(a.at, 1e12) });
+    const xp = whole(a.xp, 1e6);
+    seats.push({ flank, n: whole(a.n, 1e12), tier: whole(a.tier, 99), at: whole(a.at, 1e12), ...(xp > 0 ? { xp } : {}) });
   }
   return { command: { seats, hired: whole(r.hired, 1e9), fees: whole(r.fees, 1e12), paid: whole(r.paid, 1e12) } };
 }
