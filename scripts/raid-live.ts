@@ -36,6 +36,10 @@ import {
 import { sum } from './raid-common';
 import { pulseFronts, type Front } from './lib/front';
 import { pulseRests, type Rested } from './lib/rested';
+import { spiritedOf, type Spirited } from './lib/spirited';
+import { spiritView } from '@/game/sim/spirit';
+import type { SpiritView } from '@/game/spiritrules';
+import type { Spirit } from '@/battle';
 
 export type Style = 'means' | 'meansHigh' | 'feed' | 'builder';
 export const STYLES: Style[] = ['means', 'meansHigh', 'feed', 'builder'];
@@ -75,6 +79,8 @@ interface HireLedger extends Ledger {
   fronts: Front[];
   /** Мораль сторон на входе и выходе в тех же записях — для раздела «Мораль между боями» (`raid-rest.ts`). */
   rests: Rested[];
+  /** Дух нашей стороны на входе в тех же записях — для раздела «Дух дружины» (`raid-spirit.ts`, ДР-1). */
+  spirits: Spirited[];
   /** Прирост жителей за игровой день по решениям (`popGrowth`). */
   growth: number[];
   /** Решений, на которых войску не хватало еды, и из них — где строка тревоги назвала повод неуплатой. */
@@ -209,6 +215,7 @@ export async function live(o: Opts): Promise<Out> {
     fights: [] as Fight[],
     fronts: [] as Front[],
     rests: [] as Rested[],
+    spirits: [] as Spirited[],
     growth: [] as number[],
     unfed: 0,
     unfedAsPay: 0,
@@ -227,6 +234,8 @@ export async function live(o: Opts): Promise<Out> {
   const seen = new WeakMap<object, number>();
   // Кто вышел в бой: у стены — войско дома перед пульсом, у вылазки — кого выпустили.
   let homeBefore = 0;
+  // Дух, ушедший в мир этим пульсом, и его причины: слепок перед пульсом (ДР-1).
+  let spiritBefore: { spirit: Spirit; view: SpiritView } | null = null;
   let sortieWent = 0;
   let wounds = { lying: 0, carried: 0 };
   let open: Fight | null = null;
@@ -291,6 +300,7 @@ export async function live(o: Opts): Promise<Out> {
       hourly: o.hourly,
       profile: (p, s, away) => {
         homeBefore = troopTotal(homeOf(s.army, away));
+        spiritBefore = p.spirit ? { spirit: p.spirit, view: spiritView(s) } : null;
         o.profile?.(p, s, away);
       },
       sortie: (home) => {
@@ -342,7 +352,9 @@ export async function live(o: Opts): Promise<Out> {
       after: async ({ g: s, world, now, marches, figures, pulse }) => {
         // Записи боя — те, что мир положил в отчёты этого пульса; бой у стены «сухим прогоном» (садиться ли
         // в осаду, `LocalWorld.sitsDown`) отчёта не пишет и сюда не попадает. Бои у ворот по событиям помечены.
-        x.fronts.push(...pulseFronts(pulse));
+        const fronts = pulseFronts(pulse);
+        x.fronts.push(...fronts);
+        if (spiritBefore) x.spirits.push(...spiritedOf(fronts, spiritBefore.spirit, spiritBefore.view));
         x.rests.push(...pulseRests(pulse));
         const home = troopTotal(homeOf(s.army, awayOf(marches, figures)));
         x.armyHome.push(home);

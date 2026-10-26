@@ -18,6 +18,7 @@ import { infirmarySection } from './raid-infirmary';
 import { burntSection } from './raid-burnt';
 import { widthSection } from './raid-width';
 import { restSection } from './raid-rest';
+import { spiritSection } from './raid-spirit';
 import { measure } from './lib/measured';
 
 // Сколько стоит каждый раздел — замером в ‹…›: удешевлять отчёт надо по числам, а не на глаз.
@@ -45,6 +46,8 @@ if (process.env.DECIDE_SWEEP) {
   lap('Ширина поля');
   restSection(hired);
   lap('Мораль между боями');
+  spiritSection(hired);
+  lap('Дух дружины');
 
   console.log('');
   console.log('=== Сколько стоит каждый раздел ===');
