@@ -692,6 +692,8 @@ export class LocalWorld implements WorldApi {
   private proposalsFrom: (() => ProposalView[]) | null;
   private warOrderTo: ((order: WarOrder) => Promise<string | null>) | null;
   private warPaceOf: () => number;
+  /** Павшие наших походов в боях этого пульса, по войнам (`warAttrition`): кладёт `warBattle`, чистит `stepWars`. */
+  private warFought = new Map<string, TroopStack>();
   /** Дела лазутчиков с сервера и меню дел (docs/spy_pvp.md). null — тайной войны в этой сессии нет. */
   private spiesFrom: (() => SpyView[]) | null;
   private spyLookTo: ((target: string) => Promise<SpyMenu | string>) | null;
@@ -10137,6 +10139,7 @@ export class LocalWorld implements WorldApi {
    */
   private stepWars(now: number): void {
     if (!this.warsFrom) return;
+    this.warFought.clear();
     const list = this.warList();
     const seen = new Set(this.save.warSeen ?? []);
     // Сервер отдаёт свежие сверху; применяется старое первым.
@@ -10215,6 +10218,8 @@ export class LocalWorld implements WorldApi {
   /** Полководец — где его войско по словам сервера: идёт, стоит лагерем, возвращается. */
   private warGeneral(w: WarView, now: number): void {
     const f = this.save.figures.general;
+    // Убыль похода не в бою — до того, как состав встанет по словам сервера (ДР-2).
+    if (f.war === w.id) this.warAttrition(w, f.troops ?? {}, now);
     if (w.phase === 'done') {
       if (f.war === w.id) this.warHome(now, w);
       return;
@@ -10253,6 +10258,30 @@ export class LocalWorld implements WorldApi {
       f.arriveAt = w.backAt ?? now;
       f.phase = now < f.arriveAt ? 'moving' : 'home';
     }
+  }
+
+  /**
+   * Убыль похода не в бою (ДР-2, М4): истощение налегке в пути, истощение лагеря за фазы, выбитое башней — сервер снял её с
+   * войска похода (`WarRow.army`), а боя, который донёс бы её до племени, у неё нет. Разница «прошлый состав − павшие в боях
+   * этого пульса − нынешний состав» уходит в племя последствием без строки (больные и отставшие, не раненые), один раз:
+   * следующий пульс сравнивает уже с новым составом. Прежде такая убыль до племени не доходила вовсе.
+   */
+  private warAttrition(w: WarView, prev: TroopStack, now: number): void {
+    const left = troopsAfter(troopsAfter(prev, this.warFought.get(w.id) ?? {}), w.army.troops as TroopStack);
+    const n = troopTotal(left);
+    if (n === 0) return;
+    this.addEffect({
+      id: `war-${w.id}-worn-${now}`,
+      lost: { warrior: n },
+      lostTroops: left,
+      routed: true,
+      resources: {},
+      prestige: 0,
+      morale: 0,
+      battle: null,
+      text: '',
+      good: false,
+    });
   }
 
   /** Война кончилась: полководец дома с теми, кто уцелел. Дружину перебили — разбит, как в любом бою. */
@@ -10443,6 +10472,8 @@ export class LocalWorld implements WorldApi {
     // Наш полководец дрался: в походе — всегда, дома — если ударил из поля (выручка союзника — не наш полководец).
     const general = ours === 'atk' || (Boolean(b.genTroops) && !allied);
     this.warLost(ourLost);
+    // Павшие похода в боях этого пульса — чтобы убыль не в бою (`warAttrition`) не посчитала их второй раз.
+    if (ours === 'atk') this.warFought.set(w.id, plusTroops(this.warFought.get(w.id) ?? {}, ourLost));
     let standing: TroopStack = {};
     if (ours === 'def') {
       // Дружина, стоявшая у ворот, теряет свою долю тут же — тем же правилом, что у частокола; дружина из поля —
