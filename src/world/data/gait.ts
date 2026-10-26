@@ -54,21 +54,12 @@ export const GAIT_HAUL: Readonly<Record<Gait, number>> = {
   train: 1 + TRAIN_SHARE * (1 - TRAIN_SHARE),
 };
 
-/** Слова режима: имя на кнопке и строка «что это» для окна. */
-export const GAIT_META: Readonly<Record<Gait, { name: string; short: string; about: string }>> = {
-  light: {
-    name: 'Налегке',
-    short: 'налегке',
-    about: 'Без обоза: быстрее, но отряд тает в пути и в поле. Лагерь не ставит — только удар с ходу или перехват.',
-  },
-  normal: {
-    name: 'Обычный',
-    short: 'обычным маршем',
-    about: 'Как прежде: обычная скорость, в пути не тает, может осаждать.',
-  },
-  train: {
-    name: 'С обозом',
-    short: 'с обозом',
-    about: 'Вдвое медленнее, но обоз кормит отряд в пути и в лагере: голод дома его не трогает, лагерь тает меньше.',
-  },
+/**
+ * Слова режима: имя на кнопке и в летописи, коротко — в строке похода. Строка «что это» — у окон, своим куском
+ * (`ui/parts/gaitWords.GAIT_ABOUT`): шагу мира и первой загрузке она не нужна.
+ */
+export const GAIT_META: Readonly<Record<Gait, { name: string; short: string }>> = {
+  light: { name: 'Налегке', short: 'налегке' },
+  normal: { name: 'Обычный', short: 'обычным маршем' },
+  train: { name: 'С обозом', short: 'с обозом' },
 };

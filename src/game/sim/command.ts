@@ -179,13 +179,14 @@ function noteLeft(s: GameState, f: Flank, name: string, why: 'fell' | 'rest'): v
 
 // ---------- Весть о пустом месте ----------
 
-/** Слова вести о пустом месте командира: выбор нового — в «Дружине», меню «Командующие». */
+/**
+ * Вести о пустом месте командира — то, что нужно шагу партии: вид, заголовок, от кого и ответ. Текст вести едет куском «Вестей»
+ * (`data/commandWords.commandText`), как у вестей державы: первой загрузке он не нужен.
+ */
 export const COMMAND_EVENT = {
   id: (f: Flank): string => `command_${f}`,
   title: (f: Flank): string => `Место: командир ${FLANK_OF[f]}`,
   from: 'Старший дружины',
-  text: (f: Flank, name: string | null, why: 'fell' | 'rest' | null): string =>
-    `${name ? `${name} ${why === 'fell' ? 'пал в бою' : 'ушёл на покой'}. ` : ''}${FLANK_WORD[f][0].toUpperCase()}${FLANK_WORD[f].slice(1)} фланг ведёт сам полководец. Кандидаты ждут в «Дружине» — меню «Командующие».`,
   later: 'Подождать',
   laterSaid: 'Место ждёт. Кандидаты — «Дружина», «Командующие».',
 };
@@ -206,10 +207,6 @@ export function commandVacancyDef(f: Flank) {
     silence: 0,
     title: COMMAND_EVENT.title(f),
     from: COMMAND_EVENT.from,
-    text: (s: GameState): string => {
-      const left = commandOf(s).left?.[f];
-      return COMMAND_EVENT.text(f, left?.name ?? null, left?.why ?? null);
-    },
     // Случаем не выпадает: её кладёт гибель или покой.
     weight: (): number => 0,
     options: [{ label: COMMAND_EVENT.later, apply: (): string => COMMAND_EVENT.laterSaid }],

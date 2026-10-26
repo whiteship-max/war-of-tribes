@@ -7,6 +7,7 @@ import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import { GAIT_META, GAITS, gaitSpeed, siegeBlockOf, type Gait } from '@/world/gait';
+import { GAIT_ABOUT } from './gaitWords';
 import type { FigureView } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { num } from '@/game/num';
@@ -69,7 +70,7 @@ export function GaitDesk({ f }: { f: FigureView }) {
           );
         })}
       </div>
-      <p className="nx-tnote">{GAIT_META[v.gait].about}</p>
+      <p className="nx-tnote">{GAIT_ABOUT[v.gait]}</p>
       <div className="nx-facts">
         <span className="nx-fact">
           <small>Скорость</small>

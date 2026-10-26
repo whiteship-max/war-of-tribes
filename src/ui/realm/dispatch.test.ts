@@ -37,6 +37,18 @@ describe('донесение — один вид для события и пис
     }
   });
 
+  it('текст вестей, что едут куском «Вестей» (ДР-5), — в донесении: весть EU4 и пустое место командира', () => {
+    const s = createInitialState();
+    for (const [id, want] of [
+      ['spring_flood', /Река вышла из берегов/],
+      ['command_left', /Левый фланг ведёт сам полководец/],
+    ] as const) {
+      expect(EVENT_BY_ID[id].text, `${id}: текста в таблице нет`).toBeUndefined();
+      s.inbox = [{ defId: id, at: 1, until: NOW + EVENT_TTL }];
+      expect(eventDispatch(s, s.inbox[0], NOW)!.text, id).toMatch(want);
+    }
+  });
+
   it('молчание письма — слова мира, без перевода', () => {
     const s = createInitialState();
     const [d] = dispatches(s, [raid(NOW + 60_000)], { tribe: NOW, world: NOW });

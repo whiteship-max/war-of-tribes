@@ -4,6 +4,7 @@
 // своей арифметики у команды нет. Лёгкая: без мира и боёв, замка машины не берёт. Справка — `--help`.
 import { GAIT_HAUL, GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, GAITS, TRAIN_SHARE, gaitHaltMs, gaitSpeed, lightShare, type Gait } from '@/world/gait';
 import { UNIT_BY_ID } from '@/world/data/units';
+import { GAIT_ABOUT } from '@/ui/parts/gaitWords';
 import { CAMP_WASTE, CAMP_WASTE_DAYS, CAMP_WASTE_HUNGRY } from '@/world/data/siegeroll';
 import { wasteOf } from '@/world/siegeroll';
 import { roadCost } from '@/world/energy';
@@ -32,7 +33,7 @@ const pad = (s: string, n: number): string => (s.length >= n ? s : s + ' '.repea
 const lpad = (s: string, n: number): string => (s.length >= n ? s : ' '.repeat(n - s.length) + s);
 
 console.log('=== Режим марша: правила (world/gait) ===');
-for (const g of GAITS) console.log(`  ${pad(GAIT_META[g].name, 10)} скорость ×${GAIT_SPEED[g]}  ${GAIT_META[g].about}`);
+for (const g of GAITS) console.log(`  ${pad(GAIT_META[g].name, 10)} скорость ×${GAIT_SPEED[g]}  ${GAIT_ABOUT[g]}`);
 console.log(
   `  истощение налегке: CAMP_WASTE ${CAMP_WASTE} × CAMP_WASTE_HUNGRY ${CAMP_WASTE_HUNGRY} / 4 игр. дн. фазы = ${pct(GAIT_LIGHT_WASTE, 3)} отряда в игр. день`,
 );

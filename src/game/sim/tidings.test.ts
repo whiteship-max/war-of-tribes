@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { tidingText } from '../data/tidingWords';
 import { createInitialState } from '../state';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID } from '../data/buildings';
@@ -309,7 +310,9 @@ describe('подпись называет те же числа, что дела�
       for (const faith of ['catholic', 'orthodox', 'islam', 'pagan'] as const) {
         const s = rich();
         s.faith.id = faith;
-        const text = typeof e.text === 'function' ? e.text(s) : (e.text ?? '');
+        // Текст едет куском «Вестей» (`data/tidingWords`, ДР-5).
+        const text = tidingText(id, s) ?? (typeof e.text === 'function' ? e.text(s) : (e.text ?? ''));
+        expect(text, `${id}: текст есть`).not.toBe('');
         expect(text.length, `${id}: «${text}»`).toBeLessThanOrEqual(160);
       }
       for (const o of e.options) expect(o.label.length, `${id}: «${o.label}»`).toBeLessThanOrEqual(28);

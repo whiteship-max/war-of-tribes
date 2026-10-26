@@ -12,6 +12,7 @@ import { MAX_ADVISOR_LEVEL } from '../councilrules';
 import { commandGrowth, commanderAt, servedCommander, tacticsOf } from '../commandrules';
 import { buildingOfType, commanderOn, commandWagesPerDay } from '../derived';
 import { EVENT_BY_ID } from '../data/events';
+import { commandText } from '../data/commandWords';
 import { creditTech } from './tech';
 import { tick } from './tick';
 import { commandBattle, commandOf, commandSeat, commandVacancyEvent, commandVacancyFlank, commandWatch, mergeCommand } from './command';
@@ -115,6 +116,8 @@ describe('гибель в бою и весть', () => {
       expect(ev, 'весть на столе').toBeTruthy();
       expect(commandVacancyFlank(ev!.defId)).toBe('left');
       expect(EVENT_BY_ID[ev!.defId], 'весть в таблице событий').toBeTruthy();
+      // Текст вести — куском «Вестей»: называет павшего и куда идти.
+      expect(commandText(ev!.defId, s)).toMatch(/пал в бою\. Левый фланг ведёт сам полководец\. Кандидаты ждут в «Дружине»/);
     }
     // Доля погибших — около доли гибели (набор сидов, правило 17).
     expect(fell / 200).toBeGreaterThan(0.2);

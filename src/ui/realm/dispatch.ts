@@ -29,6 +29,8 @@ import type { RealmBranch } from '@/game/types';
 import { CROWN_BY_ID, type CrownScene } from '@/game/data/crown';
 import { CROWN_RULES, type CrownKind } from '@/game/crownrules';
 import { crownText } from '@/game/data/crownWords';
+import { commandText } from '@/game/data/commandWords';
+import { tidingText } from '@/game/data/tidingWords';
 import { SEASON_META } from '@/game/data/seasons';
 import { seasonOf, yearOf } from '@/game/derived';
 import { crownLines, type FxLine } from './crownView';
@@ -136,7 +138,7 @@ function eventView(s: GameState, ev: ActiveEvent, now: number): Dispatch | null 
     iconName: iconName('evt', def.id),
     title: def.title,
     from: eventFrom(def, s),
-    text: crown ? crownText(def.id, s) : eventText(def, s),
+    text: crown ? crownText(def.id, s) : (commandText(def.id, s) ?? tidingText(def.id, s) ?? eventText(def, s)),
     cost: {},
     choices: def.options.map((o, i) => ({
       id: String(i),

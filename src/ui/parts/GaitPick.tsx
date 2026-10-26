@@ -5,6 +5,7 @@
 // сравнения, а сменить режим можно в окне отряда: стоянкой и энергией.
 import { GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, GAITS, type Gait } from '@/world/gait';
 import type { GaitRow } from '@/world/types';
+import { GAIT_ABOUT } from './gaitWords';
 import { Table, type Col, type TableRow } from '@/ui/kit/Table';
 import { Icon } from '@/ui/icons/Icon';
 import type { IconName } from '@/ui/icons/alias';
@@ -79,9 +80,9 @@ export function GaitPick({
     <div className="gait-pick">
       <Table label="Режим марша" cols={COLS} rows={list} />
       <p className="nx-tnote">
-        {GAIT_META[current].about}
+        {GAIT_ABOUT[current]}
         {current === 'light' ? ` Тает ${lightWasteWords()}; убыль в таблице — ожидание к приходу.` : ''}
-        {' Вывоз — сколько добра поднимут дошедшие: без обоза меньше, с обозом больше.'}
+        {' Вывоз — сколько добра поднимут дошедшие.'}
         {free ? '' : ' Полководец не дома: режим меняют в окне отряда, стоянкой и энергией.'}
       </p>
     </div>
