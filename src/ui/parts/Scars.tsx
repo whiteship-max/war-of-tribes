@@ -5,7 +5,8 @@ import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { scarsNow, warScarsNow } from '@/game/sim/scars';
 import { SCAR_BY_ID, type ScarId } from '@/game/scarrules';
-import { EFFECT_WORDS, SURE_WORDS, WAR_BLIND, activeWords, edgeLines, gainWords, loseWords } from '@/game/scarwords';
+import { gainWords, loseWords } from '@/game/scarwords';
+import { EFFECT_WORDS, SURE_WORDS, WAR_BLIND, activeWords, edgeLines } from './scarWords';
 import { Icon } from '@/ui/icons/Icon';
 import { signed } from './signed';
 
