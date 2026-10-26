@@ -62,6 +62,8 @@ import { builtForged, buildStep, keyOf, eatFloorOf, peopleStep, readTown, seedTo
 import { bondedStep, goodsStep, readGoods, sheetShort, type GoodsBook } from './goods.js';
 import { marketFaults } from './market.js';
 import { agentsAt, agentsStep, gameMsBetween, readAgentBook, recruitOfSeat, type AgentBook, type AgentsAt } from './agentbook.js';
+import { claimedLead, commandAt, commandStep, commanderOfSeat, readCommandBook, type CommandAt, type CommandBook } from './commandbook.js';
+import { commanderAt } from '../../src/game/commandrules.js';
 import { recruitAdvance, recruitAt, recruitWage } from '../../src/game/agentrules.js';
 import { DEEDS_PER_MIN_MAX, deedGain, deedTroops, deedsFlag, type DeedKnown } from './deeds.js';
 import { BOOST_MAX } from '../../src/game/marketrules.js';
@@ -141,7 +143,8 @@ export type FlagKind =
   | 'starve'
   | 'deeds'
   | 'bonded'
-  | 'spirit';
+  | 'spirit'
+  | 'command';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -176,6 +179,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   deeds: 'счёт разовых дел',
   bonded: 'невольники сверх подтверждённых',
   spirit: 'дух дружины',
+  command: 'командиры флангов',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -183,7 +187,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'agents' | 'estates' | 'market' | 'starve' | 'deeds' | 'bonded' | 'spirit';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'agents' | 'estates' | 'market' | 'starve' | 'deeds' | 'bonded' | 'spirit' | 'command';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -311,6 +315,13 @@ export const CITY_RULES: readonly CityRule[] = [
     flag: 'spirit',
     act: 'в войну — не выше потолка книги; флаг',
   },
+  {
+    id: 'command',
+    rule: 'командиры флангов: кандидат — из окна своего найма, со своего места в списке и не выше ступени Казарм книги стройки, род, тактику и черты сервер выводит из сида сам; один человек — одно место; минута найма — не позже часов партии; старше покоя — место пустое; наймов и платы вперёд — не меньше новых, жалованье — по ведомости сверх терпения; в войну тактика флангов — книгой сервера, приказ и слепок её не несут; указ рыцарства — при лояльности со слагаемым командиров',
+    formula: 'commandrules.commanderAt, commanderFault, tacticsOf, leadLoyalty, commandRetired; commandbook.commandStep, commandAt, claimedLead',
+    flag: 'command',
+    act: 'в войну — тактика подтверждённых мест, неподтверждённое место — пустое; флаг',
+  },
 ];
 
 /** Ступень сохранения описи — из строки версии игры (`snapshot.buildId`: «сохр. 24 · …»); не названа — 0. */
@@ -416,6 +427,11 @@ export interface WatchRecord {
    */
   agents?: AgentBook;
   /**
+   * Книга командиров флангов (ДР-3, `commandbook.ts`): подтверждённые люди на местах левого и правого фланга. Нет — запись до
+   * ДР-3 или командиров не нанимали.
+   */
+  command?: CommandBook;
+  /**
    * Книга духа дружины (ДР-1, `spiritbook.ts`): жалованье — полное или минимальное — по часам сервера и доля восстановления на
    * минуту смены. Нет — запись до ДР-1 или жалованье всегда было полным.
    */
@@ -520,6 +536,8 @@ export function readWatchRecord(v: unknown): WatchRecord {
   if (agents) out.agents = agents;
   const spirit = readSpiritBook(r.spirit);
   if (spirit) out.spirit = spirit;
+  const command = readCommandBook(r.command);
+  if (command) out.command = command;
   if (Array.isArray(r.wf)) out.wf = r.wf.filter((x): x is string => typeof x === 'string').slice(-WF_KEEP);
   if (Array.isArray(r.journal)) {
     for (const e of r.journal as Record<string, unknown>[]) {
@@ -703,6 +721,7 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   out.push(...crownFlags(a, b, realMs));
   out.push(...councilFlags(a, b, days, realMs));
   out.push(...agentFlags(a, b, days, realMs));
+  out.push(...commandFlags(a, b, days, realMs));
   out.push(...estateFlags(a, b, realMs));
   // Сделки рынка (правило «market», РН-1): цена каждой новой — по правилу привоза, счёт и кошель — по сделкам.
   for (const text of marketFaults(a, aAt, b, bAt, { boost: Math.max(marketBoost(a), marketBoost(b)), prod: maxCounts(prodOf(a), prodOf(b)), slack: GROWTH_SLACK })) {
@@ -842,7 +861,7 @@ export function estateCeilOf(card: WatchCard, levels: Counts): EstateCeil {
   const priv = privFromRow(card.estates?.priv);
   const dec = decreeEstate(card);
   const infl = influenceOf(levels, priv);
-  const open = dec !== null && loyaltyCeil(dec, priv, infl[dec]) >= LOYAL ? dec : null;
+  const open = dec !== null && loyaltyCeil(dec, priv, infl[dec], claimedLead(card)) >= LOYAL ? dec : null;
   return estateCeil(levels, priv, open);
 }
 
@@ -891,7 +910,7 @@ export function estateFaults(card: WatchCard): string[] {
   if (x.decree !== undefined && !isEstate(x.decree)) out.push(`Сословия: указ сословия «${x.decree}», а такого сословия нет.`);
   const dec = decreeEstate(card);
   if (dec) {
-    const ceil = loyaltyCeil(dec, priv, infl[dec]);
+    const ceil = loyaltyCeil(dec, priv, infl[dec], claimedLead(card));
     if (ceil < LOYAL) out.push(`Сословия: указ «${dec}» при лояльности не выше ${Math.floor(ceil)} — открывает его ${LOYAL}.`);
   }
   if (x.infl.length > 0 && ESTATES.some((e, i) => Math.abs((x.infl[i] ?? 0) - infl[e]) > INFL_SLACK)) {
@@ -1006,6 +1025,63 @@ export function agentFlags(a: WatchCard, b: WatchCard, days: number, realMs: num
     out.push({ kind: 'agents', text: `Агенты: жалованья уплачено ${big(x.paid - y.paid)} за ${span(realMs)}, а ведомость агентов сверх терпения — ${big(owed)}.` });
   }
   return out;
+}
+
+/**
+ * Счёт найма командиров флангов между описями (правило «command», ДР-3): счёт не убывает; новых людей на местах — не больше
+ * наймов в счёте; плата вперёд — не меньше цены новых кандидатов (выведенных из сида сервером); жалованье тех, кто служил весь
+ * промежуток, — уплачено по ведомости сверх терпения. Места — книгой (`commandbook.commandStep`).
+ */
+export function commandFlags(a: WatchCard, b: WatchCard, days: number, realMs: number): { kind: FlagKind; text: string }[] {
+  const out: { kind: FlagKind; text: string }[] = [];
+  const x = b.command;
+  if (!x) return out;
+  const y = a.command ?? { seats: [], hired: 0, fees: 0, paid: 0 };
+  if (x.hired < y.hired || x.fees < y.fees || x.paid < y.paid) {
+    out.push({ kind: 'command', text: `Счёт командиров убыл: наймов ${big(y.hired)} → ${big(x.hired)}, платы вперёд ${big(y.fees)} → ${big(x.fees)}, жалованья ${big(y.paid)} → ${big(x.paid)}.` });
+  }
+  const key = (c: { flank: string; n: number; at: number }): string => `${c.flank}:${c.n}:${c.at}`;
+  const was = new Set(y.seats.map(key));
+  const fresh = x.seats.filter((c) => !was.has(key(c)));
+  if (fresh.length > x.hired - y.hired) {
+    out.push({ kind: 'command', text: `Командиры флангов: новых на местах ${big(fresh.length)} за ${span(realMs)}, а наймов в счёте ${big(x.hired - y.hired)}.` });
+  }
+  const seed = b.seed ?? a.seed;
+  if (seed === undefined) return out;
+  const fees = fresh.reduce((t, c) => {
+    const r = commanderAt(seed, c.n, c.tier);
+    return t + recruitAdvance(r.level, r.traits);
+  }, 0);
+  if (x.fees - y.fees < fees) {
+    out.push({ kind: 'command', text: `Командиры флангов: плата вперёд ${big(x.fees - y.fees)} за ${span(realMs)}, а новые нанятые стоят ${big(fees)}.` });
+  }
+  const wage = x.seats
+    .filter((c) => was.has(key(c)))
+    .reduce((t, c) => {
+      const r = commanderAt(seed, c.n, c.tier);
+      return t + recruitWage(r.level, r.traits);
+    }, 0);
+  const owed = wage * Math.max(0, days - COUNCIL_GRACE_DAYS);
+  if (owed > 0 && (x.paid - y.paid) * GROWTH_SLACK + 1 < owed) {
+    out.push({ kind: 'command', text: `Командиры флангов: жалованья уплачено ${big(x.paid - y.paid)} за ${span(realMs)}, а ведомость командиров сверх терпения — ${big(owed)}.` });
+  }
+  return out;
+}
+
+/** Жалованье подтверждённых командиров флангов за игровой день — расход казны в книге запасов, одной ведомостью с советом. */
+export function commandWage(rec: Pick<WatchRecord, 'command' | 'agents'>): number {
+  let n = 0;
+  for (const seat of Object.values(rec.command?.seats ?? {})) {
+    const c = commanderOfSeat(rec.agents?.seed, seat);
+    if (c) n += recruitWage(c.level, c.traits);
+  }
+  return n;
+}
+
+/** Числа подтверждённых командиров для войны (`war.SheetAt.command`): тактика флангов и слагаемое знати. Книги нет — поля нет. */
+export function commandOf(rec: WatchRecord): { command?: CommandAt } {
+  const got = commandAt(rec.command, rec.agents?.seed);
+  return Object.keys(got.flanks).length > 0 || got.lead !== 0 ? { command: got } : {};
 }
 
 /** Жалованье подтверждённых агентов за игровой день — расход казны в книге запасов (`goods.drainCeil`), одной ведомостью с советом. */
@@ -1362,15 +1438,18 @@ export function booked(
     pop: people.book.pop,
     soldiers: army.after + people.book.queued,
     // Совет и агенты Ратуши (РТ-1, АГ-1) — одна ведомость с войском: подтверждённые советники и нанятые агенты.
-    council: councilWage(watch, levelIn(people.book.levels, 'town_hall')) + agentsWage(rec),
+    council: councilWage(watch, levelIn(people.book.levels, 'town_hall')) + agentsWage(rec) + commandWage(rec),
     estates: estateCeilOf(watch, people.book.levels),
     bonded: bonds.book.n,
   });
   // Книга агентов (АГ-1): сид, люди на местах и опыт под потолком дел; ступень найма — не выше ратуши книги стройки.
   const agents = agentsStep(rec.agents, watch, at, levelIn(people.book.levels, 'town_hall'), gameMsBetween(prior.card, watch));
-  const next = { ...rec, book: step.book, town: people.book, goods: { ...goods.book, bonds: bonds.book }, agents: agents.book };
+  // Книга командиров флангов (ДР-3): кандидат — по сиду книги агентов, ступень — не выше Казарм книги стройки.
+  const command = commandStep(rec.command, watch, at, agents.book.seed, levelIn(people.book.levels, 'barracks'));
+  const next = { ...rec, book: step.book, town: people.book, goods: { ...goods.book, bonds: bonds.book }, agents: agents.book, command: command.book };
   const found: { kind: FlagKind; text: string }[] = [];
   for (const t of agents.found) found.push({ kind: 'agents', text: `Агенты: ${t}.` });
+  for (const t of command.found) found.push({ kind: 'command', text: `Командиры флангов: ${t}.` });
   if (bonds.refused > 0) {
     found.push({
       kind: 'bonded',

@@ -74,6 +74,11 @@ export const CROWN_RULES: Readonly<Record<string, CrownRule>> = {
   cr_plague: { kind: 'chain', rarity: 'common', opts: [o(-2), o(-4)] },
   cr_collector: { kind: 'chain', rarity: 'common', opts: [o(0), o(-2)] },
   cr_interdict: { kind: 'chain', rarity: 'common', opts: [o(1), o(-8)] },
+  // ---------- Знать и командиры флангов (ДР-3) ----------
+  // Дурные: обида и раздор знати, как жалоба сословия — дар и уступка ровно, отказ и молчание — день вниз. Авангард безродному —
+  // очки войны, как дар рыцарства.
+  cr_lord_claim: { kind: 'bad', rarity: 'common', opts: [o(0), o(0), o(-1)] },
+  cr_vanguard: { kind: 'bad', rarity: 'uncommon', opts: [o(0), o(0, ['war', 20]), o(-1)] },
   ...estateRules(),
 };
 

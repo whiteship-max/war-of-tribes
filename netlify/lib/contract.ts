@@ -742,6 +742,14 @@ export interface WarSheet {
   /** Стойкость (обряд), отметки полководца у ворот и мораль обороны, 0..1. */
   resolve: number;
   pips: Counts;
+  /**
+   * Полководец в городе в минуту слепка (ДР-3): тогда у стен и его командиры флангов. Тактику флангов слепок не несёт — её ставит
+   * сервер по своей книге командиров (`war.liveSheet`, `commandbook.commandAt`). Нет поля — полководца в городе нет или слепок
+   * старого клиента.
+   */
+  led?: true;
+  /** Тактика командиров флангов обороны — ставит сервер (`war.liveSheet`), из слепка клиента не читается. */
+  flanks?: WarFlanks;
   rest: number;
   /**
    * Дух обороны (ДР-1): мораль и дисциплина дружины, 0…100. Сервер кладёт в бой не выше потолка своей книги духа
@@ -871,6 +879,11 @@ export interface WarArmy {
   troops: Counts;
   resolve: number;
   pips: Counts;
+  /**
+   * Тактика командиров флангов похода (ДР-3, `ArmySetup.flanks`): ставит сервер по книге командиров в минуту приказа
+   * (`war.ruleArmy`); из приказа клиента не читается. Нет — командиров нет.
+   */
+  flanks?: WarFlanks;
   /** Дух дружины (ДР-1): сервер кладёт в бой не выше потолка книги духа (`book.ruleSpirit`). Нет — духа нет. */
   spirit?: WarSpirit;
   /** Мораль между боями (`world/rest.RestPair`). Нет — свежее. */
@@ -882,6 +895,9 @@ export interface WarArmy {
    */
   energy?: WarEnergy;
 }
+
+/** Тактика командиров флангов в отметках со знаком: левый (`A`) и правый (`C`) — как поле стороны боя `ArmySetup.flanks`. */
+export type WarFlanks = Partial<Record<'A' | 'C', number>>;
 
 /** Отметка энергии полководца в войне — та же форма, что у двери энергии (`world/energy.EnergyMark`). */
 export interface WarEnergy {
@@ -1548,6 +1564,8 @@ export function readSheet(v: unknown): WarSheet | null {
     archers: Math.floor(real(r.archers, WAR_LIMITS.count)),
     resolve: real(r.resolve, 100),
     pips: readReals(r.pips),
+    // Полководец в городе (ДР-3) — признаком; тактику флангов ставит сервер своей книгой, из слепка она не читается.
+    ...(r.led === true ? { led: true as const } : {}),
     rest: Math.min(1, real(r.rest, 1)),
     ...spiritOf(r.spirit),
     food: real(r.food, 1e12),
@@ -2029,6 +2047,13 @@ export interface WatchCard {
    */
   agents?: WatchAgents;
   /**
+   * Командиры флангов (ДР-3, docs/siege_v2.md, «Решения ДР-3»): кто на месте левого и правого фланга — номер кандидата,
+   * ступень Казарм и минута найма — и счёт наймов, платы вперёд и жалованья, для книги командиров сервера (правило «command»,
+   * `commandbook.ts`). Рода и тактики в описи нет: их сервер выводит сам из сида. Нет поля — опись до ДР-3 или командиров не
+   * нанимали.
+   */
+  command?: WatchCommand;
+  /**
    * Сид партии (АГ-1): из него кандидаты выводятся на сервере теми же формулами, что в игре (`agentrules.recruitAt`). Книга
    * агентов берёт его из описи; сменившийся — флаг, и книга заводится заново (новая партия). Нет поля — опись до АГ-1: кандидатов сервер не выводит, и в войну
    * идут прежние потолки правил.
@@ -2217,6 +2242,43 @@ function readAgents(v: unknown): Pick<WatchCard, 'agents'> {
   return { agents: { seats, hired: whole(r.hired, 1e9), fees: whole(r.fees, 1e12), paid: whole(r.paid, 1e12) } };
 }
 
+/** Командир на месте фланга в описи (ДР-3): место строкой как есть (чужое — флаг книги), числа — целыми и неотрицательными. */
+export interface WatchCommander {
+  flank: string;
+  /** Номер кандидата «Командующих» (`commandrules.commanderId`). */
+  n: number;
+  /** Ступень Казарм при найме (1…3). */
+  tier: number;
+  /** Игровая секунда найма. */
+  at: number;
+}
+
+/** Командиры в описи — то, что сверяет сервер (`commandbook.commandStep`, правило «command»). */
+export interface WatchCommand {
+  seats: WatchCommander[];
+  hired: number;
+  fees: number;
+  paid: number;
+}
+
+/** Сколько мест командиров опись везёт самое большее: мест два — лишние говорят о подделке. */
+const COMMAND_READ_MAX = 4;
+
+/** Командиры описи: место — строкой до 8 знаков, номер, ступень и минута — целыми и неотрицательными. */
+function readCommand(v: unknown): Pick<WatchCard, 'command'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const seats: WatchCommander[] = [];
+  for (const x of (Array.isArray(r.seats) ? r.seats : []).slice(0, COMMAND_READ_MAX)) {
+    if (!x || typeof x !== 'object') continue;
+    const a = x as Record<string, unknown>;
+    const flank = str(a.flank, 8);
+    if (!flank || !Number.isInteger(a.n) || (a.n as number) < 0) continue;
+    seats.push({ flank, n: whole(a.n, 1e12), tier: whole(a.tier, 99), at: whole(a.at, 1e12) });
+  }
+  return { command: { seats, hired: whole(r.hired, 1e9), fees: whole(r.fees, 1e12), paid: whole(r.paid, 1e12) } };
+}
+
 /** Советник в описи: должность и черта — строкой как есть (чужая — флаг книги, а не тихая потеря), уровень — целым. */
 export interface WatchAdvisor {
   post: string;
@@ -2399,6 +2461,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...readCrown(r.crown),
     ...readCouncil(r.council),
     ...readAgents(r.agents),
+    ...readCommand(r.command),
     ...(Number.isInteger(r.seed) && (r.seed as number) >= 0 ? { seed: whole(r.seed, 0xffffffff) } : {}),
     ...readMarket(r.market),
     ...readEstates(r.estates),

@@ -43,6 +43,7 @@ import { stabLevel, stabOf } from '@/game/sim/stability';
 import { crownOf } from '@/game/sim/crown';
 import { councilOf } from '@/game/sim/council';
 import { agentsWatch } from '@/game/sim/recruit';
+import { commandWatch } from '@/game/sim/command';
 import { spiritOf, wageMode } from '@/game/sim/spirit';
 import { ADVISOR_POSTS } from '@/game/councilrules';
 import { estatesOf, privList } from '@/game/sim/estates';
@@ -168,6 +169,8 @@ export function watchOf(s: GameState): WatchCard {
     ...(s.council ? { council: councilCard(s) } : {}),
     // Книга агентов (АГ-1): кто на местах, из какого кандидата, опыт; и сид партии — из него сервер выводит кандидатов сам.
     agents: agentsWatch(s),
+    // Книга командиров флангов (ДР-3): кто на местах и из какого кандидата. Командиров не нанимали — поля нет.
+    ...(s.command ? { command: commandWatch(s) } : {}),
     seed: s.seed >>> 0,
     // Книга сословий (РТ-2): привилегии, указ сословия, влияние и счёт — у каждой партии (влияние есть и без привилегий).
     estates: estatesCard(s),

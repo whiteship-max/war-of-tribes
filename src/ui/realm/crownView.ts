@@ -86,6 +86,8 @@ export function fxLine(f: Fx): FxLine | null {
     }
     case 'priv':
       return { icon: ESTATE_META[f.e].icon, tone: 'good', text: `${ESTATE_META[f.e].name}: привилегия «${f.name}»` };
+    case 'unseat':
+      return { icon: 'hud-army', tone: 'flat', text: 'Безродный командир фланга отозван' };
   }
 }
 

@@ -5,7 +5,7 @@
 //
 // Модуль чистый: ни состояния мира, ни часов, ни случайности — сид приходит снаружи. Его собирает и
 // сервер (`netlify/lib/war.ts`), поэтому DOM и хранилища здесь нет и быть не может.
-import { BATTLE_RULES, emptyStack, HORSE_KINDS, UNIT_KINDS, type GroundPenalty, type Pips, type Spirit, type Stack } from '@/battle';
+import { BATTLE_RULES, emptyStack, HORSE_KINDS, UNIT_KINDS, type Flanks, type GroundPenalty, type Pips, type Spirit, type Stack } from '@/battle';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { troopLosses } from '@/game/battle/price';
 import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from './battle';
@@ -15,6 +15,9 @@ import { siegeWear } from './siege';
 import { CAMP_WOOD, CAMP_WORKS_RIPE } from './data/tuning';
 import { mixRest } from './rest';
 import { weakest } from './muster';
+
+/** Командиры флангов в сторону боя — только если они есть (ДР-3): бой без них тот же, что до них, и запись входа та же. */
+const led = (f: Flanks | undefined): { flanks?: Flanks } => (f ? { flanks: f } : {});
 
 /**
  * Оборона дома в родах боя: гарнизон и дружина у ворот плюс ополчение — частокол, башня и сами жители.
@@ -37,6 +40,8 @@ export interface WallDefence {
   archers: number;
   resolve?: number;
   pips?: Pips;
+  /** Командиры флангов обороны (ДР-3, `FieldSide.flanks`): там же, где отметки полководца; нет — без командиров. */
+  flanks?: Flanks;
   rest?: number;
   /** Мораль и дисциплина обороны (ДР-1, `FieldSide.spirit`); нет — множители единица. */
   spirit?: Spirit;
@@ -78,7 +83,7 @@ export function wallFight(input: WallFightIn): { input: FieldInput; field: Field
     rules: BATTLE_RULES,
     ...(ground ? { ground } : {}),
     attacker: { ...input.attacker, kinds },
-    defender: { kinds: defenceKinds(d.kinds, d.militia, d.archers), resolve: d.resolve, pips: d.pips, rest: d.rest, ...(d.spirit ? { spirit: d.spirit } : {}) },
+    defender: { kinds: defenceKinds(d.kinds, d.militia, d.archers), resolve: d.resolve, pips: d.pips, ...led(d.flanks), rest: d.rest, ...(d.spirit ? { spirit: d.spirit } : {}) },
     ...(front ? { width: front.width, fire: front.fire } : {}),
     ...(front?.widen ? { widen: front.widen } : {}),
   };
@@ -101,12 +106,13 @@ export function homeLosses(home: TroopStack, field: FieldOutcome): TroopStack {
 export interface MachineFightIn {
   seed: number;
   /** Охрана машины — сторона лагеря у города (`machines.GUARD_SHARE`), в родах боя. */
-  guard: { kinds: Stack; resolve?: number; pips?: Pips; rest: number; spirit?: Spirit };
+  guard: { kinds: Stack; resolve?: number; pips?: Pips; flanks?: Flanks; rest: number; spirit?: Spirit };
   /** Кто вышел из ворот, с моралью между боями и износом осады. */
   sortie: CampPartIn;
-  /** Стойкость, отметки и дух вышедших — кто их ведёт и чьё это войско. */
+  /** Стойкость, отметки, командиры флангов и дух вышедших — кто их ведёт и чьё это войско. */
   resolve?: number;
   pips?: Pips;
+  flanks?: Flanks;
   spirit?: Spirit;
   ground?: GroundPenalty;
 }
@@ -129,11 +135,12 @@ export function machineFight(input: MachineFightIn): { input: FieldInput; field:
     seed: input.seed,
     rules: BATTLE_RULES,
     ...(input.ground ? { ground: input.ground } : {}),
-    attacker: { kinds: input.sortie.kinds, resolve: input.resolve, pips: input.pips, rest: input.sortie.rest ?? 1, ...(input.spirit ? { spirit: input.spirit } : {}) },
+    attacker: { kinds: input.sortie.kinds, resolve: input.resolve, pips: input.pips, ...led(input.flanks), rest: input.sortie.rest ?? 1, ...(input.spirit ? { spirit: input.spirit } : {}) },
     defender: {
       kinds: input.guard.kinds,
       resolve: input.guard.resolve,
       pips: input.guard.pips,
+      ...led(input.guard.flanks),
       rest: input.guard.rest,
       ...(input.guard.spirit ? { spirit: input.guard.spirit } : {}),
     },
@@ -155,13 +162,17 @@ export interface CampFightIn {
   /** Рогатки лагеря: с какой минуты стоит, кто строил, занятость проходов, древесина. */
   sight: CampSight;
   /** Лагерь — кто в нём стоит, в родах боя. */
-  camp: { kinds: Stack; resolve?: number; pips?: Pips; rest: number; spirit?: Spirit };
+  camp: { kinds: Stack; resolve?: number; pips?: Pips; flanks?: Flanks; rest: number; spirit?: Spirit };
   /** Со стороны города (вылазка, гарнизон в совместном ударе) и с тыла (дружина из поля). */
   front?: CampPartIn;
   rear?: CampPartIn;
-  /** Стойкость, отметки и дух нападающих — кто их ведёт и чьё это войско (ДР-1: дух у гарнизона и дружины один). */
+  /**
+   * Стойкость, отметки, командиры флангов (ДР-3) и дух нападающих — кто их ведёт и чьё это войско (ДР-1: дух у гарнизона и
+   * дружины один).
+   */
   resolve?: number;
   pips?: Pips;
+  flanks?: Flanks;
   spirit?: Spirit;
   ground?: GroundPenalty;
   /**
@@ -224,6 +235,7 @@ export function campFight(input: CampFightIn): CampFightOut {
       kinds,
       resolve: input.resolve,
       pips: input.pips,
+      ...led(input.flanks),
       // Мораль между боями (14.31): у каждой части своя, вместе — по прошедшим.
       rest: mixRest(parts.map(({ part, t }) => ({ rest: part.rest ?? 1, men: t.passed }))),
       ...(input.spirit ? { spirit: input.spirit } : {}),
@@ -234,6 +246,7 @@ export function campFight(input: CampFightIn): CampFightOut {
       kinds: input.camp.kinds,
       resolve: input.camp.resolve,
       pips: input.camp.pips,
+      ...led(input.camp.flanks),
       rest: input.camp.rest,
       ...(input.camp.spirit ? { spirit: input.camp.spirit } : {}),
     },
@@ -255,12 +268,12 @@ export function holdMinute(since: number, wood: WoodPlan = CAMP_WOOD): number {
 }
 
 /** Всё, чем решается «садиться ли»: лагерь в минуту дозревания и гарнизон, выходящий на вылазку весь. */
-export interface HoldIn extends Omit<CampFightIn, 'at' | 'front' | 'rear' | 'resolve' | 'pips' | 'spirit'> {
+export interface HoldIn extends Omit<CampFightIn, 'at' | 'front' | 'rear' | 'resolve' | 'pips' | 'flanks' | 'spirit'> {
   /**
    * Гарнизон на вылазке: все, кто дома, без ополчения — оно за ворота не выходит. Мораль — между боями, на минуту
    * дозревания; износ осады к этой минуте дверь кладёт сама (`siege.siegeWear`).
    */
-  sortie: CampPartIn & { resolve?: number; pips?: Pips; spirit?: Spirit };
+  sortie: CampPartIn & { resolve?: number; pips?: Pips; flanks?: Flanks; spirit?: Spirit };
   /** Путь износа гарнизона до дна — срок голода окна, которое встало бы (`siege.wearSpan`). */
   wearSpan: number;
 }
@@ -287,6 +300,7 @@ export function campHolds(input: HoldIn): boolean {
     front: { kinds: sortie.kinds, rest: (sortie.rest ?? 1) * siegeWear(input.sight.since, at, input.wearSpan) },
     resolve: sortie.resolve,
     pips: sortie.pips,
+    ...led(sortie.flanks),
     ...(sortie.spirit ? { spirit: sortie.spirit } : {}),
     ground: input.ground,
     fort: input.fort,

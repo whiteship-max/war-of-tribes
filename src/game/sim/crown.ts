@@ -33,6 +33,7 @@ import { chainPending, scheduleChain } from './chains';
 import { addStrain, grantRelic } from './faith';
 import { killPop, loseBonded, losePop } from './population';
 import { grantPrivilege } from './estates';
+import { unseatLowborn } from './command';
 import { ESTATE_META } from '../data/estates';
 import { signedWhole } from '../num';
 
@@ -141,6 +142,9 @@ function applyFx(s: GameState, f: Fx): void {
     case 'priv':
       grantPrivilege(s, f.e);
       return;
+    case 'unseat':
+      unseatLowborn(s);
+      return;
   }
 }
 
@@ -202,6 +206,8 @@ export function fxWord(f: Fx): string {
     }
     case 'priv':
       return `${ESTATE_META[f.e].to} — привилегия «${f.name}»`;
+    case 'unseat':
+      return 'безродный командир фланга отозван';
   }
 }
 

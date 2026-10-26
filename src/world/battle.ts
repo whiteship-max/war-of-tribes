@@ -19,6 +19,7 @@ import {
   UNIT_KINDS,
   type ArmySetup,
   type BattleResult,
+  type Flanks,
   type GroundPenalty,
   type Pips,
   type Side,
@@ -47,6 +48,12 @@ export interface FieldSide {
    * своих ворот, у чужих — ничего. Кладутся поверх развёртывания тем же путём, что `resolve`.
    */
   pips?: Pips;
+  /**
+   * Командиры флангов того, кто ведёт сторону (ДР-3, `ArmySetup.flanks`): тактика левого и правого в отметках со знаком. У
+   * нас — люди «Командующих» (`PlayerProfile.flanks`) там же, где отметки полководца; у соседа — книга сервера; у логова —
+   * ничего. Нет поля — командиров нет, и бой байт в байт прежний.
+   */
+  flanks?: Flanks;
   /**
    * С какой долей полной морали сторона вышла в бой, 0..1: мораль между боями (docs/battle_eu4.md, 14.31). Считает её
    * одна дверь — `world/rest`; нет поля — полная.
@@ -149,6 +156,8 @@ export function resolveField(input: FieldInput): FieldOutcome {
   const rested = (r: number | undefined): { rest?: number } => (r !== undefined && r < 1 ? { rest: r } : {});
   // Дух — только если он есть: бой без него (логово, вход старше ДР-1) — тот же, что до духа, байт в байт.
   const spirited = (v: Spirit | undefined): { spirit?: Spirit } => (v ? { spirit: { morale: v.morale, discipline: v.discipline } } : {});
+  // Командиры флангов — только если они есть (ДР-3): бой без них — тот же, что до них, байт в байт.
+  const led = (f: Flanks | undefined): { flanks?: Flanks } => (f && (f.A || f.C) ? { flanks: { ...f } } : {});
 
   const result = simulateBattle({
     seed: input.seed,
@@ -160,6 +169,7 @@ export function resolveField(input: FieldInput): FieldOutcome {
       ground: input.ground,
       ...rested(input.attacker.rest),
       ...spirited(input.attacker.spirit),
+      ...led(input.attacker.flanks),
       ...(input.attacker.garrison ? { garrison: input.attacker.garrison } : {}),
     },
     defender: {
@@ -168,6 +178,7 @@ export function resolveField(input: FieldInput): FieldOutcome {
       pips: input.defender.pips ?? {},
       ...rested(input.defender.rest),
       ...spirited(input.defender.spirit),
+      ...led(input.defender.flanks),
     },
     ...(input.width !== undefined ? { width: input.width } : {}),
     ...(input.fire !== undefined ? { fire: input.fire } : {}),

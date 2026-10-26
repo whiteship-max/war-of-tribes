@@ -38,6 +38,7 @@ import {
   type ExpeditionOutcome,
 } from '@/game/sim/expedition';
 import { eloquenceOf, pipsOf, retiring, sightBonusOf, stealthOf, traitNumbers, veilOf } from '@/game/sim/agents';
+import { commandFlanks } from '@/game/sim/command';
 import { readyEngine } from '@/game/sim/tower';
 import { fateLocks } from '@/game/sim/tech';
 import { syncFaith } from '@/game/sim/faith';
@@ -95,9 +96,12 @@ function tower(s: GameState): Pick<PlayerProfile, 'tower'> {
   return engine ? { tower: { slow: engine.slow, thin: engine.thin, crew: engine.crew, seats: towerSeats(s) } } : {};
 }
 
-/** Прибавки навыков агентов для слепка: только ненулевые. */
-function skills(s: GameState): Pick<PlayerProfile, 'pips' | 'sightBonus' | 'stealth' | 'veil' | 'eloquence'> {
-  const out: Pick<PlayerProfile, 'pips' | 'sightBonus' | 'stealth' | 'veil' | 'eloquence'> = {};
+/** Прибавки навыков агентов и командиров флангов для слепка: только ненулевые. */
+function skills(s: GameState): Pick<PlayerProfile, 'pips' | 'flanks' | 'sightBonus' | 'stealth' | 'veil' | 'eloquence'> {
+  const out: Pick<PlayerProfile, 'pips' | 'flanks' | 'sightBonus' | 'stealth' | 'veil' | 'eloquence'> = {};
+  // Командиры флангов (ДР-3): нет — поля нет, и слепок тот же, что до них.
+  const flanks = commandFlanks(s);
+  if (Object.keys(flanks).length > 0) out.flanks = flanks;
   const pips = pipsOf(s);
   const sightBonus = sightBonusOf(s);
   const stealth = stealthOf(s);

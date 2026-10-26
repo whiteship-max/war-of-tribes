@@ -16,7 +16,7 @@ import type { Gait } from './data/gait';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { BattlePlace } from '@/game/battle/ground';
-import type { BattleResult, Pips, Side, Spirit, Stack, UnitKind } from '@/battle';
+import type { BattleResult, Flanks, Pips, Side, Spirit, Stack, UnitKind } from '@/battle';
 import type { WoodPlan } from './works';
 import type { TowerGun } from './bombard';
 import type { FigurePlace } from './shelter';
@@ -2075,6 +2075,12 @@ export interface PlayerProfile {
    * до отметок, его нет — ноль. Прежнее `onslaught` в сохранённом слепке не читает никто.
    */
   pips?: Pips;
+  /**
+   * Командиры флангов (ДР-3, docs/siege_v2.md, «Решения ДР-3»): тактика левого (`A`) и правого (`C`) в отметках со знаком
+   * (`ArmySetup.flanks`). Едут в отряде полководца — в бой там же, где его отметки (`LocalWorld.generalFlanks`,
+   * `homeFlanks`). Поле необязательное: командиров нет — поля нет, и слепок тот же, что до них.
+   */
+  flanks?: Flanks;
   /** Зоркость разведчика: на сколько клеток шире он открывает землю. Живого обзора не даёт. */
   sightBonus?: number;
   /** Скрытность лазутчика: доля провалов, которые проходят незамеченными, 0..1. Шанс не трогает. */

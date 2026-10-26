@@ -133,6 +133,18 @@ export function recruitName(seed: number, n: number, faith: FaithId): string {
   return fullName(seed, n, faith, RECRUIT_SALT, RECRUIT_EPITHET_SALT);
 }
 
+/** Соли кандидатов в командиры флангов (ДР-3): свой порядок — имена агентов, совета и дома не едут. */
+const COMMANDER_SALT = 0x636d6e6d;
+const COMMANDER_EPITHET_SALT = 0x636d6570;
+
+/**
+ * Имя кандидата в командиры с номером имени `n` (`commandrules.commanderNameIndex`). Чистая функция; тёзок среди живых не
+ * допускает лист кандидатов (`sim/commanders`), шагая дальше по перестановке.
+ */
+export function commanderName(seed: number, n: number, faith: FaithId): string {
+  return fullName(seed, n, faith, COMMANDER_SALT, COMMANDER_EPITHET_SALT);
+}
+
 function fullName(seed: number, index: number, faith: FaithId, nameSalt: number, epithetSalt: number): string {
   const names = AGENT_NAMES[faith];
   const n = Math.max(0, Math.floor(index));

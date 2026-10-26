@@ -8,6 +8,7 @@ import { partyNow } from '@/net/clock';
 import {
   emptyStack,
   stackTotal,
+  type Flanks,
   type Pips,
   type Spirit,
   type Stack,
@@ -2086,6 +2087,8 @@ export class LocalWorld implements WorldApi {
     spirit?: Spirit;
     /** Отметки того, кто ведёт лагерь: у нашего — полководец, у чужого — никто. */
     pips?: Pips;
+    /** Командиры флангов нашего лагеря (ДР-3): там же, где отметки полководца. */
+    flanks?: Flanks;
     /** Сколько бойцов строя стоит в лагере. */
     men: number;
     power: number;
@@ -2113,6 +2116,7 @@ export class LocalWorld implements WorldApi {
         // Наш лагерь держит дружина полководца — это его бой, и его отметки в нём есть; с обозом — сытый дух (ДР-2).
         spirit: this.generalSpirit(),
         pips: this.generalPips(),
+        ...this.generalFlanks(),
         men: stackTotal(kinds),
         power: troopPower(troops) * (1 - thin),
         name: 'наш лагерь',
@@ -2244,11 +2248,12 @@ export class LocalWorld implements WorldApi {
       at,
       sight: { since: siegeSince(w), builders: this.buildersOf(w, at), gateAt: w.gateAt, rearGateAt: w.rearGateAt, wood: camp.wood },
       // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого её нет.
-      camp: { kinds: camp.kinds, resolve: camp.resolve, pips: camp.pips, rest: camp.rest, spirit: camp.spirit },
+      camp: { kinds: camp.kinds, resolve: camp.resolve, pips: camp.pips, flanks: camp.flanks, rest: camp.rest, spirit: camp.spirit },
       front: partOf(attack.front),
       rear: partOf(attack.rear),
       spirit: own ? (attack.general ? this.generalSpirit() : this.ownSpirit()) : undefined,
       pips: own ? (attack.general ? this.generalPips() : this.homePips(at)) : undefined,
+      ...(own ? (attack.general ? this.generalFlanks() : this.homeFlanks(at)) : {}),
       ground: cell ? groundAt(this.save.seed, cell, attack.from) : undefined,
       // Укрепления лагеря — та же дверь, что у лагеря под городом игрока на сервере (`siegecraft.fortFaces`).
       fort: fortFaces(w.craft),
@@ -2583,6 +2588,7 @@ export class LocalWorld implements WorldApi {
         kinds: kindsOf(held.all),
         spirit: this.ownSpirit(),
         pips: this.homePips(at),
+        ...this.homeFlanks(at),
         rest: mixRest([
           { rest: this.garrisonRest(held.own, ripe), men: this.menOf(troopsAfter(held.all, standing)) },
           { rest: this.generalRest(ripe), men: this.menOf(standing) },
@@ -4138,6 +4144,20 @@ export class LocalWorld implements WorldApi {
     return this.generalPips();
   }
 
+  /**
+   * Командиры флангов в бою, который ведёт полководец (ДР-3, К1): они едут в его отряде и в бою там же, где его отметки
+   * (`generalPips`). Полем стороны — только если они есть: бой без них тот же, что до них, байт в байт.
+   */
+  private generalFlanks(): { flanks?: Flanks } {
+    const f = this.save.profile?.flanks;
+    return f && Object.keys(f).length > 0 ? { flanks: f } : {};
+  }
+
+  /** Командиры флангов у своих стен — пока полководец в городе (`homePips`): нет его — нет и командиров. */
+  private homeFlanks(at: number): { flanks?: Flanks } {
+    return inTown(this.save.figures.general, at) ? this.generalFlanks() : {};
+  }
+
   /** Чем одет наш отряд — для показа: ролик и отчёт одевают им лагерь; в бой ступень не идёт (путь П2, 14.35). */
   private ownGear(troops: TroopStack): Partial<Record<UnitKind, number>> {
     return ownGearOf(troops);
@@ -5034,7 +5054,7 @@ export class LocalWorld implements WorldApi {
       // Место боя — клетка цели; переправа — если полководец вышел на неё через русло.
       ground: groundAt(this.save.seed, target, came ?? this.save.figures.general.from),
       // Мораль между боями — у обеих сторон одним правилом (14.31): дружина и гарнизон логова своими парами.
-      attacker: { kinds: kindsOf(troops), spirit: this.generalSpirit(), pips: this.generalPips(), rest: this.generalRest(at) },
+      attacker: { kinds: kindsOf(troops), spirit: this.generalSpirit(), pips: this.generalPips(), ...this.generalFlanks(), rest: this.generalRest(at) },
       // Штурм из своего лагеря: гарнизон дерётся с духом осады и обстрела (`besiegedRest`); стен у двора мира нет — штурм
       // идёт в поле, во всю ширину (стена-проход, `world/wall`, — только у города игрока).
       defender: { kinds: garrison.kinds, rest: this.besiegedRest(target.id, at, garrisonMen, camp) },
@@ -5694,7 +5714,7 @@ export class LocalWorld implements WorldApi {
       // Место боя — клетка встречи; нападает полководец, и переправа — его шаг на неё (бой на воде — переправа).
       ground: groundAt(this.save.seed, spot, f.from),
       // Мораль между боями (14.31): дружина — своей парой, отряд — своей.
-      attacker: { kinds: kindsOf(troops), spirit: this.generalSpirit(), pips: this.generalPips(), rest: this.generalRest(at) },
+      attacker: { kinds: kindsOf(troops), spirit: this.generalSpirit(), pips: this.generalPips(), ...this.generalFlanks(), rest: this.generalRest(at) },
       defender: { kinds: party.kinds, rest: restAt(m.rest, at, partyMen) },
     });
     if (field.result) {
@@ -6050,6 +6070,7 @@ export class LocalWorld implements WorldApi {
         archers,
         spirit: this.ownSpirit(),
         pips: this.homePips(at),
+        ...this.homeFlanks(at),
         rest: this.homeRest(held, at, militia),
       },
       front,
@@ -9306,10 +9327,11 @@ export class LocalWorld implements WorldApi {
     const guard = guardKinds(camp.kinds, BREAKOUT_SHARE);
     const { field } = machineFight({
       seed,
-      guard: { kinds: guard, resolve: camp.resolve, pips: camp.pips, rest: camp.rest, spirit: camp.spirit },
+      guard: { kinds: guard, resolve: camp.resolve, pips: camp.pips, flanks: camp.flanks, rest: camp.rest, spirit: camp.spirit },
       sortie: { kinds: kindsOf(going), rest },
       spirit: this.ownSpirit(),
       pips: this.homePips(now),
+      ...this.homeFlanks(now),
       ground: groundAt(this.save.seed, this.save.home),
     });
     const lostTroops = field.result ? troopLosses(going, field.result.sides.attacker.losses) : {};
@@ -11315,6 +11337,8 @@ export class LocalWorld implements WorldApi {
       resolve: 0,
       ...spiritField(this.ownSpirit()),
       pips: { ...this.homePips(now) } as Counts,
+      // Полководец в городе (ДР-3): с ним у стен и командиры флангов — их тактику ставит сервер своей книгой.
+      ...(inTown(this.save.figures.general, now) ? { led: true as const } : {}),
       rest: this.homeRest(held, now, militia),
       food: Math.max(0, p.food ?? 0),
       townPerHour: Math.max(0, p.foodPerHour ?? 0),

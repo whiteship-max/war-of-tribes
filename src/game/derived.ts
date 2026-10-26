@@ -9,6 +9,7 @@ import type {
   Caravan,
   EquipmentId,
   FaithId,
+  Flank,
   GameState,
   JobId,
   ObservanceId,
@@ -109,9 +110,11 @@ import { STAB_STEP, stabClamp, stabOutputMult } from './stabrules';
 import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
 import { WAGE_MIN_SHARE } from './spiritrules';
 import { AGENT_ROLES, recruitWage, recruitAt, traditionAt } from './agentrules';
+import { FLANKS, commanderAt, leadLoyalty, type Birth, type Commander } from './commandrules';
 import {
   ESTATES,
   FERVOUR_SCALE,
+  LEAD_ESTATE,
   LOYAL,
   PIETY_SCALE,
   influenceOf,
@@ -773,7 +776,8 @@ export const mastersWagesPerDay = (s: GameState): number => mastersCount(s) * ma
  * из неё платит `sim/upkeep`, по ней «по средствам» решает, сколько ещё держать, и по ней же
  * уходят недоплаченные. Второй ведомости у мастеров нет.
  */
-export const wagesPerDay = (s: GameState): number => armyWagesPerDay(s) + mastersWagesPerDay(s) + councilWagesPerDay(s) + agentWagesPerDay(s);
+export const wagesPerDay = (s: GameState): number =>
+  armyWagesPerDay(s) + mastersWagesPerDay(s) + councilWagesPerDay(s) + agentWagesPerDay(s) + commandWagesPerDay(s);
 
 // ---------- Совет Ратуши (РТ-1) ----------
 //
@@ -818,6 +822,29 @@ export const agentWagesPerDay = (s: GameState): number =>
     return n + recruitWage(r.level, r.traits);
   }, 0);
 
+// ---------- Командиры флангов (ДР-3) ----------
+//
+// Командиры — люди «Командующих» в отряде полководца (docs/siege_v2.md, «Решения ДР-3»): кандидат, род и тактика выводятся из
+// метки найма (`commandrules.commanderAt`). Здесь — только чтение, которое нужно ведомости и сословиям; пишет места одна дверь —
+// `sim/command`.
+
+/** Кандидат человека на месте фланга `f`; места нет — `null`. */
+export function commanderOn(s: GameState, f: Flank): Commander | null {
+  const c = s.command?.seats?.[f];
+  return c ? commanderAt(s.seed, c.n, c.tier) : null;
+}
+
+/** Жалованье командиров флангов в игровой день — ступень совета по уровню и чертам кандидата (`agentrules.recruitWage`). */
+export const commandWagesPerDay = (s: GameState): number =>
+  FLANKS.reduce((n, f) => {
+    const c = commanderOn(s, f);
+    return c ? n + recruitWage(c.level, c.traits) : n;
+  }, 0);
+
+/** Слагаемое лояльности рыцарства от людей на местах командиров: милость лордам, обида за безродных (К5). */
+export const commandLead = (s: GameState): number =>
+  leadLoyalty(FLANKS.map((f) => commanderOn(s, f)?.birth).filter((b): b is Birth => b !== undefined));
+
 // ---------- Сословия (РТ-2) ----------
 //
 // Влияние и лояльность выводятся, а не хранятся (docs/stability.md, «РТ-2»): уровни построек, привилегии, указ и усилители —
@@ -856,7 +883,7 @@ export function estatesWith(s: GameState, priv: Partial<Record<EstateId, number>
   const dec = estateDecree(s);
   const out = {} as Record<EstateId, EstateNow>;
   for (const e of ESTATES) {
-    const parts = loyaltyParts(e, priv, infl[e], estateMood(s, e));
+    const parts = loyaltyParts(e, priv, infl[e], estateMood(s, e), e === LEAD_ESTATE ? commandLead(s) : 0);
     const loyalty = loyaltyFrom(parts);
     const strength = strengthOf(infl[e], dec === e);
     out[e] = { id: e, infl: infl[e], loyalty, parts, strength, plus: plusOf(e, strength, loyalty), minus: minusOf(e, strength), decree: dec === e };

@@ -36,6 +36,7 @@ import { recruitTick } from './army';
 import { upkeepTick } from './upkeep';
 import { councilStep, vacancyEvent } from './council';
 import { recruitStep } from './recruit';
+import { commandStep } from './command';
 import { estatesStep } from './estates';
 import { settleHires } from './hire';
 import { dynastyStep } from './dynasty';
@@ -170,6 +171,8 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // 3г′. Агенты из Ратуши (АГ-1): книга уплаченного жалованья для сервера. Платит ведомость (`sim/upkeep`), уходят неуплатой
   // войско и совет, агенты — нет (решения АГ-1).
   recruitStep(s, dt);
+  // 3г″. Командиры флангов (ДР-3): книга уплаченного жалованья и покой по возрасту — строкой летописи.
+  commandStep(s, dt);
   // 3д. Сословия (РТ-2): указ сословия держится, пока оно верно — дар кончился, соперник получил привилегию, и указ снят.
   estatesStep(s);
 

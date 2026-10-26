@@ -50,6 +50,7 @@ import {
   type BattleInput,
   type BattleResult,
   type EventBody,
+  type FlankSector,
   type GroupMove,
   type Lane,
   type PhaseId,
@@ -311,6 +312,16 @@ export const spiritDealt = (setup: ArmySetup): number => (setup.spirit ? spiritM
 const restOf = (setup: ArmySetup): number => {
   const r = setup.rest ?? 1;
   return Number.isFinite(r) ? Math.max(0, Math.min(1, r)) : 1;
+};
+
+/**
+ * Тактика командира фланга полосы `lane` (ДР-3, `ArmySetup.flanks`): отметки со знаком; у центра (полоса 1) командира фланга
+ * нет — его ведёт полководец. Нет поля, ключа или не число — ноль. Одна дверь на кость полосы (`Battle.laneLuck`) и на окно.
+ */
+export const flankPips = (setup: ArmySetup, lane: Lane): number => {
+  const sector: FlankSector | null = lane === 0 ? 'A' : lane === 2 ? 'C' : null;
+  const n = sector ? (setup.flanks?.[sector] ?? 0) : 0;
+  return Number.isFinite(n) ? n : 0;
 };
 
 /** Вид фазы EU4 — огонь или натиск: первая отметка фазы (`PHASE_PIPS`); у фазы без кости — нет. */
@@ -1151,6 +1162,18 @@ class Battle {
   }
 
   /**
+   * Сторонняя часть удара группы `g`: кость стороны в фазе (`luck`) и тактика командира её фланга (`flankPips`, ДР-3) — в цене
+   * отметки, только в фазе, где считаются отметки полководца (`PHASE_PIPS`): погоня и отступление командира не спрашивают.
+   * Полоса — та, где группа бьётся сейчас: резерв, вошедший во фланг, ведёт командир этого фланга.
+   */
+  laneLuck(g: Group): number {
+    const luck = this.luck[g.side];
+    if (g.lane === null || PHASE_PIPS[this.phase].length === 0) return luck;
+    const f = flankPips(this.sides[g.side].setup, g.lane);
+    return f === 0 ? luck : luck + PIP * f;
+  }
+
+  /**
    * Общий множитель силы группы — отход и дисциплина стороны (`spiritDealt`, ДР-1). Кость, отметки и показатели — в каждом
    * ударе (`hitMult`). Мораль в урон не входит — у EU4 урон от силы полка, а не от его морали (поставка 5, docs/battle_eu4.md,
    * 14.33); дисциплина входит, как у EU4.
@@ -1187,7 +1210,7 @@ class Battle {
         if (!stands(n) || !reached(k)) continue;
         const share = n / weight;
         const target = KIND_PROFILE[k];
-        const casualties = total * share * hitMult(this.luck[from.side], by, target, ctx.ranged) * (ctx.chase ? 1 : this.taken(t));
+        const casualties = total * share * hitMult(this.laneLuck(from), by, target, ctx.ranged) * (ctx.chase ? 1 : this.taken(t));
         if (casualties > 0) {
           hits.push({ target: t, kind: k, casualties, by: from.side, byKind: kind, byLane, ranged: ctx.ranged, flank: ctx.flank, cover: ctx.cover ?? 1, moraleW: moraleMult(by, target) });
         }

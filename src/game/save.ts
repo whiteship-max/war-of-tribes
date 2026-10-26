@@ -17,6 +17,7 @@ import { trimStock } from './sim/stock';
 import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
 import { mergeCouncil } from './sim/council';
 import { mergeRecruit } from './sim/recruit';
+import { mergeCommand } from './sim/command';
 import { mergeMarket } from './sim/caravan';
 import { mergeEstates } from './sim/estates';
 import { mergeWage } from './sim/upkeep';
@@ -502,6 +503,7 @@ export function deserialize(json: string): GameState | null {
       // Совет Ратуши (РТ-1) — по полям с проверкой; партия до совета приезжает без него, и версия не растёт.
       council: mergeCouncil(data.council),
       recruit: mergeRecruit(data.recruit),
+      command: mergeCommand(data.command),
       estates: mergeEstates(data.estates),
       seed: typeof data.seed === 'number' && Number.isFinite(data.seed) ? data.seed >>> 0 : base.seed,
       rolls: typeof data.rolls === 'number' && Number.isFinite(data.rolls) ? Math.max(0, Math.floor(data.rolls)) : 0,
