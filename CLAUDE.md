@@ -492,9 +492,10 @@ HEAD один на всех, см. правило 8). Значит развес�
   кнопка обещает одно, а отказ говорит другое, или которому ступень отняла место лазутчика;
 - `src/world/gait.ts` и `src/world/data/gait.ts` — режим марша полководца (ДР-2, docs/siege_v2.md, 25): «Налегке», «Обычный»,
   «С обозом» — скорость, истощение налегке в пути и в поле, лагерь налегке не встаёт, лагерь с обозом без подвоза из дома,
-  стоянка смены. Режим лежит в сохранении мира (`StoredFigure.gait`, `.wear`, `.halt`, `SiegeWindow.gait`) и на сервере войны
-  (`WarRow.gait`, `.legAt`, `.wornAt`, `WarCamp.gait`), темп дороги — в отметке энергии (`EnergyMark.rate`); одна дверь на мир и
-  сервер. Разойдись она у двоих — поход дошёл бы у сервера раньше, чем у игрока, или лагерь таял бы по-разному;
+  стоянка смены, вывоз добычи (ДР-5, `gaitHaul`), дорога удара и выручки налегке (ДР-5, `strikeSeed`, `strikeWorn`). Режим лежит в
+  сохранении мира (`StoredFigure.gait`, `.wear` — с сидом и сроком дороги удара, `.halt`, `SiegeWindow.gait`) и на сервере войны
+  (`WarRow.gait`, `.legAt`, `.wornAt`, `.worn`, `WarCamp.gait`), темп дороги — в отметке энергии (`EnergyMark.rate`); одна дверь на
+  мир и сервер. Разойдись она у двоих — поход дошёл бы у сервера раньше, чем у игрока, или лагерь таял бы по-разному;
 - `src/world/energy.ts` — единственная дверь энергии агентов (`StoredFigure.energy`, `.spent`, `WarArmy.energy`;
   docs/agent_energy.md): отметка лежит в сохранении мира и едет на сервер войны, и два судьи «хватает ли энергии»
   разошлись бы молча — заметил бы игрок, у которого кнопка открыта, а сервер отказал, или агент выбился из сил у
@@ -791,7 +792,9 @@ HEAD один на всех, см. правило 8). Значит развес�
   (`energyworld.test.ts`, `netlify/lib/war.test.ts`; agents). «Дойти и ударить» — одна дверь на логово и город игрока,
   `WorldApi.assault` (agents).
 - **Режим марша** — свойство полководца, дверь `world/gait` (скорость `gaitSpeed` через `pvp.generalSpeed`, истощение налегке
-  `roadLosses`, лагерь `siegeBlockOf` и `campFed`, стоянка `gaitHaltMs`); дома — даром, в пути — стоянкой и энергией
+  `roadLosses`, лагерь `siegeBlockOf` и `campFed`, стоянка `gaitHaltMs`, вывоз `gaitHaul` — мир `LocalWorld.haul`, сервер
+  `war.fateOfWar`; дорогу удара и выручки налегке считает сервер `war.roadArmy` → `strikeWorn`, мир списывает её отрезком тем же
+  сидом `LocalWorld.strikeLeg`, ушедших вычитает книга войска `book.warLosses`); дома — даром, в пути — стоянкой и энергией
   (`WorldApi.setGait`, сервер — приказ `gait`); энергия дороги — в темпе режима (`EnergyMark.rate`); обоз — сытый дух
   (`PlayerProfile.spiritFed`) и уход голодом не из отряда (`GameState.awayFed`) (`gait.test.ts`, `gaitworld.test.ts`,
   `netlify/lib/wargait.test.ts`, `game/trainfed.test.ts`; docs/siege_v2.md, 25).

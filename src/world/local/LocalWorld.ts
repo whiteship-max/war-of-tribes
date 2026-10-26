@@ -188,6 +188,7 @@ import {
   readGait,
   roadLosses,
   siegeBlockOf,
+  strikeSeed,
   LIGHT_NO_CAMP,
   type Gait,
 } from '../gait';
@@ -5320,11 +5321,15 @@ export class LocalWorld implements WorldApi {
     f.wear = { since: w.at, at: w.at, base: { ...troops }, gone: {}, lost: w.lost };
   }
 
-  /** Сколько отрезок налегке уносит к минуте `t` сверх уже списанного, по видам (`gait.roadLosses`). */
+  /**
+   * Сколько отрезок налегке уносит к минуте `t` сверх уже списанного, по видам (`gait.roadLosses`). Дорога удара и выручки
+   * (ДР-5) — своим сидом и не дальше своего срока: за неё уходят ровно те, кого снял сервер (`gait.strikeWorn`).
+   */
   private wearDue(t: number): TroopStack {
     const w = this.save.figures.general.wear;
     if (!w || !(t > w.at)) return {};
-    return troopsAfter(roadLosses(w.base, 'light', t - w.since, this.wearSeed(w.since)), w.gone);
+    const ms = Math.min(t - w.since, w.span ?? Infinity);
+    return troopsAfter(roadLosses(w.base, 'light', ms, w.seed ?? this.wearSeed(w.since)), w.gone);
   }
 
   /**
@@ -5340,8 +5345,43 @@ export class LocalWorld implements WorldApi {
       return;
     }
     this.wearRebase();
+    // Дорога удара кончилась раньше `t` (ДР-5): сначала она целиком, дальше — обычный отрезок от её конца.
+    const leg = f.wear;
+    if (leg?.span !== undefined && t > leg.since + leg.span) this.legDone();
+    this.wearTo(t);
+  }
+
+  /**
+   * Дорога удара или выручки (ДР-5) списана целиком — уход ровно тот, что снял сервер, — и отрезок продолжается обычным от её
+   * конца: в поле налегке отряд тает и дальше. Состав сменили посреди дороги — отрезок уже обычный, и дороги нет.
+   */
+  private legDone(): void {
+    const f = this.save.figures.general;
+    this.wearRebase();
+    const leg = f.wear;
+    if (leg?.span === undefined) return;
+    const end = leg.since + leg.span;
+    this.wearTo(end);
+    if (f.wear && f.troops) f.wear = { since: end, at: end, base: { ...f.troops }, gone: {}, lost: f.wear.lost };
+  }
+
+  /**
+   * Дорога удара начинается (ДР-5): отрезок налегке с минуты выхода от нынешнего состава — сидом и сроком, которые сервер войны
+   * выведет из того же приказа (`gait.strikeSeed`). Не налегке, без отряда, в походе войны и без дороги — ничего.
+   */
+  private strikeLeg(now: number, ms: number, seed: string): void {
+    const f = this.save.figures.general;
+    if (f.gait !== 'light' || f.war || !f.troops || !(ms > 0)) return;
+    this.wearGeneral(now);
+    if (!f.troops) return;
+    f.wear = { since: now, at: now, base: { ...f.troops }, gone: {}, lost: f.wear?.lost ?? 0, seed, span: ms };
+  }
+
+  /** Списать отрезок к минуте `t` — тело `wearGeneral` без проверок и без дороги удара. */
+  private wearTo(t: number): void {
+    const f = this.save.figures.general;
     const w = f.wear;
-    if (!(t > w.at)) return;
+    if (!w || !(t > w.at)) return;
     const due = this.wearDue(t);
     w.gone = plusTroops(w.gone, due);
     w.at = t;
@@ -5386,14 +5426,6 @@ export class LocalWorld implements WorldApi {
         : `Налегке отряд растаял в пути: ушли все ${lost}. Больные и отставшие — цена марша без обоза.`,
       good: false,
     });
-  }
-
-  /** Состав `force` к минуте `at` за вычетом истощения налегке, которого ещё не списали (приказ удара и выручки). */
-  private wornBy(force: TroopStack, at: number): TroopStack {
-    const f = this.save.figures.general;
-    if (!f.wear || f.gait !== 'light') return force;
-    this.wearRebase();
-    return troopsAfter(force, this.wearDue(at));
   }
 
   /** Дух отряда полководца в его боях (М5б): с обозом — без строки голода (`PlayerProfile.spiritFed`), иначе — дух дружины. */
@@ -10480,6 +10512,8 @@ export class LocalWorld implements WorldApi {
       read: false,
     });
     const g = this.save.figures.general;
+    // Дорога выручки списана целиком (ДР-5): в бой сервер вёл дошедших, и уход за неё — ровно его.
+    this.legDone();
     if (lostMen > 0 && g.troops) g.troops = troopsAfter(g.troops, lost);
     this.warLost(lost);
     this.addEffect({
@@ -10591,6 +10625,8 @@ export class LocalWorld implements WorldApi {
       const held = this.defenders(b.at);
       standing = this.standingLost(held.own, held.standing, b.homeLost as TroopStack);
       const g = this.save.figures.general;
+      // Дорога удара списана целиком (ДР-5): в бой сервер вёл дошедших, и уход за неё — ровно его.
+      if (!allied && b.genTroops) this.legDone();
       if (!allied && b.genLost && troopTotal(b.genLost as TroopStack) > 0 && g.troops) g.troops = troopsAfter(g.troops, b.genLost as TroopStack);
     }
     this.addEffect({
@@ -11326,14 +11362,17 @@ export class LocalWorld implements WorldApi {
     if (!plan?.can) return plan?.reason ?? 'Союзник не в осаде.';
     const f = this.save.figures.general;
     const walkMs = Math.round(realMs(plan.seconds));
-    // Налегке выручка тает в пути (ДР-2, М4): приказ несёт состав к минуте удара.
-    const force = this.wornBy(out && postureOf(f, now) === 'stands' ? { ...(f.troops ?? {}) } : fieldTroops(f, now), now + Math.round(walkMs / this.warPaceOf()));
+    // Налегке выручка тает в пути (ДР-2, М4): уход за дорогу считает сервер (ДР-5, `gait.strikeWorn`), приказ несёт состав
+    // на выходе — списанный к этой минуте; мир списывает за дорогу ровно то же (`strikeLeg`).
+    this.wearGeneral(now);
+    const force = out && postureOf(f, now) === 'stands' ? { ...(f.troops ?? {}) } : fieldTroops(f, now);
+    const from = this.spotOf(f, now);
     const err = await this.warSend({
       op: 'relief',
       id: w.id,
       walkMs,
       // Откуда идёт — сервер сверяет срок с расстоянием и место со слепком (docs/security.md, ЗЩ-2).
-      from: this.spotOf(f, now),
+      from,
       ...(f.gait ? { gait: f.gait } : {}),
       army: {
         troops: force as Counts,
@@ -11348,6 +11387,7 @@ export class LocalWorld implements WorldApi {
     // Полководец идёт к городу союзника той же ходьбой, что всякая фигура, а приходит в минуту удара, названную сервером.
     f.chase = undefined;
     this.walk('general', { x: c.x, y: c.y }, now);
+    this.strikeLeg(now, Math.round(walkMs / this.warPaceOf()), strikeSeed('relief', w.id, from, walkMs));
     const at = this.warList()
       .find((x) => x.id === w.id)
       ?.reliefs?.find((r) => r.castle === w.me)?.at;
@@ -11628,14 +11668,17 @@ export class LocalWorld implements WorldApi {
     if (!plan.can) return plan.reason;
     const f = this.save.figures.general;
     const walkMs = Math.round(realMs(plan.seconds));
-    // Налегке дружина тает в пути (ДР-2, М4): приказ несёт состав к минуте удара — тем же уходом отрезка, что спишет мир.
-    const force = this.wornBy(fieldTroops(f, now), now + Math.round(walkMs / this.warPaceOf()));
+    // Налегке дружина тает в пути (ДР-2, М4): уход за дорогу считает сервер (ДР-5, `gait.strikeWorn`), приказ несёт состав на
+    // выходе — списанный к этой минуте; мир списывает за дорогу ровно то же (`strikeLeg`).
+    this.wearGeneral(now);
+    const force = fieldTroops(f, now);
+    const from = this.spotOf(f, now);
     const err = await this.warSend({
       op: 'strike',
       id: w.id,
       joint: garrison,
       walkMs,
-      from: this.spotOf(f, now),
+      from,
       ...(f.gait ? { gait: f.gait } : {}),
       army: {
         troops: force as Counts,
@@ -11652,6 +11695,7 @@ export class LocalWorld implements WorldApi {
     if (walkMs > 0) {
       f.chase = undefined;
       this.walk('general', { ...this.save.home }, now);
+      this.strikeLeg(now, Math.round(walkMs / this.warPaceOf()), strikeSeed('strike', w.id, from, walkMs));
       const at = this.warList().find((x) => x.id === w.id)?.strike?.at;
       if (at !== undefined) f.arriveAt = Math.max(now, at);
     }

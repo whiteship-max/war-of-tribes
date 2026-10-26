@@ -9,7 +9,7 @@
 // - лагерь с обозом — без подвоза из дома: при пустом амбаре обычный лагерь тает вдвое, обоз — базой;
 // - старое сохранение (фигура без режима, окно без режима) — обычный.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { realMs } from '@/game/pace';
+import { realMs, worldDays } from '@/game/pace';
 import { LocalWorld } from './local/LocalWorld';
 import type { WorldSave } from './local/state';
 import type { GenSettlement } from './gen';
@@ -21,7 +21,7 @@ import { shieldVillagers } from './lairs';
 import { ENERGY_PRICE } from './data/energy';
 import { CAMP_WASTE, SIEGE_PHASE } from './data/siegeroll';
 import { setPhaseDie, wasteOf } from './siegeroll';
-import { LIGHT_NO_CAMP, gaitHaltMs, lightShare } from './gait';
+import { LIGHT_NO_CAMP, gaitHaltMs, lightShare, strikeSeed, strikeWorn } from './gait';
 import { MARCH_MIN_SECONDS } from './data/tuning';
 
 // ВРЕМЕННО ×3 ДЛЯ ТЕСТА: механика проверяется при 1 (задание ДР-2); ×3 ложится сверху (`gait.test.ts`).
@@ -326,5 +326,34 @@ describe('режим марша в мире: вывоз добычи (ДР-5)', 
     const by = Object.fromEntries(rows.map((x) => [x.gait, x.carry]));
     expect(by.light).toBeLessThan(by.normal);
     expect(by.train).toBeGreaterThan(by.normal);
+  });
+});
+
+describe('режим марша в мире: дорога удара и выручки (ДР-5)', () => {
+  type Leg = { strikeLeg(now: number, ms: number, seed: string): void; wearGeneral(t: number): void; wearSeed(since: number): string; wearDue(t: number): TroopStack };
+  it('за дорогу уходят ровно ушедшие сервера (`strikeWorn` тем же сидом), после неё — обычный отрезок от её конца', async () => {
+    const r = await ready();
+    const legs = r.world as unknown as Leg;
+    const f = r.inner.save.figures.general;
+    const t0 = r.now();
+    const troops: TroopStack = { spearman: 120, archer: 60, legionary: 40 };
+    Object.assign(f, { phase: 'field', gait: 'light', troops: { ...troops }, wear: undefined, war: undefined });
+    const ms = worldDays(6);
+    expect(lightShare('light', ms), 'точка внутри области: дорога шесть игр. дн.').toBeGreaterThan(0.05);
+    const seed = strikeSeed('strike', 'w1', { x: 5, y: 7 }, ms);
+    legs.strikeLeg(t0, ms, seed);
+    // Прочитать дорогу позже её конца (окно отряда до пульса) — не дальше её срока.
+    expect(legs.wearDue(t0 + 3 * ms)).toEqual(strikeWorn(troops, 'light', ms, seed).lost);
+    // Пульсы посреди дороги — частями; к концу дороги — ровно то, что сервер.
+    legs.wearGeneral(t0 + ms / 3);
+    legs.wearGeneral(t0 + ms);
+    const { came } = strikeWorn(troops, 'light', ms, seed);
+    expect(f.troops).toEqual(came);
+    // Дальше — обычный отрезок от конца дороги, своим сидом мира.
+    const extra = worldDays(4);
+    legs.wearGeneral(t0 + ms + extra);
+    const after = strikeWorn(came, 'light', extra, legs.wearSeed(t0 + ms)).came;
+    expect(f.troops).toEqual(after);
+    expect(troopTotal(after), 'точка внутри области: после дороги тоже тают').toBeLessThan(troopTotal(came));
   });
 });

@@ -29,6 +29,7 @@ import { PIP_IDS } from '../../src/battle/index.js';
 import { SIEGE_PIPS_MAX } from '../../src/world/data/siegeroll.js';
 import { readCounts, warFallId, type AdminGrant, type Counts, type WarSpirit } from './contract.js';
 import type { WarFile } from './war.js';
+import { castleIdOf } from './roster.js';
 import { giftCeil } from '../../src/game/councilrules.js';
 
 /** Подтверждённое войско игрока на минуту `at`. `since` — когда сервер впервые встретил игрока. */
@@ -142,6 +143,9 @@ export function warLosses(file: WarFile, key: string): WarLoss[] {
   const out: WarLoss[] = [];
   for (const w of file.wars) {
     if (w.atk === key) for (const b of w.battles) out.push({ id: b.id, lost: b.atkLost, wounds: true });
+    // Ушедшие налегке на дороге удара и выручки (ДР-5) — больные и отставшие, раненых среди них нет; удар — свой город,
+    // выручка — союзник, по замку.
+    for (const r of w.worn ?? []) if (r.castle === castleIdOf(key)) out.push({ id: r.id, lost: r.lost, wounds: false });
     if (w.def !== key) continue;
     for (const b of w.battles) out.push({ id: b.id, lost: plus(b.homeLost, b.genLost ?? {}), wounds: true });
     if (w.fall) out.push({ id: warFallId(w.id), lost: w.fall.routed, wounds: false });

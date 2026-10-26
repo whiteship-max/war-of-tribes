@@ -64,6 +64,28 @@ export function roadLosses<T extends Partial<Record<string, number>>>(troops: T,
 }
 
 /**
+ * Сид дороги удара по лагерю и выручки налегке (ДР-5): из того, что приказ несёт и мир, и сервер знают одинаково, — дело,
+ * номер войны, клетка выхода и срок пути, названный приказом. Своих часов в нём нет: минуты у мира и сервера разные.
+ */
+export const strikeSeed = (op: 'strike' | 'relief', war: string, from: { x: number; y: number }, walkMs: number): string =>
+  `${op}:${war}:${Math.round(from.x)}:${Math.round(from.y)}:${Math.round(walkMs)}`;
+
+/**
+ * Кто дойдёт до удара или выручки (ДР-5): состав на выходе `troops` за вычетом ухода налегке за дорогу `ms` (настоящие мс,
+ * срок пути ÷ темп войны) — та же `roadLosses`, что у похода. Одна функция на сервер войны (`war.ts`, войско удара) и мир
+ * (отрезок дороги удара `LocalWorld.strikeLeg`, прогноз окна). Не налегке — все дошли.
+ */
+export function strikeWorn<T extends Partial<Record<string, number>>>(troops: T, g: Gait | undefined, ms: number, seed: string): { came: T; lost: T } {
+  const lost = roadLosses(troops, g, ms, seed);
+  const came = {} as Record<string, number>;
+  for (const [k, v] of Object.entries(troops)) {
+    const n = Math.max(0, (v ?? 0) - ((lost as Record<string, number | undefined>)[k] ?? 0));
+    if (n > 0) came[k] = n;
+  }
+  return { came: came as T, lost };
+}
+
+/**
  * Стоянка при смене режима в пути и в поле (М6), мс мира: самый короткий поход (`MARCH_MIN_SECONDS` той же `geo.travelTime`,
  * поэтому `TEST_TRAVEL_SPEED` делит и её). Обоз разгружают или собирают, отряд стоит.
  */

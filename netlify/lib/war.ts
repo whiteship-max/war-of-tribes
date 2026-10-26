@@ -158,7 +158,7 @@ import {
 } from '../../src/world/parley.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
 import { energyAt, energyBlock, onRoad, priceOf, remark, spend, type EnergyMark } from '../../src/world/energy.js';
-import { gaitField, gaitHaltMs, gaitHaul, gaitName, gaitSpeed, readGait, roadLosses, siegeBlockOf, type Gait } from '../../src/world/gait.js';
+import { gaitField, gaitHaltMs, gaitHaul, gaitName, gaitSpeed, readGait, roadLosses, siegeBlockOf, strikeSeed, strikeWorn, type Gait } from '../../src/world/gait.js';
 import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
@@ -179,6 +179,18 @@ export interface WarRow extends Omit<WarView, 'role'> {
    * пробившейся через рогатки, уходит союзнику (`newsOf`). Пишет приказ `relief`; наружу не уходит (`viewOf`).
    */
   allies?: Record<string, { key: string; city: string }>;
+  /**
+   * Ушедшие налегке на дороге удара и выручки (ДР-5): сколько снял сервер (`roadArmy`, `gait.strikeWorn`), чей замок и номер.
+   * Книга войска вычитает их, как павших (`book.warLosses`): держать ушедших живыми — сверх книги, флаг. Наружу не уходит.
+   */
+  worn?: WarWorn[];
+}
+
+/** Уход налегке на дороге удара или выручки одного замка (ДР-5). */
+export interface WarWorn {
+  id: string;
+  castle: string;
+  lost: Counts;
 }
 
 /** Все войны одной записью — как реестр: читают целиком и целиком переписывают с условием по ETag. */
@@ -442,8 +454,9 @@ export function readStoredSheet(raw: unknown): SheetAt | null {
 
 /** Война глазами одной из сторон или союзника осаждённого: без ключей. */
 export function viewOf(row: WarRow, key: string): WarView {
-  const { atk, def, allies, ...rest } = row;
+  const { atk, def, allies, worn, ...rest } = row;
   void allies;
+  void worn;
   if (atk === key || def === key) return { ...rest, role: atk === key ? 'atk' : 'def' };
   return { ...rest, role: 'ally', me: castleIdOf(key) };
 }
@@ -1926,7 +1939,7 @@ function walkOf(order: { from: { x: number; y: number }; walkMs: number; gait?: 
     }
   }
   // Пол — в режиме марша, названном приказом (ДР-2, М9): налегке быстрее, и пол у него свой; назвать «налегке» — значит и
-  // идти с его истощением (его списывает мир, приказ несёт состав к минуте прихода).
+  // идти с его истощением (его считает сервер сам, `roadArmy`, ДР-5).
   const floor = fieldWalkFloorMs(order.from, to, order.gait);
   // Миллисекунда — округление: клиент и сервер переводят одну и ту же дорогу в мс одной формулой.
   if (order.walkMs + 1 < floor) {
@@ -2246,7 +2259,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (tired) return tired;
       const at = now + Math.round(walkMs / pace);
       if (at >= (w.starvesAt ?? Infinity)) return 'Не успеть: хлеб в городе кончится раньше.';
-      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army, s, file, key), ...gaitField(order.gait) }];
+      const came = roadArmy(w, me, 'relief', order, walkMs, now);
+      if (typeof came === 'string') return came;
+      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(came, s, file, key), ...gaitField(order.gait) }];
       markGeneral(file, key, have, now);
       // Ключ союзника — для вестей ему о его выручке (19.2); наружу не уходит.
       w.allies = { ...(w.allies ?? {}), [me]: { key, city: cityOr(ctx.roster.rows[key]?.city) } };
@@ -2277,11 +2292,27 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
       const tired = energyBlock(have, priceOf('strike'), walkMs, gaitSpeed(order.gait));
       if (tired) return tired;
-      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(order.army, s, file, key), joint: order.joint, ...gaitField(order.gait) };
+      const came = roadArmy(w, castleIdOf(key), 'strike', order, walkMs, now);
+      if (typeof came === 'string') return came;
+      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(came, s, file, key), joint: order.joint, ...gaitField(order.gait) };
       markGeneral(file, key, have, now);
       return null;
     }
   }
+}
+
+/**
+ * Дорога удара и выручки налегке (ДР-5): уход за неё сервер считает сам той же `gait.strikeWorn`, что мир (`LocalWorld.strikeLeg`),
+ * — от состава на выходе (приказ, не выше книги войска) за срок пути, сидом из приказа (`gait.strikeSeed`). В бой идут дошедшие;
+ * ушедшие ложатся в запись войны (`WarRow.worn`), и книга войска их вычитает. Не налегке — все дошли. Возвращает войско или
+ * отказ, если налегке не дойдёт никто.
+ */
+function roadArmy(w: WarRow, castle: string, op: 'strike' | 'relief', order: { army: WarArmy; from: { x: number; y: number }; walkMs: number; gait?: Gait }, walkMs: number, now: number): WarArmy | string {
+  const { came, lost } = strikeWorn(order.army.troops, order.gait, Math.round(walkMs / pace), strikeSeed(op, w.id, order.from, order.walkMs));
+  if (troopTotal(asTroops(lost)) === 0) return order.army;
+  if (troopTotal(asTroops(came)) === 0) return 'Налегке отряд растает в пути: до лагеря не дойдёт никто. Возьми обоз или подойди ближе.';
+  w.worn = [...(w.worn ?? []), { id: `${w.id}:worn:${op}:${castle}:${now}`, castle, lost }];
+  return { ...order.army, troops: came };
 }
 
 /**

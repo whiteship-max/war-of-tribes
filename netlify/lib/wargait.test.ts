@@ -7,10 +7,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CastleClaim, RosterFile, WarArmy, WarSheet } from './contract.js';
 import { readWarOrder } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
-import { advance, applyOrder, emptyWars, type SheetAt, type WarFile } from './war.js';
+import { advance, applyOrder, emptyWars, type SheetAt, type WarFile, type WarRow } from './war.js';
 import { distance, terrainFactor, travelTimeAt } from '../../src/world/geo.js';
 import { fieldWalkFloorMs, warWalkMs } from '../../src/world/pvp.js';
-import { gaitHaltMs, gaitHaul, lightShare, LIGHT_NO_CAMP, roadLosses } from '../../src/world/gait.js';
+import { gaitHaltMs, gaitHaul, lightShare, LIGHT_NO_CAMP, roadLosses, strikeSeed, strikeWorn } from '../../src/world/gait.js';
+import { bookLive, seedBook, warLosses } from './book.js';
 import { UNIT_BY_ID } from '../../src/world/data/units.js';
 import { FIGURE_BY_ID } from '../../src/world/data/figures.js';
 import { MARCH_MIN_SECONDS } from '../../src/world/data/tuning.js';
@@ -222,5 +223,57 @@ describe('сервер войны: вывоз добычи по режиму (Д
     expect(per('normal')).toBeCloseTo(UNIT_BY_ID.warrior.carry, 0);
     expect(per('light') / per('normal')).toBeCloseTo(gaitHaul('light'), 2);
     expect(per('train') / per('normal')).toBeCloseTo(gaitHaul('train'), 2);
+  });
+});
+
+describe('сервер войны: убыль налегке у удара по лагерю (ДР-5)', () => {
+  it('уход в пути считает сервер сам от состава на выходе; ушедших вычитает книга войска; обычный марш — все дошли', () => {
+    const { ctx, file, sheets, warned } = setup();
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 60 }) }, T0, ctx)).toBeNull();
+    const w = file.wars[0];
+    advance(file, w.arriveAt + 1, sheets);
+    expect(w.phase, 'точка внутри области: лагерь стоит').toBe('camp');
+    const from = { x: w.to.x + 60, y: w.to.y + 20 };
+    const walkMs = fieldWalkFloorMs(from, w.to, 'light') * 3;
+    expect(lightShare('light', walkMs), 'точка внутри области: дорога удара больше суток').toBeGreaterThan(0.005);
+    const went = { spearman: 200, swordsman: 40 };
+    const at = w.arriveAt + 2;
+    // Обычный марш: в бой идут все, ушедших нет.
+    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: army(went), joint: false, walkMs, from }, at, ctx)).toBeNull();
+    expect(w.strike?.army.troops).toEqual(went);
+    expect(w.worn).toBeUndefined();
+    delete w.strike;
+    // Налегке: дошедшие — той же дверью, что у мира, сидом из приказа.
+    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: army(went), joint: false, walkMs, from, gait: 'light' }, at, ctx)).toBeNull();
+    const { came, lost } = strikeWorn(went, 'light', walkMs, strikeSeed('strike', w.id, from, walkMs));
+    expect(Object.values(lost).reduce((a, b) => a + (b ?? 0), 0), 'ушли').toBeGreaterThan(0);
+    expect((w as WarRow).strike?.army.troops).toEqual(came);
+    expect(w.worn?.map((r) => r.lost)).toEqual([lost]);
+    expect(warned).toEqual([]);
+    // Книга войска Беты: ушедшие — как павшие, без раненых.
+    const losses = warLosses(file, B);
+    expect(losses.find((l) => l.id === w.worn![0].id)).toMatchObject({ lost, wounds: false });
+    const book = { ...seedBook(T0), bodies: { spearman: 300, swordsman: 60 } };
+    expect(bookLive(book, file, B).spearman).toBe(300 - (lost.spearman ?? 0));
+    // Ушедшие — не Альфы.
+    expect(warLosses(file, A).some((l) => l.id === w.worn![0].id)).toBe(false);
+  });
+
+  it('выручка союзника налегке — тем же правилом, ушедшие за замком союзника', () => {
+    const { ctx, file, sheets } = setup();
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 60 }) }, T0, ctx)).toBeNull();
+    const w = file.wars[0];
+    advance(file, w.arriveAt + 1, sheets);
+    const C = 'tg-2003';
+    ctx.roster.rows[C] = { ...ctx.roster.rows[B], x: ctx.roster.rows[B].x + 30, name: 'Гамма', city: 'Гамма' };
+    sheets.set(C, { sheet: sheet(), at: T0 });
+    file.pacts = [{ a: B, b: C, at: T0, cities: {} }];
+    const from = { x: w.to.x + 60, y: w.to.y + 20 };
+    const walkMs = fieldWalkFloorMs(from, w.to, 'light') * 3;
+    const went = { spearman: 200, swordsman: 40 };
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army: army(went), walkMs, from, gait: 'light' }, w.arriveAt + 2, ctx)).toBeNull();
+    const { came, lost } = strikeWorn(went, 'light', walkMs, strikeSeed('relief', w.id, from, walkMs));
+    expect(w.reliefs?.[0].army.troops).toEqual(came);
+    expect(warLosses(file, C).find((l) => l.id === w.worn![0].id)).toMatchObject({ lost, wounds: false });
   });
 });
