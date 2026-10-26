@@ -41,12 +41,23 @@ describe('стена — грань кости нападающего (GroundPen
     }
   });
 
-  it('стена отнимает у нападающего: при −2 гранях он теряет больше, чем на ровном месте, на каждом сиде', () => {
+  // Обещание об исходе — на наборе сидов (правило 17): стена режет кость нападающего, то есть его урон, а не урон по нему, и бой,
+  // кончившийся тем же броском, может оставить его потери прежними (W 113, сид 7 — 132 и 132, защитник 168 → 154; docs/siege_v2.md,
+  // 22.6). Поэтому на каждом сиде — «не меньше», а «больше» — суммой по набору.
+  it('стена отнимает у нападающего: при −2 гранях он теряет не меньше на каждом сиде и больше в сумме по набору', () => {
+    let plainSum = 0;
+    let wallSum = 0;
     for (const seed of SEEDS) {
+      const walled = battle(seed, { ground: { wall: 2 } });
+      // Точка внутри области правила: бой дошёл до кости — грань стены в ней стоит.
+      expect(dice(walled).length, `сид ${seed}: бой без кости`).toBeGreaterThan(0);
       const plain = battle(seed).sides.attacker.total.losses;
-      const wall = battle(seed, { ground: { wall: 2 } }).sides.attacker.total.losses;
-      expect(wall).toBeGreaterThan(plain);
+      const wall = walled.sides.attacker.total.losses;
+      expect(wall, `сид ${seed}: со стеной нападающий теряет не меньше`).toBeGreaterThanOrEqual(plain);
+      plainSum += plain;
+      wallSum += wall;
     }
+    expect(wallSum, 'со стеной нападающий теряет больше в сумме по набору сидов').toBeGreaterThan(plainSum);
   });
 
   it('манёвр стену не снимает — снимает только переправу', () => {
