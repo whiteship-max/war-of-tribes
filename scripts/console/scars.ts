@@ -15,6 +15,7 @@ import type { TroopStack } from '@/game/battle/kinds';
 import { SCARS, SCAR_BY_ID, SCAR_SIZE, shareOf, type ScarId, type ScarSide, type ScarWhere } from '@/game/scarrules';
 import { SCAR_CAP } from '@/battle/config';
 import { SPIRIT_MIX, scaled, strengthOf } from './spirit';
+import { fan, serveFan } from '../lib/fan';
 
 /** Мерка черты против конницы (`pikewall`): та же армия мерки с конницей — конных в родах ядра не меньше четверти. */
 export const HORSE_MIX: TroopStack = { spearman: 160, archer: 60, legionary: 40, rider: 60, knight: 40 };
@@ -148,10 +149,22 @@ export function deriveScars(seeds: number): ScarDerived[] {
   return out;
 }
 
-/** Сила каждой черты при записанных величинах и её ориентир — проверка. */
-export function scarChecks(seeds: number): { id: ScarId; aim: number; strength: number }[] {
+/**
+ * Черта `id` в своём процессе веера: ориентир считается заново (своя `aims`) — он детерминирован, итог тот же, что подряд в одном
+ * процессе. Модуль — без действий на верхнем уровне: задачу берёт `serveFan` ниже.
+ */
+function deriveScarTask(a: { id: ScarId; seeds: number }): ScarDerived {
+  return deriveScar(a.id, a.seeds, new Map());
+}
+
+/** Названные черты веером (`lib/fan`, бюджет ядер): каждая — в своём процессе, итог — в порядке `ids`. */
+export const deriveScarsFan = (ids: readonly ScarId[], seeds: number): Promise<ScarDerived[]> =>
+  fan(deriveScarTask, import.meta.url, ids.map((id) => ({ id, seeds })));
+
+/** Сила каждой черты при записанных величинах и её ориентир — проверка; `ids` — только названные (прочие не считаются). */
+export function scarChecks(seeds: number, ids?: readonly ScarId[]): { id: ScarId; aim: number; strength: number }[] {
   const aims = new Map<string, number>();
-  return SCARS.map((def) => {
+  return SCARS.filter((def) => !ids || ids.includes(def.id)).map((def) => {
     const b = benchOf(def.id);
     const key = `${JSON.stringify(b.troops)}|${def.good}`;
     const aim = aims.get(key) ?? scarAim(b.troops, def.good, seeds);
@@ -162,3 +175,5 @@ export function scarChecks(seeds: number): { id: ScarId; aim: number; strength: 
 
 /** Конных в мерке против конницы — не меньше `HORSE_HEAVY` (иначе черта в мерке не действует). */
 export const horseShareOfMix = (): number => shareOf(kindsOf(HORSE_MIX), HORSE_KINDS);
+
+serveFan(import.meta.url, { deriveScarTask });
