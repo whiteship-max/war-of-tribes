@@ -119,6 +119,8 @@ describe('ДР-7: режим марша — в окне дела, у каждо�
     // Быстрее режим — короче дорога: налегке быстрее обычного, обоз вдвое медленнее.
     expect(rowOf(opt, 'light').walkMs).toBeLessThan(rowOf(opt, 'normal').walkMs);
     expect(rowOf(opt, 'train').walkMs).toBeGreaterThan(rowOf(opt, 'normal').walkMs);
+    // Назад — тем же режимом: обоз и домой идёт медленнее.
+    expect(rowOf(opt, 'train').backMs, `${d.name}: назад обозом дольше`).toBeGreaterThan(rowOf(opt, 'normal').backMs);
 
     // Приказ в режиме, выбранном окном (налегке — где лагерь не нужен, иначе обоз): состав и режим одним приказом.
     const g: Gait = d.camp ? 'train' : 'light';
