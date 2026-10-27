@@ -91,7 +91,7 @@ export const isPost = (v: unknown): v is AdvisorPost => typeof v === 'string' &&
  * Старостой доходит до середины пути на 5 % короче за ступень, Казначей кладёт за вычетом жалованья 5 % казны за ступень,
  * ступень Воеводы — 5 % стартовой морали дружины мерки. Руками не правят.
  */
-export const GIFT_STEP: Readonly<Record<AdvisorPost, number>> = { steward: 0.059, treasurer: 0.04, marshal: 2.9 };
+export const GIFT_STEP: Readonly<Record<AdvisorPost, number>> = { steward: 0.06, treasurer: 0.04, marshal: 2.9 };
 
 /** Ступеней пользы у советника: уровень, у усердного — на одну больше. */
 export const giftSteps = (level: number, trait: AdvisorTrait): number => levelOf(level) + (trait === 'zealous' ? 1 : 0);
@@ -125,7 +125,7 @@ export const rateWithCouncil = (rulerRate: number, adv: number): number =>
  * Казначея этого уровня в ту минуту, когда ратуша ровной игры впервые даёт такого просителя (дни 0, 211, 428), — цена одна на
  * уровень, как в EU4, польза у должности своя. Руками не правят.
  */
-export const ADVISOR_WAGE: readonly number[] = [0, 0.4, 25.6, 44.7];
+export const ADVISOR_WAGE: readonly number[] = [0, 0.4, 25.7, 44.9];
 
 /** Жалованье по ступеням: за третьей — прямой от второй к третьей (корыстному советнику третьего уровня). */
 export function wageAt(steps: number): number {
