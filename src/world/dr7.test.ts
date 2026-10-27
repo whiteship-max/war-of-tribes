@@ -220,7 +220,7 @@ describe('ДР-7: убыль и вывоз — по составу, выбран
       }
     }
     // Пустой состав — «—» (прежде так стояло всё: строки считались по отряду дома, а он пуст).
-    expect(gaitTake(0, 'normal', rowOf(opt, 'normal').walkMs, opt.haul ?? 0)).toEqual({ lost: 0, carry: 0 });
+    expect(gaitTake(0, 'normal', rowOf(opt, 'normal').walkMs, opt.haul ?? 0)).toEqual({ lost: 0, mean: 0, carry: 0 });
     // Больше уходит — больше вывоз; налегке убыль растёт с составом (точка внутри области: дорога достаточно длинная).
     const big = gaitTake(5000, 'light', rowOf(opt, 'light').walkMs, opt.haul ?? 0);
     expect(big.lost, 'область: налегке пять тысяч к приходу теряют').toBeGreaterThan(0);

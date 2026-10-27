@@ -957,7 +957,7 @@ export const estateMurmur = (s: GameState, e: EstateId): number => {
 /** Сколько войску причитается сейчас: в отсрочку приведённой партии — ничего. */
 export const wagesDue = (s: GameState): number => (s.time < (s.pay?.from ?? 0) ? 0 : wagesPerDay(s));
 
-/** Сколько игровых дней войско терпит неуплату и голод. Работа Статуи — верность полководцу. */
+/** Сколько игровых дней войско терпит неуплату и голод. Работа Статуи — терпение дружины (с полководцем не связана, ДР-7). */
 export const payGraceDays = (s: GameState): number => statOf(s, 'statue', 'loyalty');
 
 /**
