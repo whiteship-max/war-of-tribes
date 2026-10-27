@@ -295,6 +295,55 @@ export function campFight(input: CampFightIn): CampFightOut {
   return { refused: false, input: fieldIn, field, front, rear, lost, fought, all };
 }
 
+/** Сторона боя в поле (ПЛ-1): войско со всем, что о нём знает сервер войны, — в родах боя. */
+export interface MeetSide {
+  kinds: Stack;
+  resolve?: number;
+  pips?: Pips;
+  flanks?: Flanks;
+  /** Мораль между боями, 0..1; нет — свежие. */
+  rest?: number;
+  spirit?: Spirit;
+  scars?: ScarSide;
+}
+
+export interface MeetFightIn {
+  seed: number;
+  /** Перехватчик — полководец города или союзника — нападает; поход обороняется. */
+  chaser: MeetSide;
+  march: MeetSide;
+  /** Земля клетки встречи — нападающему (`place.groundAt`, шаг перехватчика на неё). */
+  ground?: GroundPenalty;
+  /** Где бой (ДР-4): клетка встречи, не осада. */
+  where?: ScarWhere;
+}
+
+/**
+ * Бой в поле при перехвате похода между игроками (ПЛ-1, docs/siege_v2.md, «Решения ПЛ-1»): ни стены, ни рогаток — две армии
+ * сходятся на клетке встречи, обе встают по правилу развёртывания (`setup.deploySetup`). Дверь у сервера войны одна; у мира
+ * тот же бой с отрядом логова считает `resolveField` с теми же сторонами (`LocalWorld.resolveChase`).
+ */
+export function meetFight(input: MeetFightIn): { input: FieldInput; field: FieldOutcome } {
+  const side = (v: MeetSide): FieldSide => ({
+    kinds: v.kinds,
+    resolve: v.resolve,
+    pips: v.pips,
+    ...led(v.flanks),
+    rest: v.rest,
+    ...(v.spirit ? { spirit: v.spirit } : {}),
+    ...scarred(v.scars),
+  });
+  const fieldIn: FieldInput = {
+    seed: input.seed,
+    rules: BATTLE_RULES,
+    ...(input.ground ? { ground: input.ground } : {}),
+    ...placed(input.where),
+    attacker: side(input.chaser),
+    defender: side(input.march),
+  };
+  return { input: fieldIn, field: resolveField(fieldIn) };
+}
+
 /**
  * Минута, в которую решается «садиться ли» (`campHolds`): рогатки стороны города дозрели (`works.worksRipeAt`, по плану
  * древесины лагеря). Фронт не дозреет никогда (весь лес в тыл) — через `CAMP_WORKS_RIPE` от постановки: позже рогатки

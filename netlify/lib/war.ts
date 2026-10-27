@@ -30,6 +30,7 @@ import {
   type Counts,
   type WarPact,
   type WarRelief,
+  type WarMeet,
   type RosterFile,
   type WarArmy,
   type WarBattle,
@@ -54,8 +55,8 @@ import { kindsOf, shareLosses, troopLosses, troopPower } from '../../src/game/ba
 import { wallRepairCost } from '../../src/game/build.js';
 import { statAt } from '../../src/game/train.js';
 import { ENGINES } from '../../src/game/data/engines.js';
-import { campFight, guardKinds, homeLosses, machineFight, wallFight } from '../../src/world/fights.js';
-import { placeAt, scarWhere } from '../../src/world/place.js';
+import { campFight, guardKinds, homeLosses, machineFight, meetFight, wallFight, type MeetSide } from '../../src/world/fights.js';
+import { groundAt, placeAt, scarWhere } from '../../src/world/place.js';
 import type { FieldOutcome } from '../../src/world/battle.js';
 import { isScarId, type ScarSide, type ScarWhere } from '../../src/game/scarrules.js';
 import { scarsAt, type ScarBook } from './scarbook.js';
@@ -84,7 +85,25 @@ import {
   type MachineId,
 } from '../../src/world/machines.js';
 import { aimOf, firePlan, reaim, thinAt, thinKinds, type Aim, type Fire, type TowerGun } from '../../src/world/bombard.js';
-import { fieldReach, fieldWalkFloorMs, foodLeft, reliefCredit, spyWalkMs, warAt, warWalkMs } from '../../src/world/pvp.js';
+import {
+  fieldReach,
+  fieldWalkFloorMs,
+  foodLeft,
+  MEET_CAMP,
+  MEET_FAR,
+  MEET_GONE,
+  MEET_SLACK_CELLS,
+  MEET_SLACK_MS,
+  MEET_STALE,
+  reliefCredit,
+  spyWalkMs,
+  WAR_GROUND_SEED,
+  warAt,
+  warMeet,
+  warSpotAt,
+  warWalkMs,
+} from '../../src/world/pvp.js';
+import { positionAt } from '../../src/world/pursuit.js';
 import { distance } from '../../src/world/geo.js';
 import { goodsSheet, type GoodsBook } from './goods.js';
 import {
@@ -106,6 +125,7 @@ import {
   GENERAL_MARCHES,
   GENERAL_RELIEVES,
   GENERAL_STRIKES,
+  GENERAL_INTERCEPTS,
   openSiege,
   SIEGE_BLOCK,
   siegeSince,
@@ -407,8 +427,8 @@ function unmarkBeaten(file: WarFile, w: WarRow, key: string, at: number): void {
 }
 
 /** Удар или выручка приняты: полководец заплатил цену в минуту `now` из `have` — потолок до его следующего дела. */
-function markGeneral(file: WarFile, key: string, have: number, now: number): void {
-  file.gens = { ...(file.gens ?? {}), [key]: spend({ value: have, at: now, mode: 'fill' }, now, priceOf('strike')) };
+function markGeneral(file: WarFile, key: string, have: number, now: number, deed: 'strike' | 'chase' = 'strike'): void {
+  file.gens = { ...(file.gens ?? {}), [key]: spend({ value: have, at: now, mode: 'fill' }, now, priceOf(deed)) };
 }
 
 /**
@@ -457,7 +477,14 @@ export function viewOf(row: WarRow, key: string): WarView {
   const { atk, def, allies, worn, ...rest } = row;
   void allies;
   void worn;
-  if (atk === key || def === key) return { ...rest, role: atk === key ? 'atk' : 'def' };
+  if (atk === key) {
+    // Перехват в поле (ПЛ-1) нападающему не виден: навстречу идут молча, как отряд логова не знает о погоне.
+    const { meets, missed, ...seen } = rest;
+    void meets;
+    void missed;
+    return { ...seen, role: 'atk' };
+  }
+  if (def === key) return { ...rest, role: 'def' };
   return { ...rest, role: 'ally', me: castleIdOf(key) };
 }
 
@@ -469,7 +496,10 @@ function allyOf(file: WarFile, w: WarRow, key: string): boolean {
   if (w.atk === key || w.def === key) return false;
   const me = castleIdOf(key);
   if (w.reliefs?.some((r) => r.castle === me) || w.battles.some((b) => b.ally === me) || w.turned?.some((t) => t.ally === me)) return true;
-  return w.phase === 'camp' && pacted(file, key, w.def);
+  // Перехват союзником (ПЛ-1): его перехват идёт или сорвался — итог он применяет сам.
+  if (w.meets?.some((m) => m.castle === me) || w.missed?.some((m) => m.castle === me)) return true;
+  // Поход на союзника в пути и домой — его можно перехватить в поле (ПЛ-1); лагерь — выручить (раздел 5).
+  return (w.phase === 'camp' || w.phase === 'march' || w.phase === 'back') && pacted(file, key, w.def);
 }
 
 /** Свои войны и осады союзников — свежие сверху. */
@@ -1254,6 +1284,7 @@ function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: Wa
   w.endAt = at;
   if (troopTotal(asTroops(w.army.troops)) <= 0) {
     w.phase = 'done';
+    rechase(w, at);
     return;
   }
   w.phase = 'back';
@@ -1262,6 +1293,8 @@ function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: Wa
   delete w.legAt;
   w.backAt = at + walk(from, w.from, readGait(w.gait));
   homeward(w, at, w.backAt);
+  // Поход повернул домой — перехват идёт за ним обратным путём, если догонит (ПЛ-1).
+  rechase(w, at);
 }
 
 /**
@@ -1755,6 +1788,138 @@ function hitCamp(
   return null;
 }
 
+// ------------------------------------------------ перехват в поле (ПЛ-1) ---
+
+/** Где перехватчик в минуту `at` на своём отрезке к точке встречи. */
+const chaserAt = (m: WarMeet, at: number): { x: number; y: number } => positionAt({ from: m.from, to: m.spot, departAt: m.go, arriveAt: m.at }, at);
+
+const cell = (p: { x: number; y: number }): { x: number; y: number } => ({ x: Math.round(p.x), y: Math.round(p.y) });
+
+/**
+ * Поход сменил путь — повернул домой, сменил режим, встал лагерем, кончился (ПЛ-1): встреча каждого перехвата считается
+ * заново той же функцией (`pvp.warMeet`) с того места, где перехватчик в эту минуту. Не догнать — перехват сорвался: дружина
+ * цела и стоит в поле (`WarMissed`), донесение и путь домой — у её мира.
+ */
+function rechase(w: WarRow, at: number): void {
+  if (!w.meets?.length) return;
+  const keep: WarMeet[] = [];
+  for (const m of w.meets) {
+    const here = chaserAt(m, at);
+    const next = warMeet(here, readGait(m.gait), w, at, pace);
+    if (!next) {
+      w.missed = [...(w.missed ?? []), { castle: m.castle, ...(m.ally ? { ally: true as const } : {}), at, spot: cell(here), men: men(m.army.troops) }];
+      continue;
+    }
+    keep.push({ ...m, go: at, from: here, spot: next.at, at: Math.max(at, Math.round(next.time)) });
+  }
+  if (keep.length) w.meets = keep;
+  else delete w.meets;
+}
+
+/** Войско перехватчика в родах боя: всё, что сервер поставил ему в минуту приказа (`ruleArmy`). */
+const meetSide = (a: WarArmy, at: number): MeetSide => ({
+  kinds: kindsOf(asTroops(a.troops)),
+  resolve: a.resolve,
+  pips: a.pips as Pips,
+  ...flanksField(a.flanks),
+  rest: armyRest(a, at),
+  ...spiritField(a.spirit),
+  ...scarSide(a.scars),
+});
+
+/**
+ * Бой в поле в минуту встречи (ПЛ-1): нападает перехватчик, поход обороняется — ядром боя дверью `fights.meetFight`, с
+ * составом обеих сторон по книгам сервера (дух, дисциплина, черты, командиры, отметки — как в войне). Разбит поход по пути
+ * к цели — отходит домой с остатком от клетки встречи (`turnBack`, конец «отбит»); по пути домой — добычу его падения
+ * отбивает победитель (`WarBattle.regain`), поход идёт домой дальше. Перехватчик отбит — поход идёт дальше с потерями и
+ * усталостью; остаток дружины стоит в поле, домой его ведёт его мир.
+ */
+function meetBattle(file: WarFile, w: WarRow, m: WarMeet): void {
+  const left = (w.meets ?? []).filter((x) => x !== m);
+  if (left.length) w.meets = left;
+  else delete w.meets;
+  // Налегке — истощение пути до минуты встречи (ДР-2): в бой идут дошедшие.
+  wearLight(w, m.at);
+  const back = w.phase === 'back';
+  const n = w.battles.length;
+  const spot = cell(m.spot);
+  const { input, field } = meetFight({
+    seed: warSeed(w.id, n),
+    chaser: meetSide(m.army, m.at),
+    march: { ...campSide(w, m.at), kinds: kindsOf(asTroops(w.army.troops)) },
+    // Земля клетки встречи — та, на которую шагнул перехватчик (бой на воде — переправа), по земле пути войны.
+    ground: groundAt(WAR_GROUND_SEED, spot, cell(m.from)),
+    where: scarWhere(placeAt(WAR_GROUND_SEED, spot.x, spot.y)),
+  });
+  const genLost = field.result ? (troopLosses(asTroops(m.army.troops), field.result.sides.attacker.losses) as Counts) : {};
+  const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.defender.losses) as Counts) : {};
+  // Добыча падения — в обозе похода, идущего домой: победитель боя её отбивает целиком (MAP-9, как у набега логова). Отбить
+  // её можно один раз: дважды одной добычи в обозе нет.
+  const regain = field.won && back && w.fall && !w.battles.some((b) => b.regain) ? goodsOf(w.fall.taken) : null;
+  const battle: WarBattle = {
+    id: `${w.id}.${n}`,
+    at: m.at,
+    site: 'field',
+    by: 'def',
+    input: input as WarBattle['input'],
+    won: field.won,
+    atkTroops: { ...w.army.troops },
+    atkLost,
+    homeTroops: {},
+    homeLost: {},
+    genTroops: { ...m.army.troops },
+    genLost,
+    spot,
+    ...(m.ally ? { ally: m.castle } : {}),
+    ...(regain ? { regain } : {}),
+    ...marksOf(field, {
+      attacker: { role: m.ally ? 'ally' : 'def', gen: m.army.scarGen },
+      defender: { role: 'atk', gen: w.army.scarGen },
+    }),
+  };
+  w.battles.push(battle);
+  w.army = wear(w.army, atkLost, field.rest.defender, m.at);
+  // Дружина перехватчика легла вся — потолка энергии нет: на его месте может стоять новый полководец (как у удара).
+  const key = m.ally ? w.allies?.[m.castle]?.key : w.def;
+  if (key) unmarkBeaten(file, w, key, m.at);
+  const here = warSpotAt(w, m.at);
+  const gone = troopTotal(asTroops(w.army.troops)) <= 0;
+  if (back && gone) {
+    // Обоз, идущий домой, лёг весь: война кончена на месте, а чем она кончилась у стен (взят, отбит, отозван) — остаётся.
+    wearLight(w, m.at);
+    w.phase = 'done';
+    rechase(w, m.at);
+  } else if (gone || (field.won && !back)) turnBack(w, m.at, here, 'beaten');
+  else rechase(w, m.at);
+}
+
+/** Припасы и казна добычи, без нулей. */
+function goodsOf(c: Counts): Counts | null {
+  const out: Counts = {};
+  for (const [k, v] of Object.entries(c)) if ((v ?? 0) > 0) out[k] = Math.floor(v ?? 0);
+  return Object.keys(out).length ? out : null;
+}
+
+/** Ближайший перехват похода, до которого дошло время и который случится не позже конца нынешнего пути. */
+function dueMeet(w: WarRow, now: number): WarMeet | null {
+  if (!w.meets?.length || (w.phase !== 'march' && w.phase !== 'back')) return null;
+  const end = w.phase === 'march' ? w.arriveAt : (w.backAt ?? Infinity);
+  let first: WarMeet | null = null;
+  for (const m of w.meets) if (!first || m.at < first.at) first = m;
+  return first && first.at <= now && first.at <= end ? first : null;
+}
+
+/** Отрезок от точки до прямой пути войны: точка встречи, названная приказом, лежит на пути похода (тот же отрезок туда и домой). */
+function offPath(w: WarRow, p: { x: number; y: number }): number {
+  const ax = w.from.x;
+  const ay = w.from.y;
+  const dx = w.to.x - ax;
+  const dy = w.to.y - ay;
+  const l2 = dx * dx + dy * dy;
+  const k = l2 > 0 ? Math.min(1, Math.max(0, ((p.x - ax) * dx + (p.y - ay) * dy) / l2)) : 0;
+  return Math.hypot(p.x - (ax + dx * k), p.y - (ay + dy * k));
+}
+
 // ------------------------------------------------ ход времени ---
 
 /** Ключи защитников, чьи слепки нужны, чтобы разобрать всё назначенное к минуте `now`. */
@@ -1789,6 +1954,13 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
   for (const w of file.wars) {
     // Фаз за долгий простой бывает много: каждая — одно событие очереди.
     for (let guard = 0; guard < 64; guard++) {
+      // Перехват в поле (ПЛ-1) — раньше прихода и возврата: встреча в ту же минуту, что приход, — сперва бой в поле.
+      const met = dueMeet(w, now);
+      if (met) {
+        changed = true;
+        meetBattle(file, w, met);
+        continue;
+      }
       if (w.phase === 'march' && w.arriveAt <= now) {
         changed = true;
         // Налегке — истощение пути до минуты прихода (ДР-2): к стене подходят те, кто дошёл.
@@ -1811,6 +1983,8 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
           }
           // Лагерь — полудом: энергия полководца копится залпом за фазу (ответ владельца 3, docs/siege_v2.md, 8.4).
           w.army = { ...w.army, energy: remark(w.army.energy, w.arriveAt, 'camp') };
+          // Поход встал лагерем раньше встречи (ПЛ-1): в поле его уже не перехватить — по лагерю бьют ударом.
+          rechase(w, w.arriveAt);
         }
         continue;
       }
@@ -1859,6 +2033,7 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
         wearLight(w, w.backAt ?? now);
         delete w.wornAt;
         w.phase = 'done';
+        rechase(w, w.backAt ?? now);
         continue;
       }
       break;
@@ -1929,15 +2104,8 @@ export interface OrderCtx {
  * не короче пола: ландшафт не бывает быстрее самой быстрой клетки. Возвращает отказ или срок, мс мира.
  */
 function walkOf(order: { from: { x: number; y: number }; walkMs: number; gait?: Gait }, to: { x: number; y: number }, s: SheetAt, now: number, ctx: OrderCtx): string | number {
-  const gen = s.sheet.gen;
-  if (gen) {
-    const went = distance(gen, order.from);
-    const reach = fieldReach(now - s.at);
-    if (went > reach) {
-      ctx.forged?.(`Удар полководца из клетки ${spot(order.from)}, а в слепке обороны он стоял в ${spot(gen)}: ${went.toFixed(1)} кл. за ${Math.round((now - s.at) / 1000)} с, дойти мог не дальше ${reach.toFixed(1)} кл.`, 'walk');
-      return 'Полководец не мог оказаться там так быстро. Обнови игру и попробуй снова.';
-    }
-  }
+  const far = fromWhy(order.from, s, now, ctx, 'Удар');
+  if (far) return far;
   // Пол — в режиме марша, названном приказом (ДР-2, М9): налегке быстрее, и пол у него свой; назвать «налегке» — значит и
   // идти с его истощением (его считает сервер сам, `roadArmy`, ДР-5).
   const floor = fieldWalkFloorMs(order.from, to, order.gait);
@@ -1950,6 +2118,20 @@ function walkOf(order: { from: { x: number; y: number }; walkMs: number; gait?: 
 }
 
 const spot = (p: { x: number; y: number }): string => `${Math.round(p.x)}:${Math.round(p.y)}`;
+
+/**
+ * Откуда выходит полководец из поля — не дальше, чем он мог уйти со своего места в последнем слепке обороны (`WarSheet.gen`,
+ * `pvp.fieldReach`; docs/security.md, ЗЩ-2). Одна проверка у удара, выручки и перехвата (ПЛ-1).
+ */
+function fromWhy(from: { x: number; y: number }, s: SheetAt, now: number, ctx: OrderCtx, deed: string): string | null {
+  const gen = s.sheet.gen;
+  if (!gen) return null;
+  const went = distance(gen, from);
+  const reach = fieldReach(now - s.at);
+  if (went <= reach) return null;
+  ctx.forged?.(`${deed} полководца из клетки ${spot(from)}, а в слепке обороны он стоял в ${spot(gen)}: ${went.toFixed(1)} кл. за ${Math.round((now - s.at) / 1000)} с, дойти мог не дальше ${reach.toFixed(1)} кл.`, 'walk');
+  return 'Полководец не мог оказаться там так быстро. Обнови игру и попробуй снова.';
+}
 
 /**
  * Хватает ли войска на приказ: сначала заявленного клиентом, потом подтверждённого книгой. Не хватает заявленного —
@@ -1998,6 +2180,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       delete w.legFrom;
       delete w.legAt;
       homeward(w, now, w.backAt);
+      // Отозванный поход идёт домой — перехват за ним, если догонит (ПЛ-1).
+      rechase(w, now);
       return null;
     }
     case 'gait':
@@ -2267,6 +2451,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       w.allies = { ...(w.allies ?? {}), [me]: { key, city: cityOr(ctx.roster.rows[key]?.city) } };
       return null;
     }
+    case 'intercept':
+      return interceptOrder(file, key, order, now, ctx);
     case 'pact':
       return pactOrder(file, key, order.target, now, ctx);
     case 'unpact':
@@ -2302,12 +2488,85 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
 }
 
 /**
+ * Перехват похода в поле (ПЛ-1, docs/siege_v2.md, «Решения ПЛ-1»). Перехватывает защитник или его союзник по пакту — поход
+ * на город и обратный путь; точку и минуту встречи считает сервер (`pvp.warMeet`, земля пути войны), а не клиент. Отряд — не
+ * больше книги войска, место выхода — не дальше слепка (`fromWhy`), энергия — к минуте встречи с дорогой. Встреча, которую
+ * видел игрок (`meet`), сверяется: точка не на пути похода или срок раньше возможного — отказ и флаг; разошлась иначе
+ * (поход сменил путь после меню) — отказ без флага.
+ */
+function interceptOrder(file: WarFile, key: string, order: Extract<WarOrder, { op: 'intercept' }>, now: number, ctx: OrderCtx): string | null {
+  const w = file.wars.find((x) => x.id === order.id) ?? null;
+  if (!w || !active(w)) return MEET_GONE;
+  if (w.atk === key) return 'Это наш отряд.';
+  const ally = w.def !== key;
+  if (ally && !pacted(file, key, w.def, now)) return 'Перехватывают поход на свой город или на союзника по пакту.';
+  if (w.phase === 'camp') return MEET_CAMP;
+  if (w.phase !== 'march' && w.phase !== 'back') return MEET_GONE;
+  const busy = generalBusy(file, key);
+  if (busy) return busy;
+  if (besieged(file, key)) return SIEGE_BLOCK;
+  const s = ctx.sheet(key);
+  if (!s) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
+  if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет отряда.';
+  const short = enough(order.army.troops, claimedSheet(file, key, s, now).army, liveSheet(file, key, s, now).army, 'в отряде', ctx);
+  if (short) return short;
+  const far = fromWhy(order.from, s, now, ctx, 'Перехват');
+  if (far) return far;
+  const gait = readGait(order.gait);
+  const meet = warMeet(order.from, gait, w, now, pace);
+  if (!meet) return MEET_FAR;
+  const at = Math.max(now, Math.round(meet.time));
+  if (order.meet) {
+    // Встреча, показанная игроку: та же функция у мира. Точка не на пути похода — подделка; срок раньше, чем полководец
+    // дошёл бы до неё по самой быстрой земле самым быстрым режимом, — тоже. Остальное расхождение — поход сменил путь.
+    const off = offPath(w, order.meet);
+    const floor = now + Math.round(fieldWalkFloorMs(order.from, order.meet, 'light') / pace);
+    if (off > MEET_SLACK_CELLS || order.meet.at + MEET_SLACK_MS < floor) {
+      ctx.forged?.(
+        `Перехват с точкой ${spot(order.meet)} к ${new Date(order.meet.at).toISOString()}: от пути похода ${off.toFixed(1)} кл., дойти от ${spot(order.from)} можно не раньше ${new Date(floor).toISOString()}.`,
+        'walk',
+      );
+      return 'Такой встречи быть не может. Обнови игру и попробуй снова.';
+    }
+    if (Math.abs(order.meet.at - at) > MEET_SLACK_MS || distance(order.meet, meet.at) > MEET_SLACK_CELLS) return MEET_STALE;
+  }
+  // Энергия перехвата — бой в поле: к минуте встречи с дорогой (как у мира, `LocalWorld.planChase`); дорога — настоящими мс.
+  const road = Math.round((at - now) * pace);
+  const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
+  const tired = energyBlock(have, priceOf('chase'), road, gaitSpeed(gait));
+  if (tired) return tired;
+  const me = castleIdOf(key);
+  const came = roadArmy(w, me, 'intercept', { army: order.army, from: order.from, walkMs: road, gait }, road, now);
+  if (typeof came === 'string') return came;
+  const city = cityOr(ctx.roster.rows[key]?.city);
+  w.meets = [
+    ...(w.meets ?? []),
+    {
+      castle: me,
+      city,
+      ...(ally ? { ally: true as const } : {}),
+      sent: now,
+      go: now,
+      from: { x: order.from.x, y: order.from.y },
+      spot: meet.at,
+      at,
+      army: ruleArmy(came, s, file, key),
+      ...gaitField(gait),
+    },
+  ];
+  markGeneral(file, key, have, now, 'chase');
+  // Ключ союзника — для вестей и счёта его боя (`battleWinner`); наружу не уходит.
+  if (ally) w.allies = { ...(w.allies ?? {}), [me]: { key, city } };
+  return null;
+}
+
+/**
  * Дорога удара и выручки налегке (ДР-5): уход за неё сервер считает сам той же `gait.strikeWorn`, что мир (`LocalWorld.strikeLeg`),
  * — от состава на выходе (приказ, не выше книги войска) за срок пути, сидом из приказа (`gait.strikeSeed`). В бой идут дошедшие;
  * ушедшие ложатся в запись войны (`WarRow.worn`), и книга войска их вычитает. Не налегке — все дошли. Возвращает войско или
  * отказ, если налегке не дойдёт никто.
  */
-function roadArmy(w: WarRow, castle: string, op: 'strike' | 'relief', order: { army: WarArmy; from: { x: number; y: number }; walkMs: number; gait?: Gait }, walkMs: number, now: number): WarArmy | string {
+function roadArmy(w: WarRow, castle: string, op: 'strike' | 'relief' | 'intercept', order: { army: WarArmy; from: { x: number; y: number }; walkMs: number; gait?: Gait }, walkMs: number, now: number): WarArmy | string {
   const { came, lost } = strikeWorn(order.army.troops, order.gait, Math.round(walkMs / pace), strikeSeed(op, w.id, order.from, order.walkMs));
   if (troopTotal(asTroops(lost)) === 0) return order.army;
   if (troopTotal(asTroops(came)) === 0) return 'Налегке отряд растает в пути: до лагеря не дойдёт никто. Возьми обоз или подойди ближе.';
@@ -2393,6 +2652,8 @@ export function generalBusy(file: WarFile, key: string): string | null {
   const me = castleIdOf(key);
   if (file.wars.some((w) => w.reliefs?.some((r) => r.castle === me))) return GENERAL_RELIEVES;
   if (file.wars.some((w) => w.def === key && w.strike)) return GENERAL_STRIKES;
+  // Перехват похода в поле (ПЛ-1): свой город или союзник — полководец идёт навстречу, пока не сошлись или след не потерян.
+  if (file.wars.some((w) => w.meets?.some((m) => m.castle === me))) return GENERAL_INTERCEPTS;
   return null;
 }
 
@@ -2510,6 +2771,8 @@ function gaitOrder(file: WarFile, key: string, id: string, next: Gait, now: numb
     w.backAt = arrive;
   }
   w.army = { ...w.army, energy: onRoad(spend(w.army.energy, now, priceOf('gait')), now, arrive, !march, gaitSpeed(next)) };
+  // Новый темп и стоянка — новая встреча у каждого перехвата (ПЛ-1).
+  rechase(w, now);
   return null;
 }
 
@@ -2589,7 +2852,7 @@ export function newsOf(w: WarRow): WarNews[] {
           kind: 'war-relief',
           fireAt: b.at,
           until: b.at + RESULT_KEEP,
-          p: { from: plainName(w.defCity), fate: w.fate, about: b.at, relief: 'fight', won: b.won },
+          p: { from: plainName(w.defCity), fate: w.fate, about: b.at, relief: 'fight', won: b.won, ...(b.site === 'field' ? { site: 'field' as const } : {}) },
         },
       });
     }

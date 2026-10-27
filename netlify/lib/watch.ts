@@ -18,6 +18,7 @@ import {
   readWatch,
   spySeenId,
   warTributeId,
+  warRegainId,
   type AdminGrant,
   type Counts,
   type WarSheet,
@@ -26,6 +27,7 @@ import {
   type WatchCard,
   type WatchCrownEntry,
 } from './contract.js';
+import { castleIdOf } from './roster.js';
 import { DAY_LENGTH, gameDaysOfMs, gameDaysPerHour, leadGrowth, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
 import { DEED_TABLE } from '../../src/game/data/deedgain.js';
@@ -512,6 +514,11 @@ export function windfallKnown(
     }
   };
   for (const w of file?.wars ?? []) if (w.atk === key && w.tribute) take(warTributeId(w.id), w.tribute.taken);
+  // Добыча, отбитая перехватом на обратном пути (ПЛ-1, `WarBattle.regain`): у победителя — город или союзник по замку.
+  const me = castleIdOf(key);
+  for (const w of file?.wars ?? []) {
+    for (const b of w.battles ?? []) if (b.regain && (b.ally ? b.ally === me : w.def === key)) take(warRegainId(b.id), b.regain);
+  }
   for (const x of file?.spies ?? []) if (x.atk === key && x.out?.stolen) take(spySeenId(x.id), x.out.stolen);
   const ids = [...new Set([...done, ...lying.filter((id) => now.has(id))])].filter((id) => lying.includes(id)).slice(-WF_KEEP);
   return { known: { stock, gold, items }, ids };

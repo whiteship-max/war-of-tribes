@@ -605,7 +605,7 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (role) facts.role = role;
       else if (kind !== 'war-pact' && kind !== 'war-relief') return null;
       const mode = oneOf(WAR_MODES, p.mode);
-      const site = oneOf(['wall', 'sortie', 'camp', 'joint'] as const, p.site);
+      const site = oneOf(['wall', 'sortie', 'camp', 'joint', 'field'] as const, p.site);
       const by = oneOf(['atk', 'def'] as const, p.by);
       if (mode) facts.mode = mode;
       if (site) facts.site = site;
@@ -1071,7 +1071,11 @@ export function readOrders(v: unknown): WarOrders {
 export const WAR_CRAFTS = ['fortify', 'bombard'] as const;
 export type WarCraftAct = (typeof WAR_CRAFTS)[number];
 
-export type WarSite = 'wall' | 'sortie' | 'camp' | 'joint';
+/**
+ * Где был бой войны: у стены (штурм), вылазка, удар по лагерю, совместный удар — и бой в поле (`field`, ПЛ-1): полководец
+ * города или союзника перехватил поход в пути — туда или домой (docs/siege_v2.md, «Решения ПЛ-1»).
+ */
+export type WarSite = 'wall' | 'sortie' | 'camp' | 'joint' | 'field';
 
 /** Бой войны. Посчитан сервером; клиент только показывает и применяет свою сторону. */
 export interface WarBattle {
@@ -1116,6 +1120,10 @@ export interface WarBattle {
    * зимы и голода в них нет (Ш6). Нет поля — бой до ДР-4: в журналы не идёт.
    */
   marks?: Partial<Record<'atk' | 'def' | 'ally', FightMark>>;
+  /** Бой в поле (ПЛ-1, `site: 'field'`): клетка встречи — по ней место боя в донесении и земля боя. Нет — бой у города. */
+  spot?: { x: number; y: number };
+  /** Бой в поле на обратном пути похода (ПЛ-1): добыча, которую отбил победивший перехватчик, — у него. Нет — не отбили. */
+  regain?: Counts;
 }
 
 /** Участь взятого города — посчитана дверью `spoils.fate`, у обеих сторон одними числами. */
@@ -1304,6 +1312,13 @@ export interface WarView {
   reliefs?: WarRelief[];
   /** Удары из поля, не пробившиеся через рогатки в минуту прихода (`WarTurned`). Нет — таких не было. */
   turned?: WarTurned[];
+  /**
+   * Перехваты похода в поле (ПЛ-1): полководец города или союзника идёт навстречу, бой — в минуту встречи. Нападающему не
+   * показываются (`war.viewOf`). Нет — никто не идёт.
+   */
+  meets?: WarMeet[];
+  /** Перехваты, сорвавшиеся до встречи (ПЛ-1): поход сменил путь, и догнать его уже нельзя. Нет — таких не было. */
+  missed?: WarMissed[];
   /** Обратный путь: откуда и когда дома. */
   backFrom?: { x: number; y: number };
   backAt?: number;
@@ -1327,6 +1342,37 @@ export interface WarRelief {
   /** Режим марша выручки и её дорога, мс (ДР-2). Налегке уход в пути сервер снял при приказе (ДР-5): `army` — дошедшие. Нет — обычный. */
   gait?: WarGait;
   walk?: number;
+}
+
+/**
+ * Перехват похода в поле (ПЛ-1, docs/siege_v2.md, «Решения ПЛ-1»): точку и минуту встречи считает сервер той же функцией
+ * встречи, что мир (`pvp.warMeet` → `pursuit.intercept`); поход сменил путь — встреча считается заново с места перехватчика.
+ */
+export interface WarMeet {
+  /** Замок перехватчика и имя его города. */
+  castle: string;
+  city: string;
+  /** Союзник осаждаемого по пакту, а не сам город. Нет — полководец города. */
+  ally?: true;
+  /** Когда вышел и откуда идёт нынешним отрезком (после пересчёта встречи — с места и минуты пересчёта). */
+  sent: number;
+  go: number;
+  from: { x: number; y: number };
+  /** Где и когда встреча. */
+  spot: { x: number; y: number };
+  at: number;
+  /** Дошедшие до встречи (налегке уход в пути сервер снял при приказе, ДР-5). */
+  army: WarArmy;
+  gait?: WarGait;
+}
+
+/** Перехват, сорвавшийся до встречи (ПЛ-1): дружина цела и стоит в поле там, где была в эту минуту. */
+export interface WarMissed {
+  castle: string;
+  ally?: true;
+  at: number;
+  spot: { x: number; y: number };
+  men: number;
 }
 
 /**
@@ -1498,6 +1544,11 @@ export type WarOrder =
   | { op: 'offer'; id: string; kind: 'terms' | 'tribute'; fate?: NoticeFate }
   | { op: 'answer'; id: string; kind: 'terms' | 'tribute'; yes: boolean }
   | { op: 'relief'; id: string; army: WarArmy; walkMs: number; from: Spot; gait?: WarGait }
+  /**
+   * Перехват похода в поле (ПЛ-1): откуда идёт полководец, его отряд и режим. Встречу считает сервер; `meet` — та, что видел
+   * игрок в окне (минута меню `shown`): невозможная — отказ и флаг, устаревшая (поход сменил путь) — отказ.
+   */
+  | { op: 'intercept'; id: string; army: WarArmy; from: Spot; gait?: WarGait; meet?: { x: number; y: number; at: number }; shown?: number }
   | { op: 'pact'; target: string }
   | { op: 'unpact'; target: string }
   // Ответ на предложение соседа по номеру (ДП-1, `world/proposals`): принять, отклонить или отозвать своё. Проверяет сервер:
@@ -1529,6 +1580,12 @@ export const warRingId = (war: string, at: number): string => `${war}.b${at}`;
 
 /** Отметка удара, не пробившегося через рогатки (`WarTurned`), в списке принятого: донесение о нём ложится один раз. */
 export const warTurnedId = (war: string, at: number): string => `${war}.t${at}`;
+
+/** Перехват, сорвавшийся до встречи (ПЛ-1, `WarMissed`): у перехватчика — донесение один раз. */
+export const warMissedId = (war: string, castle: string, at: number): string => `${war}.m${castle}.${at}`;
+
+/** Добыча, отбитая перехватом на обратном пути (ПЛ-1, `WarBattle.regain`): у победителя и у похода — по разу. */
+export const warRegainId = (battle: string): string => `${battle}.r`;
 
 /** Потолки слепка и приказа. Видов племени и припасов — десятки; больше — порча. */
 export const WAR_LIMITS = { keys: 64, count: 1e7 } as const;
@@ -1767,6 +1824,25 @@ export function readWarOrder(v: unknown, latest = Infinity): WarOrder | null {
       const from = readSpot(r.from);
       return id && army && walk !== null && from
         ? { op: 'relief', id, army, walkMs: Math.min(WALK_MS_MAX, Math.max(0, walk)), from, ...readGaitField(r.gait) }
+        : null;
+    }
+    case 'intercept': {
+      const army = readArmy(r.army, latest);
+      const from = readSpot(r.from);
+      const m = (r.meet && typeof r.meet === 'object' ? r.meet : null) as Record<string, unknown> | null;
+      const meet = m ? readSpot(m) : null;
+      const at = m ? num(m.at) : null;
+      const shown = num(r.shown);
+      return id && army && from
+        ? {
+            op: 'intercept',
+            id,
+            army,
+            from,
+            ...readGaitField(r.gait),
+            ...(meet && at !== null ? { meet: { x: meet.x, y: meet.y, at } } : {}),
+            ...(shown !== null ? { shown } : {}),
+          }
         : null;
     }
     case 'pact':

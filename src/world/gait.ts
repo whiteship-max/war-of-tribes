@@ -67,7 +67,7 @@ export function roadLosses<T extends Partial<Record<string, number>>>(troops: T,
  * Сид дороги удара по лагерю и выручки налегке (ДР-5): из того, что приказ несёт и мир, и сервер знают одинаково, — дело,
  * номер войны, клетка выхода и срок пути, названный приказом. Своих часов в нём нет: минуты у мира и сервера разные.
  */
-export const strikeSeed = (op: 'strike' | 'relief', war: string, from: { x: number; y: number }, walkMs: number): string =>
+export const strikeSeed = (op: 'strike' | 'relief' | 'intercept', war: string, from: { x: number; y: number }, walkMs: number): string =>
   `${op}:${war}:${Math.round(from.x)}:${Math.round(from.y)}:${Math.round(walkMs)}`;
 
 /**
