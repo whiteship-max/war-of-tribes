@@ -17,7 +17,8 @@ N=$CI/night
 BIN=$N/bin
 R=$CI/repo
 WT=$N/wt
-URL=https://game.kingsvassals.com/api/time
+HOST=game.kingsvassals.com
+URL=https://$HOST/api/time
 CPUS=6        # ядер контейнеру, пока отклик боевого в норме (решение владельца 26.10.2026)
 CPUS_LOW=4    # если отклик уже до старта выше SLOW
 CPUS_MIN=2
@@ -121,8 +122,10 @@ else
   before=--before
 fi
 
+# Отклик меряется через прокси хоста без DNS (`--resolve` на 127.0.0.1): 27.10.2026 закладка базы дала два замера по 5.05 с
+# ровно — почерк тайм-аута резолвера хоста, а не игры (соседние замеры 0.05–0.08 с; с закреплённым адресом — 0.04–0.06 с).
 pulse() {
-  p=$(curl -s -o /dev/null -w '%{time_total}' --max-time 10 "$URL") || p=10
+  p=$(curl -s -o /dev/null -w '%{time_total}' --max-time 10 --resolve "$HOST:443:127.0.0.1" "$URL") || p=10
   echo "$p"
 }
 over() { awk -v t="$1" -v s="$SLOW" 'BEGIN { exit !(t > s) }'; }
