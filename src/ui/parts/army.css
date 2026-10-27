@@ -1,7 +1,8 @@
 /*
- * «Дружина» ДР-1 (parts/ArmyDesk.tsx, docs/siege_v2.md, «Решения ДР-1»): дух — две полосы с потолком и разбором, полки по родам,
- * выбор жалованья двумя плитками и роспуск. Под телефон 390×844: всё в одну колонку, касание — не меньше 44 (`--tap`).
- * Цвета и плиты — токены игры (`styles.css`, `next.css`, кожа и плита меню).
+ * «Дружина» ДР-1 (parts/ArmyDesk.tsx, docs/siege_v2.md, «Решения ДР-1») и ДР-8 (docs/ui_v2.md, «Решения ДР-8»): дух — две
+ * полосы с потолком и разбором, состав — плитками видов, карточка вида с роспуском поверх меню, выбор жалованья двумя плитками.
+ * Под телефон 390×844: касание — не меньше 44 (`--tap`). Цвета и плиты — токены игры (`styles.css`, `next.css`, кожа и плита
+ * меню).
  */
 
 /* ---------- Дух ---------- */
@@ -70,94 +71,258 @@
   color: var(--bad);
 }
 
-/* ---------- Состав ---------- */
-.dr-roster {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.dr-regiment {
-  padding: 6px 8px;
-  border: 1px solid var(--m-leather-rim);
-  border-radius: 10px;
-  background: var(--m-leather);
-  box-shadow: var(--m-leather-bevel);
-}
-.dr-reg-head {
+/* ---------- Состав: плитки видов (ДР-8) ---------- */
+/* Три в ряд: на 390 плитка ~115 px — портрет 40, число, имя. Обычная армия — два ряда,
+   все девять видов — три: на 390×844 состав виден без прокрутки при шторке на 62 %. */
+.dr-tiles {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
-  font-size: 14px;
+  margin: 0 0 8px;
 }
-.dr-reg-head > svg,
-.dr-reg-head > .icon {
-  width: 24px;
-  height: 24px;
-}
-.dr-reg-head span {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.dr-reg-head small {
-  color: var(--muted);
-  font-size: 12px;
-}
-.dr-reg-kinds {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
-}
-.dr-kind {
-  display: inline-flex;
+.dr-tile {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-rows: 40px auto;
+  column-gap: 4px;
+  row-gap: 3px;
   align-items: center;
-  gap: 4px;
-  min-height: 30px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.12);
-  font-size: 12px;
+  min-height: var(--tap);
+  padding: 7px 8px 6px;
+  border: 1px solid var(--m-plate-rim);
+  border-radius: 12px;
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-.dr-kind > svg,
-.dr-kind > .icon {
-  width: 20px;
-  height: 20px;
+/* Портрет — медальон: тёмный круг с ободком плиты, значок вида в нём. */
+.dr-tile-ico {
+  grid-row: 1;
+  grid-column: 1;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 38%, rgba(255, 220, 170, 0.16), rgba(0, 0, 0, 0.3) 72%);
+  box-shadow: inset 0 0 0 1px var(--m-plate-rim);
 }
-.dr-kind b {
-  font-size: 14px;
+.dr-tile-ico svg,
+.dr-tile-ico .icon {
+  width: 32px;
+  height: 32px;
+}
+.dr-tile-n {
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
+  align-self: start;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
-.dr-kind em {
+/* Раненые — малой отметкой под числом: повязка и сколько. */
+.dr-tile-hurt {
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
+  align-self: end;
   display: inline-flex;
   align-items: center;
   gap: 2px;
   font-style: normal;
+  font-size: 12px;
+  line-height: 1;
   color: var(--warn, #d9a441);
   font-variant-numeric: tabular-nums;
 }
-.dr-kind em svg,
-.dr-kind em .icon {
+.dr-tile-hurt svg,
+.dr-tile-hurt .icon {
+  width: 12px;
+  height: 12px;
+}
+/* Имя — до двух строк: «Латные всадники» в одну не влезает, а второго имени у вида нет. */
+.dr-tile-name {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  align-self: start;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ---------- Карточка вида поверх меню (ДР-8, parts/KindCard.tsx) ---------- */
+/* Над шторкой (10) и под подсказкой (40): числа карточки открывают разбор поверх неё. Снизу, у большого пальца. */
+.modal-backdrop.dr-card-back {
+  position: fixed;
+  z-index: 30;
+  align-items: flex-end;
+}
+.modal.dr-card {
+  max-width: 400px;
+  padding: 12px;
+}
+.dr-card-head {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.dr-card-ico {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 38%, rgba(255, 220, 170, 0.18), rgba(0, 0, 0, 0.32) 72%);
+  box-shadow: inset 0 0 0 1px var(--m-plate-rim);
+}
+.dr-card-ico svg,
+.dr-card-ico .icon {
+  width: 42px;
+  height: 42px;
+}
+.dr-card-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.dr-card-title b {
+  font-family: var(--font-title);
+  font-size: 18px;
+  line-height: 1.2;
+}
+.dr-card-title small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.dr-card-head .kit-close {
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+}
+/* Числа вида — ячейками-справками в ряд, как верх окна; раненых нет — ячейка не встаёт. */
+.ms-sum.dr-card-sum {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  margin-bottom: 2px;
+}
+.dr-card-sum b {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.dr-card-sum b svg,
+.dr-card-sum b .icon {
   width: 14px;
   height: 14px;
 }
-/* Вид — дверь в карточку вида (ДР-6: прежде ею была строка раскладки): цель касания 44. */
-button.dr-kind {
+.dr-card-more {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Роспуск: число шагом и быстрыми кнопками, что вернётся, «Распустить». */
+.dr-dis {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.stepper.wide-steps.dr-steps {
+  margin: 0;
+}
+.dr-steps .dr-n {
+  flex: 2;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.dr-quick {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1.6fr;
+  gap: 6px;
+}
+.dr-chip {
   min-height: var(--tap);
-  color: inherit;
+  padding: 0 6px;
+  border: 1px solid var(--m-leather-rim);
+  border-radius: 10px;
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-button.dr-kind:active {
-  transform: scale(0.97);
+.dr-chip.on {
+  box-shadow: inset 0 0 0 2px var(--accent), var(--m-leather-bevel);
 }
-.dr-total {
-  margin: 2px 0 0;
+.dr-chip:disabled {
+  background: var(--m-iron);
+  border-color: var(--m-iron-rim);
+  box-shadow: var(--m-iron-bevel);
+  color: var(--m-iron-ink);
+  opacity: 0.6;
+  cursor: default;
+}
+.dr-back {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--m-plate-rim);
+  border-radius: 10px;
+  background: var(--m-plate);
+  font-size: 14px;
+}
+.dr-back > div {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+.dr-back dt {
   font-size: 12px;
   color: var(--muted);
+}
+.dr-back dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.dr-back dd small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.dr-got {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 600;
+}
+.dr-back svg,
+.dr-back .icon {
+  width: 18px;
+  height: 18px;
 }
 
 /* ---------- Жалованье ---------- */
@@ -213,29 +378,6 @@ button.dr-kind:active {
 }
 .dr-wage-opt.armed small {
   color: var(--warn, #d9a441);
-}
-
-/* ---------- Роспуск ---------- */
-.dr-dismiss {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.dr-dis-row {
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 6px;
-}
-.dr-dis-row .kit-row {
-  border-bottom: 0;
-}
-.dr-dis-act {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-}
-.dr-dis-act .kit-btn {
-  width: 100%;
 }
 
 /* ---------- Найм ---------- */

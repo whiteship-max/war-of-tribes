@@ -104,7 +104,7 @@ describe('«Дружина» без раскладки: состав, двери
       }
       // Виды в дружине — дверями в составе, виды без бойцов — значками: карточка у каждого из видов достижима.
       expect(count(html, ': карточка вида"'), 'дверь в карточку — у всех видов').toBe(TROOP_IDS.length);
-      expect(count(html, 'class="dr-kind"'), 'дверь — у каждого вида в дружине').toBe(TROOP_IDS.filter((t) => (ARMY[t] ?? 0) > 0).length);
+      expect(count(html, 'class="dr-tile"'), 'дверь — у каждого вида в дружине').toBe(TROOP_IDS.filter((t) => (ARMY[t] ?? 0) > 0).length);
       // Итог по всему войску — одной строкой заголовка: бойцы и мощь.
       expect(html, 'итог мощи в заголовке').toContain(`мощь ${Math.round(armyPower(s))}`);
       expect(armySize(s)).toBe(troopTotal(ARMY));
@@ -242,7 +242,7 @@ describe('итог передачи — функциями игры, разбо�
 });
 
 describe('касание передачи — не мельче порогов судьи', () => {
-  // Окно состава и верх «Дружины» — `muster.css`; дверь вида в составе «Дружины» — `army.css` (ДР-6).
+  // Окно состава и верх «Дружины» — `muster.css`; плитка вида в составе «Дружины» — `army.css` (ДР-6, ДР-8).
   const CSS = ['muster.css', 'army.css'].map((f) => readFileSync(join(__dirname, f), 'utf8')).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
   const prop = (sel: string, name: string): number | null => {
     const v = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
@@ -256,7 +256,7 @@ describe('касание передачи — не мельче порогов �
     return m ? Number(m[1]) : null;
   };
   it('вид — дверь 44, кнопки шага — 44, виды без бойцов — 44, ячейки итога верха — не мельче справки', () => {
-    expect(prop('button.dr-kind', 'min-height'), 'вид в составе «Дружины» — дверь в карточку').toBeGreaterThanOrEqual(TAP_TARGET);
+    expect(prop('.dr-tile', 'min-height'), 'плитка вида в составе «Дружины» — дверь в карточку').toBeGreaterThanOrEqual(TAP_TARGET);
     expect(prop('.ms-steps .stepper.wide-steps button', 'width')).toBeGreaterThanOrEqual(TAP_TARGET);
     expect(prop('.ms-steps .stepper.wide-steps button', 'height')).toBeGreaterThanOrEqual(TAP_TARGET);
     expect(prop('.ms-more-b', 'width')).toBeGreaterThanOrEqual(TAP_TARGET);

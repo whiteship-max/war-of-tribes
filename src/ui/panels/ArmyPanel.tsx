@@ -1,24 +1,27 @@
 // «Дружина» из строки состояния и низа (ДР-1, docs/siege_v2.md, «Решения ДР-1»): уже имеющееся войско — не найм. Сверху мощь
-// обороны и где бойцы, дальше дух — мораль и дисциплина с разбором «что влияет», состав полками по родам (живая сила и
-// раненые), жалованье — полное или минимальное — и роспуск с подтверждением. Нанимают в Казармах и Конюшне: здесь к ним
-// кнопки-двери. Раскладки «Гарнизон | Отряд» здесь нет (ДР-6, «Решения ДР-6»): состав отряда полководца выбирают в окне дела
-// (`map/ArmySend`), а в городе он ведёт оборону всем гарнизоном. Итог мощи — в заголовке, жалованье в день — строкой «Дружине»
-// ведомости (`Upkeep`). Вид в составе — дверь в его карточку; виды, которых в дружине нет, — значками внизу: карточка вида
-// одна. Кольца контров нет (слово владельца по 14.35, docs/battle_eu4.md): кто кого бьёт, решают показатели.
+// обороны и где бойцы, дальше три вкладки (ДР-8, docs/ui_v2.md, «Решения ДР-8»): «Состав» — плитки видов (касание — карточка
+// вида поверх меню: дома и в походе, жалованье вида и роспуск, `parts/KindCard`), новобранцы, «Командующие» и двери найма;
+// «Дух» — мораль и дисциплина с разбором «что влияет» и черты армии; «Жалованье» — полное или минимальное и ведомость.
+// Нанимают в Казармах и Конюшне: здесь к ним кнопки-двери. Раскладки «Гарнизон | Отряд» здесь нет (ДР-6, «Решения ДР-6»):
+// состав отряда полководца выбирают в окне дела (`map/ArmySend`), а в городе он ведёт оборону всем гарнизоном. Мощь войска — в
+// заголовке, бойцы — ячейками верха, жалованье в день — строкой «Дружине» ведомости (`Upkeep`). Виды, которых в дружине нет, —
+// значками под дверями найма: карточка вида одна. Кольца контров нет (слово владельца по 14.35, docs/battle_eu4.md): кто кого
+// бьёт, решают показатели.
 import { Suspense, lazy, useState } from 'react';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { TROOPS } from '@/game/data/troops';
-import { armyPower, armySize, buildingOfType, defense, homeArmy, recruitsQueued } from '@/game/derived';
+import { armyPower, armySize, buildingOfType, defense, homeArmy, recruitsQueued, upkeepInfo } from '@/game/derived';
 import { useWorld, worldNow } from '@/world/store';
 import { restLine } from '../parts/restWords';
-import { count } from '../parts/plural';
 import { TroopCardView } from '../parts/TroopCardView';
 import { inWallsTip, outWallsTip } from '../parts/Muster';
-import { Dismiss, Roster, SpiritCard, WageChoice } from '../parts/ArmyDesk';
+import { Roster, SpiritCard, WageChoice, rosterTiles } from '../parts/ArmyDesk';
+import { KindCard } from '../parts/KindCard';
 import { Upkeep } from '../parts/Barracks';
 import { Icon } from '@/ui/icons/Icon';
 import { Num } from '@/ui/kit/Num';
+import { Tabs, type TabDef } from '@/ui/kit';
 import { defenseTip, fmtInt, type TipGo } from '@/ui/next/hudTips';
 import { goTo } from '@/ui/kit/nav';
 import { dec } from '@/game/num';
@@ -29,10 +32,15 @@ import { ScarList } from '../parts/Scars';
 // Меню «Командующие» (ДР-3) — своим куском, по кнопке: первой загрузке оно не нужно.
 const CommandDesk = lazy(() => import('@/ui/next/CommandDesk').then((m) => ({ default: m.CommandDesk })));
 
-export function ArmyPanel() {
+/** Вкладки окна (ДР-8): состав — первой, на ней окно и открывается. */
+export type ArmyTab = 'roster' | 'spirit' | 'wage';
+
+export function ArmyPanel({ start = 'roster' }: { start?: ArmyTab }) {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
+  const [tab, setTab] = useState<ArmyTab>(start);
   const [open, setOpen] = useState<TroopId | null>(null);
+  const [pick, setPick] = useState<TroopId | null>(null);
   const [desk, setDesk] = useState(false);
   const marches = useWorld((g) => g.marches);
   const figures = useWorld((g) => g.figures);
@@ -59,12 +67,20 @@ export function ArmyPanel() {
     to: goTo,
   };
 
-  const unhired = TROOPS.filter((d) => (s.army[d.id] ?? 0) <= 0);
+  // Виды без плитки — значками под дверями найма: вид с одними ранеными уже стоит плиткой, второй двери ему не нужно.
+  const tiled = new Set(rosterTiles(s).map((t) => t.id));
+  const unhired = TROOPS.filter((d) => !tiled.has(d.id));
+  // Ведомость в беде (не плачено или нечем кормить) — отметка на вкладке «Жалованье», как счётчик «ждёт действия».
+  const tabs: readonly TabDef<ArmyTab>[] = [
+    { id: 'roster', label: 'Состав', icon: 'hud-army' },
+    { id: 'spirit', label: 'Дух', icon: 'ui-banner' },
+    { id: 'wage', label: 'Жалованье', icon: 'res-gold', badge: upkeepInfo(s).why ? 1 : 0 },
+  ];
 
   return (
     <div className="panel">
       <h2>
-        <Icon name="hud-army" /> Дружина <small>{count(armySize(s), 'боец', 'бойца', 'бойцов')} · мощь {Math.round(armyPower(s))}</small>
+        <Icon name="hud-army" /> Дружина <small>мощь {Math.round(armyPower(s))}</small>
       </h2>
 
       {/* Три числа одной строкой ячеек (docs/ui_v2.md, 2.1): мощь обороны, бойцы в городе и в походе — каждое с подсказкой.
@@ -86,66 +102,80 @@ export function ArmyPanel() {
         </Num>
       </div>
 
-      {/* Дух — мораль и дисциплина (ДР-1): главные множители силы в бою, с разбором «что влияет» строками. */}
-      <h3>Мораль и дисциплина</h3>
-      <SpiritCard />
-      {general?.rest && <div className="note warn">{restLine(general.rest, 'Отряд дрался', worldNow())}</div>}
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
-      {/* Черты армии (ДР-4): шрамы и привычки по журналу боёв — как получены, что дают, как уходят; разом не больше трёх. */}
-      <h3>Черты</h3>
-      <ScarList />
-
-      <h3>Состав</h3>
-      <Roster onCard={setOpen} />
-      {training > 0 && (
-        <div className="mod">
-          <span className="ico">
-            <Icon name="ui-target" />
-          </span>
-          <span className="name">Новобранцы на учениях</span>
-          <span className="val">{training}</span>
-        </div>
-      )}
-
-      {/* Командиры флангов (ДР-3): кто ведёт левый и правый фланг в отряде полководца; найм и смена — меню «Командующие». */}
-      <h3>Командующие</h3>
-      <CommandLine onOpen={() => setDesk(true)} />
-
-      {/* Жалованье (ДР-1): полное или минимальное; ведомость, доход, долг и терпение — тем же `Upkeep`, что прежде в казармах. */}
-      <h3>Жалованье</h3>
-      <WageChoice />
-      <Upkeep bare />
-
-      {armySize(s) > 0 && (
+      {tab === 'roster' && (
         <>
-          <h3>Роспуск</h3>
-          <Dismiss />
+          {/* Состав плитками (ДР-8): касание — карточка вида поверх меню, роспуск — в ней. */}
+          <Roster onPick={setPick} />
+          {training > 0 && (
+            <div className="mod">
+              <span className="ico">
+                <Icon name="ui-target" />
+              </span>
+              <span className="name">Новобранцы на учениях</span>
+              <span className="val">{training}</span>
+            </div>
+          )}
+
+          {/* Командиры флангов (ДР-3): кто ведёт левый и правый фланг в отряде полководца; найм и смена — меню «Командующие». */}
+          <h3>Командующие</h3>
+          <CommandLine onOpen={() => setDesk(true)} />
+
+          {/* Найм — в Казармах (пешие) и Конюшне (конница): здесь только двери туда (ДР-1). */}
+          <h3>Найм</h3>
+          <div className="dr-hire">
+            {barracks && (
+              <button type="button" className="btn wide" onClick={() => openBuilding(barracks.id)}>
+                <Icon name="bld-barracks" /> Казармы <small>пешие</small>
+              </button>
+            )}
+            {stable && (
+              <button type="button" className="btn wide" onClick={() => openBuilding(stable.id)}>
+                <Icon name="bld-stable" /> Конюшня <small>конница</small>
+              </button>
+            )}
+          </div>
+          {unhired.length > 0 && (
+            <div className="ms-more" aria-label="Виды, которых в дружине нет">
+              {unhired.map((d) => (
+                <button type="button" key={d.id} className="ms-more-b" onClick={() => setOpen(d.id)} aria-label={`${d.name}: карточка вида`}>
+                  <Icon name={iconName('troop', d.id)} />
+                </button>
+              ))}
+            </div>
+          )}
         </>
       )}
 
-      {/* Найм — в Казармах (пешие) и Конюшне (конница): здесь только двери туда (ДР-1). */}
-      <h3>Найм</h3>
-      <div className="dr-hire">
-        {barracks && (
-          <button type="button" className="btn wide" onClick={() => openBuilding(barracks.id)}>
-            <Icon name="bld-barracks" /> Казармы <small>пешие</small>
-          </button>
-        )}
-        {stable && (
-          <button type="button" className="btn wide" onClick={() => openBuilding(stable.id)}>
-            <Icon name="bld-stable" /> Конюшня <small>конница</small>
-          </button>
-        )}
-      </div>
-      {unhired.length > 0 && (
-        <div className="ms-more" aria-label="Виды, которых в дружине нет">
-          {unhired.map((d) => (
-            <button type="button" key={d.id} className="ms-more-b" onClick={() => setOpen(d.id)} aria-label={`${d.name}: карточка вида`}>
-              <Icon name={iconName('troop', d.id)} />
-            </button>
-          ))}
-        </div>
+      {tab === 'spirit' && (
+        <>
+          {/* Дух — мораль и дисциплина (ДР-1): главные множители силы в бою, с разбором «что влияет» строками. */}
+          <SpiritCard />
+          {general?.rest && <div className="note warn">{restLine(general.rest, 'Отряд дрался', worldNow())}</div>}
+          {/* Черты армии (ДР-4): шрамы и привычки по журналу боёв — как получены, что дают, как уходят; разом не больше трёх. */}
+          <h3>Черты</h3>
+          <ScarList />
+        </>
       )}
+
+      {tab === 'wage' && (
+        <>
+          {/* Жалованье (ДР-1): полное или минимальное; ведомость, доход, долг и терпение — тем же `Upkeep`, что прежде в казармах. */}
+          <WageChoice />
+          <Upkeep bare />
+        </>
+      )}
+
+      {/* Карточка вида поверх меню (ДР-8): «Всё о виде» — полная карточка вместо окна, как дверь вида до ДР-8. */}
+      <KindCard
+        troop={pick}
+        onClose={() => setPick(null)}
+        onMore={(t) => {
+          setPick(null);
+          setOpen(t);
+        }}
+      />
     </div>
   );
 }

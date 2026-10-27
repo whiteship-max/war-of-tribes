@@ -1,28 +1,26 @@
-// Части «Дружины» ДР-1 (docs/siege_v2.md, «Решения ДР-1»): дух — мораль и дисциплина с разбором «что влияет», состав по родам,
-// жалованье — полное или минимальное — и роспуск с подтверждением. Своей арифметики нет ни у одной: дух — `sim/spirit`, правила
-// — `game/spiritrules`, жалованье и роспуск — `sim/upkeep`, строй — `game/battle/price.kindsOf`, раненые — `derived`.
+// Части «Дружины» ДР-1 (docs/siege_v2.md, «Решения ДР-1») и ДР-8 (docs/ui_v2.md, «Решения ДР-8»): дух — мораль и дисциплина с
+// разбором «что влияет», состав — плитками видов (касание — карточка вида с роспуском, `KindCard`), жалованье — полное или
+// минимальное. Своей арифметики нет ни у одной: дух — `sim/spirit`, правила — `game/spiritrules`, жалованье — `sim/upkeep`,
+// раненые — `derived`.
 import './army.css';
 import { useState } from 'react';
 import type { GameState, TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { TROOPS, TROOP_BY_ID } from '@/game/data/troops';
-import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
-import { armyWagesPerDay, wageOf, woundedStacks } from '@/game/derived';
-import { kindsOf } from '@/game/battle/price';
-import { TROOPS_OF_KIND, troopTotal, type TroopStack } from '@/game/battle/kinds';
-import { KIND_META, SPIRIT, UNIT_KINDS, spiritMult } from '@/battle';
+import { armyWagesPerDay, woundedStacks } from '@/game/derived';
+import { TROOPS_OF_KIND, type TroopStack } from '@/game/battle/kinds';
+import { SPIRIT, UNIT_KINDS, spiritMult } from '@/battle';
 import { gameSecondsOfMs, asGame } from '@/game/pace';
 import { WAGE_MIN_SHARE, WAGE_MODES, payLeftMs, type SpiritAxis, type SpiritLineId, type WageMode } from '@/game/spiritrules';
 import { payShare, spiritView, wageMode } from '@/game/sim/spirit';
-import { dismissCheck, dismissReturns, dismissSoldiers, setWageMode, wageModeBlock } from '@/game/sim/upkeep';
+import { setWageMode, wageModeBlock } from '@/game/sim/upkeep';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 import type { IconName } from '@/ui/icons/alias';
-import { Bar, Btn, Row, Table, type Col } from '@/ui/kit';
+import { Bar, Table, type Col } from '@/ui/kit';
 import { fmtInt } from '@/ui/next/hudTips';
 import { dec } from '@/game/num';
 import { waitShort } from './wait';
-import { count } from './plural';
 import { signed } from './signed';
 import { LINE_HELP, LINE_WORD, SPIRIT_HELP, WAGE_WORD, wageLine } from './spiritWords';
 
@@ -123,77 +121,61 @@ function SpiritLines({ morale, discipline }: { morale: SpiritAxis; discipline: S
 
 // ---------- Состав ----------
 
+/** Вид в составе: сколько бойцов и сколько раненых — лежащих в лазарете и несомых отрядом. */
+export interface RosterTile {
+  id: TroopId;
+  heads: number;
+  wounded: number;
+}
+
 /**
- * Полки по родам: сколько бойцов и каких видов, живая сила в строю и раненые. Вид — дверь в его карточку (`onCard`): прежде ею
- * была строка раскладки, ушедшая из «Дружины» с ДР-6; у видов, которых нет, — свои значки ниже. Без `onCard` — подписи.
+ * Плитки состава по порядку родов (`UNIT_KINDS`, внутри рода — порядок видов): вид, где есть бойцы или раненые. Числа — из
+ * партии (`s.army`) и лазарета (`woundedStacks`), своей арифметики нет.
  */
-export function Roster({ onCard }: { onCard?: (t: TroopId) => void } = {}) {
-  const s = useGame((g) => g.s);
+export function rosterTiles(s: GameState): RosterTile[] {
   const hurt = woundedOf(s);
-  const rows = UNIT_KINDS.map((k) => {
-    const ids = TROOPS_OF_KIND[k];
-    const stack: TroopStack = {};
-    for (const id of ids) if ((s.army[id] ?? 0) > 0) stack[id] = s.army[id];
-    const heads = troopTotal(stack);
-    const wounded = ids.reduce((n, id) => n + (hurt[id] ?? 0), 0);
-    return { k, ids, heads, men: kindsOf(stack)[k], wounded };
-  }).filter((r) => r.heads > 0 || r.wounded > 0);
-  if (rows.length === 0) return <p className="note">Бойцов нет. Нанимают в казармах и конюшне.</p>;
-  const heads = rows.reduce((n, r) => n + r.heads, 0);
-  const men = rows.reduce((n, r) => n + r.men, 0);
-  const wounded = rows.reduce((n, r) => n + r.wounded, 0);
+  return UNIT_KINDS.flatMap((k) => TROOPS_OF_KIND[k])
+    .map((id) => ({ id, heads: Math.max(0, s.army[id] ?? 0), wounded: hurt[id] ?? 0 }))
+    .filter((t) => t.heads > 0 || t.wounded > 0);
+}
+
+/**
+ * Состав сеткой плиток (ДР-8, docs/ui_v2.md, «Решения ДР-8»): портрет вида, число бойцов, раненые — малой отметкой, имя.
+ * Касание — карточка вида поверх меню (`KindCard`): там числа дома и в походе, жалованье и роспуск. Тело без своего состояния:
+ * тест жмёт плитку без браузера (`dr8.test.ts`).
+ */
+export function RosterTiles({ s, onPick }: { s: GameState; onPick: (t: TroopId) => void }) {
+  const tiles = rosterTiles(s);
+  if (tiles.length === 0) return <p className="note">Бойцов нет. Нанимают в казармах и конюшне.</p>;
   return (
-    <div className="dr-roster">
-      {rows.map((r) => (
-        <div className="dr-regiment" key={r.k}>
-          <div className="dr-reg-head">
-            <Icon name={KIND_META[r.k].icon as IconName} />
-            <b>{KIND_META[r.k].name}</b>
-            <span>
-              {count(r.heads, 'боец', 'бойца', 'бойцов')}
-              <small> · в строю {fmtInt(Math.round(r.men))}</small>
-            </span>
-          </div>
-          <div className="dr-reg-kinds">
-            {r.ids
-              .filter((id) => (s.army[id] ?? 0) > 0 || (hurt[id] ?? 0) > 0)
-              .map((id) => {
-                const body = (
-                  <>
-                    <Icon name={iconName('troop', id)} />
-                    <span>{TROOP_BY_ID[id].name}</span>
-                    <b>{fmtInt(s.army[id] ?? 0)}</b>
-                    {(hurt[id] ?? 0) > 0 && (
-                      <em title="в лазарете">
-                        <Icon name="ui-bandage" />
-                        {fmtInt(hurt[id] ?? 0)}
-                      </em>
-                    )}
-                  </>
-                );
-                return onCard ? (
-                  <button type="button" key={id} className="dr-kind" onClick={() => onCard(id)} aria-label={`${TROOP_BY_ID[id].name}: карточка вида`}>
-                    {body}
-                  </button>
-                ) : (
-                  <span key={id} className="dr-kind">
-                    {body}
-                  </span>
-                );
-              })}
-          </div>
-        </div>
+    <div className="dr-tiles">
+      {tiles.map((t) => (
+        <button type="button" key={t.id} className="dr-tile" data-troop={t.id} onClick={() => onPick(t.id)} aria-label={`${TROOP_BY_ID[t.id].name}: карточка вида`}>
+          <span className="dr-tile-ico">
+            <Icon name={iconName('troop', t.id)} />
+          </span>
+          <b className="dr-tile-n">{fmtInt(t.heads)}</b>
+          {t.wounded > 0 && (
+            <em className="dr-tile-hurt">
+              <Icon name="ui-bandage" />
+              {fmtInt(t.wounded)}
+            </em>
+          )}
+          <span className="dr-tile-name">{TROOP_BY_ID[t.id].name}</span>
+        </button>
       ))}
-      <p className="dr-total">
-        Всего {count(heads, 'боец', 'бойца', 'бойцов')}, в строю {fmtInt(Math.round(men))}
-        {wounded > 0 ? `, в лазарете ${fmtInt(wounded)}` : ''}.
-      </p>
     </div>
   );
 }
 
+/** Состав партии из стора: плитки и дверь в карточку вида. */
+export function Roster({ onPick }: { onPick: (t: TroopId) => void }) {
+  const s = useGame((g) => g.s);
+  return <RosterTiles s={s} onPick={onPick} />;
+}
+
 /** Раненые по видам — лежащие в лазарете и несомые отрядом. */
-function woundedOf(s: GameState): TroopStack {
+export function woundedOf(s: GameState): TroopStack {
   const w = woundedStacks(s);
   const out: TroopStack = {};
   for (const t of TROOPS) {
@@ -246,61 +228,5 @@ function WageOption({ m, on, cost, pick, why }: { m: WageMode; on: boolean; cost
       </span>
       <small>{armed ? 'Коснись ещё раз — урезать' : WAGE_WORD[m].sub}</small>
     </button>
-  );
-}
-
-// ---------- Роспуск ----------
-
-/** Роспуск по видам: кто дома, сколько, что вернётся и что снимет с жалованья. Подтверждение — вторым касанием. */
-export function Dismiss() {
-  const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
-  const [pick, setPick] = useState<Partial<Record<TroopId, number>>>({});
-  const kinds = TROOPS.filter((d) => (s.army[d.id] ?? 0) > 0);
-  if (kinds.length === 0) return null;
-  return (
-    <div className="dr-dismiss">
-      <p className="note">Распущенные станут жителями, снаряжение вернётся на склад. Плата за найм и учения пропадает. Распускают только тех, кто дома.</p>
-      {kinds.map((d) => {
-        const n = Math.max(1, pick[d.id] ?? 1);
-        const check = dismissCheck(s, d.id, n);
-        const set = (v: number): void => setPick((c) => ({ ...c, [d.id]: Math.max(1, Math.min(Math.max(1, check.max), v)) }));
-        const back = dismissReturns(d.id, Math.min(n, check.max));
-        const gear = Object.entries(back.gear)
-          .map(([id, k]) => `${EQUIPMENT_BY_ID[id as keyof typeof EQUIPMENT_BY_ID]?.name.toLowerCase() ?? id} ${fmtInt(k ?? 0)}`)
-          .join(', ');
-        return (
-          <div className="dr-dis-row" key={d.id}>
-            <Row
-              icon={iconName('troop', d.id)}
-              label={d.name}
-              sub={check.max > 0 ? `дома ${fmtInt(check.max)} из ${fmtInt(s.army[d.id] ?? 0)}` : 'все в походе'}
-              tip={() => ({ title: d.name, body: `Жалованье одного — ${dec(wageOf(s, d.id), 1)} золота в день при полном.` })}
-            />
-            {check.max > 0 && (
-              <div className="dr-dis-act">
-                <div className="stepper">
-                  <button type="button" disabled={n <= 1} onClick={() => set(n - 1)} aria-label="Меньше">
-                    −
-                  </button>
-                  <span className="n dr-n">{n}</span>
-                  <button type="button" disabled={n >= check.max} onClick={() => set(n + 1)} aria-label="Больше">
-                    +
-                  </button>
-                </div>
-                <Btn
-                  confirm
-                  why={check.blocked ?? undefined}
-                  sub={`жителей +${fmtInt(back.people)}${gear ? `, на склад: ${gear}` : ''}; жалованье −${fmtInt(Math.round(check.saves))} в день`}
-                  onClick={() => act((st) => dismissSoldiers(st, d.id, n))}
-                >
-                  Распустить {n}
-                </Btn>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
   );
 }

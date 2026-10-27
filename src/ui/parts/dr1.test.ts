@@ -1,6 +1,6 @@
-// «Дружина» ДР-1 (docs/siege_v2.md, «Решения ДР-1»): окно уже имеющегося войска — без найма (двери в Казармы и Конюшню), состав
-// полками по родам с живой силой и ранеными, раскладка, мораль и дисциплина с разбором, жалованье полное или минимальное и
-// роспуск с тем, что вернётся. Найм — в Казармах, роспуска там больше нет.
+// «Дружина» ДР-1 (docs/siege_v2.md, «Решения ДР-1»): окно уже имеющегося войска — без найма (двери в Казармы и Конюшню), мораль
+// и дисциплина с разбором, жалованье полное или минимальное и роспуск с тем, что вернётся. Найм — в Казармах, роспуска там
+// больше нет. Состав плитками и роспуск в карточке вида (ДР-8) — `dr8.test.ts`; здесь вкладки «Дух» и «Жалованье» (`start`).
 //
 // Окно рисуется в строку (`renderToStaticMarkup`) с партией теста: сторы игры и мира подменены видом, как в `transfer.test.ts`.
 // Числа на экране сверяются с функциями игры (правило 18), а не со своей арифметикой.
@@ -11,8 +11,6 @@ import { createInitialState } from '@/game/state';
 import type { GameState } from '@/game/types';
 import { TROOP_BY_ID } from '@/game/data/troops';
 import { armyWagesPerDay } from '@/game/derived';
-import { kindsOf } from '@/game/battle/price';
-import { KIND_META } from '@/battle';
 import { WAGE_MIN_SHARE } from '@/game/spiritrules';
 import { spiritView } from '@/game/sim/spirit';
 import { dismissReturns, dismissSoldiers, setWageMode } from '@/game/sim/upkeep';
@@ -33,7 +31,7 @@ vi.mock('@/world/store', async (orig) => {
   return { ...real, useWorld: fake(real.useWorld, () => stores.world), worldNow: () => NOW };
 });
 
-import { ArmyPanel } from '@/ui/panels/ArmyPanel';
+import { ArmyPanel, type ArmyTab } from '@/ui/panels/ArmyPanel';
 import { Barracks } from './Barracks';
 
 const NOW = 1_700_000_000_000;
@@ -51,7 +49,7 @@ function party(over: (s: GameState) => void = () => undefined): GameState {
   return s;
 }
 
-const html = (): string => renderToStaticMarkup(h(ArmyPanel));
+const html = (start: ArmyTab = 'roster'): string => renderToStaticMarkup(h(ArmyPanel, { start }));
 
 describe('меню «Дружина» без найма', () => {
   it('найма нет: ни очереди найма, ни кнопки «Нанять» — двери в Казармы (и Конюшню, если она есть)', () => {
@@ -72,32 +70,11 @@ describe('меню «Дружина» без найма', () => {
   });
 });
 
-describe('состав: полки по родам, живая сила, раненые', () => {
-  it('каждый род, где есть бойцы, — своей строкой: число бойцов и живая сила в строю по `kindsOf`', () => {
-    const s = party();
-    const out = html();
-    const kinds = kindsOf(s.army);
-    for (const k of ['spear', 'archer', 'cavalry', 'infantry'] as const) {
-      expect(out, KIND_META[k].name).toContain(`<b>${KIND_META[k].name}</b>`);
-      expect(out, `${k}: в строю`).toContain(`в строю ${fmtInt(Math.round(kinds[k]))}`);
-    }
-    expect(out, 'тяжёлой конницы нет — строки нет').not.toContain(`<b>${KIND_META.heavy.name}</b>`);
-  });
-
-  it('раненые — у своего вида и в итоге', () => {
-    party((s) => {
-      s.wounded = [{ troops: { spearman: 7 }, until: 1e12 }];
-    });
-    const out = html();
-    expect(out).toMatch(/в лазарете 7/);
-  });
-});
-
 describe('мораль и дисциплина: две шкалы, жалованье и «что влияет»', () => {
   it('шкалы — числами двери духа, строка жалованья и что это даёт в бою', () => {
     const s = party();
     const v = spiritView(s);
-    const out = html();
+    const out = html('spirit');
     expect(out).toContain('Мораль');
     expect(out).toContain('Дисциплина');
     expect(out).toContain(`>${Math.round(v.morale.value)}<`);
@@ -108,34 +85,18 @@ describe('мораль и дисциплина: две шкалы, жалова�
   it('жалованье — две плитки с ценой в день: полное и минимальное (доля WAGE_MIN_SHARE)', () => {
     const s = party();
     const full = armyWagesPerDay(s);
-    const out = html();
+    const out = html('wage');
     expect(out).toContain(`Полное: ${fmtInt(Math.round(full))} золота в день`);
     expect(out).toContain(`Минимальное: ${fmtInt(Math.round(full * WAGE_MIN_SHARE))} золота в день`);
     expect(out).toMatch(/role="radio" aria-checked="true" aria-label="Полное/);
   });
 
-  it('урезал жалованье — плитка «Минимальное» выбрана, строка говорит, что дух падает', () => {
+  it('урезал жалованье — плитка «Минимальное» выбрана, строка духа говорит, что дух падает', () => {
     party((s) => {
       setWageMode(s, 'min');
     });
-    const out = html();
-    expect(out).toMatch(/role="radio" aria-checked="true" aria-label="Минимальное/);
-    expect(out).toContain('Жалованье минимальное: дух падает, до дна ~');
-  });
-});
-
-describe('роспуск: по видам, что вернётся — до подтверждения', () => {
-  it('у каждого вида дома — шаг и кнопка с подтверждением; на кнопке — жители и снаряжение той же функцией, что роспуск', () => {
-    party();
-    const out = html();
-    expect(out).toContain('<h3>Роспуск</h3>');
-    const back = dismissReturns('spearman', 1);
-    expect(back.people).toBe(1);
-    expect(out).toContain(`жителей +${back.people}`);
-    const gear = Object.keys(TROOP_BY_ID.spearman.gear);
-    expect(gear.length, 'у копейщика есть снаряжение').toBeGreaterThan(0);
-    expect(out).toMatch(/на склад: [^;<]+/);
-    expect(out).toContain('>Распустить 1<');
+    expect(html('wage')).toMatch(/role="radio" aria-checked="true" aria-label="Минимальное/);
+    expect(html('spirit')).toContain('Жалованье минимальное: дух падает, до дна ~');
   });
 });
 
