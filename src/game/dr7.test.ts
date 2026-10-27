@@ -51,6 +51,17 @@ describe('Статуя Героя: числа выведены, а не назн
     expect(statueCalm(STATUE_TOP), 'немного: меньше ровной жизни').toBeLessThan(STAB_CALM);
     expect(statueCalm(2), 'со второго уровня — уже есть').toBeGreaterThan(0);
   });
+
+  it('таблица по уровням — та, что записана в docs/city_v3.md («Решения ДР-7», 8–9) и docs/BUILDINGS.md (правило 12)', () => {
+    const morale = [0, 0.67, 1.33, 2, 2.67, 3.33, 4, 4.67, 5.33, 6];
+    const calm = [0, 0.26, 0.52, 0.79, 1.05, 1.31, 1.57, 1.83, 2.09, 2.36];
+    expect(morale.length, 'уровни 1…вершина').toBe(STATUE_TOP);
+    const r2 = (x: number): number => Math.round(x * 100) / 100;
+    for (let l = 1; l <= STATUE_TOP; l++) {
+      expect(r2(statueMorale(l)), `ур. ${l}: мораль дружины`).toBe(morale[l - 1]);
+      expect(r2(statueCalm(l)), `ур. ${l}: лад, % ступени в день`).toBe(calm[l - 1]);
+    }
+  });
 });
 
 describe('Статуя Героя: прибавки дверями духа и стабильности, по уровням', () => {
