@@ -42,6 +42,10 @@ const DIST = fileURLToPath(new URL('../dist', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4190);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9333);
 const ROUNDS = Number(process.env.ROUNDS ?? 10);
+/** Геометрии улеглись — столько замеров подряд без перемены, через шаг; не улеглись за потолок — отчёт падает. */
+const UPLOADED_SAME = 6;
+const UPLOADED_STEP_MS = 500;
+const UPLOADED_MAX_MS = 30_000;
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -185,6 +189,21 @@ async function measure(): Promise<Probe> {
     }
     return min;
   };
+  // Геометрии рендерер считает загруженными в видеокарту (байты — сам граф сцены): грузит их первым кадром, который их
+  // рисует, и держит временные, пока их не отпустят. На медленном кадре (программный WebGL сервера) замер ловил город
+  // посреди этого — 26 и 24 геометрии одного кода, улёгшееся — 24. Ждём, пока число не перестанет меняться, — тогда оно
+  // свойство кода, а не скорости.
+  const uploaded = async (): Promise<PageState['mem']> => {
+    let last = (await state()).mem;
+    for (let same = 0, i = 0; same < UPLOADED_SAME; i++) {
+      if (i * UPLOADED_STEP_MS > UPLOADED_MAX_MS) throw new Error(`геометрии не улеглись за ${UPLOADED_MAX_MS} мс: ${last?.geometries}`);
+      await sleep(UPLOADED_STEP_MS);
+      const now = (await state()).mem;
+      same = now?.geometries === last?.geometries && now?.textures === last?.textures ? same + 1 : 0;
+      last = now;
+    }
+    return last;
+  };
   const go = async (where: 'map' | 'home'): Promise<number> => {
     await tab.eval<string>(`window.__go('${where}')`);
     for (let i = 0; i < 400; i++) {
@@ -198,7 +217,7 @@ async function measure(): Promise<Probe> {
   const out = {} as Probe;
   out.marks = (await state()).marks;
   out.village = await settled();
-  out.villageMem = (await state()).mem;
+  out.villageMem = await uploaded();
 
   out.firstOpen = await go('map');
   await sleep(1200);

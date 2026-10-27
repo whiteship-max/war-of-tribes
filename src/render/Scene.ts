@@ -1190,6 +1190,10 @@ export abstract class TribeScene {
     // отставание тени на кадр не видно.
     this.renderer.shadowMap.needsUpdate = this.frameNo++ % this.shadowEvery() === 0;
     this.beforeRender?.();
+    // Контекст теряется сразу, а событие о потере приходит следующей задачей: кадр между ними рисовал бы в мёртвый
+    // контекст, и three, впервые взяв программу, падал на её пустом журнале (`onFirstUse`, null.trim; revive:report
+    // под программным WebGL, docs/handbook/acceptance.md, «Ночная приёмка»).
+    if (this.lostNow()) return;
     this.draw();
     this.afterRender?.();
     // Замеры с телефонов (docs/telemetry.md): первый кадр города, город встал, замирание после возврата контекста —
