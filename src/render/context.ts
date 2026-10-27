@@ -32,6 +32,19 @@ import { awayNow, watchAway } from './loop';
  */
 export const RESTORE_WAIT = 3000;
 
+/**
+ * Потерян ли контекст сейчас — живой ответ драйвера. Кадр в такой контекст не рисуют: контекст теряется сразу, а событие о
+ * потере приходит следующей задачей, и кадр между ними, впервые взяв программу, ронял three на её пустом журнале
+ * (`onFirstUse`, null.trim; revive:report под программным WebGL, docs/handbook/acceptance.md, «Ночная приёмка»).
+ */
+export function contextLost(renderer: Pick<Revivable, 'getContext'>): boolean {
+  try {
+    return renderer.getContext().isContextLost();
+  } catch {
+    return true;
+  }
+}
+
 /** Что сторож спрашивает у рендерера three — ровно столько, сколько ему нужно. */
 export interface Revivable {
   domElement: HTMLCanvasElement;
@@ -59,13 +72,7 @@ export function watchContext(renderer: Revivable, onDead: () => void, opts: Watc
   let timer: ReturnType<typeof setTimeout> | null = null;
   let over = false;
   /** Живой ответ драйвера, а не память о событии: контекст мог вернуться сам. */
-  const lost = (): boolean => {
-    try {
-      return renderer.getContext().isContextLost();
-    } catch {
-      return true;
-    }
-  };
+  const lost = (): boolean => contextLost(renderer);
   const clear = (): void => {
     if (timer !== null) clearTimeout(timer);
     timer = null;

@@ -2,6 +2,7 @@
 // (`tw/player.ts`): кадр — функция секунды, цикл кадра — только через дверь `render/loop` (потолок кадров и стоянка в
 // скрытой странице — её), сторож плавности — правило города. Рендерер приходит снаружи (в игре его одалживает сцена).
 import * as THREE from 'three';
+import { contextLost } from '../context';
 import { FrameLoop } from '../loop';
 import { TW_SPEC, type TwSpec } from '../reel/spec';
 import { Steady } from '../steady';
@@ -188,7 +189,8 @@ export class SiegePlayer {
     this.stage.apply(this.t, this.cam, this.renderer.domElement.height);
     this.renderer.info.reset();
     this.renderer.shadowMap.needsUpdate = dt === 0 || this.drawn++ % this.shadowEvery === 0;
-    this.renderer.render(this.stage.scene, this.cam.camera);
+    // В потерянный контекст кадр не рисуется (`render/context.contextLost`); ролик идёт дальше.
+    if (!contextLost(this.renderer)) this.renderer.render(this.stage.scene, this.cam.camera);
     this.opts.onFrame?.(this.t, this.episode);
   }
 

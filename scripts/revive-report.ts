@@ -834,6 +834,11 @@ async function telegram(): Promise<void> {
     console.log('\n11. Промысел «Ягоды»');
     console.log(`  ${await tab.eval<string>(click('button[aria-label="Энергия"]'))} — подсказка энергии`);
     await sleep(400);
+    // Под окном, ждущим ответа, у подсказки нет ссылки (`next/tip.modalUp`) — тогда окно называется, а не угадывается.
+    const over = await tab.eval<string>(
+      `JSON.stringify(document.querySelector('.modal-backdrop')?.textContent?.trim().slice(0, 160) ?? '')`,
+    );
+    if (over) console.log(`  поверх окно: ${over}`);
     console.log(`  ${await tab.eval<string>(click('.nx-tip-go'))} — «Промыслы»`);
     await waitFor(tab, `document.querySelector('.nx-trade')`, 8000);
     console.log(`  ${await tab.eval<string>(press('В лес'))} — «В лес»`);

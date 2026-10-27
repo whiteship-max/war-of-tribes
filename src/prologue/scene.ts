@@ -272,6 +272,7 @@ import {
 } from './end';
 import { applyCheat } from './cheat';
 import { CHEAT_NO, cheatOf } from '@/cheats';
+import { contextLost } from '@/render/context';
 import { FrameLoop, pixelRatio } from '@/render/loop';
 import { ARROWS_PER_LOG, COAT_HIDES, buildTake, houseDone } from './craft';
 import {
@@ -2678,6 +2679,8 @@ export class PrologueScene {
       this.texDone = true;
       this.onReady?.();
     }
+    // В потерянный контекст кадр не рисуется (`render/context.contextLost`): событие о потере приходит позже самой потери.
+    if (contextLost(this.renderer)) return;
     this.renderer.info.reset();
     this.light.exposure = this.skyExposure * (this.underRoof ? ROOF_ADAPT : 1);
     this.post.render(this.scene, this.camera, this.light);

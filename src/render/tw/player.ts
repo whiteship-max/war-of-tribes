@@ -3,6 +3,7 @@
 // снаружи (в игре его одалживает сцена, на стенде — стенд), как у прежнего ролика (`battle/player.ts`).
 import type { TownBackdrop } from '../city/backdrop';
 import * as THREE from 'three';
+import { contextLost } from '../context';
 import { FrameLoop } from '../loop';
 import { TW_SPEC, type TwSpec } from '../reel/spec';
 import { Steady } from '../steady';
@@ -232,7 +233,8 @@ export class TwPlayer {
     this.renderer.info.reset();
     // Теневой проход — раз в `shadowEvery` кадров хода; кадр на месте (перемотка, снимок, подгонка) — со свежей тенью.
     this.renderer.shadowMap.needsUpdate = dt === 0 || this.drawn++ % this.shadowEvery === 0;
-    this.renderer.render(this.stage.scene, this.cam.camera);
+    // В потерянный контекст кадр не рисуется (`render/context.contextLost`); ролик идёт дальше.
+    if (!contextLost(this.renderer)) this.renderer.render(this.stage.scene, this.cam.camera);
     this.opts.onFrame?.(this.t, reelToCast(this.plan.timing, bt));
   }
 

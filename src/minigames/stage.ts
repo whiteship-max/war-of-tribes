@@ -25,6 +25,7 @@ import { applyDayNight, configureRenderer, configureSky, createLightRig, fitShad
 import { PALETTE } from '@/render/palette';
 import { SeasonVisuals } from '@/render/season';
 import { disposeGeometries } from '@/render/kit';
+import { contextLost } from '@/render/context';
 import { FrameLoop, deviceRatio, pixelRatio } from '@/render/loop';
 import { Steady } from '@/render/steady';
 import { lowerWaterLook } from '@/render/water/lod';
@@ -729,6 +730,8 @@ export class Stage {
     const dt = Math.min(0.05, gap / 1000);
     this.last = now;
     this.step(dt, now);
+    // В потерянный контекст кадр не рисуется (`render/context.contextLost`): событие о потере приходит позже самой потери.
+    if (contextLost(this.renderer)) return;
     this.renderer.info.reset();
     this.post.render(this.scene, this.camera, this.light);
     this.watch(gap);
