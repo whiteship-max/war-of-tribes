@@ -144,7 +144,7 @@ describe('одна дверь', () => {
       }
     };
     walk(root);
-    const writers = files.filter((f) => /\bs\.scars\s*=(?!=)/.test(readFileSync(f, 'utf8'))).map((f) => f.slice(root.length + 1));
+    const writers = files.filter((f) => /\bs\.scars\s*=(?!=)/.test(readFileSync(f, 'utf8'))).map((f) => f.slice(root.length + 1).replace(/\\/g, '/'));
     expect(writers).toEqual(['game/sim/scars.ts']);
   });
 });
