@@ -119,7 +119,7 @@ export const pressMult = (q: number, depth: number): number => (q >= 0 ? 1 + q /
  * **Выведена** `npm run market:report -- --derive` (Ц1, docs/city_v3.md, «Решения РН-1»): `1 / ((1 + PRICE_SWING) · BOOST_MAX)`,
  * вниз до тысячных. Руками не правят.
  */
-export const SALE_SHARE = 0.479;
+export const SALE_SHARE = 0.478;
 
 /**
  * Самая большая прибавка к выручке рынка: Казначей третьего уровня с усердием (`councilrules.giftCeil`) и купечество в полной
