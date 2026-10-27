@@ -160,6 +160,12 @@ describe('ДР-7: режим марша в окне дела', () => {
     // Другой состав — другие числа: окно считает по тому, что выбрано, а не по отряду дома.
     const few = renderToStaticMarkup(h(GaitPick, { rows: r, men: 0, haul: 1, value: 'normal', free: true, onPick: () => undefined }));
     expect(few).not.toContain(haulWords(gaitTake(3000, 'normal', r[1].walkMs, 1).carry));
+    // Короткая дорога: ожидание меньше бойца — «<1», а не «—» (кость пути может унести одного); без бойцов — «—».
+    const short = rows(3_600_000, true);
+    const one = gaitTake(30, 'light', short[0].walkMs, 1);
+    expect(one.lost === 0 && one.mean > 0, 'точка внутри области: ожидание меньше бойца, но не ноль').toBe(true);
+    expect(renderToStaticMarkup(h(GaitPick, { rows: short, men: 30, haul: 1, value: 'normal', free: true, onPick: () => undefined }))).toContain('&lt;1');
+    expect(renderToStaticMarkup(h(GaitPick, { rows: short, men: 0, haul: 1, value: 'normal', free: true, onPick: () => undefined }))).not.toContain('&lt;1');
     // Удар: налегке не погашено; не дома — плитки только сравнить.
     const storm = renderToStaticMarkup(h(GaitPick, { rows: rows(walk, false), men: 30, haul: 1, value: 'normal', free: true, onPick: () => undefined }));
     expect(storm).not.toMatch(/aria-label="Налегке" disabled=""/);

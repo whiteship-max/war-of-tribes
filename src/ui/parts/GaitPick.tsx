@@ -90,7 +90,7 @@ export function GaitPick({
               <span>{gaitPace(r.gait)}</span>
               <span>{realLeft(r.walkMs / 1000)}</span>
               <span>{r.backMs > 0 ? realLeft(r.backMs / 1000) : '—'}</span>
-              <span className={take.lost > 0 ? 'bad' : ''}>{take.lost > 0 ? `−${take.lost}` : '—'}</span>
+              <span className={take.mean > 0 ? 'bad' : ''}>{take.lost > 0 ? `−${take.lost}` : take.mean > 0 ? '<1' : '—'}</span>
               <span>{loot ? haulWords(take.carry) : '—'}</span>
               <span className={camp ? 'bad' : 'good'}>{camp ? 'нет' : 'да'}</span>
             </button>

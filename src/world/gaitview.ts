@@ -8,11 +8,13 @@ import { stackCarry } from './data/units';
 /**
  * Что режим сделает с отрядом из `men` бойцов на дороге `walkMs`: ожидание ушедших налегке к приходу (доля × отряд) и сколько
  * добра поднимут дошедшие — поклажа без ожидаемой убыли, множитель режима (`gaitHaul`) и множитель своего отряда `haul` (черта
- * «Добычливый»; 0 — дело добычи не берёт).
+ * «Добычливый»; 0 — дело добычи не берёт). `mean` — то же ожидание без округления: на короткой дороге оно меньше бойца, а
+ * кость пути (`gait.roadLosses`) всё равно может унести одного.
  */
-export function gaitTake(men: number, g: Gait | undefined, walkMs: number, haul: number): { lost: number; carry: number } {
+export function gaitTake(men: number, g: Gait | undefined, walkMs: number, haul: number): { lost: number; mean: number; carry: number } {
   const n = Math.max(0, Math.floor(Number.isFinite(men) ? men : 0));
-  const lost = Math.round(n * lightShare(g, walkMs));
+  const mean = n * lightShare(g, walkMs);
+  const lost = Math.round(mean);
   const carry = haul > 0 ? Math.floor(stackCarry({ warrior: n - lost }) * haul * gaitHaul(g)) : 0;
-  return { lost, carry };
+  return { lost, mean, carry };
 }
