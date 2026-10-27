@@ -179,7 +179,7 @@ const GAUGES: Gauge[] = [
     read: (s) => statueMorale(buildingOfType(s, 'statue')?.level ?? 0),
     say: (b, a) => {
       const d = num(a - b, 1);
-      return a - b < 0.05 ? null : { text: `+${d} к морали дружины`, numbers: [Number((a - b).toFixed(1))] };
+      return a - b < 0.05 ? null : { text: `+${d} к морали дружины`, numbers: numbersOf(d) };
     },
   },
   {
@@ -188,7 +188,7 @@ const GAUGES: Gauge[] = [
     read: (s) => statueCalm(buildingOfType(s, 'statue')?.level ?? 0),
     say: (b, a) => {
       const d = num(a - b, 2);
-      return a - b < 0.005 ? null : { text: `+${d} % ступени в день к ладу`, numbers: [Number((a - b).toFixed(2))] };
+      return a - b < 0.005 ? null : { text: `+${d} % ступени в день к ладу`, numbers: numbersOf(d) };
     },
   },
   {
