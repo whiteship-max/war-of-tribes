@@ -28,14 +28,11 @@ import {
   sabotagePower,
   skillCircles,
   temperKey,
-  traditionAt,
   windowOfRecruit,
   type Recruit,
 } from '../../src/game/agentrules.js';
 import { MAX_ADVISOR_LEVEL, councilTier, windowOf } from '../../src/game/councilrules.js';
 import { DEED_GAP, MAX_AGENT_LEVEL, STEALTH_PER_CIRCLE, XP_CAP, levelOf } from '../../src/game/data/agents.js';
-import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
-import { MAX_BUILDING_LEVEL } from '../../src/game/constants.js';
 import { realMs } from '../../src/game/pace.js';
 import { veilAt } from '../../src/world/peril.js';
 
@@ -113,6 +110,8 @@ export function agentsStep(prev: AgentBook | undefined, card: WatchCard, at: num
     }
     roles.add(a.role);
     const role = a.role;
+    // Вещи — только на правителе (ДР-7): вещь на агенте сервер не засчитывает — ни в войну, ни в книгу — и называет флагом.
+    if ((a.gear ?? 0) > 0) found.push(`${role}: на агенте вещей ${a.gear}, а вещи надевают только на правителя — не засчитаны`);
     const old = book.seats[role];
     if (old && a.person < old.person) {
       found.push(`${role}: номер человека убыл ${old.person} → ${a.person}`);
@@ -144,9 +143,6 @@ export function agentsStep(prev: AgentBook | undefined, card: WatchCard, at: num
 /** Часы партии между описями настоящими миллисекундами — для потолка опыта под скоростью проверки. */
 export const gameMsBetween = (a: WatchCard | undefined, b: WatchCard): number => (a ? realMs(Math.max(0, b.time - a.time)) : 0);
 
-/** Потолок Статуи — тот же, что у игры (`derived.maxLevelFor`): по нему традиция ложится на кружки полководца. */
-const STATUE_MAX = Math.min(BUILDING_BY_ID.statue.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
-
 /** Что подтверждённые агенты кладут в дела войны — числа, которые сервер считает сам. Поля нет — правило прежнее. */
 export interface AgentsAt {
   /** Отметки полководца: потолок по каждой (без «осады» — она своим счётом). */
@@ -162,10 +158,10 @@ export interface AgentsAt {
 }
 
 /**
- * Числа подтверждённых агентов для войны: уровень — по подтверждённому опыту, врождённое — пересчётом кандидата, традиция —
- * по Статуе книги стройки (`statue`). Сида нет — пусто: правило прежнее. Пустое место — у этого места пусто.
+ * Числа подтверждённых агентов для войны: уровень — по подтверждённому опыту, врождённое — пересчётом кандидата (Статуя в
+ * отметки не входит с ДР-7). Сида нет — пусто: правило прежнее. Пустое место — у этого места пусто.
  */
-export function agentsAt(book: AgentBook | undefined, statue: number): AgentsAt {
+export function agentsAt(book: AgentBook | undefined): AgentsAt {
   if (!book || book.seed === undefined) return {};
   const out: AgentsAt = {};
   const seat = (role: FigureId): AgentSeat | undefined => {
@@ -175,7 +171,7 @@ export function agentsAt(book: AgentBook | undefined, statue: number): AgentsAt 
   const headOf = (role: FigureId): Recruit['head'] => recruitOfSeat(book, seat(role))?.head ?? {};
   const general = seat('general');
   if (general) {
-    const circles = Math.min(MAX_AGENT_LEVEL, skillCircles(levelOf(general.xp), headOf('general').pips ?? 0) + traditionAt(statue, STATUE_MAX));
+    const circles = Math.min(MAX_AGENT_LEVEL, skillCircles(levelOf(general.xp), headOf('general').pips ?? 0));
     out.pips = pipsSpread(book.seed, temperKey(general.person, general.n ?? null), circles);
   }
   const spy = seat('spy');

@@ -18,7 +18,7 @@ import { cityName } from '../../../netlify/lib/contract';
 import { livingNames } from './dynasty';
 import { placeBlock } from './tech';
 import { bookHire, takenIn } from './recruit';
-import { release, seat, seated, titled, yearsWord } from './agents';
+import { NEW_GENERAL, release, seat, seated, titled, yearsWord } from './agents';
 import { log } from './log';
 import { RECRUIT_LOG } from '../data/agentWords';
 import { canRegear, type Placed } from '@/world/shelter';
@@ -127,13 +127,13 @@ export function seatRecruit(s: GameState, role: FigureId, c: Hireable): void {
   bookHire(s, c.n, c.advance);
   seat(s, role, s.time, c.age0, c.name, { n: c.n, tier: c.tier, at: s.time });
   log(s, RECRUIT_LOG.hired(titled(s, role), yearsWord(Math.floor(c.age0))), 'good');
-  // Дружина прежнего полководца осталась городу: новый приходит без неё и в поле не выйдет, пока её не соберут.
-  if (role === 'general') log(s, 'Отряда при нём нет. Собери его в Статуе.', 'bad');
+  // Отряд в городе не собирают (ДР-6): его дают в окне дела, перед выходом.
+  if (role === 'general') log(s, NEW_GENERAL, 'info');
 }
 
 /**
  * Почему человека на месте нельзя сменить или уволить сейчас; `null` — можно. Где он, знает мир — фигура приходит готовой
- * (`FigureView`), как у переодевания (`sim/agents.regearBlock`): дома — у своих ворот или в городе; в поле, в пути и вне строя
+ * (`FigureView`), правилом «дома» `world/shelter.canRegear`: дома — у своих ворот или в городе; в поле, в пути и вне строя
  * он дело заканчивает.
  */
 export function replaceBlock(s: GameState, role: FigureId, where: Placed | null | undefined): string | null {

@@ -175,6 +175,8 @@ export interface MusterSend {
   block: (want: TroopStack) => string | null;
   /** Строка над кнопкой: дорога, риск — от окна дела. */
   extra?: ReactNode;
+  /** Блок после состава — по тем, кто уходит (режим марша окна дела, ДР-7: убыль и вывоз по выбранному составу). */
+  after?: (going: TroopStack) => ReactNode;
   /** Ушёл (null) или отказ словами. */
   done: (err: string | null) => void;
 }
@@ -208,7 +210,7 @@ export function Muster({ send }: { send: MusterSend }) {
   const key = TROOP_IDS.map((t) => held[t] ?? 0).join(',');
   useEffect(() => setWant({ ...held }), [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const statue = buildingOfType(s, 'statue');
+  const openHall = useGame((g) => g.openTownHall);
   const barracks = buildingOfType(s, 'barracks');
   const here = seated(s, 'general');
   const regroup = general?.regroup ?? { block: 'Где полководец, пока неизвестно.', grow: null, instant: false };
@@ -268,8 +270,8 @@ export function Muster({ send }: { send: MusterSend }) {
             ? 'Пока полководец в городе, он ведёт оборону всем гарнизоном. Отряд на дело берёт здесь, вернувшись — отряд снова гарнизон.'
             : 'Отряд вне города стен не защищает. Вернётся полководец — отряд снова встанет гарнизоном.',
         })}
-        go={!here && statue ? () => openBuilding(statue.id) : undefined}
-        goLabel="В Статую"
+        go={here ? undefined : () => openHall('agents')}
+        goLabel="Нанять в Ратуше"
       />
       {/* В городе, а состав не дать — почему, словами мира; вне города об этом говорит строка «уйдёт с тем отрядом». */}
       {here && town && regroup.block && rows.length > 0 && <p className="nx-bwarn">{regroup.block}</p>}
@@ -337,6 +339,8 @@ export function Muster({ send }: { send: MusterSend }) {
           )}
         </>
       )}
+
+      {send.after?.(going)}
 
       {/* Итог — в потоке окна; к низу меню липнет только «Отправить» (ДР-6: липкая полоса с итогом закрывала строки состава). */}
       {rows.length > 0 && (

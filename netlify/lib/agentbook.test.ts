@@ -76,7 +76,7 @@ describe('книга агентов: честная партия', () => {
     expect(book.seed).toBe(s.seed >>> 0);
     for (const role of AGENT_ROLES) expect(book.seats[role]?.person).toBe(s.agents[role].person);
     expect(book.seats.general?.n).toBe(s.agents.general.cand!.n);
-    const at = agentsAt(book, 3);
+    const at = agentsAt(book);
     expect(at.pips, 'отметки — те же, что у игры').toEqual(pipsOf(s));
     expect(at.stealth).toBeCloseTo(stealthOf(s), 9);
     expect(at.veil).toBeCloseTo(veilOf(s), 9);
@@ -95,7 +95,7 @@ describe('книга агентов: честная партия', () => {
     delete c.seed;
     const { book } = agentsStep(undefined, c, T0, 10);
     expect(book.seed).toBeUndefined();
-    expect(agentsAt(book, 10)).toEqual({});
+    expect(agentsAt(book)).toEqual({});
     expect(capPips({ fire: 3 }, undefined), 'нет потолка — как есть').toEqual({ fire: 3 });
   });
 });
@@ -215,8 +215,8 @@ describe('война: числа подтверждённого человека
     expect(capPips({ fire: 3, shock: 1, siege: 2 }, { fire: 1, melee: 2 })).toEqual({ fire: 1, siege: 2 });
     const s = town(106, 10, 1);
     const book = agentsStep(undefined, card(s), T0, 10).book;
-    const at = agentsAt(book, 1);
-    expect(at.pips, 'свой полководец первого уровня при Статуе 1 — без отметок').toEqual({});
+    const at = agentsAt(book);
+    expect(at.pips, 'свой полководец первого уровня — без отметок').toEqual({});
     expect(capPips({ fire: 4 }, at.pips), 'названные отметки срезаны').toEqual({});
   });
 

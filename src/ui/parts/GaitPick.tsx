@@ -1,12 +1,13 @@
-// Режим марша полководца (ДР-2, docs/siege_v2.md, 25.1) — таблицей выбора: срок, убыль налегке, вывоз добычи (ДР-5), встанет
-// ли лагерь. Числа — мира (`GaitRow`: та же дорога в каждом режиме, теми же функциями, что исполнят приказ), слова — дверью
-// `world/gait`.
-// Дома режим меняют даром: касание строки и есть выбор (таблица выбора, как паёк и налог). Не дома — строки только для
-// сравнения, а сменить режим можно в окне отряда: стоянкой и энергией.
-import { GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, GAITS, type Gait } from '@/world/gait';
+// Режим марша полководца в окне дела (ДР-2; ДР-7 — docs/city_v3.md, «Решения ДР-7»): три столбца-плитки — скорость, срок туда
+// и назад, убыль налегке, вывоз добычи и встанет ли лагерь. Дорога, отказы и энергия — мира (`ErrandOption.gaits`, та же дорога в
+// каждом режиме теми же функциями, что исполнят приказ); убыль и вывоз — по составу, выбранному в этом же окне, дверью
+// `gait.gaitTake`; слова — дверью `world/gait`.
+// Дома режим меняют даром: касание плитки и есть выбор, и он уходит с делом одним приказом (`ErrandOrder.gait`). Не дома плитки
+// только для сравнения: режим в пути меняют в окне отряда, стоянкой и энергией (`GaitDesk`).
+import './gait.css';
+import { GAIT_AWAY, GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, GAITS, gaitTake, type Gait } from '@/world/gait';
 import type { GaitRow } from '@/world/types';
 import { GAIT_ABOUT } from './gaitWords';
-import { Table, type Col, type TableRow } from '@/ui/kit/Table';
 import { Icon } from '@/ui/icons/Icon';
 import type { IconName } from '@/ui/icons/alias';
 import { realLeft } from './wait';
@@ -14,14 +15,6 @@ import { num } from '@/game/num';
 
 /** Значок режима: налегке — перо, обычный — полководец, с обозом — телега. */
 export const GAIT_ICON: Record<Gait, IconName> = { light: 'ui-feather', normal: 'fig-general', train: 'ui-wagon' };
-
-const COLS: readonly Col[] = [
-  { key: 'gait', title: 'Режим' },
-  { key: 'walk', title: 'Срок', align: 'right', w: '76px' },
-  { key: 'lost', title: 'Убыль', align: 'right', w: '52px' },
-  { key: 'carry', title: 'Вывоз', align: 'right', w: '64px' },
-  { key: 'siege', title: 'Осада', align: 'center', w: '52px' },
-];
 
 /** Вывоз добычи словами (ДР-5): до десяти тысяч — числом, дальше — «162,8 тыс.». */
 export const haulWords = (n: number): string => (n < 10_000 ? num(n, 0) : `${num(n / 1000, n < 100_000 ? 1 : 0)} тыс.`);
@@ -32,58 +25,83 @@ export const gaitPace = (g: Gait): string => `×${num(GAIT_SPEED[g], 1)}`;
 /** Истощение налегке словами — числом двери (`GAIT_LIGHT_WASTE`, правило 18): «~1,1 % отряда в игр. день». */
 export const lightWasteWords = (): string => `~${num(GAIT_LIGHT_WASTE * 100, 1)} % отряда в игр. день`;
 
+/** Строки плитки по порядку — подписи слева и значения в каждой плитке стоят на одной высоте. */
+const LINES = ['Скорость', 'Туда', 'Назад', 'Убыль', 'Вывоз', 'Осада'] as const;
+
+/** Отказ режима словами: «Налегке: …», если строка мира не начинается с имени режима сама. */
+const whyOf = (g: Gait, why: string): string => (why.startsWith(GAIT_META[g].name) ? why : `${GAIT_META[g].name}: ${why[0].toLowerCase()}${why.slice(1)}`);
+
 export function GaitPick({
   rows,
-  current,
+  men,
+  value,
   free,
-  busy,
   onPick,
 }: {
   rows: readonly GaitRow[];
-  current: Gait;
-  /** Полководец дома: режим меняется касанием даром. */
+  /** Сколько бойцов уходит — состав этого же окна: по нему убыль и вывоз. */
+  men: number;
+  value: Gait;
+  /** Полководец дома: режим меняется касанием даром и уходит с делом. */
   free: boolean;
-  busy?: boolean;
   onPick: (g: Gait) => void;
 }) {
   const byGait = new Map(rows.map((r) => [r.gait, r]));
-  const list: TableRow[] = GAITS.flatMap((g) => {
+  const list = GAITS.flatMap((g) => {
     const r = byGait.get(g);
-    if (!r) return [];
-    return [
-      {
-        key: g,
-        on: g === current,
-        dim: !free && g !== current,
-        ...(free && !busy ? { pick: () => onPick(g) } : {}),
-        cells: {
-          gait: (
-            <span className="kit-name">
-              <span className="ic">
-                <Icon name={GAIT_ICON[g]} />
-              </span>
-              <span className="one-line">
-                {GAIT_META[g].name} <span className="muted">{gaitPace(g)}</span>
-              </span>
-            </span>
-          ),
-          walk: realLeft(r.walkMs / 1000),
-          lost: r.lost > 0 ? <span className="bad">−{r.lost}</span> : '—',
-          carry: r.carry > 0 ? haulWords(r.carry) : '—',
-          siege: r.siege ? <span className="bad">нет</span> : <span className="good">да</span>,
-        },
-      },
-    ];
+    return r ? [r] : [];
   });
   if (list.length === 0) return null;
+  const loot = list.some((r) => r.haul > 0);
+  const off = free ? list.filter((r) => r.block !== null) : [];
   return (
     <div className="gait-pick">
-      <Table label="Режим марша" cols={COLS} rows={list} />
+      <h3>Режим марша</h3>
+      <div className="gait-grid" role="radiogroup" aria-label="Режим марша">
+        <div className="gait-legend" aria-hidden="true">
+          <b>&nbsp;</b>
+          {LINES.map((l) => (
+            <small key={l}>{l}</small>
+          ))}
+        </div>
+        {list.map((r) => {
+          const on = r.gait === value;
+          const take = gaitTake(men, r.gait, r.walkMs, r.haul);
+          return (
+            <button
+              key={r.gait}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              aria-label={GAIT_META[r.gait].name}
+              disabled={!on && (!free || r.block !== null)}
+              className={`gait-col${on ? ' on' : ''}${r.block ? ' off' : ''}`}
+              onClick={() => !on && onPick(r.gait)}
+            >
+              <b>
+                <Icon name={GAIT_ICON[r.gait]} />
+                <span className="one-line">{GAIT_META[r.gait].name}</span>
+              </b>
+              <span>{gaitPace(r.gait)}</span>
+              <span>{realLeft(r.walkMs / 1000)}</span>
+              <span>{r.backMs > 0 ? realLeft(r.backMs / 1000) : '—'}</span>
+              <span className={take.lost > 0 ? 'bad' : ''}>{take.lost > 0 ? `−${take.lost}` : '—'}</span>
+              <span>{loot ? haulWords(take.carry) : '—'}</span>
+              <span className={r.siege ? 'bad' : 'good'}>{r.siege ? 'нет' : 'да'}</span>
+            </button>
+          );
+        })}
+      </div>
+      {off.map((r) => (
+        <p key={r.gait} className="nx-tnote bad">
+          {whyOf(r.gait, r.block as string)}
+        </p>
+      ))}
       <p className="nx-tnote">
-        {GAIT_ABOUT[current]}
-        {current === 'light' ? ` Тает ${lightWasteWords()}; убыль в таблице — ожидание к приходу.` : ''}
-        {' Вывоз — сколько добра поднимут дошедшие.'}
-        {free ? '' : ' Полководец не дома: режим меняют в окне отряда, стоянкой и энергией.'}
+        {GAIT_ABOUT[value]}
+        {value === 'light' ? ` Тает ${lightWasteWords()}; убыль — ожидание к приходу.` : ''}
+        {loot ? ' Вывоз — сколько добра поднимут дошедшие.' : ''}
+        {free ? '' : ` ${GAIT_AWAY}`}
       </p>
     </div>
   );

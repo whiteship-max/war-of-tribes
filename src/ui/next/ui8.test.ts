@@ -127,18 +127,19 @@ describe('Д5, Д6: ускорение и промысел — одной коп
 
 // ---------- Д7 ----------
 
-describe('Д7: полководец в Статуе — одной карточкой', () => {
-  it('на месте — строки «Люди» нет (карточка целиком в Статуе); место пустует — строка с наймом есть', () => {
+describe('ДР-7 (было Д7): у Статуи мест нет — полководец только в Ратуше', () => {
+  it('окно Статуи — памятник без строки места; строка места у Дозора и храма — у занятого и у пустого', () => {
     const s = fresh();
     setStore(s);
     // Область: полководец на месте в новой партии.
     expect(s.agents.general.vacant, 'точка внутри области: на месте').not.toBe(true);
-    expect(renderToStaticMarkup(h(AgentPlaces, { ids: ['general'], vacantOnly: true }))).toBe('');
-    // Без `vacantOnly` (Дозор, храм) строка места есть и у занятого.
-    expect(renderToStaticMarkup(h(AgentPlaces, { ids: ['general'] }))).toContain('на месте');
-    s.agents.general.vacant = true;
-    expect(renderToStaticMarkup(h(AgentPlaces, { ids: ['general'], vacantOnly: true }))).toContain('<h3>Люди</h3>');
-    expect(code('ui/panels/BuildingPanel.tsx')).toMatch(/<Statue \/>\s*<AgentPlaces ids=\{\['general'\]\} vacantOnly \/>/);
+    const panel = code('ui/panels/BuildingPanel.tsx');
+    const statue = panel.slice(panel.indexOf("case 'statue':"), panel.indexOf("case 'watch':"));
+    expect(statue, 'у Статуи мест агентов нет').not.toMatch(/AgentPlaces/);
+    expect(statue).toMatch(/<Statue \/>/);
+    expect(renderToStaticMarkup(h(AgentPlaces, { ids: ['scout'] }))).toContain('на месте');
+    s.agents.scout.vacant = true;
+    expect(renderToStaticMarkup(h(AgentPlaces, { ids: ['scout'] }))).toContain('<h3>Люди</h3>');
   });
 });
 

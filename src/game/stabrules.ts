@@ -100,11 +100,12 @@ export const stabPointsCeil = (days: number): number => POINTS_CAP + MAX_RULER_S
 
 /**
  * На сколько ступеней стабильность может подняться сама за `days` игровых дней при `wins` выигранных боях: тихие дни без
- * единого недовольного плюс толчки побед, каждая — как бой с самой большой моралью победы (`moraleWin`). Выше `STAB_SELF_MAX`
- * сама не поднимается — это правило применяет вызывающий.
+ * единого недовольного, сдвиг Статуи Героя (`statue`, % ступени в день — `statuerules.statueCalm` лучшей, ДР-7) плюс толчки
+ * побед, каждая — как бой с самой большой моралью победы (`moraleWin`). Выше `STAB_SELF_MAX` сама не поднимается — это правило
+ * применяет вызывающий.
  */
-export const stabSelfRiseCeil = (days: number, wins: number, moraleWin: number): number =>
-  Math.floor((STAB_CALM * Math.max(0, days) + Math.max(0, wins) * battleShock(Math.max(0, moraleWin))) / STAB_DRIFT) + 1;
+export const stabSelfRiseCeil = (days: number, wins: number, moraleWin: number, statue = 0): number =>
+  Math.floor(((STAB_CALM + Math.max(0, statue)) * Math.max(0, days) + Math.max(0, wins) * battleShock(Math.max(0, moraleWin))) / STAB_DRIFT) + 1;
 
 /**
  * На сколько ступеней могли поднять вести державы, давшие вместе `rise` % ступени (СБ-2): их сдвиг копится и выше «Лада»,

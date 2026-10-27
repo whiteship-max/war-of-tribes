@@ -109,7 +109,7 @@ import { ESTATE_META } from './data/estates';
 import { STAB_STEP, stabClamp, stabOutputMult } from './stabrules';
 import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
 import { WAGE_MIN_SHARE } from './spiritrules';
-import { AGENT_ROLES, recruitWage, recruitAt, traditionAt } from './agentrules';
+import { AGENT_ROLES, recruitWage, recruitAt } from './agentrules';
 import { FLANKS, commanderSeated, leadLoyalty, type Birth, type Commander } from './commandrules';
 import {
   ESTATES,
@@ -959,16 +959,6 @@ export const wagesDue = (s: GameState): number => (s.time < (s.pay?.from ?? 0) ?
 
 /** Сколько игровых дней войско терпит неуплату и голод. Работа Статуи — верность полководцу. */
 export const payGraceDays = (s: GameState): number => statOf(s, 'statue', 'loyalty');
-
-/**
- * Воинская традиция — сколько кружков полководца даёт Статуя (слово владельца по docs/battle_eu4.md, 14.35, п. 9; П4): как
- * традиция армии EU4 поднимает её полководцев. Своего числа нет — лестница к лестнице: уровни Статуи (1…её потолок) ложатся
- * на кружки полководца (1…`MAX_AGENT_LEVEL`), по стольку уровней на кружок, во сколько раз первая лестница длиннее второй, —
- * у десяти уровней на пять кружков по два; кружков сверх первого — столько, сколько у полководца на этом кружке: на первом
- * и втором уровне — ни одного, на девятом и десятом — четыре. Статуи нет — ноль. Входит в отметки полководца одной дверью —
- * уровнем, с которого их считает `sim/agents.pipsAt` (`sim/agents.pipLevel`); лестница отметок та же, 0…4.
- */
-export const tradition = (s: GameState): number => traditionAt(buildingOfType(s, 'statue')?.level ?? 0, maxLevelFor('statue'));
 
 /**
  * Какая доля войска не оплачена: нехватка, делённая на жалованье. Пока долга нет,

@@ -52,6 +52,7 @@ import { surveyInfo } from '@/game/sim/survey';
 import { assignWorker } from '@/game/sim/workers';
 import { playerProfile } from '@/world/bridge';
 import { spiritView } from '@/game/sim/spirit';
+import { barsOf, pressureParts } from '@/game/sim/stability';
 
 /** Строки стойкости в морали духа (ДР-1). */
 const RESOLVE_LINES = new Set(['rite', 'marshal', 'knights', 'merchants']);
@@ -109,7 +110,7 @@ const FIXTURES: [string, () => GameState][] = [
 
 // ---------- Замер со стороны игры ----------
 
-type Kind = 'more' | 'grow' | 'share' | 'count' | 'plusAfter' | 'upto' | 'days' | 'graceDays' | 'seconds' | 'wait' | 'opens';
+type Kind = 'more' | 'grow' | 'share' | 'count' | 'plusAfter' | 'upto' | 'days' | 'graceDays' | 'seconds' | 'wait' | 'opens' | 'tenth' | 'hundredth';
 
 /** Числа, которые обязаны стоять на кнопке при такой разнице; null — разницы не видно. */
 function expectedNumbers(kind: Kind, before: number, after: number): number[] | null {
@@ -129,6 +130,15 @@ function expectedNumbers(kind: Kind, before: number, after: number): number[] | 
     }
     case 'count':
       return after - before <= 0 ? null : [after - before];
+    // Прибавка дробью: десятые (мораль Статуи) и сотые (лад державы в день) — то, что видно на кнопке.
+    case 'tenth': {
+      const d = Number((after - before).toFixed(1));
+      return d <= 0 ? null : [d];
+    }
+    case 'hundredth': {
+      const d = Number((after - before).toFixed(2));
+      return d <= 0 ? null : [d];
+    }
     case 'plusAfter':
       return after - before <= 0 ? null : [after - before, after];
     case 'upto':
@@ -176,9 +186,9 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   archers: { kind: 'more', read: (s) => playerProfile(s).militiaArchers ?? 0 },
   seats: { kind: 'more', read: towerSeats },
   loyalty: { kind: 'graceDays', read: payGraceDays },
-  // Воинская традиция Статуи (П4): кружки полководца — замером того, что уезжает в мир: отметок у полководца первого уровня
-  // столько, сколько кружков дала традиция (в посёлках замера полководец свежий). На кнопке — прибавка навыков.
-  tradition: { kind: 'count', read: (s) => Object.values(playerProfile(s).pips ?? {}).reduce((n, x) => n + (x ?? 0), 0) },
+  // Статуя Героя (ДР-7): мораль — замером строки духа, что уезжает в мир и бой; лад — слагаемым давления стабильности.
+  'statue-morale': { kind: 'tenth', read: (s) => spiritView(s).morale.lines.find((l) => l.id === 'statue')?.value ?? 0 },
+  'statue-calm': { kind: 'hundredth', read: (s) => pressureParts(s, barsOf(s)).find((p) => p.id === 'statue')?.value ?? 0 },
   heal: { kind: 'share', read: healShare },
   beds: { kind: 'plusAfter', read: infirmaryBeds },
   warning: { kind: 'wait', read: (s) => playerProfile(s).warning ?? 0 },

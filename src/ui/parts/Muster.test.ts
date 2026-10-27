@@ -61,7 +61,8 @@ describe('состав отряда: одно окно дела, расклад�
     const windows = all.filter((f) => /<ArmySend\b/.test(code(f))).map(rel).sort();
     expect(windows, 'где показано окно дела').toEqual(['map/ActionMenu.tsx']);
     const links = all.filter((f) => /<MusterLink\b/.test(code(f))).map(rel).sort();
-    expect(links, 'где строка-вход в «Дружину»').toEqual(['next/WorldNew.tsx', 'parts/Statue.tsx']);
+    // Строка-вход — в карточке полководца (Ратуша и «Походы», ДР-7) и в карточке своего замка; в Статуе её нет.
+    expect(links, 'где строка-вход в «Дружину»').toEqual(['next/WorldNew.tsx', 'parts/AgentCard.tsx']);
     const defined = all.filter((f) => /function Muster\b/.test(code(f))).map(rel);
     expect(defined, 'сколько окон определено').toEqual(['parts/Muster.tsx']);
     const muster = code(path.join(UI, 'parts/Muster.tsx'));

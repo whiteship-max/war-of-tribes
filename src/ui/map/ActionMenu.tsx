@@ -22,7 +22,8 @@ import { realLeft } from '@/ui/parts/wait';
 import { count } from '@/ui/parts/plural';
 import { hireWhere } from '@/game/sim/hire';
 import { RESOURCE_IDS } from '@/game/constants';
-import type { ErrandId, ErrandOption, Loot } from '@/world/types';
+import type { ErrandId, ErrandOption, GaitRow, Loot } from '@/world/types';
+import { readGait, type Gait } from '@/world/gait';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from '@/ui/parts/Cost';
 import { REST_WHY, restLine } from '@/ui/parts/restWords';
@@ -73,6 +74,27 @@ export function roadWords(o: Pick<ErrandOption, 'walkMs' | 'backMs' | 'id'>): st
   return o.id === 'home' || o.backMs <= 0 ? there : `${there}, назад ${realLeft(o.backMs / 1000)}`;
 }
 
+/** Строка режима `g` у дела; дела без дороги — нет. */
+export const gaitRowOf = (o: Pick<ErrandOption, 'gaits'>, g: Gait): GaitRow | undefined => o.gaits?.find((r) => r.gait === g);
+
+/**
+ * Режим дела в окне (ДР-7): выбранный, если в нём дело выходит; иначе нынешний полководца, если выходит; иначе первый, в котором
+ * выходит. Не дома (`free` — нет) и у дела без дороги — нынешний: режим в пути меняют в окне отряда.
+ */
+export function gaitFor(o: Pick<ErrandOption, 'gaits'>, picked: Gait | null, current: Gait, free: boolean): Gait {
+  if (!o.gaits || !free) return current;
+  const ok = (g: Gait): boolean => gaitRowOf(o, g)?.block === null;
+  if (picked && ok(picked)) return picked;
+  if (ok(current)) return current;
+  return o.gaits.find((r) => r.block === null)?.gait ?? current;
+}
+
+/** Дело в режиме `g`: дорога туда и назад и энергия — той строки режима (ДР-7). Без строки — как посчитал мир. */
+export function inGait(o: ErrandOption, g: Gait): ErrandOption {
+  const r = gaitRowOf(o, g);
+  return r ? { ...o, walkMs: r.walkMs, backMs: r.backMs, energy: r.energy } : o;
+}
+
 /** Строка тоста после отправки: кто, что и когда сделает. */
 export function sentWords(who: string, o: ErrandOption): string {
   if (o.id === 'home') return `${who} идёт домой.`;
@@ -94,10 +116,15 @@ export function ActionMenu() {
   const openCamp = useGame((g) => g.openCamp);
   // Выбранное дело — шаг подтверждения. Кнопка похода карточки места и «На выручку» выбирают его до меню (ДР-6, `menu.deed`).
   const [chosen, setChosen] = useState<ErrandId | null>(() => menu?.deed ?? null);
+  // Режим марша, выбранный в окне дела (ДР-7): по нему и срок на кнопках дел. Нет — нынешний полководца.
+  const [picked, setPicked] = useState<Gait | null>(null);
   const [busy, setBusy] = useState(false);
   const key = menu ? `${menu.agent}:${menu.cell.x}|${menu.cell.y}:${menu.deed ?? ''}` : '';
   // Другой человек или другая цель — выбор сначала.
-  useEffect(() => setChosen(menu?.deed ?? null), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setChosen(menu?.deed ?? null);
+    setPicked(null);
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!menu) return null;
   const def = FIGURE_BY_ID[menu.agent];
@@ -113,6 +140,10 @@ export function ActionMenu() {
   // Пустой отряд полководца — не отказ, пока бойцы в гарнизоне: их даёт окно войска (К-2, `ring.emptyRetinue`).
   const muster = menu.agent === 'general' && musterable(figure, roomOf(s.army, marches ?? []));
   const leavingCamp = menu.agent === 'general' && Boolean(figure?.besieging) && figure?.besieging !== menu.target;
+  // Режим полководца: нынешний и можно ли его сменить даром (дома). Срок дела в списке — в режиме, выбранном в окне.
+  const current = readGait(figure?.march?.gait);
+  const free = Boolean(figure?.march?.change.free);
+  const shown = (o: ErrandOption): ErrandOption => (o.agent === 'general' ? inGait(o, gaitFor(o, picked, current, free)) : o);
 
   /** Подсказка по касанию значка строки: что это и что стоит за числами (docs/ui_audit.md, 3.7). */
   const tipOf =
@@ -178,6 +209,9 @@ export function ActionMenu() {
             o={pick}
             fates={card?.fates ?? []}
             fate={menu.fate}
+            gait={gaitFor(pick, picked, current, free)}
+            free={free}
+            onGait={setPicked}
             warn={leavingCamp ? CAMP_LEAVE : null}
             onBack={() => setChosen(null)}
           />
@@ -280,27 +314,30 @@ export function ActionMenu() {
               : `У ${def.one} здесь дел нет. Выбери другого человека вкладкой выше.`}
           </p>
         )}
-        {list?.map((o) => (
-          <div key={o.id} className={`nx-orow${startable(o, muster) ? '' : ' off'}`}>
-            <button className="nx-wico" onClick={tipOf(o.name, o.does, ...o.risk)} aria-label={`${o.name}: что это`}>
-              <Icon name={errandIcon(o)} />
-            </button>
-            <button className="nx-obtn" onClick={() => setChosen(o.id)}>
-              <b>{o.name}</b>
-              {startable(o, muster) && (
-                <span className="nx-ochips">
-                  <span>
-                    <Icon name="ui-time" /> {roadWords(o)}
+        {list?.map((o) => {
+          const v = shown(o);
+          return (
+            <div key={o.id} className={`nx-orow${startable(o, muster) ? '' : ' off'}`}>
+              <button className="nx-wico" onClick={tipOf(o.name, o.does, ...o.risk)} aria-label={`${o.name}: что это`}>
+                <Icon name={errandIcon(o)} />
+              </button>
+              <button className="nx-obtn" onClick={() => setChosen(o.id)}>
+                <b>{o.name}</b>
+                {startable(o, muster) && (
+                  <span className="nx-ochips">
+                    <span>
+                      <Icon name="ui-time" /> {roadWords(v)}
+                    </span>
+                    {o.chance !== null && <span className="good">удастся {Math.round(o.chance * 100)}%</span>}
+                    {v.energy && <EnergyPrice price={v.energy.price} />}
                   </span>
-                  {o.chance !== null && <span className="good">удастся {Math.round(o.chance * 100)}%</span>}
-                  {o.energy && <EnergyPrice price={o.energy.price} />}
-                </span>
-              )}
-              {!startable(o, muster) && o.reason && <small className="nx-why">{o.reason}</small>}
-              {isPaid(o.cost) && <Cost cost={o.cost} />}
-            </button>
-          </div>
-        ))}
+                )}
+                {!startable(o, muster) && o.reason && <small className="nx-why">{o.reason}</small>}
+                {isPaid(o.cost) && <Cost cost={o.cost} />}
+              </button>
+            </div>
+          );
+        })}
 
         {/* Лазутчик залёг — снять наблюдение; домой он пойдёт делом «Домой». */}
         {menu.agent === 'spy' && figure?.watching && (

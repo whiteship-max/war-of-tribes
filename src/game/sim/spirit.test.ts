@@ -194,7 +194,7 @@ describe('победы и поражения', () => {
 });
 
 describe('строки «что влияет»: сумма — значение, каждая причина двигает шкалу в свою сторону', () => {
-  const base: SpiritIn = { stab: 0, patience: 0, unfed: 0, glory: 0, rite: 0, marshal: 0, knights: 0, merchants: 0, general: 1, barracks: 1, pay: 1 };
+  const base: SpiritIn = { stab: 0, patience: 0, unfed: 0, glory: 0, rite: 0, marshal: 0, knights: 0, merchants: 0, general: 1, barracks: 1, statue: 0, pay: 1 };
 
   it('сумма строк — значение, на решётке причин', () => {
     const rnd = seeded(77);
@@ -210,6 +210,7 @@ describe('строки «что влияет»: сумма — значение,
         merchants: rnd() * 0.25,
         general: rnd() < 0.2 ? null : 1 + Math.floor(rnd() * 5),
         barracks: Math.floor(rnd() * 11),
+        statue: rnd() * 6,
         pay: rnd(),
       });
       for (const a of [v.morale, v.discipline]) {
@@ -243,6 +244,9 @@ describe('строки «что влияет»: сумма — значение,
     expect(at({ general: 4 }).discipline.value).toBeGreaterThan(v0.discipline.value);
     expect(at({ general: null }).discipline.value).toBeLessThan(v0.discipline.value);
     expect(at({ barracks: 6 }).discipline.value).toBeGreaterThan(v0.discipline.value);
+    expect(at({ statue: 3 }).morale.value, 'Статуя Героя — мораль (ДР-7)').toBeGreaterThan(v0.morale.value);
+    expect(at({ statue: 3 }).discipline.value, 'дисциплины Статуя не трогает').toBe(v0.discipline.value);
+    expect(at({ statue: 3, merchants: 0.2 }).morale.value, 'купцы памятник не режут').toBe(at({ statue: 3 }).morale.value);
     expect(at({ pay: 0.5 }).morale.value).toBeLessThan(v0.morale.value);
   });
 

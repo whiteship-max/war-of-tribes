@@ -5,14 +5,15 @@
 //
 // **Строится поверх, а не рядом** (Д2): терпение дружины — полоса войска стабильности (`sim/stability.armyBar`), стойкость —
 // обряд, Воевода и сословия (`derived.fervour`, `councilGift`, `estatesNow` — те же числа, что прежде шли в бой прибавкой
-// `armyResolve`), голод — нехватка войска (`derived.foodShortfall`), ступень — `sim/stability.stabLevel`. Второго счёта ни у
-// чего нет. В бой дух едет слепком моста (`world/bridge`, `PlayerProfile.spirit`), на сервер — описью (`WatchCard.spirit`).
+// `armyResolve`), голод — нехватка войска (`derived.foodShortfall`), ступень — `sim/stability.stabLevel`, памятник — уровень
+// Статуи Героя (`statuerules.statueMorale`, ДР-7). Второго счёта ни у чего нет. В бой дух едет слепком моста (`world/bridge`, `PlayerProfile.spirit`), на сервер — описью (`WatchCard.spirit`).
 import type { GameState, SpiritState } from '../types';
 import type { Spirit } from '@/battle';
 import { realMs } from '../pace';
 import { buildingOfType, councilGift, estatesNow, fervour, foodShortfall, troopsEat } from '../derived';
 import { FERVOUR_SCALE } from '../estaterules';
 import { gloryAfter, gloryAt, payShareAt, spiritNumbers, spiritOfIn, type SpiritIn, type SpiritView, type WageMode } from '../spiritrules';
+import { statueMorale } from '../statuerules';
 import { armyBar, stabLevel } from './stability';
 import { agentLevel, seated } from './agents';
 
@@ -52,6 +53,7 @@ export function spiritIn(s: GameState): SpiritIn {
     merchants: n.merchants.minus,
     general: seated(s, 'general') ? agentLevel(s, 'general') : null,
     barracks: buildingOfType(s, 'barracks')?.level ?? 0,
+    statue: statueMorale(buildingOfType(s, 'statue')?.level ?? 0),
     pay: payShare(s),
   };
 }

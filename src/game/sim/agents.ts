@@ -11,13 +11,10 @@
 // (`ageOf`), поэтому стареет агент только пока идут часы деревни: неделя без игры не
 // отправит всех четверых на покой.
 //
-// Вещи меняются только дома. Место агента знает мир, поэтому переодевание
-// принимает его готовым (`Placed` из вида фигуры), а правило «дома» — одно на
-// игру и на карточку: `world/shelter.canRegear`.
+// Вещей у агентов нет (ДР-7): их надевают только на правителя (`sim/dynasty.wear`).
 import type { AgentProgress, FaithId, GameState, LineageEntry, LineagePlace, RecruitMark, RulerSkills, Tally } from '../types';
 import type { FigureId, HomeEffect } from '@/world/types';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
-import { canRegear, placeOf, type Placed } from '@/world/shelter';
 import {
   AGENT_AGE0,
   AGENT_YEAR,
@@ -27,11 +24,8 @@ import {
   SIGHT_PER_CIRCLE,
   SKILL_OF,
   STEALTH_PER_CIRCLE,
-  SLOT_COUNT,
-  THIRD_SLOT_LEVEL,
   XP_CAP,
   levelOf,
-  slotsOpen,
 } from '../data/agents';
 import { agentName } from '../data/names';
 import { MAX_RULER_SKILL, MIN_RULER_SKILL, REALM_BRANCHES } from '../data/realm';
@@ -45,13 +39,11 @@ import {
   type TraitId,
   type TraitNumbers,
 } from '../data/traits';
-import { ITEMS, slotName, type ItemId } from '../data/items';
-import { has } from '../guard';
+import { slotName } from '../data/items';
 import { cityName } from '../../../netlify/lib/contract';
 import { perilText, veilAt } from '@/world/peril';
 import { SIEGE_PIPS_MAX } from '@/world/data/siegeroll';
 import type { Pips } from '@/battle';
-import { tradition } from '../derived';
 import {
   eloquenceCut,
   fixedCircles,
@@ -71,7 +63,6 @@ import { log } from './log';
 const blank = (): AgentProgress => ({
   xp: 0,
   deedAt: null,
-  slots: Array.from({ length: SLOT_COUNT }, () => null),
   person: 0,
   name: null,
   bornAt: 0,
@@ -91,8 +82,9 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 /**
  * Агенты из сохранения. Словарь мержится по агентам, как армия по видам: новый
  * агент не должен приехать `undefined`. Каждое поле читается с умолчанием и
- * проверкой: опыт — неотрицательное число не выше потолка, ячейка — имя или пусто,
- * имя — через ту же очистку, что имя города.
+ * проверкой: опыт — неотрицательное число не выше потолка, имя — через ту же
+ * очистку, что имя города. Мест под вещи у агентов нет (ДР-7): надетое прежде не
+ * читается — сколько его было, говорит `gearOff`, и оно лежит в сундуке.
  */
 export function mergeAgents(saved: unknown): Record<FigureId, AgentProgress> {
   const out = emptyAgents();
@@ -101,14 +93,12 @@ export function mergeAgents(saved: unknown): Record<FigureId, AgentProgress> {
     const raw = (saved as Record<string, unknown>)[id];
     if (!raw || typeof raw !== 'object') continue;
     const r = raw as Partial<Record<keyof AgentProgress, unknown>>;
-    const slots = Array.isArray(r.slots) ? r.slots : [];
     const h = r.hiring as Partial<Record<'until' | 'name' | 'age0', unknown>> | null | undefined;
     const t = (r.tally ?? {}) as Partial<Record<keyof Tally, unknown>>;
     const count = (v: unknown): number => (finite(v) ? Math.max(0, Math.floor(v)) : 0);
     out[id] = {
       xp: finite(r.xp) ? Math.max(0, Math.min(XP_CAP, r.xp)) : 0,
       deedAt: finite(r.deedAt) ? r.deedAt : null,
-      slots: Array.from({ length: SLOT_COUNT }, (_, i) => slotName(slots[i])),
       person: finite(r.person) ? Math.max(0, Math.floor(r.person)) : 0,
       name: cityName(r.name),
       bornAt: finite(r.bornAt) ? r.bornAt : 0,
@@ -320,19 +310,17 @@ const onPlace = (s: GameState, agent: FigureId, stat: 'sight' | 'stealth' | 'elo
   seated(s, agent) ? value(circlesOf(s, agent, stat)) : none;
 
 /**
- * Уровень, с которого считаются отметки полководца уровня `level`: его кружки и кружки воинской традиции Статуи
- * (`derived.tradition`; П4, docs/battle_eu4.md, 14.35), не выше последнего. Традиция — не второй счёт отметок, а вход той же
- * двери (`pipsAt`): лишний кружок ложится туда же, куда лёг бы кружок опыта, — по склонности человека.
+ * Уровень, с которого считаются отметки полководца уровня `level`: его кружки, не ниже первого и не выше последнего. Статуя Героя
+ * в него не входит с ДР-7 (docs/city_v3.md, «Решения ДР-7»: здание без связи с полководцем; прежде — воинская традиция П4).
  */
-export const pipLevel = (s: GameState, level: number): number =>
-  Math.min(MAX_AGENT_LEVEL, Math.max(1, Math.floor(level)) + tradition(s));
+export const pipLevel = (level: number): number => Math.min(MAX_AGENT_LEVEL, Math.max(1, Math.floor(level)));
 
 /**
- * Уровень, с которого считаются отметки полководца на месте: его уровень и врождённое (АГ-1) — фора на той же лестнице, — с
- * традицией Статуи, не выше вершины. Склонность — по номеру кандидата у нанятого в Ратуше, по номеру человека у своего.
+ * Уровень, с которого считаются отметки полководца на месте: его уровень и врождённое (АГ-1) — фора на той же лестнице, не выше
+ * вершины. Склонность — по номеру кандидата у нанятого в Ратуше, по номеру человека у своего.
  */
 export const generalCircles = (s: GameState, level = agentLevel(s, 'general')): number =>
-  pipLevel(s, skillCircles(level, headOf(s, 'general').pips ?? 0));
+  pipLevel(skillCircles(level, headOf(s, 'general').pips ?? 0));
 
 /**
  * Отметка «осада» по опыту осад (docs/siege_v2.md, 2.3, этап 2е): кружок той же лестницы опыта (`LEVEL_XP`), где дело — осада,
@@ -619,13 +607,15 @@ export function traitNumbers(s: GameState): TraitNumbers {
   return out;
 }
 
+/** Строка о новом полководце (ДР-6, ДР-7): отряд в городе не собирают — его дают в окне дела. Летопись найма и тревога. */
+export const NEW_GENERAL = 'Отряд ему дают в окне дела, перед выходом: коснись цели на карте.';
+
 /**
- * Новый полководец без дружины: пришёл на место, ещё не водил ни одного боя, а
- * дружины при нём нет. Дружина прежнего осталась городу или пала с ним, и
- * преемник сидит дома, пока игрок её не соберёт, — тихая потеря целой службы.
- * Место знает мир, поэтому фигура приходит готовой (`FigureView`). Номер человека
- * больше нуля — это не тот, с кем партия началась: первому дружину собирают по
- * обучению, а не по тревоге.
+ * Новый полководец без дела: пришёл на место, ещё не водил ни одного боя, и
+ * отряда при нём нет. Преемник сидит дома, пока игрок не пошлёт его делом, — тихая
+ * потеря целой службы; отряд ему дают в окне дела (ДР-6). Место знает мир, поэтому
+ * фигура приходит готовой (`FigureView`). Номер человека больше нуля — это не тот,
+ * с кем партия началась: первого ведёт обучение, а не тревога.
  */
 export function bareGeneral(
   s: GameState,
@@ -659,44 +649,17 @@ export function nameAgents(s: GameState): boolean {
 }
 
 /**
- * Почему агента нельзя переодеть прямо сейчас; null — можно. Слова одни на
- * карточку и на действие: кнопка, которая не сработает, говорит то же, что
- * сказал бы отказ.
+ * Сколько вещей было надето на агентов в сохранении (ДР-7, docs/city_v3.md, «Решения ДР-7»): с ДР-7 вещи надевают только на
+ * правителя, и надетое на агента при чтении снимается — в сундук, то есть во владение (`net/owned.ts`): там предмет и был,
+ * ячейка помнила только имя. Без потерь: владение партия не хранит и не теряет. Число — для строки летописи при входе.
  */
-export function regearBlock(agent: FigureId, where: Placed): string | null {
-  if (canRegear(where)) return null;
-  const name = FIGURE_BY_ID[agent].name;
-  const place = placeOf(where);
-  if (place === 'vacant') return 'Место пустует, переодевать некого.';
-  if (place === 'down') return `${name} вне строя, переодеться сможет дома.`;
-  if (where.phase === 'moving') return `${name} в пути, переодеваются дома.`;
-  return `${name} в поле, переодеваются дома.`;
-}
-
-/**
- * Надеть предмет в ячейку или снять (`item` = null). Ячейка получает имя и
- * ничего больше; что предмет даёт, спросят у `ITEMS`, когда он будет надет.
- */
-export function regear(
-  s: GameState,
-  agent: FigureId,
-  slot: number,
-  item: ItemId | null,
-  where: Placed,
-  owned: readonly ItemId[],
-): string | null {
-  const p = s.agents?.[agent];
-  if (!p || p.vacant) return 'Место пустует, переодевать некого.';
-  const blocked = regearBlock(agent, where);
-  if (blocked) return blocked;
-  if (!Number.isInteger(slot) || slot < 0 || slot >= SLOT_COUNT) return 'Такого места нет.';
-  if (slot >= slotsOpen(p.xp)) return `Это место откроется на ур. ${THIRD_SLOT_LEVEL}.`;
-  if (item !== null) {
-    if (!has(ITEMS, item)) return 'Такой вещи нет.';
-    if (!owned.includes(item)) return 'Этой вещи у тебя нет.';
-    if (p.slots.some((x, i) => i !== slot && x === item)) return 'Эта вещь уже надета.';
+export function gearOff(saved: unknown): number {
+  if (!saved || typeof saved !== 'object') return 0;
+  let n = 0;
+  for (const id of FIGURE_IDS) {
+    const raw = (saved as Record<string, unknown>)[id] as { slots?: unknown } | undefined;
+    if (raw && Array.isArray(raw.slots)) n += raw.slots.filter((x) => slotName(x) !== null).length;
   }
-  p.slots[slot] = item;
-  return null;
+  return n;
 }
 

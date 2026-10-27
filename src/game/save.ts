@@ -14,7 +14,7 @@ import { AWAY_AFTER, absence, awayGameSeconds, awaySeconds } from './sim/tick';
 import { normalizeAssignments } from './sim/workers';
 import { log, trimLog } from './sim/log';
 import { trimStock } from './sim/stock';
-import { mergeAgents, nameAgents, mergeLineage } from './sim/agents';
+import { gearOff, mergeAgents, nameAgents, mergeLineage } from './sim/agents';
 import { mergeCouncil } from './sim/council';
 import { mergeRecruit } from './sim/recruit';
 import { mergeCommand } from './sim/command';
@@ -532,6 +532,10 @@ export function deserialize(json: string): GameState | null {
     // указ клали сверх неё, приводится здесь — сгоревшее называет строка летописи после входа, тихо не пропадает ничего.
     const line = trimStock(s, undefined, true);
     if (line) tell(s, line, 'bad');
+    // Вещи с агентов (ДР-7, docs/city_v3.md, «Решения ДР-7»): их надевают только на правителя — надетое на агента при чтении
+    // снято (`mergeAgents` его не читает) и лежит в сундуке, во владении; без потерь, одной строкой летописи при входе.
+    const off = gearOff(data.agents);
+    if (off > 0) tell(s, `С агентов сняты вещи (${off}) и легли в сундук: вещи теперь надевают только на правителя.`, 'info');
     readFrom.set(s, from);
     // Летопись старого сохранения могла копиться по прежнему правилу «последние
     // 80 записей» и растянуться на полгода игрового времени. Приводим её к тому

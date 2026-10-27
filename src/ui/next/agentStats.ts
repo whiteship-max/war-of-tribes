@@ -1,5 +1,5 @@
 // Характеристики агента числами для раздела «Агенты» Ратуши (АГ-1): у человека на месте — нынешние, у кандидата — те, с какими
-// он встанет в этом городе (первый уровень, врождённое, традиция Статуи). Своих чисел нет: те же двери, что считают дело
+// он встанет в этом городе (первый уровень, врождённое). Своих чисел нет: те же двери, что считают дело
 // (`sim/agents.pipsOf`, `circlesOf`, `sabotageCirclesOf`, `agentrules.statCircles`).
 import type { FigureId } from '@/world/types';
 import type { GameState } from '@/game/types';
@@ -28,9 +28,9 @@ export function statsNow(s: GameState, role: FigureId): StatValue[] {
   });
 }
 
-/** Характеристики кандидата в минуту найма в этом городе: первый уровень и врождённое; у полководца — с традицией Статуи. */
+/** Характеристики кандидата в минуту найма в этом городе: первый уровень и врождённое. */
 export function statsOfRecruit(s: GameState, r: Recruit): StatValue[] {
-  if (r.role === 'general') return pipRows(pipsAt(s.seed, 0, pipLevel(s, skillCircles(1, r.head.pips ?? 0)), r.n));
+  if (r.role === 'general') return pipRows(pipsAt(s.seed, 0, pipLevel(skillCircles(1, r.head.pips ?? 0)), r.n));
   return ROLE_STATS[r.role].map((stat) => ({
     key: stat,
     word: STAT_WORD[stat as Exclude<AgentStat, 'pips'>],

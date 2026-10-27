@@ -19,7 +19,6 @@ import {
   MAX_AGENT_LEVEL,
   SIGHT_PER_CIRCLE,
   STEALTH_PER_CIRCLE,
-  THIRD_SLOT_LEVEL,
   XP_CAP,
   circlesOf,
 } from '../data/agents';
@@ -30,7 +29,6 @@ import {
   pipsAt,
   pipsOf,
   recordDeed,
-  regear,
   sightBonusOf,
   stealthOf,
   traitsBorn,
@@ -41,8 +39,7 @@ import { deedXp } from '../agentrules';
 import { creditTech } from './tech';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { PIP_IDS, type Pips } from '@/battle';
-import { maxLevelFor, tradition } from '../derived';
-import type { ItemId } from '../data/items';
+import { maxLevelFor } from '../derived';
 import type { GameState } from '../types';
 
 /**
@@ -85,9 +82,10 @@ describe('уровень и кружки выводятся из опыта', ()
     expect([...seen].sort(), 'прогон прошёл все пять уровней').toEqual([1, 2, 3, 4, 5]);
   });
 
-  const FIELDS = ['age0', 'bornAt', 'deedAt', 'hiring', 'name', 'person', 'slots', 'tally', 'vacant', 'xp'];
+  // Ячеек под вещи у агентов нет с ДР-7: вещи — только у правителя (`RealmState.gear`).
+  const FIELDS = ['age0', 'bornAt', 'deedAt', 'hiring', 'name', 'person', 'tally', 'vacant', 'xp'];
 
-  it('в партии нет ни уровня, ни кружков, ни возраста, ни черт — только опыт, счёт дел, человек и ячейки', () => {
+  it('в партии нет ни уровня, ни кружков, ни возраста, ни черт, ни ячеек — только опыт, счёт дел и человек', () => {
     const s = createInitialState();
     for (const id of FIGURE_IDS) expect(Object.keys(s.agents[id]).sort()).toEqual(FIELDS);
     // И записанное в сохранение «чужое» поле уровня ничего не решает: уровень — из опыта.
@@ -235,7 +233,7 @@ describe('агент первого уровня — это сегодняшни
     const old = deserialize(JSON.stringify(json))!;
     for (const id of FIGURE_IDS) {
       expect(agentLevel(old, id)).toBe(1);
-      expect(old.agents[id].slots).toEqual([null, null, null]);
+      expect('slots' in old.agents[id], 'мест под вещи у агентов нет (ДР-7)').toBe(false);
     }
     const p = playerProfile(old);
     expect(['pips', 'sightBonus', 'stealth', 'veil', 'agents'].filter((k) => k in p), 'слепок первого уровня не везёт полей навыка и мест').toEqual([]);
@@ -246,49 +244,14 @@ describe('агент первого уровня — это сегодняшни
     expect(Object.values(playerProfile(old).pips ?? {}).reduce((n, x) => n + (x ?? 0), 0), 'второй уровень — одна отметка').toBe(1);
   });
 
-  it('разбор сохранения ставит в ячейку только имя: всё прочее — пустое место', () => {
+  it('разбор сохранения: опыт в пределах, вещи с агента не читаются (ДР-7 — они в сундуке)', () => {
     const merged = mergeAgents({
       general: { xp: -5, deedAt: 'вчера', slots: [{ id: 'меч', onslaught: 99 }, 'меч', 7] },
       spy: { xp: 10_000 },
     });
-    expect(merged.general).toEqual({ ...emptyAgents().general, xp: 0, deedAt: null, slots: [null, 'меч', null] });
+    expect(merged.general).toEqual({ ...emptyAgents().general, xp: 0, deedAt: null });
     expect(merged.spy.xp).toBe(XP_CAP);
     expect(merged.scout).toEqual(emptyAgents().scout);
-  });
-});
-
-describe('ячейки: переодеться можно только дома', () => {
-  const home = { phase: 'home' as const, departAt: 5 };
-  const city = { phase: 'home' as const, departAt: 5, sheltered: 5 };
-  const away = [
-    { phase: 'moving' as const, departAt: 5 },
-    { phase: 'field' as const, departAt: 5 },
-    { phase: 'down' as const, departAt: 5 },
-  ];
-
-  it('дома — у ворот и в городе — снять можно, в пути, в поле и выбывшему — отказ словами', () => {
-    for (const where of [home, city]) {
-      const s = createInitialState();
-      s.agents.scout.slots[0] = 'сапоги' as ItemId;
-      expect(regear(s, 'scout', 0, null, where, [])).toBeNull();
-      expect(s.agents.scout.slots[0]).toBeNull();
-    }
-    for (const where of away) {
-      const s = createInitialState();
-      s.agents.scout.slots[0] = 'сапоги' as ItemId;
-      const err = regear(s, 'scout', 0, null, where, []);
-      expect(err, `отказ в фазе ${where.phase}`).not.toBeNull();
-      expect(err).toMatch(/переодева|переодеться/);
-      expect(s.agents.scout.slots[0]).toBe('сапоги');
-    }
-  });
-
-  it('надеть можно только то, что есть в таблице и во владении; третье место — с четвёртого уровня', () => {
-    const s = played(createInitialState());
-    expect(regear(s, 'spy', 0, 'кинжал' as ItemId, home, ['кинжал' as ItemId])).toBe('Такой вещи нет.');
-    expect(regear(s, 'spy', 2, null, home, [])).toMatch(new RegExp(`на ур\\. ${THIRD_SLOT_LEVEL}`));
-    s.agents.spy.xp = LEVEL_XP[3];
-    expect(regear(s, 'spy', 2, null, home, [])).toBeNull();
   });
 });
 
@@ -339,35 +302,29 @@ describe('отметки полководца — склад человека, �
   });
 });
 
-describe('воинская традиция: Статуя растит кружки полководца той же дверью', () => {
-  it('два уровня Статуи на кружок — из длин двух лестниц; отметки новичка — первые кружки его склада, ветерана выше пяти не поднять', () => {
-    // П4 (docs/battle_eu4.md, 14.35, п. 9 слова владельца): соответствие уровней Статуи отметкам выводится из диапазонов двух
-    // лестниц — уровней Статуи и кружков полководца, — а не назначается. Граница области: обе лестницы той длины, из которой
-    // вывод и сделан, и на первом уровне Статуи традиции нет, как нет отметок у первого кружка.
+describe('Статуя Героя в отметки полководца не входит (ДР-7; прежде — воинская традиция П4)', () => {
+  it('на любом уровне Статуи отметки новичка и ветерана — те же, что при первом: кружки — только его', () => {
+    // Граница области: все уровни Статуи от первого до вершины, полководец — новичок (отметок нет ни одной) и ветеран (вершина
+    // лестницы). Прежде Статуя прибавляла кружки — на девятом уровне четыре.
     const max = maxLevelFor('statue');
     expect(max, 'уровней Статуи').toBe(10);
-    expect(MAX_AGENT_LEVEL, 'кружков полководца').toBe(5);
     const at = (level: number): GameState => {
       const s = createInitialState();
       s.buildings.find((b) => b.type === 'statue')!.level = level;
       return s;
     };
-    const ladder = Array.from({ length: max }, (_, i) => tradition(at(i + 1)));
-    expect(ladder, 'по два уровня на кружок, кружков сверх первого — 0…4').toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
     const count = (p: Pips): number => PIP_IDS.reduce((n, id) => n + (p[id] ?? 0), 0);
     for (let level = 1; level <= max; level += 1) {
       const s = at(level);
       expect(agentLevel(s, 'general'), 'полководец — новичок').toBe(1);
-      expect(pipsOf(s), `Статуя ${level}: не пустое место`).toBeDefined();
-      // Новичок: отметок ровно столько, сколько кружков дала традиция, и лежат они туда же, куда легли бы кружки опыта.
-      expect(count(pipsOf(s)), `Статуя ${level}: отметок у новичка — кружки традиции`).toBe(tradition(s));
-      expect(pipsOf(s)).toEqual(pipsAt(s.seed, s.agents.general.person, 1 + tradition(s)));
-      // Ветеран пятого уровня: лестница отметок та же, 0…4, — Статуя по ней только поднимает.
+      expect(count(pipsOf(s)), `Статуя ${level}: у новичка отметок нет`).toBe(0);
+      expect(pipsOf(s)).toEqual(pipsAt(s.seed, s.agents.general.person, 1));
       s.agents.general.xp = XP_CAP;
-      expect(count(pipsOf(s)), `Статуя ${level}: ветеран`).toBe(MAX_AGENT_LEVEL - 1);
+      // Ветеран — вершина его лестницы, тем же складом, что при любой Статуе.
+      const veteran = pipsAt(s.seed, s.agents.general.person, MAX_AGENT_LEVEL);
+      expect(count(veteran), 'точка внутри области: у ветерана отметки есть').toBe(MAX_AGENT_LEVEL - 1);
+      expect(pipsOf(s), `Статуя ${level}: ветеран — его кружки`).toEqual(veteran);
+      expect(playerProfile(s).pips, 'в мир уезжает то же').toEqual(veteran);
     }
-    // Статуя уезжает в мир отметками полководца — тем же слепком, что всё остальное.
-    const top = at(max);
-    expect(playerProfile(top).pips).toEqual(pipsOf(top));
   });
 });

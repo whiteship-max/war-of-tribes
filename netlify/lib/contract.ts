@@ -2254,6 +2254,11 @@ export interface WatchAgent {
   xp: number;
   /** Место пустует. */
   vacant?: true;
+  /**
+   * Вещей на человеке (ДР-7): вещи надевают только на правителя, и опись честного клиента поля не несёт. Есть — подделка или
+   * старый клиент: правило «agents» не засчитывает вещь и пишет флаг.
+   */
+  gear?: number;
 }
 
 /** Агенты в описи — то, что сверяет сервер (`agentbook.agentsStep`, правило «agents»). */
@@ -2284,6 +2289,7 @@ function readAgents(v: unknown): Pick<WatchCard, 'agents'> {
       ...(hired ? { n: whole(a.n, 1e12), tier: whole(a.tier, 99), at: whole(a.at, 1e12) } : {}),
       xp: whole(a.xp, 1e6),
       ...(a.vacant === true ? { vacant: true as const } : {}),
+      ...(whole(a.gear, 99) > 0 ? { gear: whole(a.gear, 99) } : {}),
     });
   }
   return { agents: { seats, hired: whole(r.hired, 1e9), fees: whole(r.fees, 1e12), paid: whole(r.paid, 1e12) } };

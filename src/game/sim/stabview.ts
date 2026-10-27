@@ -8,7 +8,7 @@ import type { EstateId, GameState, StabGroup } from '../types';
 import type { MoraleBreakdown } from '../derived';
 import { DAY_LENGTH, MUTINY_FUSE } from '../constants';
 import { asGame, type GameSec } from '../pace';
-import { bondedTotal, decreeOf, estatesNow, moraleBreakdown, mutinyOpen, orderBreakdown, orderState, payGraceDays, rationOf, taxOf, unrestLeft } from '../derived';
+import { bondedTotal, buildingOfType, decreeOf, estatesNow, moraleBreakdown, mutinyOpen, orderBreakdown, orderState, payGraceDays, rationOf, taxOf, unrestLeft } from '../derived';
 import { GROUP_META, stabName } from '../data/stability';
 import { ESTATE_META, estateVerb } from '../data/estates';
 import { BOON_BY_ID } from '../data/boons';
@@ -62,6 +62,8 @@ const FACE: Record<string, (s: GameState) => Face> = {
   'siege-ration': () => ({ icon: 'ui-bowl', name: 'Осадный паёк', hint: 'еды урезано', go: 'storage' }),
   ration: (s) => ({ icon: 'ui-loaf', name: `Паёк: ${rationOf(s).name.toLowerCase()}`, hint: rationOf(s).effect, go: 'decrees' }),
   calm: () => ({ icon: 'ui-home', name: 'Тихие дни', hint: 'ровная жизнь держит лад' }),
+  // Статуя Героя (ДР-7): памятник держит лад вместе с тихими днями; дверь — стройка, где её поднимают.
+  statue: (s) => ({ icon: 'bld-statue', name: 'Статуя Героя', hint: `ур. ${buildingOfType(s, 'statue')?.level ?? 0}: гордость города`, go: 'build' }),
   siege: (s) => ({ icon: 'ui-warning', name: 'Осада у стен', hint: `под стенами ${s.siege?.byName ?? 'враг'}` }),
 };
 

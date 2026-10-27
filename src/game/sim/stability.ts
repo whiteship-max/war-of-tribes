@@ -20,7 +20,8 @@ import {
   STARVING_MORALE,
   VILLAGER_DEFENSE,
 } from '../constants';
-import { activeBoons, decreeOf, estatesNow, moraleBreakdown, mutinyOpen, orderState, payGraceDays, rationOf, riteMorale, taxOf } from '../derived';
+import { activeBoons, buildingOfType, decreeOf, estatesNow, moraleBreakdown, mutinyOpen, orderState, payGraceDays, rationOf, riteMorale, taxOf } from '../derived';
+import { statueCalm } from '../statuerules';
 import { ESTATES, murmurOf } from '../estaterules';
 import { TAXES, type TaxId } from '../data/policy';
 import { SEASON_DAYS } from '../data/seasons';
@@ -155,9 +156,11 @@ export const barsOf = (s: GameState): Bars => {
   return { folk: st.folk, hungry: st.hungry, bonded: bondedBar(s), army: armyBar(s) };
 };
 
-/** Слагаемые давления, % ступени за игровой день: тихие дни, тяга недовольных групп, осада. */
+/** Слагаемые давления, % ступени за игровой день: тихие дни, Статуя Героя (ДР-7), тяга недовольных групп, осада. */
 export function pressureParts(s: GameState, bars: Bars): Part[] {
   const out: Part[] = [{ id: 'calm', value: STAB_CALM }];
+  const statue = statueCalm(buildingOfType(s, 'statue')?.level ?? 0);
+  if (statue > 0) out.push({ id: 'statue', value: statue });
   for (const id of STAB_GROUPS) if (bars[id] > 0) out.push({ id: `g-${id}`, value: (-STAB_DRAG * bars[id]) / 100 });
   if (s.siege) out.push({ id: 'siege', value: -STAB_DRAG });
   return out;

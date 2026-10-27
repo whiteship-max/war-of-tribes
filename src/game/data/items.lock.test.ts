@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { ITEMS, itemIn, slotName, type ItemId } from './items';
 import { ownedItems } from '@/net/owned';
 import { createInitialState } from '../state';
-import type { AgentProgress } from '../types';
+import type { RealmState } from '../types';
 
 const ROOT = join(__dirname, '..', '..');
 
@@ -99,9 +99,9 @@ describe('владение предметами: одна дверь, и зап�
     for (const line of bad) expect(caught(line), line).toBe(true);
     const honest = [
       'const owned = ownedItems();',
-      'const st = itemIn(progress.slots[i] ?? null, owned);',
+      'const st = itemIn(slot, owned);',
       'if (!owned.includes(item)) return null;',
-      'act((g) => regear(g, id, i, null, where, owned));',
+      'act((g) => wear(g, i, null, owned));',
     ];
     for (const line of honest) expect(caught(line), line).toBe(false);
   });
@@ -138,11 +138,13 @@ describe('ячейка хранит только имя, действие — т
   });
 
   it('в ячейку не положить ничего, кроме имени', () => {
-    const p: AgentProgress = createInitialState().agents.general;
+    // Ячейки — у правителя (ДР-7): на агентов вещи не надевают.
+    const r: RealmState = createInitialState().realm;
+    r.gear = [null, null, null];
     // @ts-expect-error — предмет с числом внутри в ячейку не ложится: ячейка знает только имя.
-    p.slots[0] = { id: 'меч', onslaught: 12 };
+    r.gear[0] = { id: 'меч', onslaught: 12 };
     // @ts-expect-error — и простая строка тоже: имя предмета делает только разбор ячейки.
-    p.slots[1] = 'меч';
+    r.gear[1] = 'меч';
     expect(() => {
       // @ts-expect-error — список владения только на чтение.
       ownedItems().push('меч' as ItemId);

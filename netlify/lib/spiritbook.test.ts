@@ -60,7 +60,7 @@ const card = (spirit?: WatchSpirit, over: Partial<WatchCard> = {}): WatchCard =>
 const sp = (wage: 'full' | 'min', morale: number, discipline: number, paid = 0): WatchSpirit => ({ wage, morale, discipline, paid });
 const write = (rec: WatchRecord, at: number, c: WatchCard): WatchRecord => wrote(rec, at, { name: 'Вождь', power: 1, day: 1 }, c, 1);
 const flagged = (rec: WatchRecord): string[] => rec.flags.filter((f) => f.kind === 'spirit').map((f) => f.text);
-const KNOWN = { marshal: 0, knights: 0, barracks: 1 };
+const KNOWN = { marshal: 0, knights: 0, barracks: 1, statue: 1 };
 
 describe('книга: жалованье по часам сервера, смена — на выгодную игроку минуту', () => {
   it('уход на минимальное — минутой новой описи, возврат полного — минутой прежней', () => {

@@ -239,12 +239,4 @@ export function pipsSpread(seed: number, temper: number, circles: number): Pips 
   return out;
 }
 
-/**
- * Воинская традиция Статуи уровня `level` (из `maxLevel`): кружков сверх уровня полководца (П4, docs/battle_eu4.md, 14.35).
- * Одна формула на игру (`derived.tradition`) и сервер (потолок отметок).
- */
-export function traditionAt(level: number, maxLevel: number): number {
-  const l = Math.floor(Number.isFinite(level) ? level : 0);
-  if (l < 1 || maxLevel < 1) return 0;
-  return Math.ceil((Math.min(l, maxLevel) * MAX_AGENT_LEVEL) / maxLevel) - 1;
-}
+

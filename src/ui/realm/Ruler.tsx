@@ -3,7 +3,7 @@
 // Своего счёта здесь нет ни строки — это то же правило, по которому живёт карточка
 // агента. Возраст и срок до покоя считает `sim/dynasty` теми же часами и той же формулой,
 // что возраст агента; очки — `sim/points`, единственная дверь; книга — тот же `Lineage`,
-// что стоит в Статуе, только другим местом.
+// что стоит в карточке полководца, только другим местом. Вещи — только здесь (ДР-7): `sim/dynasty.wear`.
 //
 // Одна строка здесь обязательна, и она про будущее: **при смене правителя меняются
 // только навыки, а очки и изученное остаются.** Игрок должен знать это до смерти
@@ -12,7 +12,9 @@ import { useGame } from '@/game/store';
 import { BRANCH_NAME, POINTS_CAP, REALM_BRANCHES, SKILL_NAME } from '@/game/data/realm';
 import { RETIRE_AGE } from '@/game/data/agents';
 import { circlesText } from '@/game/sim/agents';
-import { rulerAge, rulerAging, rulerYears } from '@/game/sim/dynasty';
+import { gearOf, rulerAge, rulerAging, rulerYears, wear } from '@/game/sim/dynasty';
+import { itemIn } from '@/game/data/items';
+import { ownedItems } from '@/net/owned';
 import { branchRate, pointsOf } from '@/game/sim/points';
 import { Lineage } from '@/ui/parts/Lineage';
 import { count } from '@/ui/parts/plural';
@@ -21,7 +23,13 @@ import { BRANCH_ICON } from './branches';
 
 export function RulerTab() {
   const s = useGame((g) => g.s);
+  const act = useGame((g) => g.act);
+  const showToast = useGame((g) => g.showToast);
   const r = s.realm;
+  const owned = ownedItems();
+  const gear = gearOf(s);
+  // Сундук — владение (`net/owned.ts`) без надетого: снятое ложится туда.
+  const chest = owned.filter((x) => !gear.includes(x)).length;
   const years = rulerYears(s);
   const toRest = Math.max(0, RETIRE_AGE - rulerAge(s));
 
@@ -54,6 +62,34 @@ export function RulerTab() {
             <span className="val pos">{circlesText(r.ruler.skills[b])}</span>
           </div>
         ))}
+      </div>
+
+      {/* Вещи — только на правителе (ДР-7, docs/city_v3.md, «Решения ДР-7»): места у престола, наследник садится в тех же. */}
+      <div className="panel">
+        <h3>Вещи</h3>
+        <div className="totem-row">
+          {gear.map((slot, i) => {
+            const st = itemIn(slot, owned);
+            const label =
+              st.kind === 'empty' ? 'пусто' : st.kind === 'unknown' ? 'неизвестная вещь' : st.kind === 'unowned' ? `${st.def.name}, не действует` : st.def.name;
+            return (
+              <button
+                key={i}
+                onClick={() => {
+                  // Снять — в сундук; надеть — из сундука.
+                  if (st.kind !== 'empty') return act((g) => wear(g, i, null, owned));
+                  showToast(chest === 0 ? 'Сундук пуст: надеть нечего.' : 'Выбери, что надеть.');
+                }}
+              >
+                <span className="ico">
+                  <Icon name="attn-slot" />
+                </span>
+                <span style={{ color: 'var(--muted)' }}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="note">Вещи надевают только на правителя: агенты служат без них. Снятое ложится в сундук — {chest === 0 ? 'сейчас он пуст' : count(chest, 'вещь', 'вещи', 'вещей')}.</div>
       </div>
 
       <div className="panel">

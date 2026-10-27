@@ -1114,6 +1114,25 @@ describe('АГ-1: агенты Ратуши на сервере — честны
     expect(warnings(r2).some((x) => /сид партии сменился/.test(x))).toBe(true);
     expect(r2.agents?.seed, 'новая партия — книга по новому сиду').toBe(SEED + 1);
   });
+
+  // ДР-7 (docs/city_v3.md, «Решения ДР-7»): вещи надевают только на правителя — опись честного клиента вещей на агентах не
+  // несёт; вещь на агенте сервер не засчитывает и пишет «внимание:». Область: опись с сидом и агентами (как выше).
+  it('ДР-7: вещь на агенте — «внимание:» и не засчитана; без вещей — без флага', async () => {
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    const honest = player(5505);
+    expect(await honest.push(card({ seed: SEED, agents: agents(seats()) }), NOW)).toBe(200);
+    expect(await honest.push(card({ clock: later, time: t, seed: SEED, agents: agents(seats()) }), later)).toBe(200);
+    expect(warnings(await honest.watch()).some((x) => /вещ/.test(x))).toBe(false);
+
+    const forged = player(5506);
+    expect(await forged.push(card({ seed: SEED, agents: agents(seats()) }), NOW)).toBe(200);
+    expect(await forged.push(card({ clock: later, time: t, seed: SEED, agents: agents(seats({ gear: 2 })) }), later)).toBe(200);
+    const rec = await forged.watch();
+    expect(kinds(rec)).toContain('agents');
+    expect(warnings(rec).some((x) => /на агенте вещей 2, а вещи надевают только на правителя/.test(x)), 'строка «внимание:»').toBe(true);
+    expect(rec.agents?.seats.spy && 'gear' in rec.agents.seats.spy, 'в книгу вещь не легла').toBe(false);
+  });
 });
 
 // Командиры флангов (ДР-3, docs/siege_v2.md, «Решения ДР-3»): опись несёт места (номер кандидата, ступень, минута), сервер выводит

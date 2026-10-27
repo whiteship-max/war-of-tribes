@@ -5,7 +5,7 @@
 // минуты по часам сервера дружине платят названное, — смену она ставит на самую выгодную игроку минуту, какая могла быть
 // (уход на минимальное — минутой новой описи, возврат полного — минутой прежней), чтобы честный не получал флага за то, что
 // опись едет раз в несколько минут. Потолок — дух при лучших причинах, которых сервер не видит (память боёв, голод, терпение,
-// обряд, купцы, полководец), и при тех, что подтверждает (Воевода совета, рыцари, ступень описи, казармы книги стройки,
+// обряд, купцы, полководец), и при тех, что подтверждает (Воевода совета, рыцари, ступень описи, казармы и Статуя книги стройки,
 // жалованье книги). В войну идёт названное, но не выше потолка (`book.ruleSpirit`); выше — флаг и «внимание:».
 import { STAB_MAX } from '../../src/game/stabrules.js';
 import { MAX_AGENT_LEVEL } from '../../src/game/data/agents.js';
@@ -23,6 +23,7 @@ import {
   spiritOfIn,
   type WageMode,
 } from '../../src/game/spiritrules.js';
+import { statueMorale } from '../../src/game/statuerules.js';
 import type { WarSpirit, WatchCard } from './contract.js';
 
 /** Книга духа: режим жалованья и с какой минуты сервера, с какой доли восстановления он идёт. */
@@ -68,6 +69,8 @@ export interface SpiritKnown {
   knights: number;
   /** Уровень казарм книги стройки. */
   barracks: number;
+  /** Уровень Статуи Героя книги стройки (ДР-7, `statuerules.statueMorale`). */
+  statue: number;
 }
 
 /** Стойкость обряда — наибольшая по правилам (`book.RESOLVE_MAX`): обряда сервер не видит. */
@@ -92,6 +95,7 @@ export function spiritCeil(book: SpiritBook | undefined, known: SpiritKnown, at:
     merchants: 0,
     general: MAX_AGENT_LEVEL,
     barracks: Math.max(0, Math.min(MAX_BUILDING_LEVEL, known.barracks)),
+    statue: statueMorale(known.statue),
     pay: bookShare(book, at),
   });
   return { morale: v.morale.value, discipline: v.discipline.value };

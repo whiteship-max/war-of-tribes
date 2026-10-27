@@ -185,11 +185,11 @@ import {
   gaitHaltMs,
   gaitSpeed,
   gaitHaul,
-  lightShare,
   readGait,
   roadLosses,
   siegeBlockOf,
   strikeSeed,
+  GAIT_AWAY,
   LIGHT_NO_CAMP,
   type Gait,
 } from '../gait';
@@ -5295,12 +5295,12 @@ export class LocalWorld implements WorldApi {
    * формулой, что и обычный переход (`travelTime`), по тому же ландшафту:
    * своей арифметики у погони нет, иначе она разошлась бы с ходьбой.
    */
-  private paceOf(id: FigureId, from: Coord, to: Coord): number {
+  private paceOf(id: FigureId, from: Coord, to: Coord, gait?: Gait): number {
     // Мерная дорога, а не одна клетка (ДР-2): срок одной клетки упирается в пол самого короткого похода
     // (`MARCH_MIN_SECONDS`), и погоня всех фигур шла одним темпом, какой бы ни была их скорость, — режим марша на неё не
     // влиял бы вовсе. Путь линеен по длине, мерная дорога пола не касается — та же мерка, что у дальности сервера
     // (`pvp.fieldReach`).
-    const seconds = travelTime(PACE_SPAN, terrainFactor(this.save.seed, from, to), this.speedOf(id));
+    const seconds = travelTime(PACE_SPAN, terrainFactor(this.save.seed, from, to), this.speedOf(id, gait));
     return seconds > 0 ? PACE_SPAN / realMs(seconds) : 0;
   }
 
@@ -5536,21 +5536,28 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Та же дорога в каждом режиме (ДР-2) — для выбора до приказа: срок той же функцией, что исполнит приказ (`walkOf`),
-   * ожидание ушедших налегке к приходу, встанет ли лагерь, хватит ли энергии с дорогой в темпе режима.
+   * Дорога полководца к цели дела в каждом режиме (ДР-2; ДР-7 — по делу, туда и назад) — для выбора в окне дела: срок туда и
+   * назад той же функцией, что исполнит приказ (`roadOf`; null — в этом режиме дороги нет, и отказ — `miss`), встанет ли лагерь,
+   * хватит ли энергии с дорогой в темпе режима. Убыль налегке и вывоз окно считает по выбранному составу (`gait.gaitTake`):
+   * здесь только множитель поклажи своего отряда (`loot` — дело берёт добычу).
    */
-  private gaitRows(walkOf: (g: Gait) => number, action: 'storm' | 'siege', now: number): GaitRow[] {
-    const men = troopTotal(this.save.figures.general.troops ?? {});
+  private gaitRows(
+    roadOf: (g: Gait) => { walkMs: number; backMs: number } | null,
+    action: EnergyAction,
+    o: { now: number; camp: boolean; loot: boolean; miss?: string },
+  ): GaitRow[] {
     return GAITS.map((g) => {
-      const walkMs = walkOf(g);
+      const road = roadOf(g);
+      const walkMs = road?.walkMs ?? 0;
+      const siege = siegeBlockOf(g);
       return {
         gait: g,
         walkMs,
-        lost: Math.round(men * lightShare(g, walkMs)),
-        // Вывоз дошедших в этом режиме (ДР-5) — той же дверью, что возьмёт добычу.
-        carry: Math.floor(this.haul({ warrior: Math.max(0, men - Math.round(men * lightShare(g, walkMs))) }, true, g).carry),
-        siege: siegeBlockOf(g),
-        energy: this.energyCost('general', action, now, walkMs, g),
+        backMs: road?.backMs ?? 0,
+        block: road ? (o.camp ? siege : null) : (o.miss ?? 'Не дойти.'),
+        siege,
+        haul: o.loot ? this.traitOf('carry') : 0,
+        energy: this.energyCost('general', action, o.now, walkMs, g),
       };
     });
   }
@@ -5671,22 +5678,28 @@ export class LocalWorld implements WorldApi {
     if (troopTotal(f.troops ?? {}) === 0) {
       return { meet: null, reason: this.noBand(now) };
     }
-    const from = this.figureAt(f, now);
-    const ahead = marchPosition(m, now);
-    // Стоянка смены режима (ДР-2, М6): погоня выходит после неё, тем же уравнением.
-    const meet = meetingOf(from, this.paceOf('general', from, ahead), m, Math.max(now, f.halt ?? 0));
-    if (!meet) {
-      // Отдельная причина, а не общее «нельзя»: игрок должен понимать, что
-      // помешало — расстояние или время, которое осталось у цели.
-      return {
-        meet: null,
-        reason: `Не догнать: им идти ${formatLeft(secondsLeft(m.arriveAt, now))}, дойдут раньше.`,
-      };
-    }
+    const meet = this.chaseMeet(m, now);
+    // Отдельная причина, а не общее «нельзя»: игрок должен понимать, что помешало — расстояние или время, которое осталось у цели.
+    if (!meet) return { meet: null, reason: this.chaseMiss(m, now) };
     // Перехват — бой в поле: его цена в энергии — к минуте встречи, с дорогой до неё (docs/agent_energy.md).
     const tired = this.energyCost('general', 'chase', now, Math.max(0, meet.time - now)).block;
     if (tired) return { meet: null, reason: tired };
     return { meet, reason: null };
+  }
+
+  /**
+   * Где и когда полководец встретит отряд `m`, выйдя сейчас в режиме `gait` (нет — нынешний): уравнение погони (`pursuit`) после
+   * стоянки смены режима (ДР-2, М6). Одна мерка на план, приказ и строки режима окна дела (ДР-7).
+   */
+  private chaseMeet(m: StoredMarch, now: number, gait?: Gait): Meeting | null {
+    const f = this.save.figures.general;
+    const from = this.figureAt(f, now);
+    return meetingOf(from, this.paceOf('general', from, marchPosition(m, now), gait), m, Math.max(now, f.halt ?? 0));
+  }
+
+  /** Отказ «не догнать» словами: им идти столько-то, дойдут раньше. */
+  private chaseMiss(m: StoredMarch, now: number): string {
+    return `Не догнать: им идти ${formatLeft(secondsLeft(m.arriveAt, now))}, дойдут раньше.`;
   }
 
   async interceptPlan(marchId: string): Promise<InterceptPlan> {
@@ -6848,7 +6861,7 @@ export class LocalWorld implements WorldApi {
     if (!this.inRealm(town)) return { error: this.beyond() };
     const from = this.figureAt(f, now);
     const to = { x: town.x, y: town.y };
-    const seconds = fieldWalkSeconds(from, to, terrainFactor(this.save.seed, from, to), f.gait);
+    const seconds = this.strikeSeconds(from, to);
     if (now + realMs(seconds) >= this.hunger(w)) {
       // У нашего сытого города лагерь логова снимется сам в следующую фазу (ОС-1): ударить по нему не успеть по другой причине.
       const fed = id === HOME_ID && !Number.isFinite(this.homeHungerStep(w));
@@ -6858,6 +6871,14 @@ export class LocalWorld implements WorldApi {
     const tired = this.energyCost('general', 'strike', now, realMs(seconds)).block;
     if (tired) return { error: tired };
     return { error: null, f, force, to, seconds };
+  }
+
+  /**
+   * Дорога удара по лагерю и выручки от `from` до `to` в режиме `gait` (нет — нынешний): формула сервера войны
+   * (`pvp.fieldWalkSeconds`). Одна мерка на план, приказ и строки режима окна дела (ДР-7).
+   */
+  private strikeSeconds(from: Coord, to: Coord, gait?: Gait): GameSec {
+    return fieldWalkSeconds(from, to, terrainFactor(this.save.seed, from, to), gait ?? this.save.figures.general.gait);
   }
 
   async strikePlan(id: SettlementId, garrison: boolean, out = false): Promise<StrikePlan> {
@@ -8251,6 +8272,32 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
+   * Режим марша на дело полководца (ДР-7, docs/city_v3.md, «Решения ДР-7»): выбран в окне дела. Тот же, что сейчас, или нет
+   * поля — ничего не трогают. Дома (`gaitFree`) — ставится даром той же проверкой, что смена дома (`gaitBlock`), а дело, которому
+   * отказали, возвращает прежний (отмена). Вне дома другой режим в приказе — отказ: в пути его меняют в окне отряда, стоянкой
+   * и энергией (ДР-2, М6), и окно дела его там не шлёт. Строка — отказ, функция — отмена.
+   */
+  private takeGait(next: Gait | undefined, now: number): string | (() => void) | null {
+    if (next === undefined) return null;
+    const f = this.save.figures.general;
+    const was = readGait(f.gait);
+    const want = readGait(next);
+    if (want === was) return null;
+    if (!this.gaitFree(now)) return GAIT_AWAY;
+    const block = this.gaitBlock(want, now);
+    if (block) return block;
+    const put = (g: Gait): void => {
+      if (g === 'normal') delete f.gait;
+      else f.gait = g;
+    };
+    put(want);
+    return () => {
+      put(was);
+      this.write();
+    };
+  }
+
+  /**
    * Полководец в своём городе — его отряд снова гарнизон (ДР-6): в городе отряда нет, состав выбирают в окне дела. Зовут
    * её все двери прихода домой (шаг фигур, сорванная и кончившаяся погоня, конец войны, возврат в строй) и чтение
    * сохранения — переход: отряд, собранный дома по прежней раскладке, встаёт гарнизоном. Без потерь: люди переходят со
@@ -8739,27 +8786,33 @@ export class LocalWorld implements WorldApi {
     const men = troopTotal(f.troops ?? {});
     const c = this.castleOf(target);
     if (c) {
-      const walkMs = Math.round(warWalkMs(this.save.home, c, f.gait) / this.warPaceOf());
+      const walkMs = this.warWalkOf(c);
       const energy = this.warEnergy(c, mode, now);
       const noCamp = mode === 'siege' ? siegeBlockOf(f.gait) : null;
       const reason = this.warBlock(c, now) ?? noCamp ?? fateBlock(declared, 'player', undefined, now, this.playerLocks()) ?? energy.block;
-      const gaits = this.gaitRows((g) => Math.round(warWalkMs(this.save.home, c, g) / this.warPaceOf()), mode, now);
-      return { can: reason === null, reason, walkMs, men, energy, gaits };
+      return { can: reason === null, reason, walkMs, men, energy };
     }
     const s = this.byId.get(target);
     if (!s || this.phaseOf(s, now) !== 'alive') return undefined;
     const from = this.figureAt(f, now);
     const here = this.touching(from)?.id === target && f.phase !== 'moving';
-    const walkMs = here
-      ? 0
-      : Math.round(realMs(travelTime(distance(from, s), terrainFactor(this.save.seed, from, s), this.speedOf('general'))));
+    const walkMs = here ? 0 : this.fieldWalkMs(from, s);
     const energy = this.energyCost('general', mode, now, walkMs);
     const reason = this.assaultBlock(s, here, now, declared, mode) ?? energy.block;
-    // Та же дорога в каждом режиме марша (ДР-2): выбор до приказа — теми же функциями, что исполнят приказ.
-    const gaits = here
-      ? undefined
-      : this.gaitRows((g) => Math.round(realMs(travelTime(distance(from, s), terrainFactor(this.save.seed, from, s), this.speedOf('general', g)))), mode, now);
-    return { can: reason === null, reason, walkMs, men, energy, ...(gaits ? { gaits } : {}) };
+    return { can: reason === null, reason, walkMs, men, energy };
+  }
+
+  /**
+   * Дорога полководца по земле от `from` до `to` в режиме `gait` (нет — нынешний), мс мира: одна мерка на «дойти и ударить»,
+   * дорогу домой после дела и строки режима окна дела (ДР-7).
+   */
+  private fieldWalkMs(from: Coord, to: Coord, gait?: Gait): number {
+    return Math.round(realMs(travelTime(distance(from, to), terrainFactor(this.save.seed, from, to), this.speedOf('general', gait))));
+  }
+
+  /** Дорога похода на город игрока в режиме `gait` (нет — нынешний), мс мира: формула сервера с его темпом войны. */
+  private warWalkOf(c: PlayerCastle, gait?: Gait): number {
+    return Math.round(warWalkMs(this.save.home, c, gait ?? this.save.figures.general.gait) / this.warPaceOf());
   }
 
   /**
@@ -8885,11 +8938,11 @@ export class LocalWorld implements WorldApi {
   }
 
   /** Дорога домой от клетки дела, мс. */
-  private backMsFrom(id: FigureId, at: Coord): number {
+  private backMsFrom(id: FigureId, at: Coord, gait?: Gait): number {
     const home = this.save.home;
     const d = distance(at, home);
     if (d < 0.5) return 0;
-    return Math.round(realMs(travelTime(d, terrainFactor(this.save.seed, at, home), this.speedOf(id))));
+    return Math.round(realMs(travelTime(d, terrainFactor(this.save.seed, at, home), this.speedOf(id, gait))));
   }
 
   /**
@@ -8974,32 +9027,72 @@ export class LocalWorld implements WorldApi {
     }
 
     if (agent === 'general') {
+      // Строки режима марша окна дела (ДР-7) — дорога в каждом режиме теми же мерками, что у плана; стоит у цели — дороги нет.
+      const from = this.figureAt(f, now);
+      const gaits = (rows: GaitRow[]): { gaits?: GaitRow[] } => (rows.some((r) => r.walkMs > 0) ? { gaits: rows } : {});
       if ((id === 'storm' || id === 'siege' || id === 'blockade') && (spot.kind === 'place' || spot.kind === 'rival')) {
         const target = spot.kind === 'place' ? spot.s.id : spot.c.id;
         const plan = this.assaultOf(target, now, FATE_DEFAULT, id === 'storm' ? 'storm' : 'siege');
         if (!plan) return row(spot.kind === 'place' && !this.alive(spot.s, now) ? 'Здесь только пепелище: брать нечего.' : 'Бить тут некого.');
-        return row(plan.reason, { walkMs: plan.walkMs, energy: plan.energy, risk: [this.routRisk(spot.at)], fate: true });
+        const c = spot.kind === 'rival' ? spot.c : null;
+        const rows = this.gaitRows(
+          (g) =>
+            c
+              ? { walkMs: this.warWalkOf(c, g), backMs: this.warWalkOf(c, g) }
+              : { walkMs: plan.walkMs > 0 ? this.fieldWalkMs(from, spot.at, g) : 0, backMs: this.backMsFrom('general', spot.at, g) },
+          id === 'storm' ? 'storm' : 'siege',
+          { now, camp: id !== 'storm', loot: true },
+        );
+        return row(plan.reason, { walkMs: plan.walkMs, energy: plan.energy, risk: [this.routRisk(spot.at)], fate: true, ...gaits(rows) });
       }
       if (id === 'intercept' && spot.kind === 'march') {
         const { meet, reason } = this.planChase(spot.m, now);
+        const rows = this.gaitRows(
+          (g) => {
+            const m = this.chaseMeet(spot.m, now, g);
+            return m ? { walkMs: Math.max(0, Math.round(m.time - now)), backMs: this.backMsFrom('general', m.at, g) } : null;
+          },
+          'chase',
+          { now, camp: false, loot: false, miss: this.chaseMiss(spot.m, now) },
+        );
         return row(meet ? null : reason, {
           walkMs: meet ? Math.max(0, Math.round(meet.time - now)) : 0,
           backMs: meet ? this.backMsFrom(agent, meet.at) : 0,
           energy: meet ? this.energyCost('general', 'chase', now, Math.max(0, meet.time - now)) : null,
           risk: [this.routRisk(meet?.at ?? spot.at)],
+          ...gaits(rows),
         });
       }
+      // Удар по лагерю и выручка — дорогой сервера войны (`strikeSeconds`) в каждом режиме.
+      const strikeRows = (to: Coord): { gaits?: GaitRow[] } =>
+        gaits(
+          this.gaitRows(
+            (g) => ({ walkMs: Math.round(realMs(this.strikeSeconds(from, to, g))), backMs: this.backMsFrom('general', to, g) }),
+            'strike',
+            { now, camp: false, loot: false },
+          ),
+        );
       if (id === 'strike' && (spot.kind === 'place' || spot.kind === 'home')) {
         const town = spot.kind === 'place' ? spot.s.id : HOME_ID;
         const camp = this.siegeOf(town, now);
         if (!camp || ourCamp(camp)) return undefined;
         const plan = await this.strikePlan(town, town === HOME_ID, true);
-        return row(plan.can ? null : plan.reason, { walkMs: Math.round(realMs(plan.seconds)), energy: plan.energy ?? null, risk: [this.routRisk(spot.at)] });
+        return row(plan.can ? null : plan.reason, {
+          walkMs: Math.round(realMs(plan.seconds)),
+          energy: plan.energy ?? null,
+          risk: [this.routRisk(spot.at)],
+          ...(town === HOME_ID ? {} : strikeRows(spot.at)),
+        });
       }
       if (id === 'relief' && spot.kind === 'rival') {
         const plan = this.reliefPlan(spot.c, now, true);
         if (!plan) return undefined;
-        return row(plan.can ? null : plan.reason, { walkMs: Math.round(realMs(plan.seconds)), energy: plan.energy ?? null, risk: [this.routRisk(spot.at)] });
+        return row(plan.can ? null : plan.reason, {
+          walkMs: Math.round(realMs(plan.seconds)),
+          energy: plan.energy ?? null,
+          risk: [this.routRisk(spot.at)],
+          ...strikeRows(spot.c),
+        });
       }
       return undefined;
     }
@@ -9103,11 +9196,20 @@ export class LocalWorld implements WorldApi {
     }
 
     if (id === 'general') {
-      // Состав из окна дела (ДР-6) — тем же переводом, что раскладка; дело, которому мир отказал, возвращает всех в гарнизон.
+      // Режим и состав из окна дела (ДР-7, ДР-6) — теми же переводами, что смена режима дома и раскладка; дело, которому мир
+      // отказал, возвращает и режим, и всех в гарнизон.
+      const gait = this.takeGait(o.gait, now);
+      if (typeof gait === 'string') return gait;
       const band = this.takeBand(o.troops, now);
-      if (typeof band === 'string') return band;
+      if (typeof band === 'string') {
+        gait?.();
+        return band;
+      }
       const err = await this.generalErrand(o.deed, spot, fate);
-      if (err) band?.();
+      if (err) {
+        gait?.();
+        band?.();
+      }
       return err;
     }
 
@@ -11278,8 +11380,7 @@ export class LocalWorld implements WorldApi {
     const f = this.save.figures.general;
     const troops = f.troops ?? {};
     // Срок пути — та же формула, что у сервера, с его темпом войны и в режиме марша (ДР-2): сам срок прихода назовёт сервер.
-    const walkMs = Math.round(warWalkMs(this.save.home, c, f.gait) / this.warPaceOf());
-    const gaits = this.gaitRows((g) => Math.round(warWalkMs(this.save.home, c, g) / this.warPaceOf()), 'siege', now);
+    const walkMs = this.warWalkOf(c);
     const mine = this.warList().find((w) => w.role === 'atk' && w.defCastle === c.id && w.phase !== 'done');
     const theirs = this.warList().find((w) => w.role === 'def' && w.atkCastle === c.id && (w.phase === 'march' || w.phase === 'camp'));
     return {
@@ -11289,7 +11390,6 @@ export class LocalWorld implements WorldApi {
       men: troopTotal(troops),
       power: troopPower(troops),
       energy: { storm: this.warEnergy(c, 'storm', now), siege: this.warEnergy(c, 'siege', now) },
-      gaits,
       ...this.campStormOf(now, walkMs),
       ...(mine && mine.phase !== 'done'
         ? {
@@ -11361,8 +11461,7 @@ export class LocalWorld implements WorldApi {
       if (blocked) return no(blocked);
     }
     if (troopTotal(force) === 0) return no('Полководец в городе. На выручку идут из поля: выведи его за ворота.');
-    const from = this.figureAt(f, now);
-    const seconds = fieldWalkSeconds(from, c, terrainFactor(this.save.seed, from, c), f.gait);
+    const seconds = this.strikeSeconds(this.figureAt(f, now), c);
     if (now + realMs(seconds) >= (w.starvesAt ?? Infinity)) return no('Не успеть: хлеб у союзника кончится раньше.');
     const energy = this.energyCost('general', 'strike', now, realMs(seconds));
     return { can: !energy.block, reason: energy.block, seconds, men: troopTotal(force), energy };
@@ -11515,8 +11614,7 @@ export class LocalWorld implements WorldApi {
    * (`netlify/lib/war.ts`): путь — `pvp.warWalkMs` с темпом войны, как у сервера.
    */
   private warEnergy(c: PlayerCastle, mode: 'storm' | 'siege', now: number): EnergyCost {
-    const walkMs = Math.round(warWalkMs(this.save.home, c, this.save.figures.general.gait) / this.warPaceOf());
-    return this.energyCost('general', mode, now, walkMs);
+    return this.energyCost('general', mode, now, this.warWalkOf(c));
   }
 
   /** Слепок обороны для записи партии (`SaveRecord.war`): его читает сервер, когда на нас идут. */

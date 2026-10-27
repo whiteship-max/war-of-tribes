@@ -6,7 +6,7 @@
 import type { FigureId } from '@/world/types';
 import type { GameState } from '../types';
 import { FIGURE_IDS } from '@/world/data/figures';
-import { nameAgents, seat, titled, yearsWord } from './agents';
+import { NEW_GENERAL, nameAgents, seat, titled, yearsWord } from './agents';
 import { log } from './log';
 
 /**
@@ -29,10 +29,8 @@ export function settleHires(s: GameState): boolean {
     seat(s, id, hiring.until, hiring.age0, hiring.name);
     const p = s.agents[id];
     log(s, `${titled(s, id)} встал на место, ${yearsWord(Math.floor(p.age0))}.`, 'good');
-    // Дружина прежнего полководца осталась городу или пала с ним: новый приходит с
-    // пустыми руками и в поле не выйдет, пока её не соберут. Молча это стоило бы
-    // целой службы — поэтому сказано сразу, а тревога держится, пока не соберут.
-    if (id === 'general') log(s, 'Отряда при нём нет. Собери его в Статуе.', 'bad');
+    // Отряд в городе не собирают (ДР-6): его дают в окне дела, перед выходом. Сказано сразу — тревога держится до первого дела.
+    if (id === 'general') log(s, NEW_GENERAL, 'info');
     changed = true;
   }
   return changed;

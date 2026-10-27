@@ -36,6 +36,7 @@ import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { prodCeil, storageOf } from '../../src/game/build.js';
 import { GONE_NAME, MERGED_INTO, MERGED_SAVE, foldTown } from '../../src/game/yardmerge.js';
 import { STAB_BAND, STAB_MAX, STAB_MIN, STAB_PRICE_MIN, STAB_SELF_MAX, stabEventRiseCeil, stabPointsCeil, stabSelfRiseCeil } from '../../src/game/stabrules.js';
+import { STATUE_TOP, statueCalm } from '../../src/game/statuerules.js';
 import { ESTATES, LOYAL, PRIV_MAX, estateCeil, influenceOf, isEstate, loyaltyCeil, privFromRow, type EstateCeil } from '../../src/game/estaterules.js';
 import { CROWN_GAIN_MAX, CROWN_RULES, CROWN_STAB_MAX, crownAnswersCeil, crownEvery, crownGain, crownStab, isCrown } from '../../src/game/crownrules.js';
 import {
@@ -244,8 +245,8 @@ export const CITY_RULES: readonly CityRule[] = [
   },
   {
     id: 'stab',
-    rule: 'стабильность: ступень в −3…+3; очков на ступени не больше, чем дал бы лучший правитель, и не меньше цены купленных; подъём — не выше купленного и того, что ровная жизнь даёт сама до «Лада»; подавлено мятежей не больше выигранных боёв',
-    formula: 'stabrules.stabPointsCeil, stabPrice, stabSelfRiseCeil, STAB_SELF_MAX',
+    rule: 'стабильность: ступень в −3…+3; очков на ступени не больше, чем дал бы лучший правитель, и не меньше цены купленных; подъём — не выше купленного и того, что ровная жизнь и лучшая Статуя дают сами до «Лада»; подавлено мятежей не больше выигранных боёв',
+    formula: 'stabrules.stabPointsCeil, stabPrice, stabSelfRiseCeil, STAB_SELF_MAX, statuerules.statueCalm',
     flag: 'stab',
     act: 'флаг',
   },
@@ -279,7 +280,7 @@ export const CITY_RULES: readonly CityRule[] = [
   },
   {
     id: 'agents',
-    rule: 'агенты Ратуши: сид партии — из описи, сменился — флаг и книга заново; кандидат — своего места, из окна своего найма и не выше ступени ратуши книги стройки, врождённое и черты сервер выводит из сида сам; опыт — не быстрее дел (одно за DEED_GAP и запас); наймов и платы вперёд — не меньше новых, жалованье — по ведомости сверх терпения; в войну — отметки, скрытность, диверсия и красноречие подтверждённого человека',
+    rule: 'агенты Ратуши: сид партии — из описи, сменился — флаг и книга заново; кандидат — своего места, из окна своего найма и не выше ступени ратуши книги стройки, врождённое и черты сервер выводит из сида сам; опыт — не быстрее дел (одно за DEED_GAP и запас); наймов и платы вперёд — не меньше новых, жалованье — по ведомости сверх терпения; вещей на агентах нет (ДР-7: только на правителе) — вещь на агенте не засчитана; в войну — отметки, скрытность, диверсия и красноречие подтверждённого человека',
     formula: 'agentrules.recruitAt, recruitAdvance, recruitWage, deedXp, pipsSpread, sabotagePower, eloquenceCut; agentbook.agentsStep, agentsAt',
     flag: 'agents',
     act: 'в войну — числа подтверждённого человека, неподтверждённый найм — ровный; флаг',
@@ -314,8 +315,8 @@ export const CITY_RULES: readonly CityRule[] = [
   },
   {
     id: 'spirit',
-    rule: 'дух дружины: жалованье — полное или минимальное — по часам сервера (смена — на выгодную игроку минуту); мораль и дисциплина описи в пределах 0…100 и не выше потолка книги (жалованье книги, подтверждённые Воевода, рыцари и казармы, ступень описи, лучшие прочие причины); счёт уплаченного не убывает; полное жалованье дольше терпения без единой монеты — дух на дне',
-    formula: 'spiritrules.spiritOfIn, payShareAt; spiritbook.spiritBookAfter, spiritCeil, spiritFaults',
+    rule: 'дух дружины: жалованье — полное или минимальное — по часам сервера (смена — на выгодную игроку минуту); мораль и дисциплина описи в пределах 0…100 и не выше потолка книги (жалованье книги, подтверждённые Воевода, рыцари, казармы и Статуя, ступень описи, лучшие прочие причины); счёт уплаченного не убывает; полное жалованье дольше терпения без единой монеты — дух на дне',
+    formula: 'spiritrules.spiritOfIn, payShareAt; statuerules.statueMorale; spiritbook.spiritBookAfter, spiritCeil, spiritFaults',
     flag: 'spirit',
     act: 'в войну — не выше потолка книги; флаг',
   },
@@ -847,6 +848,7 @@ export function spiritCeilOf(rec: WatchRecord, at: number): { spirit?: WarSpirit
     marshal: councilResolve(rec.card, levelIn(levels, 'town_hall')),
     knights: estateCeilOf(rec.card, levels).resolve,
     barracks: levelIn(levels, 'barracks'),
+    statue: levelIn(levels, 'statue'),
   };
   return { spirit: spiritCeil(rec.spirit, known, at, { rite: RESOLVE_MAX }) };
 }
@@ -1130,9 +1132,9 @@ export function agentsWage(rec: Pick<WatchRecord, 'agents'>): number {
   return n;
 }
 
-/** Числа подтверждённых агентов для войны (`war.SheetAt.agents`): по книге агентов и Статуе книги стройки. */
-export function agentsOf(rec: WatchRecord, at: number): { agents?: AgentsAt } {
-  const got = agentsAt(rec.agents, levelIn(townOf(rec, at).levels, 'statue'));
+/** Числа подтверждённых агентов для войны (`war.SheetAt.agents`): по книге агентов. */
+export function agentsOf(rec: WatchRecord): { agents?: AgentsAt } {
+  const got = agentsAt(rec.agents);
   return Object.keys(got).length > 0 ? { agents: got } : {};
 }
 
@@ -1162,7 +1164,8 @@ export function stabFlags(a: WatchCard, b: WatchCard, days: number, realMs: numb
   const revolts = Math.max(0, x.revolts - y.revolts);
   const won = Math.max(0, b.won - a.won);
   const low = Math.max(STAB_MIN, y.level - revolts);
-  const self = Math.max(low, Math.min(STAB_SELF_MAX, low + stabSelfRiseCeil(days, won, STAB_BAND)));
+  // Статуя Героя (ДР-7) поднимает тихим сдвигом: потолок — при лучшей, описи о Статуе сервер здесь не спрашивает.
+  const self = Math.max(low, Math.min(STAB_SELF_MAX, low + stabSelfRiseCeil(days, won, STAB_BAND, statueCalm(STATUE_TOP))));
   // Вести державы поднимают и выше «Лада» (СБ-2): их сдвиг — поверх.
   const top = Math.min(STAB_MAX, self + bought + stabEventRiseCeil(credit.rise));
   if (x.level > top) {

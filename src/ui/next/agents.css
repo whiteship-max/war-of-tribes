@@ -127,3 +127,40 @@
   flex-wrap: wrap;
   row-gap: 2px;
 }
+
+/* Дверь в карточку человека (ДР-7): портрет — кнопка 56 × 70, имя со стрелкой — та же дверь. */
+.ag-port {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ag-open {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ag-chev {
+  flex: none;
+  font-style: normal;
+  color: var(--muted);
+}
+/* Карточка человека поверх Ратуши — та же страница, что в «Походах»: своя шапка с «закрыть». */
+.ag-person > .panel {
+  margin: 0;
+  border-radius: 14px 14px 0 0;
+}

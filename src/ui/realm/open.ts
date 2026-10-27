@@ -90,7 +90,7 @@ export function coatView(s: GameState, quiet: boolean, last: RealmView): RealmVi
 
 /**
  * Донесение о набеге этого отряда — экран решения о набеге: расстановки обороны больше нет (поставка 2 боя,
- * docs/battle_eu4.md, 14.27), а донесение несёт оба ответа — перехват на карте и сбор дружины в Статуе. Лежит оно в
+ * docs/battle_eu4.md, 14.27), а донесение несёт оба ответа — перехват на карте и оборону гарнизоном. Лежит оно в
  * почте ровно пока набег виден (`LocalWorld.syncRaidLetter`); нет его — «Решения» открываются списком.
  */
 export function openRaid(marchId: string): void {

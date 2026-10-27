@@ -20,8 +20,6 @@ export interface PipLines {
   rows: string[];
   /** Куда ляжет следующий кружок. null — кружков пять. */
   next: string | null;
-  /** Сколько из кружков — воинская традиция Статуи, словами. null — Статуя кружков не даёт. */
-  tradition: string | null;
 }
 
 /** Куда ляжет кружок — винительный падеж имён отметок (`PIP_NAME`): «в обстрел», «в сшибку». */
@@ -31,12 +29,12 @@ const INTO: Record<PipId, string> = { fire: 'обстрел', shock: 'сшибк
 const pct = (x: number): string => `+${num(x * 100, 1)} %`;
 
 /**
- * Отметки полководца словами. `level` — уровень, с которого они считаются (`sim/agents.pipLevel`: свои кружки и кружки
- * воинской традиции Статуи), `pips` — нынешние (`sim/agents.pipsOf`), `next` — на следующем уровне (`pipsAt` того же
- * человека): склонность — бросок от сида и номера человека, и куда ляжет следующий кружок, известно заранее. `tradition` —
- * сколько кружков сверх своих дала Статуя (`derived.tradition` под потолком). Что даёт отметка, — замер функцией ядра (`world/agents.pipRows`).
+ * Отметки полководца словами. `level` — уровень, с которого они считаются (`sim/agents.pipLevel`: его кружки с врождённым),
+ * `pips` — нынешние (`sim/agents.pipsOf`), `next` — на следующем уровне (`pipsAt` того же человека): склонность — бросок от
+ * сида и номера человека, и куда ляжет следующий кружок, известно заранее. Что даёт отметка, — замер функцией ядра
+ * (`world/agents.pipRows`).
  */
-export function pipLines(level: number, pips: Pips, next: Pips | null, tradition = 0): PipLines {
+export function pipLines(level: number, pips: Pips, next: Pips | null): PipLines {
   const rows = pipRows(pips)
     .filter((r) => r.n > 0)
     .map((r) =>
@@ -56,10 +54,6 @@ export function pipLines(level: number, pips: Pips, next: Pips | null, tradition
         : 'Отметка прибавляет урон в своей фазе, в походе и у своих стен.',
     rows,
     next: nextLine,
-    tradition:
-      tradition > 0
-        ? `Статуя даёт ${count(tradition, 'отметку', 'отметки', 'отметок')}.`
-        : null,
   };
 }
 

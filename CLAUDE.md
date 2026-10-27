@@ -486,7 +486,12 @@ HEAD один на всех, см. правило 8). Значит развес�
   уровень достался даром. Замок держит `sim/realm.test.ts` чтением исходников;
 - `src/game/sim/dynasty.ts` — единственная дверь в дом правителя (`RealmState`): кто правит,
   кто наследует, чьи навыки и чьё имя лежат в партии, и два писателя разошлись бы в том, кто
-  на престоле. Там же `mergeRealm` — чтение дома из сохранения;
+  на престоле. Там же `mergeRealm` — чтение дома из сохранения, и вещи правителя (`RealmState.gear`,
+  ДР-7: только на нём; пишет `wear`);
+- `src/game/statuerules.ts` — Статуя Героя (ДР-7, docs/city_v3.md, «Решения ДР-7»): мораль дружины строкой духа и тихий сдвиг
+  стабильности по уровню, одни на игру (`sim/spirit`, `sim/stability`) и на книги сервера (потолок духа `watch.spiritCeilOf`,
+  подъём стабильности `watch.stabFlags`). Разойдись они у двоих — сервер срезал бы честный дух или назвал бы подделкой честный
+  подъём к «Ладу»;
 - `src/game/sim/tech.ts` — единственная дверь гейта (`RealmState.tech`): что открыто, что
   закрыто и почему, трата уровня и засчитывание пройденного начатой партии. Уровень лежит в
   партии, и два судьи «открыто ли это» разошлись бы молча — заметил бы игрок, у которого
@@ -749,7 +754,8 @@ HEAD один на всех, см. правило 8). Значит развес�
   строящееся (`sim/rush.rushQueued`, сервер — `town.rushFloor`); сервер держит порядок и возврат (`town.queueFaults`,
   `watch.cancelledRefund`) (`sim/queue.test.ts`, `security.test.ts`; village, docs/ui_v2.md, 5.13).
 - **Держава** — очки `sim/points` (`bank`, `spend`), гейт `sim/tech` (поля `requiresTech` нет — тест),
-  дом правителя `sim/dynasty` (realm).
+  дом правителя `sim/dynasty` (realm). Вещи — только на правителе (`sim/dynasty.wear`, ДР-7); с агентов надетое снято при чтении
+  (`sim/agents.gearOff`, строка летописи), вещь на агенте в описи — флаг правила «agents».
 - **Стабильность** — ступень, сдвиг, полосы и мятеж пишет одна дверь `sim/stability` (числа — `game/stabrules`, слова
   раздела и прогноз вестей — `sim/stabview`); веса причин — просадки морали, полосы невольников и войска — ропот и терпение,
   мятежники — вызов к воротам `sim/gate`, укрепление — тремя видами очков через `points.spend`; сервер сверяет ступень и
@@ -765,7 +771,8 @@ HEAD один на всех, см. правило 8). Значит развес�
   строки морали, своей прибавки `resolve` у наших боёв нет), жалованье — `sim/upkeep.setWageMode`, память боёв — `noteBattle`; в бой —
   `ArmySetup.spirit` (мораль — стартовая мораль, дисциплина — урон; `battle/config.SPIRIT`), без поля — бой прежний; сервер — правило
   «spirit», в войну не выше потолка книги (`book.ruleSpirit`) (`spirit.test.ts`, `spiritbattle.test.ts`, `spiritbook.test.ts`;
-  docs/siege_v2.md, «Решения ДР-1»).
+  docs/siege_v2.md, «Решения ДР-1»). Статуя Героя — строкой морали `statuerules.statueMorale` и слагаемым лада `statueCalm`; с
+  полководцем она не связана (ДР-7: `game/dr7.test.ts`, `netlify/lib/dr7.test.ts`).
 - **Командиры флангов** — места пишет одна дверь `sim/command`, кандидаты и найм — `sim/commanders` (смена — только когда полководец
   дома), числа — `commandrules` (тактика — вывод `npm run fight -- --derive-flank`, милость и обида знати — из порогов); в бой —
   `ArmySetup.flanks` одной дверью ядра `flankPips` (кость своей полосы, там же, где отметки полководца: `LocalWorld.generalFlanks`,
@@ -804,7 +811,9 @@ HEAD один на всех, см. правило 8). Значит развес�
   сидом `LocalWorld.strikeLeg`, ушедших вычитает книга войска `book.warLosses`); дома — даром, в пути — стоянкой и энергией
   (`WorldApi.setGait`, сервер — приказ `gait`); энергия дороги — в темпе режима (`EnergyMark.rate`); обоз — сытый дух
   (`PlayerProfile.spiritFed`) и уход голодом не из отряда (`GameState.awayFed`) (`gait.test.ts`, `gaitworld.test.ts`,
-  `netlify/lib/wargait.test.ts`, `game/trainfed.test.ts`; docs/siege_v2.md, 25).
+  `netlify/lib/wargait.test.ts`, `game/trainfed.test.ts`; docs/siege_v2.md, 25). Выбирают его в окне дела (ДР-7): строки трёх
+  режимов у дела — `ErrandOption.gaits`, приказ — `ErrandOrder.gait` (дома даром, отказ дела возвращает прежний), убыль и вывоз
+  по составу окна — `gait.gaitTake`; в пути — окно отряда (`parts/GaitDesk`) (`world/dr7.test.ts`; docs/city_v3.md, «Решения ДР-7»).
 - **Дело агента** — свободной ходьбы нет: агент идёт к цели (свой город, двор, город игрока, отряд в пути) делом
   `WorldApi.errand` по меню `errands` (таблица `world/data/errands`) и сам возвращается домой (`LocalWorld.errandBack`);
   приказа «в клетку» в `WorldApi` нет (`world/errands.test.ts`; agents, docs/AGENTS.md, раздел 16).

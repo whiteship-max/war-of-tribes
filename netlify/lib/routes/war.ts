@@ -123,7 +123,7 @@ export const war: Route = async (req, io) => {
       ...(rec.goods ? { goods: rec.goods } : {}),
       ...marshalOf(rec, now),
       ...yieldCapOf(rec, now),
-      ...agentsOf(rec, now),
+      ...agentsOf(rec),
       // Командиры флангов (ДР-3) — по книге командиров сервера (`watch.commandOf`): тактика флангов и слагаемое знати.
       ...commandOf(rec),
       // Дух дружины (ДР-1) — не выше потолка книги духа сервера (`watch.spiritCeilOf`): жалованье по часам сервера.

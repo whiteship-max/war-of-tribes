@@ -1,11 +1,12 @@
 // Места агентов в профильном здании: кто на месте, идёт ли прежний найм, и кнопка «Нанять в Ратуше».
 //
-// Одна часть на три здания — Дозор (разведчик и лазутчик), храм (дипломат) и Статую (полководец). С АГ-1 найм, смена и
+// Одна часть на два здания — Дозор (разведчик и лазутчик) и храм (дипломат); у Статуи с ДР-7 мест нет — полководец только в
+// Ратуше (docs/city_v3.md, «Решения ДР-7»). С АГ-1 найм, смена и
 // увольнение — только в Ратуше, в разделе «Агенты» (docs/city_v3.md, «Решения АГ-1»): здесь строка места и дверь туда. Ни
 // одного своего числа: возраст и уровень — из `sim/agents`, закрытое державой место — `sim/tech.placeBlock`.
 import { useGame } from '@/game/store';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
-import { agentLevel, ageOf, personName, retireAgeAt, seated, yearsOf } from '@/game/sim/agents';
+import { agentLevel, ageOf, personName, retireAgeAt, yearsOf } from '@/game/sim/agents';
 import { placeBlock } from '@/game/sim/tech';
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import { realLeft } from '@/ui/parts/wait';
@@ -107,16 +108,12 @@ function Place({ id }: { id: FigureId }) {
 /**
  * Раздел «Люди» здания: кто служит при нём. Нанимают, меняют и увольняют в Ратуше (АГ-1) — пустое место ведёт туда кнопкой.
  */
-export function AgentPlaces({ ids, vacantOnly = false }: { ids: FigureId[]; vacantOnly?: boolean }) {
-  const s = useGame((g) => g.s);
-  // `vacantOnly` — у здания, где человек на месте показан своей карточкой целиком (Статуя, Д7): строка места нужна, только
-  // пока места нет, оно пустует или идёт найм.
-  const shown = vacantOnly ? ids.filter((id) => !seated(s, id)) : ids;
-  if (shown.length === 0) return null;
+export function AgentPlaces({ ids }: { ids: FigureId[] }) {
+  if (ids.length === 0) return null;
   return (
     <>
       <h3>Люди</h3>
-      {shown.map((id) => (
+      {ids.map((id) => (
         <Place key={id} id={id} />
       ))}
     </>

@@ -6,7 +6,7 @@ import { useWorld, worldNow } from '@/world/store';
 import { realDue } from '@/ui/parts/wait';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { hireWhere } from '@/game/sim/hire';
-import { bareGeneral } from '@/game/sim/agents';
+import { NEW_GENERAL, bareGeneral } from '@/game/sim/agents';
 import { placeOpen } from '@/game/sim/tech';
 import { stabOf } from '@/game/sim/stability';
 import { GROUP_META } from '@/game/data/stability';
@@ -57,6 +57,7 @@ export function useAlertItems(): AlertItem[] {
   const openBuilding = useGame((g) => g.openBuilding);
   const openTab = useGame((g) => g.openTab);
   const openHall = useGame((g) => g.openTownHall);
+  const openMap = useGame((g) => g.openMap);
   const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));
   // Письмо о набеге ждёт в почте державы, а не на экране: тревога остаётся предупреждением на виду — и в
   // городе, и на карте. Отсчёт каждой идёт сам, пока кто-то идёт на нас (`useRaidWords`).
@@ -128,19 +129,18 @@ export function useAlertItems(): AlertItem[] {
       goWord: 'Нанять',
     });
   }
-  // Новый полководец без дружины: держится, пока её не соберут или пока он не сходит в первый бой. Решает
-  // одно правило (`sim/agents.bareGeneral`).
+  // Новый полководец без дела: держится, пока он не сходит в первый бой. Решает одно правило (`sim/agents.bareGeneral`);
+  // отряд ему дают в окне дела (ДР-6), и тревога ведёт на карту, а не в Статую (ДР-7: Статуя с полководцем не связана).
   if (bareGeneral(s, general)) {
-    const statue = buildingOfType(s, 'statue');
     out.push({
       key: 'bare-general',
       icon: 'fig-general',
-      text: 'Полководец без отряда',
-      title: 'Полководец без отряда',
-      body: 'Отряд ему собирают у Статуи.',
+      text: 'Новый полководец ждёт дела',
+      title: 'Новый полководец ждёт дела',
+      body: NEW_GENERAL,
       urgent: false,
-      go: statue ? () => openBuilding(statue.id) : null,
-      goWord: 'К Статуе',
+      go: openMap,
+      goWord: 'На карту',
     });
   }
   // Стабильность (СБ-1, docs/stability.md, 2.8): «мятеж близок» — полоса группы выше порога и растёт; ведёт в раздел, где

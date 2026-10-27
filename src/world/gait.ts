@@ -13,6 +13,7 @@
 import { GAIT_HAUL, GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, type Gait } from './data/gait';
 import { wasteLosses } from './siegeroll';
 import { travelTime } from './geo';
+import { stackCarry } from './data/units';
 import { gameDaysOfMs, realMs } from '../game/pace';
 
 export { GAITS, GAIT_HAUL, GAIT_META, GAIT_SPEED, GAIT_LIGHT_WASTE, TRAIN_SHARE, type Gait } from './data/gait';
@@ -35,6 +36,12 @@ export const gaitHaul = (g: Gait | undefined): number => GAIT_HAUL[readGait(g)];
 /** Отказ лагеря налегке — одна строка на кнопку, приказ, минуту прихода и сервер (М7). */
 export const LIGHT_NO_CAMP = 'Налегке лагерь не ставят: обоза нет. Смени режим марша на «Обычный» или «С обозом».';
 
+/**
+ * Режим в приказе дела не дома (ДР-7): окно дела выбирает режим только дома, даром; в пути и в поле его меняют в окне отряда —
+ * стоянкой и энергией (М6).
+ */
+export const GAIT_AWAY = 'Не дома режим меняют в окне отряда: стоянкой и энергией.';
+
 /** Может ли отряд в этом режиме встать лагерем: null — может, иначе отказ. */
 export const siegeBlockOf = (g: Gait | undefined): string | null => (readGait(g) === 'light' ? LIGHT_NO_CAMP : null);
 
@@ -51,6 +58,19 @@ export const fedOnRoad = (g: Gait | undefined): boolean => readGait(g) === 'trai
 export function lightShare(g: Gait | undefined, ms: number): number {
   if (readGait(g) !== 'light' || !(ms > 0)) return 0;
   return 1 - (1 - GAIT_LIGHT_WASTE) ** gameDaysOfMs(ms);
+}
+
+/**
+ * Что режим сделает с отрядом из `men` бойцов на дороге `walkMs` (ДР-7): ожидание ушедших налегке к приходу (доля × отряд) и
+ * сколько добра поднимут дошедшие — поклажа без ожидаемой убыли, множитель режима (`gaitHaul`) и множитель своего отряда
+ * `haul` (черта «Добычливый»; 0 — дело добычи не берёт). Одна дверь на окно дела, где состав выбирают тут же, и на мир
+ * (`LocalWorld.haul` — та же `stackCarry` по головам).
+ */
+export function gaitTake(men: number, g: Gait | undefined, walkMs: number, haul: number): { lost: number; carry: number } {
+  const n = Math.max(0, Math.floor(Number.isFinite(men) ? men : 0));
+  const lost = Math.round(n * lightShare(g, walkMs));
+  const carry = haul > 0 ? Math.floor(stackCarry({ warrior: n - lost }) * haul * gaitHaul(g)) : 0;
+  return { lost, carry };
 }
 
 /**

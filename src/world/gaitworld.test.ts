@@ -22,7 +22,7 @@ import { routPeril } from './peril';
 import { ENERGY_PRICE } from './data/energy';
 import { CAMP_WASTE, SIEGE_PHASE } from './data/siegeroll';
 import { setPhaseDie, wasteOf } from './siegeroll';
-import { LIGHT_NO_CAMP, gaitHaltMs, lightShare, strikeSeed, strikeWorn } from './gait';
+import { LIGHT_NO_CAMP, gaitHaltMs, gaitTake, lightShare, strikeSeed, strikeWorn } from './gait';
 import { MARCH_MIN_SECONDS } from './data/tuning';
 
 // ВРЕМЕННО ×3 ДЛЯ ТЕСТА: механика проверяется при 1 (задание ДР-2); ×3 ложится сверху (`gait.test.ts`).
@@ -71,10 +71,14 @@ async function ready(seed = 7, over: Partial<PlayerProfile> = {}) {
 
 afterEach(() => setPhaseDie(null));
 
+/** Строки режима окна дела (ДР-7) — у дела «Ударить» по ближнему логову. */
+const stormRows = async (r: Awaited<ReturnType<typeof ready>>) =>
+  (await r.world.errands('general', { kind: 'place', id: r.lair.id })).find((o) => o.id === 'storm')?.gaits ?? [];
+
 describe('режим марша в мире: выбор до приказа', () => {
-  it('строки карточки — те же сроки, что исполнит приказ; налегке быстрее, обоз вдвое медленнее', async () => {
+  it('строки окна дела — те же сроки, что исполнит приказ; налегке быстрее, обоз вдвое медленнее', async () => {
     const r = await ready();
-    const rows = (await r.world.settlement(r.lair.id))?.assault?.gaits ?? [];
+    const rows = await stormRows(r);
     const by = Object.fromEntries(rows.map((x) => [x.gait, x]));
     // Точка внутри области: и налегке дорога длиннее пола похода — множитель виден целиком.
     expect(by.light.walkMs).toBeGreaterThan(realMs(MARCH_MIN_SECONDS));
@@ -82,7 +86,7 @@ describe('режим марша в мире: выбор до приказа', ()
     expect(by.train.walkMs / by.normal.walkMs).toBeCloseTo(2, 2);
     expect(by.light.siege).toBe(LIGHT_NO_CAMP);
     expect(by.normal.siege).toBeNull();
-    expect(by.light.lost).toBe(Math.round(troopTotal(HOST) * lightShare('light', by.light.walkMs)));
+    expect(gaitTake(troopTotal(HOST), 'light', by.light.walkMs, by.light.haul).lost).toBe(Math.round(troopTotal(HOST) * lightShare('light', by.light.walkMs)));
     for (const g of ['light', 'normal', 'train'] as const) {
       const w = await ready();
       expect(await w.world.setGait(g)).toBeNull();
@@ -286,7 +290,7 @@ describe('режим марша в мире: старое сохранение',
     delete r.inner.save.figures.general.gait;
     const g = await r.gen();
     expect(g.march?.gait).toBe('normal');
-    const rows = (await r.world.settlement(r.lair.id))?.assault?.gaits ?? [];
+    const rows = await stormRows(r);
     expect((await r.world.settlement(r.lair.id))?.assault?.walkMs).toBe(rows.find((x) => x.gait === 'normal')?.walkMs);
     expect(wasteOf('calm', 10, true)).toBeCloseTo(wasteOf('calm', 10, true, false), 12);
   });
@@ -315,16 +319,18 @@ describe('режим марша в мире: вывоз добычи (ДР-5)', 
   it('окно выбора показывает вывоз дошедших — той же дверью, что возьмёт добычу', async () => {
     const r = await ready();
     const h = r.world as unknown as Hauling;
-    const rows = (await r.world.settlement(r.lair.id))?.assault?.gaits ?? [];
+    const rows = await stormRows(r);
     const men = troopTotal(r.inner.save.figures.general.troops ?? {});
     expect(men, 'точка внутри области: отряд есть').toBeGreaterThan(0);
-    expect(rows.find((x) => x.gait === 'light')?.lost, 'точка внутри области: налегке к приходу уходят').toBeGreaterThan(0);
+    const take = (row: (typeof rows)[number]) => gaitTake(men, row.gait, row.walkMs, row.haul);
+    expect(take(rows.find((x) => x.gait === 'light')!).lost, 'точка внутри области: налегке к приходу уходят').toBeGreaterThan(0);
     for (const row of rows) {
       if (row.gait === 'normal') delete r.inner.save.figures.general.gait;
       else r.inner.save.figures.general.gait = row.gait;
-      expect(row.carry).toBe(Math.floor(h.haul({ warrior: men - row.lost }, true).carry));
+      // Окно считает вывоз дверью `gaitTake` по составу окна — тем же числом, что возьмёт добычу мир.
+      expect(take(row).carry).toBe(Math.floor(h.haul({ warrior: men - take(row).lost }, true).carry));
     }
-    const by = Object.fromEntries(rows.map((x) => [x.gait, x.carry]));
+    const by = Object.fromEntries(rows.map((x) => [x.gait, take(x).carry]));
     expect(by.light).toBeLessThan(by.normal);
     expect(by.train).toBeGreaterThan(by.normal);
   });

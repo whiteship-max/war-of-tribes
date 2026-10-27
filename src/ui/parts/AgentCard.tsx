@@ -1,4 +1,4 @@
-// Карточка человека на месте: уровень, навык, опыт, скорость и места под вещи. Новый вид — шапка 56, числа справками,
+// Карточка человека на месте: уровень, навык, опыт, скорость, риск, черты и родословная. Новый вид — шапка 56, числа справками,
 // объяснения в подсказке по касанию (docs/ui_audit.md, 3.7, 3.10; 18).
 //
 // Ни одного своего числа здесь нет — это правило, а не пожелание. Что даёт
@@ -7,38 +7,19 @@
 // земли — та же `revealSight`, что у тумана, долю тихих провалов — то же
 // `slipped`, что решает исход.
 //
-// Полководец и герой Статуи — один человек. Сколько он уводит и за скольких
-// стоит сам, решает Статуя, и это стоит здесь с подписью «откуда»; уровень даёт
-// отметки — и это тоже подписано. Вопроса «кто главный» у игрока быть не должно.
-//
-// Карточка одна на два места: страница в «Походах» и раздел в Статуе. Во втором
-// (`embedded`) нет кнопки возврата и раздела «Что даёт Статуя» — то же число
-// стоит в самой Статуе строкой выше, и дважды на одном экране оно не нужно.
+// Карточка одна на два места: страница в «Походах» и лист поверх Ратуши, раздел «Агенты» (ДР-7, docs/city_v3.md, «Решения
+// ДР-7»). Статуя Героя с ДР-7 с полководцем не связана: всё о нём — отметки, риск у ворот и в поле, мораль отряда, где он и его
+// отряд, режим марша в пути и родословная — здесь. Вещей у агентов нет: их надевают только на правителя (Держава).
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
-import { buildingOfType, payGraceDays } from '@/game/derived';
-import {
-  DEED_GAP,
-  DEED_XP,
-  LEVEL_XP,
-  MAX_AGENT_LEVEL,
-  SKILL_OF,
-  SLOT_COUNT,
-  THIRD_SLOT_LEVEL,
-  levelOf,
-  nextLevelXp,
-  slotsOpen,
-} from '@/game/data/agents';
-import { itemIn } from '@/game/data/items';
-import { ageOf, agentLevel, generalCircles, headOf, personName, retireAgeAt, pipsAt, pipsOf, regear, regearBlock, traitsHeld, yearsOf } from '@/game/sim/agents';
-import { skillCircles } from '@/game/agentrules';
+import { DEED_GAP, DEED_XP, LEVEL_XP, MAX_AGENT_LEVEL, SKILL_OF, levelOf, nextLevelXp } from '@/game/data/agents';
+import { ageOf, agentLevel, generalCircles, personName, retireAgeAt, pipsAt, pipsOf, traitsHeld, yearsOf } from '@/game/sim/agents';
 import { deedsOf } from '@/game/data/traits';
 import { hireWhere } from '@/game/sim/hire';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
-import { ownedItems } from '@/net/owned';
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import { distance, terrainFactor, travelTime } from '@/world/geo';
-import { realSpanText, waitDays, waitLeft } from '@/ui/parts/wait';
+import { realSpanText, waitLeft } from '@/ui/parts/wait';
 import { tipAt } from '@/ui/next/tip';
 import { Icon } from '@/ui/icons/Icon';
 import { figurePosition, useWorld, worldNow } from '@/world/store';
@@ -46,14 +27,15 @@ import type { FigureId } from '@/world/types';
 import { deathLine, pipLines, sightLine, stealthLine } from './agentLines';
 import { REST_WHY, restLine } from './restWords';
 import { GaitDesk } from './GaitDesk';
-import { gaitSpeed } from '@/world/gait';
+import { GAIT_META, gaitSpeed, readGait } from '@/world/gait';
+import { MusterLink } from './MusterLink';
+import { Lineage } from './Lineage';
 import { EnergyBar } from './Energy';
 import { count } from './plural';
 import { traitLines } from './traitLines';
 import { num } from '@/game/num';
 import { iconName } from '@/ui/icons/registry';
 
-/** Отметки полководца: какие есть, что дают замером и куда ляжет следующий кружок. */
 /** Подсказка по касанию справки (docs/ui_audit.md, 3.7). */
 const tip =
   (title: string, body: string) =>
@@ -64,15 +46,12 @@ const tip =
 function GeneralPips({ level }: { level: number }) {
   const s = useGame((g) => g.s);
   const g = s.agents.general;
-  // Отметки считаются с уровня, в который входят врождённое (АГ-1) и воинская традиция Статуи (`generalCircles`).
+  // Отметки считаются с уровня, в который входит врождённое (АГ-1, `generalCircles`).
   const at = generalCircles(s, level);
-  const own = skillCircles(level, headOf(s, 'general').pips ?? 0);
-  // Сколько отметок дала традиция — сверх своих и под потолком: ветерану пятого уровня она уже не прибавляет.
-  const lines = pipLines(at, pipsOf(s), at < MAX_AGENT_LEVEL ? pipsAt(s.seed, g.person, generalCircles(s, level + 1), g.cand?.n ?? null) : null, at - own);
+  const lines = pipLines(at, pipsOf(s), at < MAX_AGENT_LEVEL ? pipsAt(s.seed, g.person, generalCircles(s, level + 1), g.cand?.n ?? null) : null);
   return (
     <>
       <p className="nx-tnote">{lines.now}</p>
-      {lines.tradition && <p className="nx-tnote">{lines.tradition}</p>}
       {lines.rows.map((r) => (
         <p key={r} className="nx-tnote">
           {r}
@@ -114,10 +93,8 @@ function Traits({ id }: { id: FigureId }) {
   );
 }
 
-export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBack?: () => void; embedded?: boolean }) {
+export function AgentCard({ id, onBack }: { id: FigureId; onBack?: () => void }) {
   const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
-  const showToast = useGame((g) => g.showToast);
   const f = useWorld((g) => g.figures.find((x) => x.id === id));
   const info = useWorld((g) => g.info);
   const def = FIGURE_BY_ID[id];
@@ -126,15 +103,13 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
   const skill = SKILL_OF[id];
   const next = nextLevelXp(progress.xp);
   const floor = LEVEL_XP[levelOf(progress.xp) - 1];
-  const owned = ownedItems();
   // Карточка открывается из середины списка: без этого шторка осталась бы прокручена к
   // тому месту, где стояла строка человека, и шапка карточки уехала бы за край.
   const top = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!embedded) top.current?.scrollIntoView({ block: 'start' });
-  }, [id, embedded]);
+    top.current?.scrollIntoView({ block: 'start' });
+  }, [id]);
 
-  const statue = buildingOfType(s, 'statue')?.level ?? 0;
   const vacant = progress.vacant;
   const years = yearsOf(s, id);
   const restAge = retireAgeAt(s, id);
@@ -149,41 +124,33 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
     road = `До дома ${waitLeft(seconds)}.`;
   }
 
-  const block = f ? regearBlock(id, f) : 'Где он сейчас, пока неизвестно.';
-  const slotWhy = block ?? (owned.length === 0 ? 'Надеть нечего.' : null);
   const who = !vacant && progress.name ? personName(s, id) : null;
 
   return (
-    <div className={embedded ? 'nx-acard' : 'panel nx-bpanel nx-acard'} ref={top}>
-      {/* Шапка нового вида (3.10): значок роли (касание — что он умеет), имя, «ур. · возраст»; в «Походах» справа —
-          возврат к списку. В Статуе (`embedded`) шапку держит окно постройки, здесь — строка раздела. */}
-      {embedded ? (
-        <h3>
-          {who ?? def.name} <span className="muted">ур. {level}</span>
-        </h3>
-      ) : (
-        <div className="nx-bhead">
-          <button className="nx-bico" onClick={tip(def.name, `${def.description} ${def.ability}`)} aria-label={`${def.name}: что умеет`}>
-            <Icon name={iconName('fig', id)} />
-          </button>
-          <div className="nx-btitle">
-            <b className="one-line">
-              {def.name}
-              {who ? ` · ${who}` : ''}
-            </b>
-            {!vacant && (
-              <span className="nx-blvl">
-                ур. {level} · {count(years, 'год', 'года', 'лет')}
-              </span>
-            )}
-          </div>
-          {onBack && (
-            <button className="nx-bclose" onClick={onBack} aria-label="К походам">
-              <Icon name="ui-close" />
-            </button>
+    <div className="panel nx-bpanel nx-acard" ref={top}>
+      {/* Шапка нового вида (3.10): значок роли (касание — что он умеет), имя, «ур. · возраст»; справа — возврат к списку
+          «Походов» или к Ратуше. */}
+      <div className="nx-bhead">
+        <button className="nx-bico" onClick={tip(def.name, `${def.description} ${def.ability}`)} aria-label={`${def.name}: что умеет`}>
+          <Icon name={iconName('fig', id)} />
+        </button>
+        <div className="nx-btitle">
+          <b className="one-line">
+            {def.name}
+            {who ? ` · ${who}` : ''}
+          </b>
+          {!vacant && (
+            <span className="nx-blvl">
+              ур. {level} · {count(years, 'год', 'года', 'лет')}
+            </span>
           )}
         </div>
-      )}
+        {onBack && (
+          <button className="nx-bclose" onClick={onBack} aria-label="Закрыть карточку">
+            <Icon name="ui-close" />
+          </button>
+        )}
+      </div>
 
       {vacant ? (
         <p className="nx-bwarn">
@@ -249,8 +216,16 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
         </>
       )}
 
-      {/* Режим марша (ДР-2): какой сейчас, что значит в пути и смена — окно отряда. */}
-      {id === 'general' && f && !vacant && <GaitDesk f={f} />}
+      {/* Где полководец и его отряд — строка-вход в «Дружину» (ДР-7: прежде она стояла в Статуе). */}
+      {id === 'general' && !vacant && <MusterLink />}
+
+      {/* Режим марша (ДР-2, ДР-7): дома его выбирают в окне дела, перед выходом; в пути и в поле — здесь, в окне отряда. */}
+      {id === 'general' && f?.march && !vacant &&
+        (f.march.change.free ? (
+          <p className="nx-tnote">Режим марша — {GAIT_META[readGait(f.march.gait)].name.toLowerCase()}. Дома его выбирают в окне дела, перед выходом.</p>
+        ) : (
+          <GaitDesk f={f} />
+        ))}
 
       {id === 'general' && f?.rest && (
         // Мораль дружины между боями (docs/battle_eu4.md, 14.31): доля и срок — от мира, слова — одной частью.
@@ -261,57 +236,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
 
       {!vacant && <Traits id={id} />}
 
-      {id === 'general' && !embedded && (
-        <>
-          <h3>Что даёт Статуя</h3>
-          <button
-            className="nx-crow"
-            onClick={tip('Терпение дружины', `Сколько дружина ждёт жалованья. Растёт с уровнем Статуи, сейчас ур. ${statue}.`)}
-          >
-            <span className="nx-lico">
-              <Icon name="hud-army" />
-            </span>
-            <span className="nx-crow-t">Терпение дружины</span>
-            <b className="good">{waitDays(payGraceDays(s))}</b>
-          </button>
-        </>
-      )}
-
-      <h3>Вещи</h3>
-      <div className="totem-row">
-        {Array.from({ length: SLOT_COUNT }, (_, i) => {
-          const open = i < slotsOpen(progress.xp);
-          const st = itemIn(progress.slots[i] ?? null, owned);
-          const label = !open
-            ? `с ур. ${THIRD_SLOT_LEVEL}`
-            : st.kind === 'empty'
-              ? 'пусто'
-              : st.kind === 'unknown'
-                ? 'неизвестная вещь'
-                : st.kind === 'unowned'
-                  ? `${st.def.name}, не действует`
-                  : st.def.name;
-          return (
-            <button
-              key={i}
-              onClick={() => {
-                if (!open) return showToast(`Место откроется на ур. ${THIRD_SLOT_LEVEL}.`);
-                if (st.kind !== 'empty') {
-                  act((g) => regear(g, id, i, null, f ?? { phase: 'down', departAt: 0 }, owned));
-                  return;
-                }
-                showToast(slotWhy ?? 'Выбери, что надеть.');
-              }}
-            >
-              <span className="ico">
-                <Icon name={open ? 'attn-slot' : 'ui-lock'} />
-              </span>
-              <span style={{ color: 'var(--muted)' }}>{label}</span>
-            </button>
-          );
-        })}
-      </div>
-      {slotWhy && <p className="nx-tnote">{slotWhy}</p>}
+      <Lineage id={id} />
     </div>
   );
 }

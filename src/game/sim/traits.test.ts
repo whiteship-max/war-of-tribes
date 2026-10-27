@@ -18,6 +18,7 @@ import type { GameState } from '../types';
 import { applyEffects, playerProfile } from '@/world/bridge';
 import type { FigureId, HomeEffect } from '@/world/types';
 import {
+  NEW_GENERAL,
   bareGeneral,
   mergeLineage,
   recordDeath,
@@ -268,12 +269,13 @@ describe('новый полководец без дружины', () => {
     expect(bareGeneral(s, view()), 'уже водил бой').toBe(false);
   });
 
-  it('о пришедшем без дружины говорит летопись', async () => {
+  it('о пришедшем говорит летопись: отряд ему дают в окне дела (ДР-6), а не в Статуе (ДР-7)', async () => {
     const { settleHires } = await import('./hire');
     const s = fresh();
     s.agents.general.vacant = true;
     s.agents.general.hiring = { until: s.time, name: 'Преемник', age0: 24 };
     settleHires(s);
-    expect(s.log.some((e) => e.text.includes('Отряда при нём нет'))).toBe(true);
+    expect(s.log.some((e) => e.text === NEW_GENERAL)).toBe(true);
+    expect(s.log.some((e) => /Статуе/.test(e.text)), 'в Статую летопись не ведёт').toBe(false);
   });
 });

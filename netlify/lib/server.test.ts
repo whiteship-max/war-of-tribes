@@ -283,7 +283,7 @@ describe('личность берётся только из подписи', () 
     expect(sets).toEqual([
       'null',
       'null',
-      '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}), ...marshalOf(rec, now), ...yieldCapOf(rec, now), ...agentsOf(rec, now), ...commandOf(rec), ...spiritCeilOf(rec, now), ...scarsOfRec(rec), }',
+      '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}), ...marshalOf(rec, now), ...yieldCapOf(rec, now), ...agentsOf(rec), ...commandOf(rec), ...spiritCeilOf(rec, now), ...scarsOfRec(rec), }',
     ]);
     expect([...code.matchAll(/\bsheets\.set\(/g)].length).toBe(3);
   });

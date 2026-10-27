@@ -37,6 +37,7 @@ import {
   defense,
   deedsOf,
   armyResolve,
+  buildingOfType,
   feastInfo,
   forgeRate,
   healShare,
@@ -57,9 +58,9 @@ import {
   taxIncomePerDay,
   towerSeats,
   townHallBuildMult,
-  tradition,
   warningSeconds,
 } from '@/game/derived';
+import { statueCalm, statueMorale } from '@/game/statuerules';
 import { popGrowth } from '@/game/sim/population';
 import { resolvePoints } from '@/game/spiritrules';
 import { surveyInfo } from '@/game/sim/survey';
@@ -173,11 +174,22 @@ const GAUGES: Gauge[] = [
     },
   },
   {
-    // Воинская традиция — кружки полководца от Статуи (`derived.tradition`, П4): растёт через уровень. Отметки из
-    // кружков раскладывает склонность человека — это карточка полководца, а не кнопка.
-    id: 'tradition',
-    read: tradition,
-    say: (b, a) => (a <= b ? null : { text: `+${a - b} к навыкам полководца`, numbers: [a - b] }),
+    // Мораль дружины от Статуи Героя (ДР-7, `statuerules.statueMorale`): очки шкалы духа, растёт каждый уровень сверх первого.
+    id: 'statue-morale',
+    read: (s) => statueMorale(buildingOfType(s, 'statue')?.level ?? 0),
+    say: (b, a) => {
+      const d = num(a - b, 1);
+      return a - b < 0.05 ? null : { text: `+${d} к морали дружины`, numbers: [Number((a - b).toFixed(1))] };
+    },
+  },
+  {
+    // Сдвиг стабильности от Статуи (ДР-7, `statuerules.statueCalm`): % ступени в игровой день.
+    id: 'statue-calm',
+    read: (s) => statueCalm(buildingOfType(s, 'statue')?.level ?? 0),
+    say: (b, a) => {
+      const d = num(a - b, 2);
+      return a - b < 0.005 ? null : { text: `+${d} % ступени в день к ладу`, numbers: [Number((a - b).toFixed(2))] };
+    },
   },
   {
     // Доля, у которой главное — сколько станет: 35 % вместо 32 %.

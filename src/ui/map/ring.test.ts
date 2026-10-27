@@ -246,11 +246,13 @@ describe('кольцо над целью (К-2)', () => {
     expect(g.troops, 'ушёл ровно с выбранными').toEqual(want);
 
     // Окно войска: обе колонки, итог мощи и обороны, участь удара, «Отправить» — одним окном.
-    stores.game = { s, showToast: () => undefined, openBuilding: () => undefined };
+    stores.game = { s, showToast: () => undefined, openBuilding: () => undefined, openTownHall: () => undefined };
     stores.world = { figures: await b.world.figures(), marches: [], closeMenu: () => undefined };
     const fates = [{ id: 'plunder' as const, can: true, reason: null, loot: {}, slaves: 0, levels: 0, pop: 0 }];
-    const html = renderToStaticMarkup(h(ArmySend, { where: 'Логово', goal: target, o: storm!, fates: fates as never, onBack: () => undefined }));
-    for (const want of ['Остаётся', 'Уходит с полководцем', 'Оборона города', 'Мощь', 'Куда', 'Дорога', 'Риск', '>Отправить<', 'class="fate-pick"']) {
+    const html = renderToStaticMarkup(
+      h(ArmySend, { where: 'Логово', goal: target, o: storm!, fates: fates as never, gait: 'normal', free: true, onGait: () => undefined, onBack: () => undefined }),
+    );
+    for (const want of ['Остаётся', 'Уходит с полководцем', 'Оборона города', 'Мощь', 'Куда', 'Дорога', 'Риск', '>Отправить<', 'class="fate-pick"', 'Режим марша']) {
       expect(html, want).toContain(want);
     }
   }, 120_000);

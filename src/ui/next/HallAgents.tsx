@@ -5,7 +5,9 @@
 // Карточка места: портрет (набор персонажа, `Portrait`), место и кружки уровня, имя, возраст, черты кандидата, жалованье,
 // характеристики числами; «Сменить» — у человека на месте (только дома: в поле он дело заканчивает), «Нанять» — у пустого.
 // Касание — лист кандидатов поверх: нынешний и «Уволить» над ним, кандидаты с теми же числами и разницей с нынешним, чертами,
-// жалованьем и ценой. Четыре карточки по одной кнопке влезают в шторку без прокрутки.
+// жалованьем и ценой. Четыре карточки по одной кнопке влезают в шторку без прокрутки. Касание имени человека на месте — его
+// карточка целиком поверх Ратуши (`parts/AgentCard`, ДР-7): у полководца — отметки, риск у ворот и в поле, где он и его отряд,
+// мораль отряда, режим марша в пути, черты и родословная; прежде всё это стояло в Статуе Героя.
 //
 // Своих чисел нет (правило 18): кандидаты, найм, увольнение и отказы — `sim/recruits`, характеристики — двери
 // дела (`agentStats`), жалованье и плата — `agentrules`.
@@ -34,18 +36,33 @@ import { SheetPage } from '@/ui/kit/SheetPage';
 import { Cost } from '@/ui/parts/Cost';
 import { waitLeft } from '@/ui/parts/wait';
 import { tipAt } from './tip';
+import { AgentCard } from '@/ui/parts/AgentCard';
 import { NoPortrait, Portrait } from './Portrait';
 import { statsNow, statsOfRecruit, type StatValue } from './agentStats';
 
 /** Четыре места; касание «Нанять» или «Сменить» — лист кандидатов места. */
 export function HallAgents() {
   const [pick, setPick] = useState<FigureId | null>(null);
+  const [card, setCard] = useState<FigureId | null>(null);
   return (
     <>
       {AGENT_ROLES.map((r) => (
-        <RoleCard key={r} role={r} onPick={() => setPick(r)} />
+        <RoleCard key={r} role={r} onPick={() => setPick(r)} onCard={() => setCard(r)} />
       ))}
       {pick && <RecruitList role={pick} onClose={() => setPick(null)} />}
+      {card && <PersonSheet role={card} onClose={() => setCard(null)} />}
+    </>
+  );
+}
+
+/** Карточка человека на месте поверх Ратуши (ДР-7): та же, что в «Походах» (`AgentCard`), закрытие — возврат к агентам. */
+function PersonSheet({ role, onClose }: { role: FigureId; onClose: () => void }) {
+  return (
+    <>
+      <div className="hall-veil" onClick={onClose} />
+      <div className="hall-card ag-person" role="dialog" aria-label={`${FIGURE_BY_ID[role].name}: карточка`}>
+        <AgentCard id={role} onBack={onClose} />
+      </div>
     </>
   );
 }
@@ -108,7 +125,7 @@ function Wage({ wage }: { wage: number }) {
   );
 }
 
-function RoleCard({ role, onPick }: { role: FigureId; onPick: () => void }) {
+function RoleCard({ role, onPick, onCard }: { role: FigureId; onPick: () => void; onCard: () => void }) {
   const s = useGame((g) => g.s);
   const f = useWorld((g) => g.figures.find((x) => x.id === role));
   const def = FIGURE_BY_ID[role];
@@ -164,10 +181,18 @@ function RoleCard({ role, onPick }: { role: FigureId; onPick: () => void }) {
   const away = replaceBlock(s, role, f);
   return (
     <div className="cn-card ag-card">
-      <Portrait seed={lookOf(s, role)} age={faceAge(age)} post={role} />
+      <button type="button" className="ag-port" onClick={onCard} aria-label={`${FIGURE_BY_ID[role].name}: карточка`}>
+        <Portrait seed={lookOf(s, role)} age={faceAge(age)} post={role} />
+      </button>
       <div className="cn-body">
         {head(agentLevel(s, role))}
-        <b className="cn-name one-line">{personName(s, role)}</b>
+        {/* Имя — дверь в карточку человека целиком (ДР-7): отметки, риск, отряд, черты, родословная. */}
+        <button type="button" className="cn-name ag-open" onClick={onCard} tabIndex={-1}>
+          <span className="one-line">{personName(s, role)}</span>
+          <i className="ag-chev" aria-hidden="true">
+            ›
+          </i>
+        </button>
         <span className="cn-meta">
           <span className="ag-age">{yearsWord(Math.floor(age))}</span>
           {traitsBorn(s, role).map((t) => (
