@@ -1,13 +1,14 @@
 // Режим марша полководца в окне дела (ДР-2; ДР-7 — docs/city_v3.md, «Решения ДР-7»): три столбца-плитки — скорость, срок туда
-// и назад, убыль налегке, вывоз добычи и встанет ли лагерь. Дорога, отказы и энергия — мира (`ErrandOption.gaits`, та же дорога в
-// каждом режиме теми же функциями, что исполнят приказ); убыль и вывоз — по составу, выбранному в этом же окне, дверью
-// `gait.gaitTake`; слова — дверью `world/gait`.
+// и назад, убыль налегке, вывоз добычи и встанет ли лагерь. Дорога и отказы — мира (`ErrandOption.gaits`, та же дорога в каждом
+// режиме теми же функциями, что исполнят приказ); лагерь — `gait.siegeBlockOf`; убыль и вывоз — по составу, выбранному в этом же
+// окне, дверью `gaitview.gaitTake`; слова — дверью `world/gait`.
 // Дома режим меняют даром: касание плитки и есть выбор, и он уходит с делом одним приказом (`ErrandOrder.gait`). Не дома плитки
 // только для сравнения: режим в пути меняют в окне отряда, стоянкой и энергией (`GaitDesk`).
 import './gait.css';
-import { GAIT_AWAY, GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, GAITS, gaitTake, type Gait } from '@/world/gait';
+import { GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, GAITS, siegeBlockOf, type Gait } from '@/world/gait';
+import { gaitTake } from '@/world/gaitview';
 import type { GaitRow } from '@/world/types';
-import { GAIT_ABOUT } from './gaitWords';
+import { GAIT_ABOUT, GAIT_AWAY } from './gaitWords';
 import { Icon } from '@/ui/icons/Icon';
 import type { IconName } from '@/ui/icons/alias';
 import { realLeft } from './wait';
@@ -34,6 +35,7 @@ const whyOf = (g: Gait, why: string): string => (why.startsWith(GAIT_META[g].nam
 export function GaitPick({
   rows,
   men,
+  haul,
   value,
   free,
   onPick,
@@ -41,6 +43,8 @@ export function GaitPick({
   rows: readonly GaitRow[];
   /** Сколько бойцов уходит — состав этого же окна: по нему убыль и вывоз. */
   men: number;
+  /** Множитель поклажи своего отряда (`ErrandOption.haul`); 0 — дело добычи не берёт. */
+  haul: number;
   value: Gait;
   /** Полководец дома: режим меняется касанием даром и уходит с делом. */
   free: boolean;
@@ -52,7 +56,7 @@ export function GaitPick({
     return r ? [r] : [];
   });
   if (list.length === 0) return null;
-  const loot = list.some((r) => r.haul > 0);
+  const loot = haul > 0;
   const off = free ? list.filter((r) => r.block !== null) : [];
   return (
     <div className="gait-pick">
@@ -66,7 +70,8 @@ export function GaitPick({
         </div>
         {list.map((r) => {
           const on = r.gait === value;
-          const take = gaitTake(men, r.gait, r.walkMs, r.haul);
+          const take = gaitTake(men, r.gait, r.walkMs, haul);
+          const camp = siegeBlockOf(r.gait);
           return (
             <button
               key={r.gait}
@@ -87,7 +92,7 @@ export function GaitPick({
               <span>{r.backMs > 0 ? realLeft(r.backMs / 1000) : '—'}</span>
               <span className={take.lost > 0 ? 'bad' : ''}>{take.lost > 0 ? `−${take.lost}` : '—'}</span>
               <span>{loot ? haulWords(take.carry) : '—'}</span>
-              <span className={r.siege ? 'bad' : 'good'}>{r.siege ? 'нет' : 'да'}</span>
+              <span className={camp ? 'bad' : 'good'}>{camp ? 'нет' : 'да'}</span>
             </button>
           );
         })}

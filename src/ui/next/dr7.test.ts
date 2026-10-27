@@ -15,7 +15,8 @@ import { AGENT_ROLES } from '@/game/agentrules';
 import { creditTech } from '@/game/sim/tech';
 import { STATUE_TOP, statueCalm, statueMorale } from '@/game/statuerules';
 import { num } from '@/game/num';
-import { LIGHT_NO_CAMP, gaitTake } from '@/world/gait';
+import { LIGHT_NO_CAMP } from '@/world/gait';
+import { gaitTake } from '@/world/gaitview';
 import type { GaitRow } from '@/world/types';
 import { haulWords } from '@/ui/parts/GaitPick';
 
@@ -137,22 +138,19 @@ describe('ДР-7: всё о полководце — в Ратуше → «Аг�
 });
 
 describe('ДР-7: режим марша в окне дела', () => {
-  const rows = (walk: number, camp: boolean, haul = 1): GaitRow[] =>
+  const rows = (walk: number, camp: boolean): GaitRow[] =>
     (['light', 'normal', 'train'] as const).map((g, i) => ({
       gait: g,
       walkMs: walk * [2 / 3, 1, 2][i],
       backMs: walk * [2 / 3, 1, 2][i],
       block: camp && g === 'light' ? LIGHT_NO_CAMP : null,
-      siege: g === 'light' ? LIGHT_NO_CAMP : null,
-      haul,
-      energy: { price: 10, block: null },
     }));
 
   it('плитки трёх режимов: убыль и вывоз — по составу окна; у осады «Налегке» погашено с причиной', async () => {
     const { GaitPick } = await import('@/ui/parts/GaitPick');
     const walk = 40 * 3_600_000;
     const r = rows(walk, true);
-    const html = renderToStaticMarkup(h(GaitPick, { rows: r, men: 3000, value: 'normal', free: true, onPick: () => undefined }));
+    const html = renderToStaticMarkup(h(GaitPick, { rows: r, men: 3000, haul: 1, value: 'normal', free: true, onPick: () => undefined }));
     const light = gaitTake(3000, 'light', r[0].walkMs, 1);
     expect(light.lost, 'точка внутри области: налегке теряют').toBeGreaterThan(0);
     expect(html).toContain(`−${light.lost}`);
@@ -160,19 +158,19 @@ describe('ДР-7: режим марша в окне дела', () => {
     expect(html).toMatch(/aria-label="Налегке" disabled=""/);
     expect(html).toContain('Налегке лагерь не ставят');
     // Другой состав — другие числа: окно считает по тому, что выбрано, а не по отряду дома.
-    const few = renderToStaticMarkup(h(GaitPick, { rows: r, men: 0, value: 'normal', free: true, onPick: () => undefined }));
+    const few = renderToStaticMarkup(h(GaitPick, { rows: r, men: 0, haul: 1, value: 'normal', free: true, onPick: () => undefined }));
     expect(few).not.toContain(haulWords(gaitTake(3000, 'normal', r[1].walkMs, 1).carry));
     // Удар: налегке не погашено; не дома — плитки только сравнить.
-    const storm = renderToStaticMarkup(h(GaitPick, { rows: rows(walk, false), men: 30, value: 'normal', free: true, onPick: () => undefined }));
+    const storm = renderToStaticMarkup(h(GaitPick, { rows: rows(walk, false), men: 30, haul: 1, value: 'normal', free: true, onPick: () => undefined }));
     expect(storm).not.toMatch(/aria-label="Налегке" disabled=""/);
-    const away = renderToStaticMarkup(h(GaitPick, { rows: rows(walk, false), men: 30, value: 'normal', free: false, onPick: () => undefined }));
+    const away = renderToStaticMarkup(h(GaitPick, { rows: rows(walk, false), men: 30, haul: 1, value: 'normal', free: false, onPick: () => undefined }));
     expect(away).toMatch(/aria-label="Налегке" disabled=""/);
-    expect(away).toContain('Не дома режим меняют в окне отряда');
+    expect(away).toContain('В пути режим меняют в окне отряда.');
   });
 
   it('по исходнику: окно дела — состав, потом режим по выбранному составу; карточка места режима не показывает', () => {
     const send = code('ui/map/ArmySend.tsx');
-    expect(send).toMatch(/after: \(going\) =>\s*o\.gaits && <GaitPick rows=\{o\.gaits\} men=\{troopTotal\(going\)\}/);
+    expect(send).toMatch(/after: \(going\) =>\s*o\.gaits && <GaitPick rows=\{o\.gaits\} men=\{troopTotal\(going\)\} haul=\{o\.haul \?\? 0\}/);
     expect(send, 'режим уходит с делом одним приказом').toMatch(/\.\.\.\(free && row \? \{ gait \} : \{\}\)/);
     expect(code('ui/next/WorldNew.tsx'), 'карточка места — без таблицы режима').not.toMatch(/GaitPick/);
     // Срок на кнопках дел — по режиму окна.

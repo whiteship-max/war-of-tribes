@@ -23,8 +23,7 @@ import { cityName } from '../../../netlify/lib/contract';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { mixSeed, seeded } from './random';
 import { ageAt, keepInBook, mergeSkills, yearsWord } from './agents';
-import { GEAR_SLOTS, ITEMS, slotName, type ItemId } from '../data/items';
-import { has } from '../guard';
+import { GEAR_SLOTS, slotName } from '../data/items';
 import { bank } from './points';
 import { log } from './log';
 
@@ -210,35 +209,7 @@ export function mergeRealm(base: RealmState, saved: unknown): RealmState {
     pointsAt: num(r.pointsAt, base.pointsAt),
     tech: levels(r.tech, base.tech, 1, Math.max(ADMIN_LEVELS, DIPLO_LEVELS, WAR_LEVELS)),
     born: Math.max(0, Math.floor(num(r.born, base.born))),
-    ...readGear(r.gear),
+    // Вещи правителя (ДР-7): места — имя или пусто, всё прочее — пусто.
+    ...(Array.isArray(r.gear) ? { gear: Array.from({ length: GEAR_SLOTS }, (_, i) => slotName((r.gear as unknown[])[i])) } : {}),
   };
-}
-
-/** Вещи правителя из сохранения (ДР-7): места — имя или пусто, всё прочее — пусто; ни одной вещи — поля нет. */
-function readGear(v: unknown): { gear?: (ItemId | null)[] } {
-  if (!Array.isArray(v)) return {};
-  const gear = Array.from({ length: GEAR_SLOTS }, (_, i) => slotName(v[i]));
-  return gear.some((x) => x !== null) ? { gear } : {};
-}
-
-/** Вещи правителя по местам: имя или пусто. */
-export const gearOf = (s: GameState): (ItemId | null)[] => Array.from({ length: GEAR_SLOTS }, (_, i) => s.realm.gear?.[i] ?? null);
-
-/**
- * Надеть вещь на правителя или снять её (`item` = null; ДР-7, docs/city_v3.md, «Решения ДР-7») — единственная дверь к вещам:
- * на агентов их не надевают. Место получает имя и ничего больше; что вещь даёт, спросят у `ITEMS`, когда она будет надета, а
- * снятая лежит в сундуке — во владении (`net/owned.ts`). Правитель всегда дома: переодевать его можно всегда.
- */
-export function wear(s: GameState, slot: number, item: ItemId | null, owned: readonly ItemId[]): string | null {
-  if (!Number.isInteger(slot) || slot < 0 || slot >= GEAR_SLOTS) return 'Такого места нет.';
-  const gear = gearOf(s);
-  if (item !== null) {
-    if (!has(ITEMS, item)) return 'Такой вещи нет.';
-    if (!owned.includes(item)) return 'Этой вещи у тебя нет.';
-    if (gear.some((x, i) => i !== slot && x === item)) return 'Эта вещь уже надета.';
-  }
-  gear[slot] = item;
-  if (gear.some((x) => x !== null)) s.realm.gear = gear;
-  else delete s.realm.gear;
-  return null;
 }

@@ -16,7 +16,7 @@ import { FERVOUR_SCALE, ESTATE_PLUS } from './estaterules';
 import { spiritIn, spiritView } from './sim/spirit';
 import { spiritOfIn } from './spiritrules';
 import { barsOf, pressureParts } from './sim/stability';
-import { gearOf, wear } from './sim/dynasty';
+import { gearOf, wear } from './sim/gear';
 import { GEAR_SLOTS, slotName } from './data/items';
 import { FIGURE_IDS } from '@/world/data/figures';
 import { playerProfile } from '@/world/bridge';
@@ -103,12 +103,12 @@ describe('вещи — только на правителе; надетое на
     for (const id of FIGURE_IDS) expect('slots' in back.agents[id], `${id}: мест под вещи нет`).toBe(false);
     expect(JSON.parse(serialize(back)).agents.general.slots, 'в сохранение не едет').toBeUndefined();
     enter(back, back.lastSaved);
-    const lines = back.log.filter((e) => /вещи/.test(e.text));
-    expect(lines.map((e) => e.text), 'одна строка').toEqual(['С агентов сняты вещи (3) и легли в сундук: вещи теперь надевают только на правителя.']);
+    const lines = back.log.filter((e) => /вещи/i.test(e.text));
+    expect(lines.map((e) => e.text), 'одна строка').toEqual(['Вещи с агентов — в сундуке: их надевают только на правителя.']);
     // Без вещей — без строки.
     const clean = deserialize(serialize(createInitialState(7)))!;
     enter(clean, clean.lastSaved);
-    expect(clean.log.some((e) => /вещи/.test(e.text))).toBe(false);
+    expect(clean.log.some((e) => /вещи/i.test(e.text))).toBe(false);
   });
 
   it('правитель: мест три, все открыты; надеть можно только вещь из таблицы и владения, снять — всегда; места у престола', () => {

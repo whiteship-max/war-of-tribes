@@ -23,14 +23,9 @@ export const STATUE_TOP = MAX_BUILDING_LEVEL;
 /** Мораль дружины от Статуи на вершине, очков шкалы 0…100: лучший Воевода той же мерой стойкости. */
 export const STATUE_MORALE_TOP = resolvePoints(giftCeil('marshal'));
 
-/** Уровень Статуи в пределах лестницы, целым; нет Статуи — ноль. */
-const levelOf = (level: number): number => Math.max(0, Math.min(STATUE_TOP, Math.floor(Number.isFinite(level) ? level : 0)));
-
-/** Мораль дружины от Статуи уровня `level`: ноль на первом, вершина — на последнем, ровно по уровню между ними. */
-export const statueMorale = (level: number): number => {
-  const l = levelOf(level);
-  return l <= 1 ? 0 : (STATUE_MORALE_TOP * (l - 1)) / (STATUE_TOP - 1);
-};
+/** Мораль дружины от Статуи уровня `level`: ноль на первом (и без Статуи), вершина — на последнем, ровно по уровню между ними. */
+export const statueMorale = (level: number): number =>
+  (STATUE_MORALE_TOP * Math.max(0, Math.min(STATUE_TOP, Math.floor(level || 0)) - 1)) / (STATUE_TOP - 1);
 
 /** Сдвиг стабильности от Статуи уровня `level`, % ступени за игровой день: её мораль причиной того же веса. */
 export const statueCalm = (level: number): number => battleShock(statueMorale(level));

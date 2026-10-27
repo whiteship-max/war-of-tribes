@@ -96,7 +96,7 @@ export function ArmySend({
             order: { agent: 'general', target: goal, deed: o.id, shownAt: o.at, ...(o.fate ? { fate } : {}), ...(free && row ? { gait } : {}) },
             block: (want) => sendBlock(o, gait, troopTotal(want)),
             after: (going) =>
-              o.gaits && <GaitPick rows={o.gaits} men={troopTotal(going)} value={gait} free={free} onPick={onGait} />,
+              o.gaits && <GaitPick rows={o.gaits} men={troopTotal(going)} haul={o.haul ?? 0} value={gait} free={free} onPick={onGait} />,
             done,
           }}
         />

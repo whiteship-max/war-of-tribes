@@ -1,7 +1,7 @@
 // ДР-7 (docs/city_v3.md, «Решения ДР-7»): режим марша выбирают в окне дела полководца — после выбора дела, в одном окне с
 // составом. Мир даёт строки трёх режимов у каждого дела с дорогой (`ErrandOption.gaits`: срок туда и назад, отказ, лагерь,
 // энергия, множитель поклажи), приказ несёт режим (`ErrandOrder.gait`): дома он ставится даром тем же переводом, что смена
-// дома, отказ дела возвращает прежний; не дома другой режим в приказе — отказ (в пути его меняют в окне отряда). Убыль и
+// дома, отказ дела возвращает прежний; не дома режим в приказе не берётся (в пути его меняют в окне отряда). Убыль и
 // вывоз окно считает по выбранному составу дверью `gait.gaitTake` — тем же числом, что возьмёт добычу мир.
 //
 // Граница области (правило 11): полководец жив, в строю и в своём городе в минуту приказа (кроме блока «не дома»); цель в
@@ -16,7 +16,8 @@ import { distance } from './geo';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { ErrandId, ErrandOption, ErrandTarget, FigureView, PlayerCastle, PlayerProfile } from './types';
 import type { WarOrder, WarView } from '../../netlify/lib/contract';
-import { GAIT_AWAY, GAITS, LIGHT_NO_CAMP, gaitTake, type Gait } from './gait';
+import { GAITS, LIGHT_NO_CAMP, siegeBlockOf, type Gait } from './gait';
+import { gaitTake } from './gaitview';
 import { gaitFor, inGait } from '@/ui/map/ActionMenu';
 import { sendBlock } from '@/ui/map/ArmySend';
 
@@ -112,10 +113,10 @@ describe('ДР-7: режим марша — в окне дела, у каждо�
       expect(r.walkMs, `${d.name}, ${r.gait}: точка внутри области — дорога есть`).toBeGreaterThan(0);
       expect(r.backMs, `${d.name}, ${r.gait}: дорога назад есть`).toBeGreaterThan(0);
       // Лагерь налегке не встаёт: у осады и блокады это отказ строки, у остальных — только столбец «Осада».
-      expect(r.siege, `${d.name}, ${r.gait}: осада в этом режиме`).toBe(r.gait === 'light' ? LIGHT_NO_CAMP : null);
+      expect(siegeBlockOf(r.gait), `${d.name}, ${r.gait}: осада в этом режиме`).toBe(r.gait === 'light' ? LIGHT_NO_CAMP : null);
       expect(r.block, `${d.name}, ${r.gait}: отказ дела в режиме`).toBe(d.camp && r.gait === 'light' ? LIGHT_NO_CAMP : null);
-      expect(r.haul > 0, `${d.name}: вывоз — у дел с добычей`).toBe(Boolean(d.loot));
     }
+    expect((opt.haul ?? 0) > 0, `${d.name}: вывоз — у дел с добычей`).toBe(Boolean(d.loot));
     // Быстрее режим — короче дорога: налегке быстрее обычного, обоз вдвое медленнее.
     expect(rowOf(opt, 'light').walkMs).toBeLessThan(rowOf(opt, 'normal').walkMs);
     expect(rowOf(opt, 'train').walkMs).toBeGreaterThan(rowOf(opt, 'normal').walkMs);
@@ -174,7 +175,7 @@ describe('ДР-7: режим марша — в окне дела, у каждо�
     expect(e0 - (g.energy?.value ?? 0), 'списана только цена удара').toBe(o2.energy?.price ?? 0);
   });
 
-  it('не дома другой режим в приказе — отказ, ничего не меняется; тот же режим — как без поля', async () => {
+  it('не дома режим в приказе не берётся: дело идёт нынешним, даром режим не меняется', async () => {
     const b = await bench();
     const goal: ErrandTarget = { kind: 'place', id: b.lair.id };
     const opt = (await b.world.errands('general', goal)).find((o) => o.id === 'storm')!;
@@ -185,12 +186,22 @@ describe('ДР-7: режим марша — в окне дела, у каждо�
     expect(away.march?.change.free, 'область: не дома').toBe(false);
     const raid: ErrandTarget = { kind: 'march', id: b.raid.id };
     const chase = (await b.world.errands('general', raid)).find((o) => o.id === 'intercept')!;
-    expect(await b.world.errand({ agent: 'general', target: raid, deed: 'intercept', shownAt: chase.at, gait: 'light' })).toBe(GAIT_AWAY);
+    const e0 = away.energy?.value;
+    const err = await b.world.errand({ agent: 'general', target: raid, deed: 'intercept', shownAt: chase.at, gait: 'light' });
     const still = await b.fig();
-    expect(still.march?.gait).toBe('normal');
-    expect(still.arriveAt, 'путь прежний').toBe(away.arriveAt);
-    // Тот же режим — приказ идёт, как шёл бы без поля.
-    expect(await b.world.errand({ agent: 'general', target: raid, deed: 'intercept', shownAt: chase.at, gait: 'normal' })).not.toBe(GAIT_AWAY);
+    expect(still.march?.gait, 'режим прежний').toBe('normal');
+    expect(still.march?.haltUntil, 'стоянки нет').toBe(0);
+    // Тот же приказ без поля — тот же итог: режим в пути приказ дела не меняет.
+    const twin = await bench();
+    const o2 = (await twin.world.errands('general', goal)).find((o) => o.id === 'storm')!;
+    expect(await twin.world.errand({ agent: 'general', target: goal, deed: 'storm', fate: 'plunder', shownAt: o2.at, troops: { ...WANT } })).toBeNull();
+    twin.clock.now = b.clock.now;
+    const c2 = (await twin.world.errands('general', raid)).find((o) => o.id === 'intercept')!;
+    expect(await twin.world.errand({ agent: 'general', target: raid, deed: 'intercept', shownAt: c2.at }), 'тот же итог').toBe(err);
+    const t2 = await twin.fig();
+    expect(t2.arriveAt, 'та же дорога').toBe(still.arriveAt);
+    expect(t2.energy?.value, 'та же энергия').toBe(still.energy?.value);
+    expect(e0, 'область: энергия есть').toBeDefined();
   });
 });
 
@@ -203,17 +214,17 @@ describe('ДР-7: убыль и вывоз — по составу, выбран
     const h = b.world as unknown as Hauling;
     for (const men of [troopTotal(WANT), 400, 5000]) {
       for (const r of opt.gaits!) {
-        const t = gaitTake(men, r.gait, r.walkMs, r.haul);
+        const t = gaitTake(men, r.gait, r.walkMs, opt.haul ?? 0);
         expect(t.carry, `${men}, ${r.gait}: вывоз — поклажа мира`).toBe(Math.floor(h.haul({ warrior: men - t.lost }, true, r.gait).carry));
         expect(t.lost, `${r.gait}: не налегке — без убыли`).toBe(r.gait === 'light' ? t.lost : 0);
       }
     }
     // Пустой состав — «—» (прежде так стояло всё: строки считались по отряду дома, а он пуст).
-    expect(gaitTake(0, 'normal', rowOf(opt, 'normal').walkMs, rowOf(opt, 'normal').haul)).toEqual({ lost: 0, carry: 0 });
+    expect(gaitTake(0, 'normal', rowOf(opt, 'normal').walkMs, opt.haul ?? 0)).toEqual({ lost: 0, carry: 0 });
     // Больше уходит — больше вывоз; налегке убыль растёт с составом (точка внутри области: дорога достаточно длинная).
-    const big = gaitTake(5000, 'light', rowOf(opt, 'light').walkMs, rowOf(opt, 'light').haul);
+    const big = gaitTake(5000, 'light', rowOf(opt, 'light').walkMs, opt.haul ?? 0);
     expect(big.lost, 'область: налегке пять тысяч к приходу теряют').toBeGreaterThan(0);
-    expect(big.carry).toBeGreaterThan(gaitTake(400, 'light', rowOf(opt, 'light').walkMs, rowOf(opt, 'light').haul).carry);
+    expect(big.carry).toBeGreaterThan(gaitTake(400, 'light', rowOf(opt, 'light').walkMs, opt.haul ?? 0).carry);
   });
 });
 

@@ -11,7 +11,7 @@
 // (`ageOf`), поэтому стареет агент только пока идут часы деревни: неделя без игры не
 // отправит всех четверых на покой.
 //
-// Вещей у агентов нет (ДР-7): их надевают только на правителя (`sim/dynasty.wear`).
+// Вещей у агентов нет (ДР-7): их надевают только на правителя (`sim/gear.wear`).
 import type { AgentProgress, FaithId, GameState, LineageEntry, LineagePlace, RecruitMark, RulerSkills, Tally } from '../types';
 import type { FigureId, HomeEffect } from '@/world/types';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
@@ -84,7 +84,7 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
  * агент не должен приехать `undefined`. Каждое поле читается с умолчанием и
  * проверкой: опыт — неотрицательное число не выше потолка, имя — через ту же
  * очистку, что имя города. Мест под вещи у агентов нет (ДР-7): надетое прежде не
- * читается — сколько его было, говорит `gearOff`, и оно лежит в сундуке.
+ * читается — было ли оно, говорит `gearOff`, и оно лежит в сундуке.
  */
 export function mergeAgents(saved: unknown): Record<FigureId, AgentProgress> {
   const out = emptyAgents();
@@ -608,7 +608,7 @@ export function traitNumbers(s: GameState): TraitNumbers {
 }
 
 /** Строка о новом полководце (ДР-6, ДР-7): отряд в городе не собирают — его дают в окне дела. Летопись найма и тревога. */
-export const NEW_GENERAL = 'Отряд ему дают в окне дела, перед выходом: коснись цели на карте.';
+export const NEW_GENERAL = 'Отряд ему дают в окне дела.';
 
 /**
  * Новый полководец без дела: пришёл на место, ещё не водил ни одного боя, и
@@ -649,17 +649,13 @@ export function nameAgents(s: GameState): boolean {
 }
 
 /**
- * Сколько вещей было надето на агентов в сохранении (ДР-7, docs/city_v3.md, «Решения ДР-7»): с ДР-7 вещи надевают только на
- * правителя, и надетое на агента при чтении снимается — в сундук, то есть во владение (`net/owned.ts`): там предмет и был,
- * ячейка помнила только имя. Без потерь: владение партия не хранит и не теряет. Число — для строки летописи при входе.
+ * Были ли на агентах вещи в сохранении (ДР-7, docs/city_v3.md, «Решения ДР-7»): с ДР-7 вещи надевают только на правителя, и
+ * надетое на агента при чтении снимается — в сундук, то есть во владение (`net/owned.ts`): там предмет и был, ячейка помнила
+ * только имя. Без потерь: владение партия не хранит и не теряет. Для строки летописи при входе.
  */
-export function gearOff(saved: unknown): number {
-  if (!saved || typeof saved !== 'object') return 0;
-  let n = 0;
-  for (const id of FIGURE_IDS) {
-    const raw = (saved as Record<string, unknown>)[id] as { slots?: unknown } | undefined;
-    if (raw && Array.isArray(raw.slots)) n += raw.slots.filter((x) => slotName(x) !== null).length;
-  }
-  return n;
-}
+export const gearOff = (saved: unknown): boolean =>
+  FIGURE_IDS.some((id) => {
+    const slots = (saved as Record<string, { slots?: unknown } | undefined> | null)?.[id]?.slots;
+    return Array.isArray(slots) && slots.some((x) => slotName(x) !== null);
+  });
 

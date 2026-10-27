@@ -3,7 +3,7 @@
 // Своего счёта здесь нет ни строки — это то же правило, по которому живёт карточка
 // агента. Возраст и срок до покоя считает `sim/dynasty` теми же часами и той же формулой,
 // что возраст агента; очки — `sim/points`, единственная дверь; книга — тот же `Lineage`,
-// что стоит в карточке полководца, только другим местом. Вещи — только здесь (ДР-7): `sim/dynasty.wear`.
+// что стоит в карточке полководца, только другим местом. Вещи — только здесь (ДР-7): `sim/gear.wear`.
 //
 // Одна строка здесь обязательна, и она про будущее: **при смене правителя меняются
 // только навыки, а очки и изученное остаются.** Игрок должен знать это до смерти
@@ -12,7 +12,8 @@ import { useGame } from '@/game/store';
 import { BRANCH_NAME, POINTS_CAP, REALM_BRANCHES, SKILL_NAME } from '@/game/data/realm';
 import { RETIRE_AGE } from '@/game/data/agents';
 import { circlesText } from '@/game/sim/agents';
-import { gearOf, rulerAge, rulerAging, rulerYears, wear } from '@/game/sim/dynasty';
+import { rulerAge, rulerAging, rulerYears } from '@/game/sim/dynasty';
+import { gearOf, wear } from '@/game/sim/gear';
 import { itemIn } from '@/game/data/items';
 import { ownedItems } from '@/net/owned';
 import { branchRate, pointsOf } from '@/game/sim/points';

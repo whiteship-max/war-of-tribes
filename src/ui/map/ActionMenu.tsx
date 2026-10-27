@@ -89,10 +89,10 @@ export function gaitFor(o: Pick<ErrandOption, 'gaits'>, picked: Gait | null, cur
   return o.gaits.find((r) => r.block === null)?.gait ?? current;
 }
 
-/** Дело в режиме `g`: дорога туда и назад и энергия — той строки режима (ДР-7). Без строки — как посчитал мир. */
+/** Дело в режиме `g`: дорога туда и назад — той строки режима (ДР-7; энергия у режимов одна). Без строки — как посчитал мир. */
 export function inGait(o: ErrandOption, g: Gait): ErrandOption {
   const r = gaitRowOf(o, g);
-  return r ? { ...o, walkMs: r.walkMs, backMs: r.backMs, energy: r.energy } : o;
+  return r ? { ...o, walkMs: r.walkMs, backMs: r.backMs } : o;
 }
 
 /** Строка тоста после отправки: кто, что и когда сделает. */

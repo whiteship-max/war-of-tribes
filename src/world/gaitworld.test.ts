@@ -22,7 +22,8 @@ import { routPeril } from './peril';
 import { ENERGY_PRICE } from './data/energy';
 import { CAMP_WASTE, SIEGE_PHASE } from './data/siegeroll';
 import { setPhaseDie, wasteOf } from './siegeroll';
-import { LIGHT_NO_CAMP, gaitHaltMs, gaitTake, lightShare, strikeSeed, strikeWorn } from './gait';
+import { LIGHT_NO_CAMP, gaitHaltMs, lightShare, siegeBlockOf, strikeSeed, strikeWorn } from './gait';
+import { gaitTake } from './gaitview';
 import { MARCH_MIN_SECONDS } from './data/tuning';
 
 // ВРЕМЕННО ×3 ДЛЯ ТЕСТА: механика проверяется при 1 (задание ДР-2); ×3 ложится сверху (`gait.test.ts`).
@@ -71,9 +72,9 @@ async function ready(seed = 7, over: Partial<PlayerProfile> = {}) {
 
 afterEach(() => setPhaseDie(null));
 
-/** Строки режима окна дела (ДР-7) — у дела «Ударить» по ближнему логову. */
-const stormRows = async (r: Awaited<ReturnType<typeof ready>>) =>
-  (await r.world.errands('general', { kind: 'place', id: r.lair.id })).find((o) => o.id === 'storm')?.gaits ?? [];
+/** Дело «Ударить» по ближнему логову и его строки режима окна дела (ДР-7). */
+const stormOf = async (r: Awaited<ReturnType<typeof ready>>) => (await r.world.errands('general', { kind: 'place', id: r.lair.id })).find((o) => o.id === 'storm');
+const stormRows = async (r: Awaited<ReturnType<typeof ready>>) => (await stormOf(r))?.gaits ?? [];
 
 describe('режим марша в мире: выбор до приказа', () => {
   it('строки окна дела — те же сроки, что исполнит приказ; налегке быстрее, обоз вдвое медленнее', async () => {
@@ -84,9 +85,9 @@ describe('режим марша в мире: выбор до приказа', ()
     expect(by.light.walkMs).toBeGreaterThan(realMs(MARCH_MIN_SECONDS));
     expect(by.light.walkMs / by.normal.walkMs).toBeCloseTo(1 / 1.5, 2);
     expect(by.train.walkMs / by.normal.walkMs).toBeCloseTo(2, 2);
-    expect(by.light.siege).toBe(LIGHT_NO_CAMP);
-    expect(by.normal.siege).toBeNull();
-    expect(gaitTake(troopTotal(HOST), 'light', by.light.walkMs, by.light.haul).lost).toBe(Math.round(troopTotal(HOST) * lightShare('light', by.light.walkMs)));
+    expect(siegeBlockOf(by.light.gait)).toBe(LIGHT_NO_CAMP);
+    expect(siegeBlockOf(by.normal.gait)).toBeNull();
+    expect(gaitTake(troopTotal(HOST), 'light', by.light.walkMs, 1).lost).toBe(Math.round(troopTotal(HOST) * lightShare('light', by.light.walkMs)));
     for (const g of ['light', 'normal', 'train'] as const) {
       const w = await ready();
       expect(await w.world.setGait(g)).toBeNull();
@@ -322,7 +323,8 @@ describe('режим марша в мире: вывоз добычи (ДР-5)', 
     const rows = await stormRows(r);
     const men = troopTotal(r.inner.save.figures.general.troops ?? {});
     expect(men, 'точка внутри области: отряд есть').toBeGreaterThan(0);
-    const take = (row: (typeof rows)[number]) => gaitTake(men, row.gait, row.walkMs, row.haul);
+    const haul = (await stormOf(r))?.haul ?? 0;
+    const take = (row: (typeof rows)[number]) => gaitTake(men, row.gait, row.walkMs, haul);
     expect(take(rows.find((x) => x.gait === 'light')!).lost, 'точка внутри области: налегке к приходу уходят').toBeGreaterThan(0);
     for (const row of rows) {
       if (row.gait === 'normal') delete r.inner.save.figures.general.gait;
