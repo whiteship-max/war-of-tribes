@@ -1,27 +1,24 @@
-// Передача бойцов между гарнизоном и отрядом полководца — в самой «Дружине» (docs/retinue.md; UI-4, docs/ui_v2.md, 5.3).
-// Две колонки: слева гарнизон, справа отряд; по каждому виду бойцов — шаг, внизу итог мощи и жалованья «было → станет» и
-// одна кнопка «Подтвердить». Раскладка постоянная: часть полководца держится, пока бойцы живы, ходит с ним и с ним
-// возвращается; новые нанятые встают в гарнизон, к полководцу их переводят здесь.
+// Состав отряда полководца в окне дела (К-2, docs/AGENTS.md, раздел 18; ДР-6, docs/siege_v2.md, «Решения ДР-6»): по каждому
+// виду — «остаётся в городе | уходит с полководцем», итог мощи уходящих и оборона остающихся, и «Отправить» — дело с
+// выбранным составом одним приказом мира (`ErrandOrder.troops`). Раскладки «Гарнизон | Отряд» в «Дружине» больше нет (ДР-6):
+// в своём городе отряда у полководца не бывает — он ведёт оборону всем гарнизоном, состав берёт на дело здесь, а вернувшись,
+// его отряд снова встаёт гарнизоном (`LocalWorld.homecoming`).
 //
-// Блок один на всю игру и стоит в «Дружине» (`panels/ArmyPanel`, кусок нового вида). Статуя и карточка своего замка ведут
-// сюда строкой (`MusterLink`, свой лёгкий файл), а не держат вторую копию: две копии одного решения разошлись бы молча. Держит это тест по исходнику
-// (`Muster.test.ts`): `setGarrison` мира зовёт ровно этот файл.
+// Окно одно на все дела полководца (`map/ArmySend`): к нему ведут кольцо над целью, кнопки похода карточки места и «На
+// выручку». Держит это тест по исходнику (`Muster.test.ts`): окна игры не зовут приказ раскладки мира вовсе.
 //
-// Своей правды здесь нет. Можно ли менять раскладку, почему нет и мгновенно ли — словами мира (`FigureView.regroup`, та
-// же проверка, что примет приказ): дома и не в осаде перевод мгновенный (docs/retinue.md, раздел 7). В городе отряд —
-// гарнизон и во время сбора (`world/muster.inTown`, правило владельца 15.10.2026: полководец и его отряд, пока внутри
-// города, в оборонительных боях считаются гарнизоном) — окно говорит это строкой полководца. Мощь — `troopPower`,
-// жалованье — `troopWage` при нынешнем жалованье дружине (правило 18, ДР-1); срок сбора там, где он есть, — `musterMs` с чертами полководца, как у мира; сколько
-// бойцов вида можно держать — `roomOf`, тем же правилом, каким отказывает мир. Потолка у отряда нет: войско держит цена
-// (`data/upkeep.ts`), а не Статуя.
+// Своей правды здесь нет. Можно ли дать состав, почему нет — словами мира (`FigureView.regroup`, та же проверка, что примет
+// приказ): в городе перевод мгновенный, и в осаде (`Regroup.instant`; добавить бойцов в осаде нельзя — `grow`); вне города
+// полководец уходит с тем отрядом, что при нём. Мощь — `troopPower`; оборона остающихся — `defense` без уходящих
+// (правило 18); сколько бойцов вида можно взять — `roomOf`, тем же правилом, каким отказывает мир.
 import './muster.css';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { armySize, buildingOfType, defense, homeArmy, homeTroops, troopWage } from '@/game/derived';
-import { personName, seated, traitNumbers } from '@/game/sim/agents';
+import { personName, seated } from '@/game/sim/agents';
 import { troopPower } from '@/game/battle/price';
-import { awayOf, inTown, musterMs, ownOf, plus, postureOf, roomOf, standingTroops, type Posture } from '@/world/muster';
+import { awayOf, inTown, ownOf, plus, postureOf, roomOf, standingTroops, type Posture } from '@/world/muster';
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import type { GameState, TroopId } from '@/game/types';
 import type { ErrandOrder, FigureView, MarchView } from '@/world/types';
@@ -34,7 +31,6 @@ import { Table, type Col } from '@/ui/kit/Table';
 import { breakdown } from '@/ui/kit/breakdown';
 import { fmtInt, fmtRate } from '@/ui/next/hudTips';
 import type { TipContent } from '@/ui/next/tip';
-import { realSpanText } from './wait';
 import { Steps } from './Steps';
 import { postureLine } from './MusterLink';
 import { iconName } from '@/ui/icons/registry';
@@ -47,9 +43,8 @@ import { iconName } from '@/ui/icons/registry';
  * Не в обороне сверх отряда — отряды в пути: отряд, стоящий дома, в `s.away` не
  * входит, в сборе и в поле — входит весь. В сборе числятся все, кого он касается, —
  * те же `max(было, станет)` по видам, что кладёт в отряд сам мир (`setGarrison`).
- * После сбора отряд дома (`home`) стоит с гарнизоном, а в поле у ворот — нет: сбор
- * дома остался только в осаде, остальной — в поле у своих ворот (docs/retinue.md, раздел 7).
- * Сбор в городе обороны не меняет вовсе (`muster.inTown`): окно спрашивает эту функцию только вне города.
+ * После сбора отряд дома (`home`) стоит с гарнизоном, а в поле у ворот — нет. Окно дела спрашивает её об уходе
+ * (`home` = false): `after` — оборона того, что остаётся.
  */
 export function musterDefense(
   s: GameState,
@@ -111,14 +106,15 @@ export function sideTip(s: GameState, title: string, stack: TroopStack, key: key
 
 /**
  * Кто в обороне — гарнизон и отряд полководца в городе, правилом места (`world/muster`), тем же, что у моста. Итог — число
- * племени (`derived.homeArmy`); разошёлся с миром — строка «Прочее» покажет это, а не спрячет.
+ * племени (`derived.homeArmy`); разошёлся с миром — строка «Прочее» покажет это, а не спрячет. Отряда в городе с ДР-6 не
+ * бывает (вернувшись, он встаёт гарнизоном); строка держит сохранение, где он ещё стоит.
  */
 export function inWallsTip(s: GameState, marches: readonly MarchView[], figures: readonly FigureView[]): TipContent {
   const where = awayOf(marches, figures);
   const home = homeArmy(s);
   return breakdown({
     title: `Бойцов в городе · ${fmtInt(home)}`,
-    body: 'Они и держат оборону. Пока полководец в городе, его отряд стоит у стен с гарнизоном.',
+    body: 'Они и держат оборону. Пока полководец в городе, он ведёт её всем гарнизоном.',
     total: home,
     parts: [
       { label: 'Гарнизон', value: troopTotal(ownOf(s.army, where)), icon: 'ui-home' },
@@ -154,56 +150,36 @@ export const shift = (was: number, will: number, fmt: (n: number) => string): st
 /** Ширина колонки шага: −10 − [n] + +10 — четыре кнопки по 44 и число (`muster.css`). */
 const STEPS_W = '240px';
 
-/** Подписи колонок: слева гарнизон, справа отряд. */
-const KEY_HOME = (
-  <span className="ms-key">
-    <Icon name="ui-home" /> Гарнизон
-  </span>
-);
-const KEY_GEN = (
-  <span className="ms-key gen">
-    <Icon name="fig-general" /> Отряд
-  </span>
-);
-
-/** Подсказки передачи (отзыв тестеров 18.10): у пустого отряда — откуда он берётся, у колонок — что делает шаг. */
-export const EMPTY_HINT = 'Отряд пуст — полководец пойдёт один. Бойцов ему дают из гарнизона, ниже.';
+/** Подсказки окна (отзыв тестеров 18.10): что делает шаг; вне города — почему шага нет. */
 export const SEND_HINT = '«+» — уходит с полководцем, «−» — остаётся в городе. Затем «Отправить».';
 export const SEND_AS_IS = 'Полководец не в городе: уйдёт с тем отрядом, что при нём. Поменять отряд можно дома.';
-export const STEP_HINT = 'Гарнизон → Отряд: «+» отдаёт бойцов полководцу, «−» возвращает. Затем «Подтвердить».';
 
 /**
- * Уход полководца делом с выбранным отрядом (К-2, docs/AGENTS.md, раздел 18): раскладка `want` — тем же приказом мира, что
- * «Подтвердить» передачи (`setGarrison`; дома и в осаде он мгновенный), и сразу дело. Раскладка не та, что у мира, или
- * отказ — дело не начинается. Одна дверь на окно войска и тест «уходит именно с выбранным».
+ * Уход полководца делом с выбранным составом (ДР-6): одним приказом мира — дело и состав (`ErrandOrder.troops`); мир ставит
+ * состав тем же переводом, что раскладка, а отказ дела возвращает всех в гарнизон. `want` null — вне города: уходит тот
+ * отряд, что при нём. Одна дверь на окно дела и тест «уходит ровно с выбранным».
  */
-export async function departWith(
-  w: { setGarrison: (t: TroopStack | null) => Promise<string | null>; errand: (o: ErrandOrder) => Promise<string | null> },
-  held: TroopStack,
-  want: TroopStack,
+export function departWith(
+  w: { errand: (o: ErrandOrder) => Promise<string | null> },
+  want: TroopStack | null,
   order: ErrandOrder,
 ): Promise<string | null> {
-  const same = TROOP_IDS.every((t) => (held[t] ?? 0) === (want[t] ?? 0));
-  if (!same) {
-    const err = await w.setGarrison(want);
-    if (err) return err;
-  }
-  return w.errand(order);
+  return w.errand(want ? { ...order, troops: { ...want } } : order);
 }
 
-/** Режим «Отправить» окна войска (К-2): вместо «Подтвердить» — уход делом. */
+/** Дело, с которым уходит отряд окна. */
 export interface MusterSend {
-  /** Приказ дела; участь удара и осады выбрана выше, в окне войска. */
+  /** Приказ дела; участь удара и осады выбрана выше, в окне дела. */
   order: ErrandOrder;
   /** Почему дело с этим отрядом не начать — словами мира (`ErrandOption.reason`); null — можно. */
   block: (want: TroopStack) => string | null;
-  /** Строка над кнопкой: дорога, риск — от окна войска. */
+  /** Строка над кнопкой: дорога, риск — от окна дела. */
   extra?: ReactNode;
   /** Ушёл (null) или отказ словами. */
   done: (err: string | null) => void;
 }
 
-/** Подписи колонок окна войска: та же передача, другими словами — кто уходит, кто остаётся. */
+/** Подписи колонок: кто уходит, кто остаётся. */
 const KEY_STAY = (
   <span className="ms-key">
     <Icon name="ui-home" /> Остаётся
@@ -215,21 +191,15 @@ const KEY_GO = (
   </span>
 );
 
-/**
- * Передача. `onCard` — карточка вида: касание вида в строке открывает её (та же, что прежде открывал список «Состав»).
- * Сверху — строка полководца: в городе ли он и защищает ли отряд стены.
- */
-export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?: MusterSend }) {
+/** Состав в окне дела. Сверху — строка полководца: в городе ли он, защищает ли стены. */
+export function Muster({ send }: { send: MusterSend }) {
   const s = useGame((g) => g.s);
-  const showToast = useGame((g) => g.showToast);
   const openBuilding = useGame((g) => g.openBuilding);
   const marches = useWorld((g) => g.marches);
   const figures = useWorld((g) => g.figures);
-  const setGarrison = useWorld((g) => g.setGarrison);
   const general = figures.find((f) => f.id === 'general');
   const held: TroopStack = general?.troops ?? {};
-  // Сколько бойцов вида можно держать — всё войско, что не ушло отрядами: дома отряд уже в гарнизоне, и складывать
-  // его с ним второй раз нельзя. Тем же правилом отказывает мир (`world/muster.roomOf`).
+  // Сколько бойцов вида можно взять — всё войско, что не ушло отрядами: тем же правилом отказывает мир (`world/muster.roomOf`).
   const pool = roomOf(s.army, marches);
   const [want, setWant] = useState<TroopStack>(held);
   const [busy, setBusy] = useState(false);
@@ -242,9 +212,10 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
   const barracks = buildingOfType(s, 'barracks');
   const here = seated(s, 'general');
   const regroup = general?.regroup ?? { block: 'Где полководец, пока неизвестно.', grow: null, instant: false };
-  // В окне войска раскладку меняют только там, где перевод мгновенный (дома, в осаде): сбор в поле — это ожидание, а
-  // не уход; вне города полководец уходит с тем отрядом, что при нём.
-  const can = here && regroup.block === null && (!send || regroup.instant);
+  // Состав дают только там, где перевод мгновенный (в городе, и в осаде); вне города полководец уходит с тем отрядом,
+  // что при нём.
+  const can = here && regroup.block === null && regroup.instant;
+  const going = can ? want : held;
   const all = (t: TroopId): number => Math.max(pool[t] ?? 0, held[t] ?? 0);
   const rows = TROOP_IDS.filter((t) => all(t) > 0);
   const total: TroopStack = Object.fromEntries(rows.map((t) => [t, all(t)]));
@@ -252,57 +223,37 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
   // Добавить нельзя (осада) — шаг вверх упирается в то, что у него уже есть, а не в отказ после нажатия.
   const top = (t: TroopId): number => (regroup.grow ? Math.min(all(t), held[t] ?? 0) : all(t));
 
-  let moved = 0;
-  let grows = false;
-  for (const t of TROOP_IDS) {
-    moved += Math.abs((held[t] ?? 0) - (want[t] ?? 0));
-    if ((want[t] ?? 0) > (held[t] ?? 0)) grows = true;
-  }
   const posture = general ? postureOf(general) : 'none';
   const town = general ? inTown(general) : false;
-  // Срок сбора — той же функцией, что у мира, с чертами полководца так, как их складывает слепок. В городе сбора нет, и
-  // в осаде: перевод мгновенный (`Regroup.instant`, docs/ui_v2.md, 6.11).
-  const wait = moved > 0 && !regroup.instant ? musterMs(moved, traitNumbers(s).muster ?? 1) : 0;
-  const why = !here ? null : (regroup.block ?? (grows ? regroup.grow : null) ?? (moved === 0 ? 'Раскладка та же' : null));
-  const sums = transferSums(s, total, held, want);
-  const garrisonWill = troopsAfter(total, want);
-  // Сбор вне города (в поле у своих ворот) выводит бойцов из обороны — это видно числом; в городе оборона та же.
-  const outside = wait > 0 && !town ? musterDefense(s, held, want, posture, general?.phase === 'home') : null;
-
-  const apply = async (): Promise<void> => {
-    setBusy(true);
-    const err = await setGarrison(want);
-    setBusy(false);
-    showToast(err ?? (wait > 0 ? `Отряд собирается. Сбор ${realSpanText(wait / 1000)}` : moved > 0 ? 'Раскладка новая.' : 'Раскладка та же.'));
-  };
+  const sums = transferSums(s, total, held, going);
+  const staysTroops = troopsAfter(total, going);
+  // Оборона того, что остаётся: та же `defense`, на племени без уходящих (`musterDefense`, уход — не домой).
+  const stays = musterDefense(s, held, going, posture, false).after;
 
   const depart = async (): Promise<void> => {
-    if (!send) return;
     setBusy(true);
-    const err = await departWith(useWorld.getState(), held, can ? want : held, send.order);
+    const err = await departWith(useWorld.getState(), can ? want : null, send.order);
     setBusy(false);
     send.done(err);
   };
-  // Оборона того, что остаётся: та же `defense`, на племени без уходящих (`musterDefense`, уход — не домой).
-  const stays = send ? musterDefense(s, held, can ? want : held, posture, false).after : 0;
 
-  const sendBtn = send && (
+  const sendBtn = (
     <>
       {send.extra}
-      <Btn kind="main" wide why={busy ? 'Отряд выходит' : send.block(can ? want : held)} onClick={() => void depart()}>
+      <Btn kind="main" wide why={busy ? 'Отряд выходит' : send.block(going)} onClick={() => void depart()}>
         Отправить
       </Btn>
     </>
   );
 
   const cols: Col[] = [
-    { key: 'kind', title: send ? KEY_STAY : KEY_HOME },
-    { key: 'steps', title: send ? KEY_GO : KEY_GEN, align: 'center', w: STEPS_W },
+    { key: 'kind', title: KEY_STAY },
+    { key: 'steps', title: KEY_GO, align: 'center', w: STEPS_W },
   ];
   const sumCols: Col[] = [
     { key: 'k', title: 'Итог' },
-    { key: 'g', title: send ? 'Остаётся' : KEY_HOME, align: 'right', w: '104px' },
-    { key: 'o', title: send ? 'Уходит' : KEY_GEN, align: 'right', w: '104px' },
+    { key: 'g', title: 'Остаётся', align: 'right', w: '104px' },
+    { key: 'o', title: 'Уходит', align: 'right', w: '104px' },
   ];
 
   return (
@@ -313,19 +264,15 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
         sub={here ? postureLine(general) : 'Отряд некому вести'}
         tip={() => ({
           title: town ? 'В городе — защищает стены' : 'Отряд вне города',
-          body: !town
-            ? 'Отряд вне города стен не защищает. Вернётся полководец — отряд снова встанет с гарнизоном.'
-            : troopTotal(held) > 0
-              ? 'Пока полководец в городе, его отряд — гарнизон: стоит у стен, ест за стеной, выходит на вылазку. Оборону ведёт он сам.'
-              : 'Пока полководец в городе, оборону ведёт он, и без отряда. Отряд в городе стоит у стен с гарнизоном.',
+          body: town
+            ? 'Пока полководец в городе, он ведёт оборону всем гарнизоном. Отряд на дело берёт здесь, вернувшись — отряд снова гарнизон.'
+            : 'Отряд вне города стен не защищает. Вернётся полководец — отряд снова встанет гарнизоном.',
         })}
         go={!here && statue ? () => openBuilding(statue.id) : undefined}
         goLabel="В Статую"
       />
-      {/* Отряд пуст — где его взять (отзыв тестеров 18.10, docs/feedback.md: «как полководцу взять войско?»). */}
-      {can && !send && rows.length > 0 && troopTotal(held) === 0 && <p className="nx-tnote">{EMPTY_HINT}</p>}
-      {/* Почему раскладку сейчас не поменять — словами мира; идущий сбор строка полководца уже назвала. */}
-      {here && regroup.block && !(general && general.readyAt > 0) && rows.length > 0 && <p className="nx-bwarn">{regroup.block}</p>}
+      {/* В городе, а состав не дать — почему, словами мира; вне города об этом говорит строка «уйдёт с тем отрядом». */}
+      {here && town && regroup.block && rows.length > 0 && <p className="nx-bwarn">{regroup.block}</p>}
 
       {rows.length === 0 ? (
         <Row
@@ -337,26 +284,17 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
         />
       ) : (
         <>
-          {can && <p className="nx-tnote">{send ? SEND_HINT : STEP_HINT}</p>}
-          {send && !can && here && rows.length > 0 && <p className="nx-tnote">{SEND_AS_IS}</p>}
+          {(can || (here && !town)) && <p className="nx-tnote">{can ? SEND_HINT : SEND_AS_IS}</p>}
           <Table
-            label="Гарнизон и отряд"
+            label="Остаётся и уходит"
             cols={cols}
             rows={rows.map((t) => {
               const d = TROOP_BY_ID[t];
-              const n = want[t] ?? 0;
+              const n = going[t] ?? 0;
               return {
                 key: t,
                 cells: {
-                  kind: onCard ? (
-                    <button type="button" className="ms-kind" onClick={() => onCard(t)} aria-label={`${d.name}: карточка вида`}>
-                      <Icon name={iconName('troop', t)} />
-                      <span>
-                        <small className="one-line">{d.name}</small>
-                        <b>{fmtInt(all(t) - n)}</b>
-                      </span>
-                    </button>
-                  ) : (
+                  kind: (
                     <span className="ms-kind">
                       <Icon name={iconName('troop', t)} />
                       <span>
@@ -372,7 +310,7 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
                         max={top(t)}
                         spare={top(t) - n}
                         step={10}
-                        names={{ less: 'В гарнизон', more: 'К полководцу' }}
+                        names={{ less: 'Оставить в городе', more: 'Взять с собой' }}
                         onChange={(delta) => set(t, n + delta)}
                       />
                     </span>
@@ -385,25 +323,25 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
           />
           {can && (
             <div className="ms-all">
-              <Btn kind="link" why={troopTotal(want) === 0 ? 'Все в гарнизоне' : null} onClick={() => setWant({})}>
-                {send ? 'Все остаются' : 'Всех в гарнизон'}
+              <Btn kind="link" why={troopTotal(want) === 0 ? 'Все остаются' : null} onClick={() => setWant({})}>
+                Все остаются
               </Btn>
               <Btn
                 kind="link"
-                why={regroup.grow ?? (rows.every((t) => (want[t] ?? 0) >= all(t)) ? 'Все в отряде' : null)}
+                why={regroup.grow ?? (rows.every((t) => (want[t] ?? 0) >= all(t)) ? 'Все уходят' : null)}
                 onClick={() => setWant({ ...total })}
               >
-                {send ? 'Все уходят' : 'Всех в отряд'}
+                Все уходят
               </Btn>
             </div>
           )}
         </>
       )}
 
-      {rows.length > 0 && (
-        <div className={send ? 'ms-bar ms-send' : can ? 'nx-obar ms-bar' : 'ms-bar'}>
+      {rows.length > 0 ? (
+        <div className="ms-bar ms-send">
           <Table
-            label="Итог передачи"
+            label="Итог"
             cols={sumCols}
             rows={[
               {
@@ -411,66 +349,42 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
                 cells: {
                   k: 'Мощь',
                   g: (
-                    <Num label="Мощь гарнизона" tip={() => sideTip(s, 'Мощь гарнизона', garrisonWill, 'power', sums.garrison.was.power)}>
+                    <Num label="Мощь остающихся" tip={() => sideTip(s, 'Мощь остающихся', staysTroops, 'power', sums.garrison.was.power)}>
                       {shift(sums.garrison.was.power, sums.garrison.will.power, powerFmt)}
                     </Num>
                   ),
                   o: (
-                    <Num label="Мощь отряда" tip={() => sideTip(s, 'Мощь отряда', want, 'power', sums.retinue.was.power)}>
+                    <Num label="Мощь уходящих" tip={() => sideTip(s, 'Мощь уходящих', going, 'power', sums.retinue.was.power)}>
                       {shift(sums.retinue.was.power, sums.retinue.will.power, powerFmt)}
                     </Num>
                   ),
                 },
               },
-              send
-                ? {
-                    key: 'defense',
-                    cells: {
-                      k: 'Оборона города',
-                      g: (
-                        <Num label="Оборона того, что остаётся" tip={() => ({ title: `Оборона после ухода · ${fmtInt(Math.round(stays))}`, body: 'Гарнизон, стены, башня, казармы и жители — без тех, кто уходит с полководцем.' })}>
-                          {shift(defense(s), stays, (n) => fmtInt(Math.round(n)))}
-                        </Num>
-                      ),
-                      o: '',
-                    },
-                  }
-                : {
-                key: 'wages',
+              {
+                key: 'defense',
                 cells: {
-                  k: 'Жалованье в день',
+                  k: 'Оборона города',
                   g: (
-                    <Num label="Жалованье гарнизона" tip={() => sideTip(s, 'Жалованье гарнизона', garrisonWill, 'wages', sums.garrison.was.wages)}>
-                      {shift(sums.garrison.was.wages, sums.garrison.will.wages, fmtRate)}
+                    <Num
+                      label="Оборона того, что остаётся"
+                      tip={() => ({
+                        title: `Оборона после ухода · ${fmtInt(Math.round(stays))}`,
+                        body: 'Гарнизон, стены, башня, казармы и жители — без тех, кто уходит с полководцем.',
+                      })}
+                    >
+                      {shift(defense(s), stays, (n) => fmtInt(Math.round(n)))}
                     </Num>
                   ),
-                  o: (
-                    <Num label="Жалованье отряда" tip={() => sideTip(s, 'Жалованье отряда', want, 'wages', sums.retinue.was.wages)}>
-                      {shift(sums.retinue.was.wages, sums.retinue.will.wages, fmtRate)}
-                    </Num>
-                  ),
+                  o: '',
                 },
               },
             ]}
           />
-          {outside && (
-            <small className="ms-note">Пока идёт сбор, оборона {fmtInt(Math.round(outside.during))}: эти бойцы вне города и не в строю.</small>
-          )}
           {sendBtn}
-          {can && !send && (
-            <Btn
-              kind="main"
-              wide
-              why={busy ? 'Отряд расставляется' : why}
-              sub={wait > 0 ? `сбор ${realSpanText(wait / 1000)}` : undefined}
-              onClick={() => void apply()}
-            >
-              Подтвердить
-            </Btn>
-          )}
         </div>
+      ) : (
+        <div className="ms-bar ms-send">{sendBtn}</div>
       )}
-      {send && rows.length === 0 && <div className="ms-bar ms-send">{sendBtn}</div>}
     </div>
   );
 }

@@ -17,6 +17,7 @@ import { ERRANDS } from './data/errands';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { ErrandId, ErrandTarget, FigureId, FigureView, PlayerCastle, PlayerProfile } from './types';
 import type { WarOrder } from '../../netlify/lib/contract';
+import { NO_BAND_HOME } from './muster';
 
 vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_ROAD: Infinity }));
 
@@ -97,14 +98,23 @@ function placeNear(b: Bench, n = 0): GenSettlement {
  * Дело туда и обратно: в меню и доступно, приказ принят, агент идёт к цели (или делает его на месте), пульсами — до
  * своих ворот. `after` — что сделать, пока агент у цели (снять осаду, позвать домой наблюдателя).
  */
-async function roundTrip(b: Bench, agent: FigureId, target: ErrandTarget, deed: ErrandId, goal: { x: number; y: number }, after?: (f: FigureView) => Promise<void>) {
+async function roundTrip(
+  b: Bench,
+  agent: FigureId,
+  target: ErrandTarget,
+  deed: ErrandId,
+  goal: { x: number; y: number },
+  after?: (f: FigureView) => Promise<void>,
+  troops?: TroopStack,
+) {
   const menu = await b.world.errands(agent, target);
   const o = menu.find((x) => x.id === deed);
   expect(o, `${agent} · ${deed}: дело есть в меню`).toBeDefined();
-  expect(o!.reason, `${agent} · ${deed}: дело доступно`).toBeNull();
+  // ДР-6: вернувшись домой, отряд полководца — гарнизон; дело гасит только пустой отряд, состав едет в приказе (окно дела).
+  expect(o!.reason === null || (troops !== undefined && o!.reason === NO_BAND_HOME), `${agent} · ${deed}: дело доступно — ${o!.reason}`).toBe(true);
   expect(o!.backMs, `${agent} · ${deed}: дорога назад названа до приказа`).toBeGreaterThan(0);
   const before = (await b.world.reports()).length;
-  expect(await b.world.errand({ agent, target, deed, shownAt: o!.at })).toBeNull();
+  expect(await b.world.errand({ agent, target, deed, shownAt: o!.at, ...(troops ? { troops } : {}) })).toBeNull();
   let f = await b.fig(agent);
   expect(f.phase, `${agent} · ${deed}: пошёл`).toBe('moving');
   expect(distance(f.to, goal), `${agent} · ${deed}: идёт к цели, а не куда-то`).toBeLessThan(3);
@@ -145,10 +155,18 @@ describe('дело туда и обратно — у каждого агента
 
     // Второе логово: взятое ударом сутки не осаждают (`SIEGE_IMMUNE`).
     const camp = placeNear(b, 1);
-    await roundTrip(b, 'general', { kind: 'place', id: camp.id }, 'siege', camp, async (f) => {
-      expect(f.besieging, 'встал лагерем').toBe(camp.id);
-      expect(await b.world.retreat()).toBeNull();
-    });
+    await roundTrip(
+      b,
+      'general',
+      { kind: 'place', id: camp.id },
+      'siege',
+      camp,
+      async (f) => {
+        expect(f.besieging, 'встал лагерем').toBe(camp.id);
+        expect(await b.world.retreat()).toBeNull();
+      },
+      { ...HOST },
+    );
   }, 120_000);
 
   it('перехват набега на пути — бой в поле, донесение и домой', async () => {

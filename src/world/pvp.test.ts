@@ -230,7 +230,9 @@ describe('война между игроками: путь от похода д�
     await g.pulse();
     const all = { spearman: 60, archer: 30, swordsman: 30 };
     const before = g.a.warSheet()!;
-    expect(before.retinue, 'точка внутри области: отряд стоит дома').toEqual({ spearman: 40, swordsman: 30 });
+    // ДР-6: в городе слепок называет тем, кто может уйти с полководцем, весь гарнизон — отряд старого приказа раскладки в нём.
+    expect(before.retinue, 'точка внутри области: полководец в городе, уйти может весь гарнизон').toEqual(all);
+    expect((await g.a.figures()).find((f) => f.id === 'general')!.troops, 'точка внутри области: отряд при нём').toEqual({ spearman: 40, swordsman: 30 });
     expect(before.out).toEqual([]);
     expect(before.home).toEqual(all);
     const stale: SheetAt = { sheet: before, at: g.now() };
@@ -263,10 +265,11 @@ describe('война между игроками: путь от похода д�
     expect(war.phase, 'точка внутри области: войско дома').toBe('done');
     expect(liveSheet(g.file, A, away, g.now()).home, 'слепок в походе').toEqual(all);
     expect(liveSheet(g.file, A, stale, g.now()).home, 'слепок до выхода').toEqual(all);
-    // И клиент, зайдя, говорит то же о своём отряде: он снова дома и снова его. Гарнизон целиком здесь не сверяется:
-    // за часы похода на город ходят логова, и их набег клиент знает, а сервер — нет.
+    // И клиент, зайдя, говорит то же: отряд вернулся и встал гарнизоном (ДР-6), уйти снова может весь гарнизон. Гарнизон
+    // целиком с сервером здесь не сверяется: за часы похода на город ходят логова, и их набег клиент знает, а сервер — нет.
     await g.pulse();
-    expect(g.a.warSheet()!.retinue).toEqual({ spearman: 40, swordsman: 30 });
+    expect((await g.a.figures()).find((f) => f.id === 'general')!.troops, 'дома отряда нет').toEqual({});
+    expect(g.a.warSheet()!.retinue).toEqual(g.a.warSheet()!.home);
     expect(g.a.warSheet()!.out).toEqual([]);
   });
 });

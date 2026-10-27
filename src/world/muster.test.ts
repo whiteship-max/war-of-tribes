@@ -434,6 +434,9 @@ function unbidden(pulse: WorldPulse, step: string, before: FigureView, after: Fi
   if (ordered || postureOf(before) !== 'engaged' || after.besieging) return;
   // Дошёл до своих ворот и в том же пульсе встал в оборону: её потери законны.
   if (after.phase === 'home' && pulse.reports.some((r) => r.kind === 'defense')) return;
+  // Вошёл в свой город — отряд встал гарнизоном (ДР-6, `LocalWorld.homecoming`): людей не потеряли, их считает гарнизон
+  // (`holds` — всё войско ровно раз).
+  if (after.phase === 'home' && troopTotal(after.troops) === 0) return;
   if (pulse.effects.some((e) => e.text.includes('сверили с казармами'))) return;
   for (const id of TROOP_IDS) {
     expect(after.troops[id] ?? 0, `${step}: дружина в поле потеряла ${id} без приказа`).toBe(before.troops[id] ?? 0);
@@ -498,15 +501,17 @@ describe('дома и в поле вместе не больше, чем ест�
         expect(homeOf(p.s.army, awayOf(p.marches, p.figures)), `${tag}: собрана и дома — в гарнизоне всё войско ровно раз`).toEqual({ clubman: 10, archer: 6, legionary: 4 });
         // Полководец дома, дружина при нём: взять тех же ещё раз нельзя.
         const g = await p.general();
-        expect(await p.setGarrison(doubled(g.troops), `${tag}: удвоить дома`), `${tag}: удвоить дома`).toBeTruthy();
-        expect(await p.setGarrison(plus(g.troops, p.s.army), `${tag}: взять всё войско сверху`)).toBeTruthy();
+        // С загрузкой отряд дома уже встал гарнизоном (ДР-6) — удваивают всё, что можно взять: отказ в обоих случаях.
+        expect(await p.setGarrison(doubled(honest(p, g)), `${tag}: удвоить дома`), `${tag}: удвоить дома`).toBeTruthy();
+        expect(await p.setGarrison(plus(honest(p, g), p.s.army), `${tag}: взять всё войско сверху`)).toBeTruthy();
         expect(await p.setGarrison(null, `${tag}: распустить`)).toBeNull();
         await again();
         await p.settle(`${tag}: роспуск идёт`);
         expect(troopTotal((await p.general()).troops), `${tag}: распустили — при нём никого`).toBe(0);
+        // Загрузка — до сбора: отряд, собранный дома, при чтении встаёт гарнизоном (ДР-6), и в поход он уходит сразу.
+        await again();
         expect(await p.setGarrison(honest(p, await p.general()), `${tag}: собрать снова`)).toBeNull();
         await p.settle(`${tag}: второй сбор`);
-        await again();
         expect(await p.walk(field, `${tag}: в поход`)).toBeNull();
         await again();
         await p.pulse(`${tag}: стоит в поле`);
@@ -516,7 +521,9 @@ describe('дома и в поле вместе не больше, чем ест�
         await again();
         const back = await p.general();
         expect(back.phase, `${tag}: вернулся домой`).toBe('home');
-        expect(await p.setGarrison(doubled(back.troops), `${tag}: удвоить после похода`)).toBeTruthy();
+        // Вернувшись, отряд встал гарнизоном (ДР-6, `homecoming`): при нём никого, и взять вдвое больше войска нельзя.
+        expect(troopTotal(back.troops), `${tag}: дома отряда нет`).toBe(0);
+        expect(await p.setGarrison(doubled(honest(p, back)), `${tag}: удвоить после похода`)).toBeTruthy();
         expect(await p.setGarrison(null, `${tag}: распустить после похода`)).toBeNull();
         await p.settle(`${tag}: роспуск после похода`);
       }
@@ -820,22 +827,38 @@ describe('дружина в обороне: полководец в городе
     }
   }, 60_000);
 
-  it('сохранение, где дружину успели удвоить, сверяется на первом же пульсе — до любого боя', async () => {
+  it('сохранение, где дружину успели удвоить: в поле сверяется на первом же пульсе, дома встаёт гарнизоном (ДР-6)', async () => {
+    // Мир, сохранённый до починки: при полководце сто десять при десяти в племени.
+    const inflate = (p: Party): Party => {
+      const save = JSON.parse(p.store.read() as string);
+      save.figures.general.troops = { clubman: 110 };
+      p.store.write(JSON.stringify(save));
+      return p.reload();
+    };
+    // Дома: отряд при чтении сохранения — гарнизон (`homecoming`), лишним взяться неоткуда.
     const p = Party.start(11, { clubman: 10, archer: 10 }, false);
     await p.pulse('старт');
     expect(await p.setGarrison({ clubman: 10 }, 'сбор')).toBeNull();
     await p.settle('сбор');
-    // Мир, сохранённый до починки: при полководце сто десять при десяти в племени.
-    const save = JSON.parse(p.store.read() as string);
-    save.figures.general.troops = { clubman: 110 };
-    p.store.write(JSON.stringify(save));
-    const q = p.reload();
-    const pulse = await q.pulse('первый пульс после загрузки');
-    expect(troopTotal((await q.general()).troops), 'лишних вычеркнули').toBe(10);
-    expect(pulse.effects.some((e) => e.text.includes('сверили с казармами')), 'и сказали об этом строкой').toBe(true);
-    const away = awayOf(q.marches, q.figures);
-    expect(homeOf(q.s.army, away), 'в гарнизоне всё войско ровно раз, лучники не пропали').toEqual({ clubman: 10, archer: 10 });
+    const q = inflate(p);
+    await q.pulse('первый пульс после загрузки');
+    expect((await q.general()).phase, 'точка внутри области: дома').toBe('home');
+    expect(troopTotal((await q.general()).troops), 'дома отряда нет — лишних нет').toBe(0);
+    expect(homeOf(q.s.army, awayOf(q.marches, q.figures)), 'в гарнизоне всё войско ровно раз, лучники не пропали').toEqual({ clubman: 10, archer: 10 });
     expect(troopTotal(q.s.away)).toBe(0);
+    // В поле: сверка режет отряд до того, что есть у племени, и говорит об этом строкой.
+    const r = Party.start(11, { clubman: 10, archer: 10 }, false);
+    await r.pulse('старт');
+    expect(await r.setGarrison({ clubman: 10 }, 'сбор')).toBeNull();
+    await r.settle('сбор');
+    const home = (await r.world.info()).home;
+    expect(await r.walk({ x: home.x + 4, y: home.y }, 'в поле')).toBeNull();
+    await r.pulse('стоит в поле');
+    expect((await r.general()).phase, 'точка внутри области: в поле').toBe('field');
+    const t = inflate(r);
+    const pulse = await t.pulse('первый пульс после загрузки');
+    expect(troopTotal((await t.general()).troops), 'лишних вычеркнули').toBe(10);
+    expect(pulse.effects.some((e) => e.text.includes('сверили с казармами')), 'и сказали об этом строкой').toBe(true);
   }, 60_000);
 
   it('удвоенное сохранение с набегом на подходе: у частокола не больше, чем есть у племени', async () => {
@@ -856,10 +879,10 @@ describe('дружина в обороне: полководец в городе
     const pulse = await until(q, 'бой после загрузки', (x) => x.reports.some((r) => r.id.endsWith('-defense')));
     const fight = pulse.reports.find((r) => r.id.endsWith('-defense')) as Report;
     expect(fight.battle?.troops.defender, 'у частокола четырнадцать, а не сто четырнадцать').toEqual({ clubman: 14 });
-    // Сверка режет дружину до того, что есть у племени, — до всех четырнадцати; бой
-    // забирает павших, и в гарнизоне остаются уцелевшие, по разу каждый, и все они — дружина.
+    // Отряд дома при чтении встал гарнизоном (ДР-6, `homecoming`) — у частокола все четырнадцать по разу; бой забирает
+    // павших, и в гарнизоне остаются уцелевшие, по разу каждый; отряда при полководце нет.
     const lost = troopTotal(pulse.effects.find((e) => e.id.endsWith('-defense'))?.lostTroops ?? {});
-    expect(troopTotal((await q.general()).troops)).toBe(14 - lost);
+    expect(troopTotal((await q.general()).troops)).toBe(0);
     expect(homeOf(q.s.army, awayOf(q.marches, q.figures))).toEqual(14 - lost > 0 ? { clubman: 14 - lost } : {});
   }, 60_000);
 });

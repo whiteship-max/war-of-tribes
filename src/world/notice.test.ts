@@ -419,8 +419,12 @@ function inject(save: WorldSave, kind: Inject, since: number): void {
     save.marches.push(m);
   }
   if (kind === 'handover') {
-    // Дружина распускалась, когда встал лагерь, и вернётся в гарнизон через шесть минут.
-    save.figures.general.handover = { troops: {}, until: since + 6 * MINUTE };
+    // Дружина распускалась, когда встал лагерь, и вернётся в гарнизон через шесть минут. Сбор бывает только в поле у своих
+    // ворот: в городе с ДР-6 отряд при чтении сохранения встаёт гарнизоном (`LocalWorld.homecoming`), и пересчёта нет.
+    const g = save.figures.general;
+    const at = { x: home.x + 1, y: home.y };
+    Object.assign(g, { phase: 'field', from: { ...at }, to: { ...at }, departAt: since - MINUTE, arriveAt: since - MINUTE });
+    g.handover = { troops: {}, until: since + 6 * MINUTE };
   }
   if (kind === 'general-home') {
     // Полководец без дружины идёт к своим воротам из поля.

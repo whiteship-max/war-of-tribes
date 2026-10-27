@@ -92,12 +92,12 @@ export function ActionMenu() {
   const showToast = useGame((g) => g.showToast);
   const openSiege = useGame((g) => g.openSiege);
   const openCamp = useGame((g) => g.openCamp);
-  // Выбранное дело — шаг подтверждения.
-  const [chosen, setChosen] = useState<ErrandId | null>(null);
+  // Выбранное дело — шаг подтверждения. Кнопка похода карточки места и «На выручку» выбирают его до меню (ДР-6, `menu.deed`).
+  const [chosen, setChosen] = useState<ErrandId | null>(() => menu?.deed ?? null);
   const [busy, setBusy] = useState(false);
-  const key = menu ? `${menu.agent}:${menu.cell.x}|${menu.cell.y}` : '';
+  const key = menu ? `${menu.agent}:${menu.cell.x}|${menu.cell.y}:${menu.deed ?? ''}` : '';
   // Другой человек или другая цель — выбор сначала.
-  useEffect(() => setChosen(null), [key]);
+  useEffect(() => setChosen(menu?.deed ?? null), [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!menu) return null;
   const def = FIGURE_BY_ID[menu.agent];
@@ -177,6 +177,7 @@ export function ActionMenu() {
             goal={menu.goal}
             o={pick}
             fates={card?.fates ?? []}
+            fate={menu.fate}
             warn={leavingCamp ? CAMP_LEAVE : null}
             onBack={() => setChosen(null)}
           />

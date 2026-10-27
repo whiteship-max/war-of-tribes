@@ -124,10 +124,10 @@ function SpiritLines({ morale, discipline }: { morale: SpiritAxis; discipline: S
 // ---------- Состав ----------
 
 /**
- * Полки по родам: сколько бойцов и каких видов, живая сила в строю и раненые. Виды здесь — подписи, а не двери: дверь в карточку
- * вида одна — строка раскладки ниже (`Muster`) и значки видов, которых нет.
+ * Полки по родам: сколько бойцов и каких видов, живая сила в строю и раненые. Вид — дверь в его карточку (`onCard`): прежде ею
+ * была строка раскладки, ушедшая из «Дружины» с ДР-6; у видов, которых нет, — свои значки ниже. Без `onCard` — подписи.
  */
-export function Roster() {
+export function Roster({ onCard }: { onCard?: (t: TroopId) => void } = {}) {
   const s = useGame((g) => g.s);
   const hurt = woundedOf(s);
   const rows = UNIT_KINDS.map((k) => {
@@ -157,19 +157,30 @@ export function Roster() {
           <div className="dr-reg-kinds">
             {r.ids
               .filter((id) => (s.army[id] ?? 0) > 0 || (hurt[id] ?? 0) > 0)
-              .map((id) => (
-                <span key={id} className="dr-kind">
-                  <Icon name={iconName('troop', id)} />
-                  <span>{TROOP_BY_ID[id].name}</span>
-                  <b>{fmtInt(s.army[id] ?? 0)}</b>
-                  {(hurt[id] ?? 0) > 0 && (
-                    <em title="в лазарете">
-                      <Icon name="ui-bandage" />
-                      {fmtInt(hurt[id] ?? 0)}
-                    </em>
-                  )}
-                </span>
-              ))}
+              .map((id) => {
+                const body = (
+                  <>
+                    <Icon name={iconName('troop', id)} />
+                    <span>{TROOP_BY_ID[id].name}</span>
+                    <b>{fmtInt(s.army[id] ?? 0)}</b>
+                    {(hurt[id] ?? 0) > 0 && (
+                      <em title="в лазарете">
+                        <Icon name="ui-bandage" />
+                        {fmtInt(hurt[id] ?? 0)}
+                      </em>
+                    )}
+                  </>
+                );
+                return onCard ? (
+                  <button type="button" key={id} className="dr-kind" onClick={() => onCard(id)} aria-label={`${TROOP_BY_ID[id].name}: карточка вида`}>
+                    {body}
+                  </button>
+                ) : (
+                  <span key={id} className="dr-kind">
+                    {body}
+                  </span>
+                );
+              })}
           </div>
         </div>
       ))}

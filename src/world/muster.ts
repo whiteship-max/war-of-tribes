@@ -169,6 +169,16 @@ export const awayMen = (away: Away): number => troopTotal(away.troops) + Math.ma
 export const fieldTroops = (f: Holding, at?: number): TroopStack =>
   postureOf(f, at) === 'engaged' ? { ...(f.troops ?? {}) } : {};
 
+/**
+ * Отказ «отряда нет» полководцу в своём городе (ДР-6, docs/siege_v2.md, «Решения ДР-6»): в городе отряда у него не бывает —
+ * его состав выбирают из гарнизона в окне дела (`ErrandOrder.troops`), и окно этот отказ снимает. «нет отряда» — мерка
+ * окна (`ui/map/ring.emptyRetinue`), одна на все двери полководца.
+ */
+export const NO_BAND_HOME = 'У полководца нет отряда. Бойцов ему дают из гарнизона в окне дела.';
+
+/** Отказ составу дела вне города: в поле состав не меняется (ДР-6, `LocalWorld.takeBand`). */
+export const BAND_AS_IS = 'Полководец не в городе: уходит с тем отрядом, что при нём.';
+
 /** Первые `n` бойцов со слабого конца: список казарм идёт от дешёвого к дорогому. */
 export function weakest(t: TroopStack, n: number): TroopStack {
   const out: TroopStack = {};

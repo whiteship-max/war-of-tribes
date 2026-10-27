@@ -383,6 +383,8 @@ import {
   homeOf,
   inTown,
   musterMs,
+  BAND_AS_IS,
+  NO_BAND_HOME,
   ownOf,
   pickTroops,
   plus,
@@ -780,6 +782,8 @@ export class LocalWorld implements WorldApi {
     this.fog.revealDisc(this.save.home, homeSight(this.save.home));
     this.revealNeighbours();
     this.stepSightings(this.clock(), this.sightDiscs(this.clock()));
+    // Переход ДР-6: отряд, собранный дома по прежней раскладке, — снова гарнизон, без потерь (`homecoming`); в поле — не трогают.
+    if (keep) this.homecoming(this.clock());
   }
 
   // ---------- Служебное ----------
@@ -4699,6 +4703,7 @@ export class LocalWorld implements WorldApi {
         f.to = { ...this.save.home };
         f.departAt = now;
         f.arriveAt = now;
+        if (id === 'general') this.homecoming(now);
         this.addEffect({
           id: `fig-${id}-back-${now}`,
           lost: {},
@@ -4753,10 +4758,13 @@ export class LocalWorld implements WorldApi {
         // «Дойти и ударить»: бой в минуту прихода, не дожидаясь игрока, — онлайн и офлайн одинаково.
         if (id === 'general' && f.assault) this.assaultArrived(at, came);
         if (this.save.figures[id].phase === 'down') continue;
-        // Полководец с дружиной встал у своих ворот — дружина вошла в оборону, и
+        // Полководец с дружиной встал у своих ворот — дружина вошла в оборону гарнизоном (ДР-6, `homecoming`), и
         // за стеной прибавилось ртов. Путь из осаждённого города заперт, а домой
         // открыт, поэтому этот повод под осадой случается, а обратный — нет.
-        if (id === 'general' && f.phase === 'home') this.resiege(HOME_ID, at);
+        if (id === 'general' && f.phase === 'home') {
+          this.homecoming(at);
+          this.resiege(HOME_ID, at);
+        }
       }
       // Налегке дома — отрезок кончился строкой летописи; в пути и в поле — тает до этой минуты (ДР-2).
       if (id === 'general') {
@@ -5661,7 +5669,7 @@ export class LocalWorld implements WorldApi {
       };
     }
     if (troopTotal(f.troops ?? {}) === 0) {
-      return { meet: null, reason: 'При полководце нет отряда. За дружиной надо домой.' };
+      return { meet: null, reason: this.noBand(now, 'При полководце нет отряда. За дружиной надо домой.') };
     }
     const from = this.figureAt(f, now);
     const ahead = marchPosition(m, now);
@@ -5787,8 +5795,11 @@ export class LocalWorld implements WorldApi {
     f.arriveAt = now;
     f.phase = this.touching(at)?.home ? 'home' : 'field';
     f.chase = undefined;
-    // Встал у своих ворот — дружина в обороне (см. `stepFigures`).
-    if (f.phase === 'home') this.resiege(HOME_ID, now);
+    // Встал у своих ворот — дружина в обороне гарнизоном (см. `stepFigures`).
+    if (f.phase === 'home') {
+      this.homecoming(now);
+      this.resiege(HOME_ID, now);
+    }
     this.addEffect({
       id: `chase-lost-${now}`,
       lost: {},
@@ -5960,6 +5971,8 @@ export class LocalWorld implements WorldApi {
       f.departAt = at;
       f.arriveAt = at;
       f.phase = this.touching(stop)?.home ? 'home' : 'field';
+      // Встреча у самых ворот — он дома, и уцелевшие встают гарнизоном (ДР-6).
+      if (f.phase === 'home') this.homecoming(at);
     }
   }
 
@@ -6813,7 +6826,10 @@ export class LocalWorld implements WorldApi {
     if (f.handover) return { error: `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.` };
     const busy = this.warGeneralBusy();
     if (busy) return { error: busy };
-    if (troopTotal(f.troops ?? {}) === 0) return { error: 'При полководце нет отряда.' };
+    // Лагерь под своим городом из города бьют вылазкой: отказ — этот, а не «отряда нет», который окно дела сняло бы
+    // выбором состава (ДР-6).
+    if (id === HOME_ID && inTown(f, now)) return { error: STRIKE_FROM_TOWN };
+    if (troopTotal(f.troops ?? {}) === 0) return { error: this.noBand(now) };
     // Дело из «Походов» по чужому лагерю (`out`, Р-4): полководец выходит из своих ворот с отрядом — та же дверь выхода,
     // что у похода и «дойти и ударить». Лагерь под своим городом из города бьют вылазкой, а не делом.
     const leaving = out && id !== HOME_ID && postureOf(f, now) === 'stands';
@@ -8156,9 +8172,17 @@ export class LocalWorld implements WorldApi {
    * и в осаде — платы нет, перевод мгновенный (`regroupInstant`, решение владельца
    * 16.10.2026); сбор в городе из сохранения прежних правил стоит у стен
    * (`world/muster.postureOf`, `inTown`).
+   *
+   * С ДР-6 окна игры этим приказом не пользуются: состав выбирают в окне дела, и уходит он с делом одним приказом
+   * (`ErrandOrder.troops`, `takeBand`); вернувшись в город, отряд снова гарнизон (`homecoming`). Приказ остаётся старому
+   * клиенту и консоли и принимается, как раньше.
    */
   async setGarrison(troops: TroopStack | null): Promise<string | null> {
-    const now = this.clock();
+    return this.regroup(troops, this.clock());
+  }
+
+  /** Раскладка в минуту `now` — дверь приказа `setGarrison` и состава дела (`takeBand`). */
+  private regroup(troops: TroopStack | null, now: number): string | null {
     const f = this.save.figures.general;
     const block = this.regroupBlock(now);
     if (block) return block;
@@ -8201,6 +8225,59 @@ export class LocalWorld implements WorldApi {
     this.resiege(HOME_ID, now);
     this.write();
     return null;
+  }
+
+  /**
+   * Состав отряда на дело полководца (ДР-6, docs/siege_v2.md, «Решения ДР-6»): выбран в окне дела из гарнизона. В своём
+   * городе перевод мгновенный (`regroupInstant`), и отряд встаёт тем же переводом, что раскладка (`regroup`), — а дело,
+   * которому мир отказал, возвращает всех в гарнизон (отмена): за отказ не платят ни составом, ни усталостью. Вне города —
+   * тот отряд, что при нём: в поле состав не меняется, и иной состав в приказе — отказ. Без состава — null, ничего не
+   * трогают. Строка — отказ, функция — отмена перевода.
+   */
+  private takeBand(troops: TroopStack | undefined, now: number): string | (() => void) | null {
+    if (troops === undefined) return null;
+    const f = this.save.figures.general;
+    if (!this.regroupInstant(now)) {
+      const held = f.troops ?? {};
+      return TROOP_IDS.every((id) => Math.floor(own(troops, id) ?? 0) === (held[id] ?? 0)) ? null : BAND_AS_IS;
+    }
+    const was = { troops: f.troops, handover: f.handover, rest: f.rest, homeRest: this.save.homeRest };
+    const err = this.regroup(troops, now);
+    if (err) return err;
+    return () => {
+      f.troops = was.troops;
+      f.handover = was.handover;
+      f.rest = was.rest;
+      this.save.homeRest = was.homeRest;
+      this.write();
+    };
+  }
+
+  /**
+   * Полководец в своём городе — его отряд снова гарнизон (ДР-6): в городе отряда нет, состав выбирают в окне дела. Зовут
+   * её все двери прихода домой (шаг фигур, сорванная и кончившаяся погоня, конец войны, возврат в строй) и чтение
+   * сохранения — переход: отряд, собранный дома по прежней раскладке, встаёт гарнизоном. Без потерь: люди переходят со
+   * своей усталостью (`carryHandover`), а оборона та же — в городе отряд и так стоял с гарнизоном (`muster.postureOf`).
+   * Отряд в поле, в пути, в войне и у выбывшего не трогают.
+   */
+  private homecoming(at: number): void {
+    const f = this.save.figures.general;
+    if (!f || f.gone || f.war || !inTown(f, at)) return;
+    this.settleHandover(f, at);
+    // Сбор в городе по прежним правилам — уходящие и возвращающиеся числятся в `troops`: в гарнизон встают все.
+    const held = f.troops ?? {};
+    if (troopTotal(held) === 0 && !f.handover) return;
+    this.carryHandover(held, {}, at);
+    f.troops = undefined;
+    f.handover = undefined;
+  }
+
+  /**
+   * Отказ «отряда нет» словами места: в городе отряд дают в окне дела (`NO_BAND_HOME`), вне города — `field`. Мерка
+   * «нет отряда» одна (`ui/map/ring.emptyRetinue`).
+   */
+  private noBand(now: number, field = 'При полководце нет отряда.'): string {
+    return inTown(this.save.figures.general, now) ? NO_BAND_HOME : field;
   }
 
   /**
@@ -8538,47 +8615,6 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Раненые его отряда, вставшие из лазарета, возвращаются к полководцу (docs/retinue.md, решение 9): раскладка держится,
-   * пока бойцы живы. Встав, они стоят в гарнизоне (`s.army`), а слепок везёт счётчик вставших за партию
-   * (`PlayerProfile.risen`); разница с отметкой полководца (`StoredFigure.risenSeen`) — те, кого он ещё не принял.
-   * Принимает он их дома — у ворот или в городе — и без сбора: дома его отряд и так стоит с гарнизоном, и оборона от
-   * перевода не меняется. Берёт только тех, кто ещё в гарнизоне: павших с тех пор, распущенных и ушедших отрядами взять
-   * неоткуда, и отметка их всё равно засчитывает. В пути, в поле, в войне, вне строя и пока идёт сбор — ждут.
-   */
-  private rejoinRisen(now: number): void {
-    const f = this.save.figures.general;
-    const risen = this.save.profile?.risen ?? {};
-    // Отметки ещё не было — мир старше раскладки, собран заново или на месте новый человек (`freshFigure`): ставим её
-    // по слепку, никого не переводя. Раненые прежнего полководца, встав, остаются гарнизону.
-    if (!f.risenSeen) {
-      f.risenSeen = { ...risen };
-      return;
-    }
-    const due: TroopStack = {};
-    for (const id of TROOP_IDS) {
-      const n = (risen[id] ?? 0) - (f.risenSeen[id] ?? 0);
-      if (n > 0) due[id] = n;
-    }
-    if (troopTotal(due) === 0) return;
-    this.settleHandover(f, now);
-    if (f.gone || f.war || f.phase !== 'home' || f.handover) return;
-    const free = this.defenders(now).own;
-    const back: TroopStack = {};
-    for (const id of TROOP_IDS) {
-      const n = Math.min(due[id] ?? 0, free[id] ?? 0);
-      if (n > 0) back[id] = n;
-    }
-    f.risenSeen = { ...risen };
-    if (troopTotal(back) > 0) {
-      const held = f.troops ?? {};
-      const next = plus(held, back);
-      this.carryHandover(held, next, now);
-      f.troops = next;
-    }
-    this.write();
-  }
-
-  /**
    * Передача дружины кончается сама, по времени: срок наступил — состав стал
    * тем, о котором договорились. Это приведение при чтении, а не тик: офлайн
    * даёт ровно то же, что непрерывная игра.
@@ -8622,6 +8658,8 @@ export class LocalWorld implements WorldApi {
         won: false,
       };
     }
+    // В своём городе отряда нет (ДР-6): лагерь у своих стен из города бьют вылазкой, другой цели у ворот нет.
+    if (inTown(f, now)) return { error: this.siegeOf(HOME_ID, now) ? STRIKE_FROM_TOWN : 'Рядом нет цели.', reportId: null, won: false };
     if (troopTotal(f.troops ?? {}) === 0) return { error: 'При полководце нет отряда.', reportId: null, won: false };
     const near = this.touching(this.figureAt(f, now));
     if (!near) return { error: 'Рядом нет цели.', reportId: null, won: false };
@@ -8748,9 +8786,7 @@ export class LocalWorld implements WorldApi {
     if (busy > 0) return `${this.busyNote('general')}: ${formatLeft(busy / 1000)}.`;
     this.settleHandover(f, now);
     if (f.handover) return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
-    if (troopTotal(f.troops ?? {}) === 0) {
-      return this.touching(this.figureAt(f, now))?.home ? 'У полководца нет отряда. Дай ему бойцов в «Раскладке».' : 'При полководце нет отряда.';
-    }
+    if (troopTotal(f.troops ?? {}) === 0) return this.noBand(now);
     // Держит осаду — ударить можно только по тому городу, который держит: это штурм, и он снимает лагерь.
     const besieging = this.ourSiege(now);
     if (besieging && besieging !== s.id) return `${CAMP_BUSY} ${CAMP_LEAVE}`;
@@ -9072,24 +9108,12 @@ export class LocalWorld implements WorldApi {
     }
 
     if (id === 'general') {
-      if (spot.kind === 'rival') {
-        if (o.deed === 'relief') return this.relief(spot.c.id, true);
-        // Город игрока: поход ведёт сервер войны, и домой полководца ведёт он же.
-        return this.warMarch(spot.c.id, o.deed === 'storm' ? 'storm' : 'siege', fate, o.deed === 'blockade');
-      }
-      let err: string | null = 'Это дело не к этой цели.';
-      if ((o.deed === 'storm' || o.deed === 'siege') && spot.kind === 'place') err = await this.assault(spot.s.id, fate, o.deed);
-      // Блокада — та же осада с кольцом в минуту постановки (Р-5).
-      else if (o.deed === 'blockade' && spot.kind === 'place') err = await this.assault(spot.s.id, fate, 'siege', true);
-      else if (o.deed === 'intercept' && spot.kind === 'march') err = await this.intercept(spot.m.id);
-      else if (o.deed === 'strike' && (spot.kind === 'place' || spot.kind === 'home')) {
-        const town = spot.kind === 'place' ? spot.s.id : HOME_ID;
-        err = await this.strikeCamp(town, town === HOME_ID, true);
-      }
-      if (err) return err;
-      this.markErrand(id, o.deed, spot);
-      this.write();
-      return null;
+      // Состав из окна дела (ДР-6) — тем же переводом, что раскладка; дело, которому мир отказал, возвращает всех в гарнизон.
+      const band = this.takeBand(o.troops, now);
+      if (typeof band === 'string') return band;
+      const err = await this.generalErrand(o.deed, spot, fate);
+      if (err) band?.();
+      return err;
     }
 
     // Остальные трое: меню на эту минуту, той же функцией, что показала его, — и путь к цели с оплаченным делом.
@@ -9122,6 +9146,28 @@ export class LocalWorld implements WorldApi {
     if (price) this.payEnergy(id, price, now);
     if (here && id === 'scout' && spot.kind === 'place') this.save.intel[spot.s.id] = this.snapshot(spot.s, now);
     else if (here) this.errandArrived(id, now);
+    this.write();
+    return null;
+  }
+
+  /** Дело полководца у цели — его дверями; отряд уже при нём (`takeBand`). null — пошёл или ударил, иначе отказ. */
+  private async generalErrand(deed: ErrandId, spot: ErrandSpot, fate: Fate): Promise<string | null> {
+    if (spot.kind === 'rival') {
+      if (deed === 'relief') return this.relief(spot.c.id, true);
+      // Город игрока: поход ведёт сервер войны, и домой полководца ведёт он же.
+      return this.warMarch(spot.c.id, deed === 'storm' ? 'storm' : 'siege', fate, deed === 'blockade');
+    }
+    let err: string | null = 'Это дело не к этой цели.';
+    if ((deed === 'storm' || deed === 'siege') && spot.kind === 'place') err = await this.assault(spot.s.id, fate, deed);
+    // Блокада — та же осада с кольцом в минуту постановки (Р-5).
+    else if (deed === 'blockade' && spot.kind === 'place') err = await this.assault(spot.s.id, fate, 'siege', true);
+    else if (deed === 'intercept' && spot.kind === 'march') err = await this.intercept(spot.m.id);
+    else if (deed === 'strike' && (spot.kind === 'place' || spot.kind === 'home')) {
+      const town = spot.kind === 'place' ? spot.s.id : HOME_ID;
+      err = await this.strikeCamp(town, town === HOME_ID, true);
+    }
+    if (err) return err;
+    this.markErrand('general', deed, spot);
     this.write();
     return null;
   }
@@ -10219,8 +10265,7 @@ export class LocalWorld implements WorldApi {
     this.errandBack('diplomat', now);
     // Война между игроками: итоги, посчитанные сервером, и полководец там, где его войско (docs/pvp.md).
     this.stepWars(now);
-    // Вставшие раненые его отряда — к полководцу, после хода мира: дошедший до дома на этом пульсе принимает их сразу.
-    this.rejoinRisen(now);
+    // Вставшие раненые его отряда к полководцу больше не переходят (ДР-6): в городе отряда нет, они встают гарнизоном.
     // Бой события у ворот — после хода мира: у ворот стоят те, кто дома в эту минуту.
     const gateDone = this.gateFights(calls, now);
     // Орудие поставили, сняли или башня стала ниже его уровня — мир узнаёт об этом на
@@ -10463,7 +10508,9 @@ export class LocalWorld implements WorldApi {
     f.departAt = now;
     f.arriveAt = now;
     f.phase = 'home';
-    if (w && !f.troops && w.battles.length > 0) {
+    // Уцелевшие дома — гарнизон (ДР-6).
+    this.homecoming(now);
+    if (w && !troopTotal(troops) && w.battles.length > 0) {
       const name = this.warCity(w, 'def');
       const spot = { id: w.defCastle, name, x: w.to.x, y: w.to.y };
       this.defeatGeneral(w.endAt ?? now, `разбит у города ${name}.`, `у города ${name}`, spot, mixSeed(w.battles.length, w.sentAt));
@@ -11313,7 +11360,7 @@ export class LocalWorld implements WorldApi {
     if (busy) return no(busy);
     this.settleHandover(f, now);
     if (f.handover) return no(`Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`);
-    if (troopTotal(f.troops ?? {}) === 0) return no('При полководце нет отряда.');
+    if (troopTotal(f.troops ?? {}) === 0) return no(this.noBand(now));
     if (leaving) {
       const blocked = this.siegeBlock(now);
       if (blocked) return no(blocked);
@@ -11462,7 +11509,7 @@ export class LocalWorld implements WorldApi {
     this.settleHandover(f, now);
     if (f.handover) return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
     if (f.phase !== 'home') return 'Поход выходит из своего города: верни полководца домой.';
-    if (troopTotal(f.troops ?? {}) === 0) return 'У полководца нет отряда. Дай ему бойцов у ворот.';
+    if (troopTotal(f.troops ?? {}) === 0) return NO_BAND_HOME;
     // Энергии — хотя бы на поход с осадой, дешевле из двух дел у стен; какое дело — решает кнопка (`warEnergy`).
     return this.warEnergy(c, 'siege', now).block;
   }
@@ -11510,9 +11557,10 @@ export class LocalWorld implements WorldApi {
       seen: [...(this.save.warSeen ?? [])],
       // Готовое орудие башни (docs/siege_v2.md, раздел 5): сервер войны бьёт им по лагерю соседа той же дверью (`world/bombard`).
       ...(p.tower ? { tower: { ...p.tower } } : {}),
-      // Раскладка (docs/retinue.md): чья часть гарнизона — отряд полководца, и в каком своём походе он сейчас. По ним
-      // сервер правит слепок, лёгший до выхода или до возврата (`war.liveSheet`).
-      retinue: { ...held.standing } as Counts,
+      // Раскладка (docs/retinue.md): какая часть гарнизона может уйти с полководцем, и в каком своём походе он сейчас. По
+      // ним сервер правит слепок, лёгший до выхода или до возврата (`war.liveSheet`). С ДР-6 полководец в городе берёт
+      // состав из всего гарнизона в минуту выхода (`takeBand`) — может уйти любой; вне города — никто из стоящих дома.
+      retinue: { ...(inTown(this.save.figures.general, now) ? held.all : held.standing) } as Counts,
       out: this.save.figures.general.war ? [this.save.figures.general.war] : [],
       // Тайная служба (docs/spy_pvp.md): Дозор, скрытность и черта своего лазутчика и стоит ли он дома — нападающему шанс
       // и гибель его дела, защитнику охрана от чужого.
@@ -11653,6 +11701,8 @@ export class LocalWorld implements WorldApi {
     if (busy) return no(busy);
     this.settleHandover(f, now);
     if (f.handover) return no(`Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`);
+    // Из города лагерь у своих стен бьют вылазкой — этот отказ, а не «отряда нет» (ДР-6, как `strikeCheck`).
+    if (inTown(f, now)) return no(STRIKE_FROM_TOWN);
     if (troopTotal(f.troops ?? {}) === 0) return no('При полководце нет отряда.');
     const force = fieldTroops(f, now);
     if (troopTotal(force) === 0) return no(STRIKE_FROM_TOWN);

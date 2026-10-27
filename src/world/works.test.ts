@@ -934,8 +934,11 @@ describe('две стороны лагеря: древесина и проход
       // доля дружины снята с дружины, остальное — с гарнизона.
       const effect = pulse.effects.find((e) => e.id === `${r.id}-eff`)!;
       const lost = effect.lostTroops ?? {};
+      // Доля дружины — полем последствия (`field`): после удара полководец у своих ворот, и его отряд уже гарнизон (ДР-6),
+      // разницей «было — стало при нём» её не прочесть.
+      const druzhinaLost = effect.field ?? {};
       const after = (await world.figures()).find((f) => f.id === 'general')!;
-      const druzhinaLost = troopsAfter(DRUZHINA, after.troops ?? {});
+      if (after.phase !== 'home') expect(troopsAfter(DRUZHINA, after.troops ?? {}), `${label}: доля дружины — та, что при нём убыла`).toEqual(druzhinaLost);
       for (const id of Object.keys({ ...TOWN, ...DRUZHINA }) as (keyof TroopStack)[]) {
         const town = (lost[id] ?? 0) - (druzhinaLost[id] ?? 0);
         expect(town, `${label}, ${id}: гарнизон «потерял» меньше нуля`).toBeGreaterThanOrEqual(0);
@@ -989,10 +992,10 @@ describe('две стороны лагеря: древесина и проход
     set(home.arriveAt);
     const siege = (await world.sync(holdout)).siege;
     expect(siege, 'осада стоит, когда дружина вошла в город').toBeTruthy();
-    // Граница области: полководец дома, дружина собрана, лагерь под стенами.
+    // Граница области: полководец дома, лагерь под стенами; дружина, войдя в город, встала гарнизоном (ДР-6).
     const g = (await world.figures()).find((f) => f.id === 'general')!;
     expect(g.phase).toBe('home');
-    expect(troopTotal(g.troops)).toBe(20);
+    expect(troopTotal(g.troops), 'в городе отряда нет — он гарнизон').toBe(0);
     expect((await world.strikePlan('home', false)).reason).toBe(STRIKE_FROM_TOWN);
     expect((await world.strikePlan('home', true)).reason).toBe(STRIKE_FROM_TOWN);
     expect(await world.strikeCamp('home', true)).toBe(STRIKE_FROM_TOWN);

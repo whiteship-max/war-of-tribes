@@ -2,23 +2,28 @@
 //
 // Бой здесь не считается и не предсказывается: его считает сервер в минуту прихода, тем же ядром, что бой
 // с логовом. Блок говорит, что с войной сейчас — их поход, наш поход, лагерь, — и держит пакт. Выступить — блоком удара
-// самой карточки, одним на логово и на город игрока (UI-7, docs/ui_v2.md, 5.6; Д16).
+// самой карточки, одним на логово и на город игрока (UI-7, docs/ui_v2.md, 5.6; Д16). «На выручку» — окном дела полководца
+// (ДР-6): состав «остаётся | уходит» и «Отправить» там же, где у всех его дел.
 import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import type { SettlementCard } from '@/world/types';
+import { roomOf } from '@/world/muster';
 import { Icon } from '@/ui/icons/Icon';
-import { count } from '@/ui/parts/plural';
 import { realLeft } from '@/ui/parts/wait';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { EnergyPrice } from '@/ui/parts/Energy';
+import { emptyRetinue, musterable } from '@/ui/map/ring';
 
 const left = (at: number, now: number): string => realLeft(Math.max(0, (at - now) / 1000));
 
 export function WarCard({ card }: { card: SettlementCard }) {
   const recallFigure = useWorld((g) => g.recallFigure);
   const pact = useWorld((g) => g.pact);
-  const relief = useWorld((g) => g.relief);
+  const openMenu = useWorld((g) => g.openMenu);
+  const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));
+  const marches = useWorld((g) => g.marches);
+  const army = useGame((g) => g.s.army);
   const showToast = useGame((g) => g.showToast);
   const openCamp = useGame((g) => g.openCamp);
   const openSiege = useGame((g) => g.openSiege);
@@ -34,12 +39,11 @@ export function WarCard({ card }: { card: SettlementCard }) {
     setBusy(false);
     if (err) showToast(err);
   };
-  const reliefGo = async (): Promise<void> => {
-    setBusy(true);
-    const err = await relief(card.id);
-    setBusy(false);
-    showToast(err ?? `Полководец идёт на выручку к «${card.name}».`);
-  };
+  // Выручка — окном дела: пустой отряд дома не отказ, пока бойцы в гарнизоне (`ring.emptyRetinue`, `musterable`).
+  const reliefOpen =
+    war.relief !== undefined &&
+    (war.relief.can || (musterable(general, roomOf(army, marches)) && emptyRetinue({ agent: 'general', can: war.relief.can, reason: war.relief.reason })));
+  const reliefGo = (): void => void openMenu('general', { x: card.x, y: card.y }, { deed: 'relief' });
   const recall = async (): Promise<void> => {
     setBusy(true);
     const err = await recallFigure('general');
@@ -113,12 +117,12 @@ export function WarCard({ card }: { card: SettlementCard }) {
               {war.relief.going !== undefined ? (
                 <p className="nx-tnote">Наша дружина идёт на выручку. Ударит по лагерю через {left(war.relief.going, now)}.</p>
               ) : (
-                <button className="nx-go nx-cgo" disabled={busy || !war.relief.can} onClick={() => void reliefGo()}>
-                  На выручку · {count(war.relief.men, 'боец', 'бойца', 'бойцов')}
+                <button className="nx-go nx-cgo" disabled={busy || !reliefOpen} onClick={reliefGo}>
+                  На выручку
                   {war.relief.energy && <EnergyPrice price={war.relief.energy.price} />}
                 </button>
               )}
-              {!war.relief.can && war.relief.going === undefined && war.relief.reason && <p className="nx-tnote bad">{war.relief.reason}</p>}
+              {!reliefOpen && war.relief.going === undefined && war.relief.reason && <p className="nx-tnote bad">{war.relief.reason}</p>}
             </>
           )}
           {war.pactBreakAt === undefined && (

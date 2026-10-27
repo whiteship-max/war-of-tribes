@@ -1,10 +1,10 @@
 // «Дружина» из строки состояния и низа (ДР-1, docs/siege_v2.md, «Решения ДР-1»): уже имеющееся войско — не найм. Сверху мощь
 // обороны и где бойцы, дальше дух — мораль и дисциплина с разбором «что влияет», состав полками по родам (живая сила и
-// раненые), раскладка «Гарнизон | Отряд полководца», жалованье — полное или минимальное — и роспуск с подтверждением. Нанимают
-// в Казармах и Конюшне: здесь к ним кнопки-двери. Передача стоит здесь же, а не за строкой «Раскладка» (UI-4,
-// docs/ui_v2.md, 5.3): решение о том, кто где, — про всё войско, а всё войско видно здесь. Строка вида — дверь в его карточку;
-// виды, которых в дружине нет, — значками внизу: карточка вида одна. Кольца контров нет (слово владельца по 14.35,
-// docs/battle_eu4.md): кто кого бьёт, решают показатели.
+// раненые), жалованье — полное или минимальное — и роспуск с подтверждением. Нанимают в Казармах и Конюшне: здесь к ним
+// кнопки-двери. Раскладки «Гарнизон | Отряд» здесь нет (ДР-6, «Решения ДР-6»): состав отряда полководца выбирают в окне дела
+// (`map/ArmySend`), а в городе он ведёт оборону всем гарнизоном. Итог мощи — в заголовке, жалованье в день — строкой «Дружине»
+// ведомости (`Upkeep`). Вид в составе — дверь в его карточку; виды, которых в дружине нет, — значками внизу: карточка вида
+// одна. Кольца контров нет (слово владельца по 14.35, docs/battle_eu4.md): кто кого бьёт, решают показатели.
 import { Suspense, lazy, useState } from 'react';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
@@ -14,7 +14,7 @@ import { useWorld, worldNow } from '@/world/store';
 import { restLine } from '../parts/restWords';
 import { count } from '../parts/plural';
 import { TroopCardView } from '../parts/TroopCardView';
-import { Muster, inWallsTip, outWallsTip } from '../parts/Muster';
+import { inWallsTip, outWallsTip } from '../parts/Muster';
 import { Dismiss, Roster, SpiritCard, WageChoice } from '../parts/ArmyDesk';
 import { Upkeep } from '../parts/Barracks';
 import { Icon } from '@/ui/icons/Icon';
@@ -96,7 +96,7 @@ export function ArmyPanel() {
       <ScarList />
 
       <h3>Состав</h3>
-      <Roster />
+      <Roster onCard={setOpen} />
       {training > 0 && (
         <div className="mod">
           <span className="ico">
@@ -106,10 +106,6 @@ export function ArmyPanel() {
           <span className="val">{training}</span>
         </div>
       )}
-
-      {/* Кто в гарнизоне, кто с полководцем — передача здесь, одна на всю игру (docs/retinue.md, docs/ui_v2.md, 5.3). */}
-      <h3>Гарнизон и отряд</h3>
-      <Muster onCard={setOpen} />
 
       {/* Командиры флангов (ДР-3): кто ведёт левый и правый фланг в отряде полководца; найм и смена — меню «Командующие». */}
       <h3>Командующие</h3>

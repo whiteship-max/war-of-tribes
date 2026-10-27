@@ -23,9 +23,10 @@ import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
 import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
 import { KIND_META, UNIT_KINDS } from '@/battle';
 import { TERRAIN_META } from '@/world/data/terrain';
-import type { ErrandTarget, Estimate, Fate, FigureId, Mission, UnitStack } from '@/world/types';
+import type { ErrandId, ErrandTarget, Estimate, Fate, FigureId, Mission, UnitStack } from '@/world/types';
 import { UNIT_BY_ID, stackSize } from '@/world/data/units';
-import { awayOf, ownOf } from '@/world/muster';
+import { awayOf, ownOf, roomOf } from '@/world/muster';
+import { emptyRetinue, musterable } from '@/ui/map/ring';
 import { awayTroops } from '@/world/bridge';
 import { troopTotal } from '@/game/battle/kinds';
 import { fellLine } from '@/ui/parts/fellWords';
@@ -286,20 +287,11 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   const goStrike = !card.castle && !card.siege?.mine && !standing.includes('general') ? card.assault : undefined;
   // «Дойти и осадить»: полководец не здесь — идёт сюда и встаёт лагерем в минуту прихода (docs/siege_v2.md, 1.3).
   const goSiege = !card.castle && !card.siege?.mine && !standing.includes('general') ? card.invest : undefined;
-  const invest = async (): Promise<void> => {
-    if (!goSiege) return;
-    setBusy(true);
-    const err = await errand({ agent: 'general', target: goal, deed: 'siege', fate });
-    setBusy(false);
-    showToast(err ?? `Отряд вышел. Лагерь встанет через ${realLeft(goSiege.walkMs / 1000)}, даже если ты не в игре.`);
-  };
-  const march = async (): Promise<void> => {
-    if (!goStrike) return;
-    setBusy(true);
-    const err = await errand({ agent: 'general', target: goal, deed: 'storm', fate });
-    setBusy(false);
-    showToast(err ?? `Отряд вышел. Бой через ${realLeft(goStrike.walkMs / 1000)}, даже если ты не в игре.`);
-  };
+  // Поход из карточки — окном дела (ДР-6): состав «остаётся | уходит», участь и «Отправить» там, одним окном на все дела
+  // полководца. Пустой отряд дома — не отказ, пока бойцы в гарнизоне: их даёт окно (`ring.emptyRetinue`, `musterable`).
+  const muster = musterable(general, roomOf(s.army, marches));
+  const opens = (x: { can: boolean; reason: string | null }): boolean => x.can || (muster && emptyRetinue({ agent: 'general', ...x }));
+  const toWindow = (deed: ErrandId): void => void openMenu('general', { x: card.x, y: card.y }, { deed, fate });
   const doSend = async (): Promise<void> => {
     if (!mission) return;
     setBusy(true);
@@ -338,14 +330,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   // (Д16, UI-7; прежде у блока «Война» был свой выбор участи и свои кнопки). Пока наш отряд идёт или стоит лагерем —
   // кнопок нет, их место в блоке «Война» занимает ход похода.
   const war = card.castle && !card.mine && card.war && !card.war.ours ? card.war : null;
-  const warGo = async (mode: 'storm' | 'siege'): Promise<void> => {
-    if (!war) return;
-    setBusy(true);
-    const err = await errand({ agent: 'general', target: goal, deed: mode, fate });
-    setBusy(false);
-    showToast(err ?? `Отряд вышел на ${card.name}. В пути ${realLeft(war.walkMs / 1000)}.`);
-  };
-  const raidable = (card.can.raid || card.can.besiege || Boolean(goStrike?.can) || Boolean(war)) && !card.siege?.mine;
+  const raidable = (card.can.raid || card.can.besiege || Boolean(goStrike && opens(goStrike)) || Boolean(war)) && !card.siege?.mine;
   // Та же дорога в каждом режиме марша (ДР-2) — у похода к цели; полководец у ворот бьёт сразу, выбирать нечего.
   const gaitRows = goSiege?.gaits ?? goStrike?.gaits ?? war?.gaits;
   // Сколько идти отряду полководца (О8): прежде ячейка «Дорога» показывала путь разведчика, а удар шёл вдвое дольше.
@@ -443,7 +428,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           </button>
         )}
         {goStrike && (
-          <button className="nx-go nx-cgo" disabled={busy || !goStrike.can} onClick={() => void march()}>
+          <button className="nx-go nx-cgo" disabled={busy || !opens(goStrike)} onClick={() => toWindow('storm')}>
             Дойти и ударить · {realLeft(goStrike.walkMs / 1000)}
             <EnergyPrice price={goStrike.energy.price} />
           </button>
@@ -468,20 +453,20 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         {/* Полководец не у ворот: «Дойти и осадить» — поход, лагерь в минуту прихода (docs/siege_v2.md, 1.3; закрывает
             находку 14 docs/siege_audit.md). Погашенная — с причиной строкой ниже. */}
         {goSiege && !card.can.besiege && (
-          <button className="nx-cact" disabled={busy || !goSiege.can} onClick={() => void invest()}>
+          <button className="nx-cact" disabled={busy || !opens(goSiege)} onClick={() => toWindow('siege')}>
             <Icon name="alert-siege" />
             Дойти и осадить · {realLeft(goSiege.walkMs / 1000)}
             <EnergyPrice price={goSiege.energy.price} />
           </button>
         )}
         {war && (
-          <button className="nx-go nx-cgo" disabled={busy || !war.can || Boolean(war.energy?.storm.block)} onClick={() => void warGo('storm')}>
-            Дойти и ударить · {count(war.men, 'боец', 'бойца', 'бойцов')}
+          <button className="nx-go nx-cgo" disabled={busy || !opens(war) || Boolean(war.energy?.storm.block)} onClick={() => toWindow('storm')}>
+            Дойти и ударить · {realLeft(war.walkMs / 1000)}
             {war.energy && <EnergyPrice price={war.energy.storm.price} />}
           </button>
         )}
         {war && (
-          <button className="nx-cact" disabled={busy || !war.can} onClick={() => void warGo('siege')}>
+          <button className="nx-cact" disabled={busy || !opens(war)} onClick={() => toWindow('siege')}>
             <Icon name="alert-siege" />
             Осадить · {realLeft(war.walkMs / 1000)}
             {war.energy && <EnergyPrice price={war.energy.siege.price} />}
@@ -500,15 +485,15 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           </button>
         ))}
       </div>
-      {goStrike && !goStrike.can && goStrike.reason && <p className="nx-tnote bad">{goStrike.reason}</p>}
-      {goSiege && !card.can.besiege && !goSiege.can && goSiege.reason && goSiege.reason !== goStrike?.reason && (
+      {goStrike && !opens(goStrike) && goStrike.reason && <p className="nx-tnote bad">{goStrike.reason}</p>}
+      {goSiege && !card.can.besiege && !opens(goSiege) && goSiege.reason && goSiege.reason !== goStrike?.reason && (
         <p className="nx-tnote bad">{goSiege.reason}</p>
       )}
-      {war && !war.can && war.reason && <p className="nx-tnote bad">{war.reason}</p>}
+      {war && !opens(war) && war.reason && <p className="nx-tnote bad">{war.reason}</p>}
       {/* Штурм дороже осады: открыт поход вообще, а на штурм энергии не хватает — причина своей строкой. */}
-      {war?.can && war.energy?.storm.block && <p className="nx-tnote bad">Штурм: {war.energy.storm.block}</p>}
+      {war && opens(war) && war.energy?.storm.block && <p className="nx-tnote bad">Штурм: {war.energy.storm.block}</p>}
       {/* Хватит ли после осады на штурм из лагеря — до выхода: в лагере энергия не копится (siege_audit, 9). */}
-      {war?.can && war.campStorm && <p className="nx-tnote">{war.campStorm}</p>}
+      {war && opens(war) && war.campStorm && <p className="nx-tnote">{war.campStorm}</p>}
       {war && (
         <p className="nx-tnote">
           Бой будет в минуту прихода, даже если ты не в игре; хозяин города увидит отряд сразу. Штурм с ходу — один бой у стены,
@@ -575,7 +560,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         </div>
       )}
 
-      {/* Кто с полководцем — передача в «Дружине», одна на всю игру (docs/retinue.md, docs/ui_v2.md, 5.3): здесь строка-вход. */}
+      {/* Где полководец — строка-вход в «Дружину»; состав отряда выбирают в окне дела (ДР-6). */}
       {card.mine && <MusterLink />}
 
       {lead(standing)}

@@ -1,8 +1,9 @@
-// Строка-вход в передачу «Дружины» — в Статуе и в карточке своего замка (docs/retinue.md; UI-4, docs/ui_v2.md, 5.3), и
-// строка «где полководец и его отряд» — одна на строку-вход и на саму передачу (`Muster`).
+// Строка-вход в «Дружину» — в Статуе и в карточке своего замка (docs/retinue.md; UI-4, docs/ui_v2.md, 5.3), и строка «где
+// полководец и его отряд» — одна на строку-вход и на окно состава дела (`Muster`). Раскладки в «Дружине» с ДР-6 нет: состав
+// отряда выбирают в окне дела, и строка ведёт к войску, а не к передаче.
 //
-// Отдельным лёгким файлом нарочно: Статуя лежит в первой загрузке, а передача — в куске нового вида (`ui/next`, `App.tsx`)
-// вместе с набором `kit` и подсказками верха; строка-вход, тянущая их за собой, вернула бы их в первую загрузку.
+// Отдельным лёгким файлом нарочно: Статуя лежит в первой загрузке, а окно состава — в куске окна дела вместе с набором `kit`
+// и подсказками верха; строка-вход, тянущая их за собой, вернула бы их в первую загрузку.
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { seated } from '@/game/sim/agents';
@@ -15,8 +16,8 @@ import { realSpanText } from './wait';
 
 /**
  * Где полководец и его отряд — одной строкой: за разницу между «в городе» и «в поле» игрок платит обороной. В городе
- * полководец «защищает стены» — с отрядом и без (решение владельца 16.10.2026, docs/ui_v2.md, 6.10), и во время сбора
- * тоже (`muster.inTown`).
+ * полководец «защищает стены» всем гарнизоном (решение владельца 16.10.2026, docs/ui_v2.md, 6.10): своего отряда там у
+ * него нет (ДР-6) — о нём строка и не говорит.
  */
 export function postureLine(general: FigureView | undefined, now = worldNow()): string {
   if (!general) return 'Где полководец, пока неизвестно';
@@ -25,14 +26,14 @@ export function postureLine(general: FigureView | undefined, now = worldNow()): 
   if (general.phase === 'down') return n > 0 ? 'Полководец вне строя' : 'Полководец вне строя, отряда нет';
   const left = secondsLeft(general.readyAt, now);
   const gathering = general.readyAt > 0 && left > 0 ? ` · сбор ещё ${realSpanText(left)}` : '';
-  if (inTown(general)) return n > 0 ? `В городе — защищает стены${gathering}` : 'В городе — защищает стены, отряда нет';
+  if (inTown(general)) return `В городе — защищает стены${gathering}`;
   if (postureOf(general) === 'gathering') return `Сбор ещё ${realSpanText(left)}, город не защищает`;
   return n > 0 ? 'В походе — город не защищает' : 'В походе, отряда нет';
 }
 
 /**
- * Строка-вход в Статуе и в карточке своего замка: сколько бойцов с полководцем и где они; касание ведёт в «Дружину», где
- * стоит передача. Своего окна у строки нет.
+ * Строка-вход в Статуе и в карточке своего замка: где полководец и, если он в походе, сколько с ним бойцов; касание ведёт в
+ * «Дружину». Своего окна у строки нет.
  */
 export function MusterLink() {
   const s = useGame((g) => g.s);
@@ -49,14 +50,14 @@ export function MusterLink() {
     if (!(sheet?.kind === 'tab' && sheet.tab === 'army')) openTab('army');
   };
   return (
-    <button className="card as-row" onClick={go} aria-label="В «Дружину»: гарнизон и отряд">
+    <button className="card as-row" onClick={go} aria-label="В «Дружину»">
       <div className="ico">
         <Icon name="fig-general" />
       </div>
       <div className="body">
         <div className="title">
-          Гарнизон и отряд
-          <span className="count">отряд {n}</span>
+          Полководец и дружина
+          {n > 0 && <span className="count">с ним {n}</span>}
         </div>
         <div className="desc">{postureLine(general)}</div>
       </div>

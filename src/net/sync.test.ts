@@ -444,4 +444,18 @@ describe('когда партия уходит на сервер', () => {
     provideSheet(() => null);
     expect(sheetMark(), 'слепка нет — отметки нет').toBeNull();
   });
+
+  // ДР-6 (docs/siege_v2.md, «Решения ДР-6»): в городе слепок называет тем, кто может уйти с полководцем, весь гарнизон
+  // (`retinue`), и каждый новобранец торопил бы запись; выход и возврат полководца отметка видит полем `led`.
+  it('отметка раскладки меняется с выходом полководца из города, а не с каждым новобранцем', async () => {
+    const { provideSheet, sheetMark } = await import('./war');
+    const base = { out: [], pips: {} } as unknown as WarSheet;
+    provideSheet(() => ({ ...base, led: true, home: { spearman: 10 }, retinue: { spearman: 10 } }));
+    const town = sheetMark();
+    provideSheet(() => ({ ...base, led: true, home: { spearman: 11 }, retinue: { spearman: 11 } }));
+    expect(sheetMark(), 'новобранец отметку не меняет').toBe(town);
+    provideSheet(() => ({ ...base, home: { spearman: 1 }, retinue: {} }));
+    expect(sheetMark(), 'полководец вышел из города — отметка другая').not.toBe(town);
+    provideSheet(() => null);
+  });
 });

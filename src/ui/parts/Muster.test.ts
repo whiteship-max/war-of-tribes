@@ -1,12 +1,12 @@
-// Раскладка дружины — одна передача в «Дружине» (docs/retinue.md; UI-4, docs/ui_v2.md, 5.3); Статуя и карточка своего
-// замка ведут туда строкой. Две проверки; разметку самой передачи держит `transfer.test.ts`.
+// Состав отряда полководца — одно окно дела (К-2; ДР-6, docs/siege_v2.md, «Решения ДР-6»): раскладки в «Дружине» больше
+// нет, и окна игры приказа раскладки мира не зовут вовсе. Статуя и карточка своего замка ведут в «Дружину» строкой.
 //
-// По исходнику: `setGarrison` мира в интерфейсе зовёт ровно этот файл, окно показано ровно в «Дружине», а строка-вход —
-// в Статуе и в карточке своего замка. Вторая копия окна разошлась бы с первой так же молча, как расходились два разбора
-// жеста.
+// По исходнику: `setGarrison` мира в интерфейсе не зовёт никто, окно состава показано ровно в окне дела (`map/ArmySend`), а
+// оно — ровно в меню дел (`map/ActionMenu`); уход — дело с составом одним приказом (`ErrandOrder.troops`). Вторая копия окна
+// разошлась бы с первой так же молча, как расходились два разбора жеста.
 //
-// По миру: окно гасит кнопку по `FigureView.regroup` — признак обязан совпадать с ответом самого приказа в каждой точке,
-// где полководец жив, — иначе окно предлагало бы раскладку там, где мир откажет, или прятало бы её там, где мир согласен.
+// По миру: окно даёт шаг по `FigureView.regroup` — признак обязан совпадать с ответом самого приказа в каждой точке,
+// где полководец жив, — иначе окно предлагало бы состав там, где мир откажет, или прятало бы его там, где мир согласен.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -50,23 +50,33 @@ function sources(dir: string): string[] {
 
 const rel = (abs: string): string => path.relative(UI, abs).split(path.sep).join('/');
 
-describe('раскладка дружины: одно окно, входы к нему', () => {
-  it('`setGarrison` мира зовёт ровно окно, окно показано в «Дружине», строка-вход — в Статуе и карточке замка', () => {
+describe('состав отряда: одно окно дела, раскладки нет', () => {
+  it('`setGarrison` мира интерфейс не зовёт, окно состава — только в окне дела, окно дела — только в меню дел', () => {
     const all = sources(UI);
     // `.setGarrison` — действие мира; одноимённый сеттер галочки в `CampStrike` к нему отношения не имеет.
     const callers = all.filter((f) => /\.setGarrison\b/.test(code(f))).map(rel);
-    expect(callers, 'кто зовёт setGarrison мира').toEqual(['parts/Muster.tsx']);
+    expect(callers, 'кто зовёт setGarrison мира').toEqual([]);
     const shown = all.filter((f) => /<Muster\b/.test(code(f))).map(rel).sort();
-    // К-2: окно войска полководца на карте — та же передача в режиме «Отправить» (`send`), а не вторая копия.
-    expect(shown, 'где показано окно').toEqual(['map/ArmySend.tsx', 'panels/ArmyPanel.tsx']);
+    expect(shown, 'где показано окно состава').toEqual(['map/ArmySend.tsx']);
+    const windows = all.filter((f) => /<ArmySend\b/.test(code(f))).map(rel).sort();
+    expect(windows, 'где показано окно дела').toEqual(['map/ActionMenu.tsx']);
     const links = all.filter((f) => /<MusterLink\b/.test(code(f))).map(rel).sort();
-    expect(links, 'где строка-вход в окно').toEqual(['next/WorldNew.tsx', 'parts/Statue.tsx']);
+    expect(links, 'где строка-вход в «Дружину»').toEqual(['next/WorldNew.tsx', 'parts/Statue.tsx']);
     const defined = all.filter((f) => /function Muster\b/.test(code(f))).map(rel);
     expect(defined, 'сколько окон определено').toEqual(['parts/Muster.tsx']);
     const muster = code(path.join(UI, 'parts/Muster.tsx'));
-    // Отказы — словами мира: ошибка уходит игроку как есть, а погасшая кнопка читает признак мира.
-    expect(muster, 'отказ мира уходит как есть').toMatch(/showToast\(err \?\?/);
-    expect(muster, 'кнопка гаснет по признаку мира').toMatch(/regroup\.block/);
+    // Уход — дело с составом одним приказом; шаг — по признаку мира.
+    expect(muster, 'состав едет в приказе дела').toMatch(/w\.errand\(want \? \{ \.\.\.order, troops:/);
+    expect(muster, 'шаг — по признаку мира').toMatch(/regroup\.instant/);
+    expect(muster, 'кнопки «Подтвердить» нет').not.toMatch(/Подтвердить/);
+    // «Дружина» — без раскладки: ни окна, ни «Подтвердить», ни «Всех в отряд».
+    const army = code(path.join(UI, 'panels/ArmyPanel.tsx'));
+    for (const gone of ['<Muster', 'Подтвердить', 'Всех в отряд', 'Всех в гарнизон', 'Гарнизон и отряд']) {
+      expect(army, `в «Дружине» нет «${gone}»`).not.toContain(gone);
+    }
+    // Поход из карточки места и выручка ведут в окно дела, а не шлют дело мимо него.
+    expect(code(path.join(UI, 'next/WorldNew.tsx')), 'карточка места — в окно дела').toMatch(/openMenu\('general', \{ x: card\.x, y: card\.y \}, \{ deed, fate \}\)/);
+    expect(code(path.join(UI, 'next/WarCard.tsx')), 'выручка — в окно дела').toMatch(/openMenu\('general', \{ x: card\.x, y: card\.y \}, \{ deed: 'relief' \}\)/);
   });
 
   it('признак окна совпадает с ответом приказа в каждой точке, где полководец жив', async () => {

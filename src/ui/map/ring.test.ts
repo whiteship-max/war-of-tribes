@@ -230,7 +230,8 @@ describe('кольцо над целью (К-2)', () => {
   it('полководец уходит именно с выбранным войском — не с тем, что был при нём', async () => {
     const b = await bench();
     const target: ErrandTarget = { kind: 'place', id: b.lair.id };
-    // Отряд при полководце — весь HOST (как раскладка «Всех в отряд»), выбрано меньше и другого состава.
+    // Отряд при полководце — весь HOST (приказ раскладки старого клиента, ДР-6: принимается как раньше), выбрано меньше и
+    // другого состава.
     expect(await b.world.setGarrison({ ...HOST })).toBeNull();
     const held = (await b.fig('general')).troops ?? {};
     expect(troopTotal(held), 'до приказа при полководце весь отряд').toBe(troopTotal(HOST));
@@ -239,14 +240,14 @@ describe('кольцо над целью (К-2)', () => {
     const storm = (await b.world.errands('general', target)).find((o) => o.id === 'storm');
     expect(storm?.reason, 'удар доступен').toBeNull();
     const want: TroopStack = { legionary: 20, archer: 10 };
-    expect(await departWith(b.world, held, want, { agent: 'general', target, deed: 'storm', fate: 'plunder', shownAt: storm!.at })).toBeNull();
+    expect(await departWith(b.world, want, { agent: 'general', target, deed: 'storm', fate: 'plunder', shownAt: storm!.at })).toBeNull();
     const g = await b.fig('general');
     expect(g.phase, 'пошёл').toBe('moving');
     expect(g.troops, 'ушёл ровно с выбранными').toEqual(want);
 
     // Окно войска: обе колонки, итог мощи и обороны, участь удара, «Отправить» — одним окном.
     stores.game = { s, showToast: () => undefined, openBuilding: () => undefined };
-    stores.world = { figures: await b.world.figures(), marches: [], setGarrison: async () => null, closeMenu: () => undefined };
+    stores.world = { figures: await b.world.figures(), marches: [], closeMenu: () => undefined };
     const fates = [{ id: 'plunder' as const, can: true, reason: null, loot: {}, slaves: 0, levels: 0, pop: 0 }];
     const html = renderToStaticMarkup(h(ArmySend, { where: 'Логово', goal: target, o: storm!, fates: fates as never, onBack: () => undefined }));
     for (const want of ['Остаётся', 'Уходит с полководцем', 'Оборона города', 'Мощь', 'Куда', 'Дорога', 'Риск', '>Отправить<', 'class="fate-pick"']) {
@@ -269,7 +270,7 @@ describe('кольцо над целью (К-2)', () => {
     expect(ringSlots(target, deeds, figures, hire, false, false)[1].on, 'без бойцов в гарнизоне меч погашен').toBe(false);
     expect(ringSlots(target, deeds, figures, hire, false, musterable(g0, HOST))[1].on, 'с бойцами в гарнизоне меч горит').toBe(true);
     const want: TroopStack = { spearman: 30, archer: 12 };
-    expect(await departWith(b.world, {}, want, { agent: 'general', target, deed: 'storm', fate: 'plunder', shownAt: storm.at })).toBeNull();
+    expect(await departWith(b.world, want, { agent: 'general', target, deed: 'storm', fate: 'plunder', shownAt: storm.at })).toBeNull();
     const g = await b.fig('general');
     expect(g.phase, 'пошёл').toBe('moving');
     expect(g.troops, 'ушёл ровно с выбранными').toEqual(want);

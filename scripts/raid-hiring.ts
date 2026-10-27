@@ -625,7 +625,12 @@ export async function capturedRun(a: { variant: Led; seed: number }): Promise<Ca
         if (troopTotal(half) > 0 && (await world.setGarrison(half)) === null) mustered = true;
         return;
       }
-      if (troopTotal(gen.troops) <= 0) return;
+      // Отряд пуст — вернувшись, он встал гарнизоном (ДР-6) или его перебили: игрок берёт состав заново перед делом.
+      if (troopTotal(gen.troops) <= 0) {
+        mustered = false;
+        target = null;
+        return;
+      }
       if (target && gen.atId === target) {
         // Под гейтом «увести людей» — покупная ступень военной ветви (docs/dynasty.md, раздел
         // 11.2), и посёлку мерки она не засчитана: засчитывают вещи, а не участь. Пока игрок её

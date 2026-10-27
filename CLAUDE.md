@@ -782,10 +782,13 @@ HEAD один на всех, см. правило 8). Значит развес�
   перемену; сервер — правило «scars», в войну — черты книги черт, приказ и слепок их не несут, ночи, зимы и голода у боя войны нет
   (`scarrules.test.ts`, `battle/scars.test.ts`, `scarsbattle.test.ts`, `sim/scars.test.ts`, `scarbook.test.ts`; docs/siege_v2.md,
   «Решения ДР-4»).
-- **Раскладка** — кто в гарнизоне, кто с полководцем: приказ `setGarrison` и признак `FigureView.regroup` одной проверкой,
-  в своём городе — мгновенно, и в осаде (`Regroup.instant`; сбор — только в поле у своих ворот), передача одна —
-  `ui/parts/Muster` в «Дружине»; полководец в городе и его отряд — гарнизон, оборону он ведёт и без отряда (`muster.inTown`); вставшие раненые его отряда — `GameState.risen` → `rejoinRisen`; свой поход в слепке
-  обороны сервер правит сам (`war.liveSheet`) (`Muster.test.ts`, `transfer.test.ts`, `agents.test.ts`, `retinue.test.ts`, `pvp.test.ts`; army).
+- **Состав отряда полководца** (ДР-6) — раскладки в «Дружине» нет: в своём городе отряда у полководца нет, он ведёт оборону
+  всем гарнизоном (`muster.inTown`); состав берут из гарнизона в окне дела (`map/ArmySend` → `ui/parts/Muster`) и уходят с
+  ним одним приказом `ErrandOrder.troops` (`LocalWorld.takeBand`: перевод раскладки, отказ дела — всех назад); вне города —
+  тот, что при нём; вернувшись, отряд — гарнизон (`homecoming`, и при чтении сохранения). Признак окна — `FigureView.regroup`,
+  приказ `setGarrison` остался старому клиенту и консоли; слепок обороны в городе называет весь гарнизон тем, кто может уйти
+  (`WarSheet.retinue`), свой поход сервер правит сам (`war.liveSheet`) (`dr6.test.ts`, `Muster.test.ts`, `transfer.test.ts`,
+  `retinue.test.ts`, `pvp.test.ts`; army, docs/siege_v2.md, «Решения ДР-6»).
 - **Вести и их следствия** — усилитель ответа `sim/boons` (поля сезона поверх `derived.seasonMods`, мораль — после
   шкалы), следствие `sim/chains`, на стол его кладёт почта; числа — `data/tidings.ts`, `data/boons.ts`
   (`sim/tidings.test.ts`; docs/events.md).

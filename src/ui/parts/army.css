@@ -142,6 +142,18 @@
   width: 14px;
   height: 14px;
 }
+/* Вид — дверь в карточку вида (ДР-6: прежде ею была строка раскладки): цель касания 44. */
+button.dr-kind {
+  min-height: var(--tap);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button.dr-kind:active {
+  transform: scale(0.97);
+}
 .dr-total {
   margin: 2px 0 0;
   font-size: 12px;

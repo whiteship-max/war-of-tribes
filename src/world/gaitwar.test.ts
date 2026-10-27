@@ -114,7 +114,10 @@ describe('режим марша в войне: убыль похода дохо�
     g.step((war.backAt ?? g.now()) - g.now() + 1000);
     await g.pulse();
     expect(war.phase).toBe('done');
-    const home = troopTotal((await general(g)).troops);
+    // Вернувшиеся — гарнизон (ДР-6): отряда при полководце дома нет, уцелевших называет запись войны.
+    expect(troopTotal((await general(g)).troops), 'дома отряд — гарнизон').toBe(0);
+    const home = troopTotal(war.army.troops as Record<string, number>);
+    expect(home, 'точка внутри области: уцелевшие есть').toBeGreaterThan(0);
     expect(g.lost(), 'убыль похода — в племени, ровно').toBe(troopTotal(SQUAD) - home);
   }, 120_000);
 

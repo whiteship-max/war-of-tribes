@@ -1,9 +1,10 @@
-// Передача в «Дружине» (UI-4, docs/ui_v2.md, 5.3): две колонки — гарнизон и отряд, — шаг по каждому виду, итог мощи и
-// жалованья «было → станет» функциями игры, одна кнопка «Подтвердить» и строка «в городе — защищает стены».
+// «Дружина» без раскладки и окно состава дела полководца (ДР-6, docs/siege_v2.md, «Решения ДР-6»; К-2): в «Дружине» нет ни
+// таблицы «Гарнизон | Отряд», ни «Подтвердить»; вид в составе — дверь в карточку вида. Состав выбирают в окне дела: по виду —
+// «остаётся | уходит», итог мощи функциями игры, оборона остающихся, «Отправить»; строка «в городе — защищает стены».
 //
-// Окно рисуется в строку (`renderToStaticMarkup`) с партией теста: сторы игры и мира подменены видом, как в тесте ратуши
+// Окна рисуются в строку (`renderToStaticMarkup`) с партией теста: сторы игры и мира подменены видом, как в тесте ратуши
 // (`next/hall.test.ts`). Области (правило 11) названы в каждом блоке и проверяются утверждениями: полководец в городе с
-// отрядом и без, в поле, в городе во время сбора.
+// отрядом (сохранение прежней раскладки) и без, в поле, в городе во время сбора.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createElement as h } from 'react';
@@ -13,7 +14,7 @@ import { TAP_SLIP, TAP_TARGET } from '@/gestures';
 import { createInitialState } from '@/game/state';
 import type { GameState } from '@/game/types';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
-import { armySize, homeArmy, wageOf } from '@/game/derived';
+import { armyPower, armySize, homeArmy } from '@/game/derived';
 import { troopPower } from '@/game/battle/price';
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { seeded } from '@/game/sim/random';
@@ -21,7 +22,7 @@ import { syncAway } from '@/world/bridge';
 import { inTown } from '@/world/muster';
 import type { FigureView, MarchView, Regroup } from '@/world/types';
 import { REST_LABEL } from '@/ui/kit/breakdown';
-import { fmtInt, fmtRate } from '@/ui/next/hudTips';
+import { fmtInt } from '@/ui/next/hudTips';
 
 const { stores, fake } = vi.hoisted(() => ({
   stores: { game: {} as Record<string, unknown>, world: {} as Record<string, unknown> },
@@ -37,7 +38,7 @@ vi.mock('@/world/store', async (orig) => {
 });
 
 import { ArmyPanel } from '@/ui/panels/ArmyPanel';
-import { EMPTY_HINT, STEP_HINT, inWallsTip, outWallsTip, shift, sideOf, sideTip, transferSums } from './Muster';
+import { Muster, SEND_AS_IS, SEND_HINT, inWallsTip, outWallsTip, shift, sideOf, sideTip, transferSums } from './Muster';
 import { postureLine } from './MusterLink';
 
 const NOW = 1_700_000_000_000;
@@ -72,94 +73,87 @@ function party(g: FigureView, marches: MarchView[] = []): GameState {
   Object.assign(s.army, ARMY);
   syncAway(s, marches, [g]);
   stores.game = { s, showToast: () => undefined, openBuilding: () => undefined };
-  stores.world = { marches, figures: [g], setGarrison: async () => null };
+  stores.world = { marches, figures: [g] };
   return s;
 }
 
-/** Строки вида: имя и число гарнизона из двери карточки, число отряда — из шага (или числом, когда менять нельзя). */
-function rowsOf(html: string): { name: string; garrison: string }[] {
-  return [...html.matchAll(/aria-label="([^"]+): карточка вида"[^>]*>(?:(?!<\/button>)[\s\S])*?<small[^>]*>[^<]*<\/small><b>([^<]+)<\/b>/g)].map((m) => ({
+/** Окно состава дела — то, что рисует окно дела (`map/ArmySend`). */
+const sendWindow = (): string =>
+  renderToStaticMarkup(
+    h(Muster, { send: { order: { agent: 'general', target: { kind: 'place', id: 'lair' }, deed: 'storm' }, block: () => null, done: () => undefined } }),
+  );
+
+/** Строки вида окна: имя и число остающихся; число уходящих — в шаге (или числом, когда менять нельзя). */
+function rowsOf(html: string): { name: string; stays: string }[] {
+  return [...html.matchAll(/<span class="ms-kind">(?:(?!<\/span><\/span>)[\s\S])*?<small[^>]*>([^<]*)<\/small><b>([^<]+)<\/b>/g)].map((m) => ({
     name: m[1],
-    garrison: m[2],
+    stays: m[2],
   }));
 }
 const count = (html: string, s: string): number => html.split(s).length - 1;
 
-describe('передача: две колонки, шаг по видам, итог и одна кнопка — полководец в городе', () => {
-  it('гарнизон и отряд по каждому виду, шаг у каждого, кнопка одна', () => {
+describe('«Дружина» без раскладки: состав, двери в карточки, итог — без «Подтвердить»', () => {
+  it('ни таблицы «Гарнизон | Отряд», ни шага, ни «Подтвердить»; у каждого вида — дверь в карточку', () => {
+    // Область: полководец в городе с отрядом прежней раскладки (сохранение до перехода) — и без отряда.
+    for (const g of [general({}), general({ troops: {} })]) {
+      expect(inTown(g), 'точка внутри области: в городе').toBe(true);
+      const s = party(g);
+      const html = renderToStaticMarkup(h(ArmyPanel));
+      for (const gone of ['>Подтвердить<', 'Гарнизон и отряд', 'Всех в отряд', 'Всех в гарнизон', 'aria-label="Взять с собой', 'nx-obar']) {
+        expect(count(html, gone), `в «Дружине» нет «${gone}»`).toBe(0);
+      }
+      // Виды в дружине — дверями в составе, виды без бойцов — значками: карточка у каждого из видов достижима.
+      expect(count(html, ': карточка вида"'), 'дверь в карточку — у всех видов').toBe(TROOP_IDS.length);
+      expect(count(html, 'class="dr-kind"'), 'дверь — у каждого вида в дружине').toBe(TROOP_IDS.filter((t) => (ARMY[t] ?? 0) > 0).length);
+      // Итог по всему войску — одной строкой заголовка: бойцы и мощь.
+      expect(html, 'итог мощи в заголовке').toContain(`мощь ${Math.round(armyPower(s))}`);
+      expect(armySize(s)).toBe(troopTotal(ARMY));
+    }
+  });
+});
+
+describe('окно состава дела: остаётся | уходит, итог и «Отправить» — полководец в городе', () => {
+  it('по каждому виду — остающиеся и шаг, итог мощи `troopPower` и оборона, кнопка одна', () => {
     const g = general({});
     const s = party(g);
-    // Область: полководец в городе, менять можно.
-    expect(inTown(g), 'точка внутри области: в городе').toBe(true);
-    const html = renderToStaticMarkup(h(ArmyPanel));
+    expect(inTown(g), 'точка внутри области: в городе, перевод мгновенный').toBe(true);
+    const html = sendWindow();
     const kinds = TROOP_IDS.filter((t) => (ARMY[t] ?? 0) > 0);
     const rows = rowsOf(html);
     expect(rows.map((r) => r.name), 'строка на каждый вид в дружине').toEqual(kinds.map((t) => TROOP_BY_ID[t].name));
     for (const [i, t] of kinds.entries()) {
-      expect(rows[i].garrison, `${t}: гарнизон — всё минус отряд`).toBe(fmtInt((ARMY[t] ?? 0) - (HELD[t] ?? 0)));
+      expect(rows[i].stays, `${t}: остаётся — всё минус уходящие`).toBe(fmtInt((ARMY[t] ?? 0) - (HELD[t] ?? 0)));
     }
-    expect(count(html, 'aria-label="К полководцу 10"'), 'шаг «+10» у каждого вида').toBe(kinds.length);
-    expect(count(html, 'aria-label="В гарнизон"'), 'шаг «−» у каждого вида').toBe(kinds.length);
+    expect(count(html, 'aria-label="Взять с собой 10"'), 'шаг «+10» у каждого вида').toBe(kinds.length);
+    expect(count(html, 'aria-label="Оставить в городе"'), 'шаг «−» у каждого вида').toBe(kinds.length);
     const nums = [...html.matchAll(/<span class="n">(\d+)<\/span>/g)].map((m) => Number(m[1]));
-    expect(nums, 'в шаге — число отряда').toEqual(kinds.map((t) => HELD[t] ?? 0));
-    expect(count(html, '>Подтвердить<'), 'кнопка одна').toBe(1);
-    expect(html, 'приказ тот же — кнопка гаснет с причиной').toMatch(/disabled=""[^>]*><span>Подтвердить<\/span><\/button><small class="kit-why">Раскладка та же<\/small>/);
-    // Колонки названы, прежнего окна за строкой нет, прежнего списка «Состав» нет.
-    expect(html).toContain('Гарнизон');
-    expect(html).toContain('Отряд');
-    expect(html, 'прежнего окна «Раскладка» нет').not.toMatch(/nx-rk/);
-    expect(html, 'прежнего списка «Состав» нет').not.toContain('Состав дружины');
-    // Виды без бойцов — значками-дверями в карточку: карточка у каждого из девяти видов достижима.
-    expect(count(html, ': карточка вида"'), 'дверь в карточку — у всех видов').toBe(TROOP_IDS.length);
+    expect(nums, 'в шаге — уходящие, сначала тот отряд, что при нём').toEqual(kinds.map((t) => HELD[t] ?? 0));
+    expect(count(html, '>Отправить<'), 'кнопка одна').toBe(1);
+    expect(count(html, '>Подтвердить<'), '«Подтвердить» нет').toBe(0);
+    const stays = troopsAfter(ARMY, HELD);
+    expect(html, 'мощь остающихся').toContain(`>${fmtInt(Math.round(troopPower(stays)))}<`);
+    expect(html, 'мощь уходящих').toContain(`>${fmtInt(Math.round(troopPower(HELD)))}<`);
+    expect(html, 'оборона города').toContain('Оборона города');
+    expect(html, 'строка полководца').toContain('В городе — защищает стены');
+    expect(html).toContain(SEND_HINT);
     expect(armySize(s)).toBe(troopTotal(ARMY));
   });
 
-  it('итог «было → станет» — мощь `troopPower`, жалованье `wageOf`; в городе — «защищает стены»', () => {
-    const g = general({});
-    const s = party(g);
-    const html = renderToStaticMarkup(h(ArmyPanel));
-    const garrison = troopsAfter(ARMY, HELD);
-    expect(html, 'мощь гарнизона').toContain(`>${fmtInt(Math.round(troopPower(garrison)))}<`);
-    expect(html, 'мощь отряда').toContain(`>${fmtInt(Math.round(troopPower(HELD)))}<`);
-    const wages = (t: TroopStack): number => TROOP_IDS.reduce((n, id) => n + (t[id] ?? 0) * wageOf(s, id), 0);
-    expect(html, 'жалованье гарнизона').toContain(`>${fmtRate(wages(garrison))}<`);
-    expect(html, 'жалованье отряда').toContain(`>${fmtRate(wages(HELD))}<`);
-    expect(html, 'строка полководца').toContain('В городе — защищает стены');
-  });
-
-  // Решение владельца 16.10.2026 (docs/ui_v2.md, 6.10): полководец в городе без отряда защищает стены. Прежде строка
-  // говорила «В городе, отряда нет» — оборону он вёл только с отрядом.
-  it('полководец в городе без отряда — «защищает стены, отряда нет»; в поле — шага нет, город не защищает', () => {
+  // Решение владельца 16.10.2026 (docs/ui_v2.md, 6.10): полководец в городе защищает стены, и без отряда; с ДР-6 отряда в
+  // городе у него не бывает — строка о нём молчит.
+  it('в городе без отряда — «защищает стены»; в поле — шага нет, уходит тем, что при нём', () => {
     const empty = general({ troops: {} });
-    expect(postureLine(empty, NOW)).toBe('В городе — защищает стены, отряда нет');
+    expect(postureLine(empty, NOW)).toBe('В городе — защищает стены');
     const out = general({ phase: 'field', regroup: { block: 'Отряд собирают только у своего города.', grow: null, instant: false } });
     // Область: полководец не в городе.
     expect(inTown(out), 'точка внутри области: в поле').toBe(false);
     party(out);
-    const html = renderToStaticMarkup(h(ArmyPanel));
+    const html = sendWindow();
     expect(html).toContain('В походе — город не защищает');
-    expect(html, 'отказ — словами мира').toContain('Отряд собирают только у своего города.');
-    expect(count(html, 'aria-label="К полководцу'), 'менять нельзя — шага нет').toBe(0);
-    expect(count(html, '>Подтвердить<'), 'и кнопки нет').toBe(0);
-  });
-
-  // Отзыв тестеров 18.10 (docs/feedback.md): как полководцу взять отряд, было не понять. Подсказка у передачи — там, где
-  // её можно сделать (в городе); у пустого отряда — ещё строка, откуда он берётся. В поле шага нет — и подсказки нет.
-  it('подсказка передачи — в городе всегда, «отряд пуст» — только у пустого; в поле — ни одной', () => {
-    const empty = general({ troops: {} });
-    expect(inTown(empty), 'точка внутри области: в городе').toBe(true);
-    party(empty);
-    const bare = renderToStaticMarkup(h(ArmyPanel));
-    expect(bare).toContain(EMPTY_HINT);
-    expect(bare).toContain(STEP_HINT);
-    party(general({}));
-    const full = renderToStaticMarkup(h(ArmyPanel));
-    expect(full, 'отряд есть — «пуст» не говорим').not.toContain(EMPTY_HINT);
-    expect(full).toContain(STEP_HINT);
-    party(general({ troops: {}, phase: 'field', regroup: { block: 'Отряд собирают только у своего города.', grow: null, instant: false } }));
-    const out = renderToStaticMarkup(h(ArmyPanel));
-    expect(out).not.toContain(STEP_HINT);
-    expect(out).not.toContain(EMPTY_HINT);
+    expect(html, 'вне города — уходит с тем отрядом, что при нём').toContain(SEND_AS_IS);
+    expect(html, 'отказ раскладки в поле окну не нужен').not.toContain('Отряд собирают только у своего города.');
+    expect(count(html, 'aria-label="Взять с собой'), 'менять нельзя — шага нет').toBe(0);
+    expect(count(html, '>Отправить<'), '«Отправить» есть').toBe(1);
   });
 
   // Сбор в городе — из сохранения прежних правил: с 16.10.2026 перевод в городе мгновенный и в осаде (6.11).

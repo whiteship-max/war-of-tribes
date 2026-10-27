@@ -60,6 +60,7 @@ import type {
   Fate,
   RivalDeedId,
   RivalMenu,
+  ErrandId,
   ErrandOption,
   ErrandOrder,
   ErrandTarget,
@@ -202,6 +203,13 @@ export interface ActionMenuState {
   goal: ErrandTarget | null;
   /** Дела агента при этой цели — числами мира (`WorldApi.errands`). null — ещё не посчитаны. */
   errands: ErrandOption[] | null;
+  /**
+   * Дело, выбранное до меню (ДР-6): кнопка похода карточки места или «На выручку» ведёт сразу в окно дела — состав, участь
+   * и «Отправить». Нет поля — меню начинается со списка дел.
+   */
+  deed?: ErrandId;
+  /** Участь, уже выбранная в карточке места, — первой в окне дела. */
+  fate?: Fate;
 }
 
 /**
@@ -391,8 +399,8 @@ export interface WorldStore {
   relief: (castle: SettlementId) => Promise<string | null>;
   sortie: (troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
   negotiate: (deal: DealId) => Promise<string | null>;
-  /** Открыть меню приказов агента по этой клетке. */
-  openMenu: (agent: FigureId, cell: Coord) => Promise<void>;
+  /** Открыть меню приказов агента по этой клетке; `pick` — дело, выбранное до меню (сразу окно дела, ДР-6). */
+  openMenu: (agent: FigureId, cell: Coord, pick?: { deed: ErrandId; fate?: Fate }) => Promise<void>;
   /**
    * Открыть меню дел по чужому отряду — из списка походов или с карты: полководцу — перехват, разведчику — следить
    * за отрядом (Р-4).
@@ -952,7 +960,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
-  openMenu: async (agent, cell) => {
+  openMenu: async (agent, cell, pick) => {
     // Меню — единственный слой над картой: карточку клетки при этом закрываем,
     // иначе шторка легла бы поверх и меню оказалось бы под ней.
     useGame.getState().closeSheet();
@@ -977,6 +985,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
         plan: null,
         goal,
         errands: null,
+        ...(pick ? { deed: pick.deed, ...(pick.fate ? { fate: pick.fate } : {}) } : {}),
       },
     });
     // Точка встречи считается до подтверждения — она и есть половина решения.
