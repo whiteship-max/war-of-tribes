@@ -2,7 +2,7 @@
 // возвращается с клубком в зубах (окно в кадре — вспрыгивает на подоконник из-под его края; отвернулся — запрыгивает снизу
 // экрана), кладёт его и играет на полу; ни клубок, ни кот не проходят сквозь камень. Кидать — не чаще раза в десять секунд.
 // Числами, без WebGL.
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { ChambersRoom } from './room';
 import { DEFAULT_ARMS } from '@/heraldry/arms';
@@ -32,8 +32,19 @@ const SKY = {
   flash: 0,
 };
 
+// Комната тянет куски покоев (супруга, глашатай, советник, служанка, кот) сразу при рождении, а тест ждёт только кота: недождавшиеся
+// подгрузки переживали файл, и под полной нагрузкой дома воркер ронял их тайм-аутом (36 «Timeout calling fetch» на npm test). Файл
+// кончается, когда приехало всё.
+const rooms: ChambersRoom[] = [];
+afterAll(async () => {
+  await Promise.all(
+    rooms.flatMap((r) => [r.life.consortReady, r.life.heraldReady, r.life.advisorReady, r.life.maidReady, r.life.catReady]),
+  );
+});
+
 function catRoom(): ChambersRoom {
   const room = new ChambersRoom(KEEP, DEFAULT_ARMS, 'low', () => null, { cat: true, catSpot: 'hearth' });
+  rooms.push(room);
   room.camera.aspect = PHONE.width / PHONE.height;
   room.camera.updateProjectionMatrix();
   room.setRect(PHONE);
