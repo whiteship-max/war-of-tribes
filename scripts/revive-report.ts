@@ -82,6 +82,9 @@ const HEIGHT = 844;
  * «не достроилась», то есть находка, а не медленный прогон.
  */
 const BUILD_WAIT = 30_000;
+/** «Кадры идут» — больше стольких кадров, и ждать их не дольше `FLOWING_MS`: тоже срок, а не порог частоты (`flowing`). */
+const FLOWING = 5;
+const FLOWING_MS = 5000;
 
 /**
  * Что подкладывается в страницу.
@@ -285,12 +288,29 @@ async function report(): Promise<void> {
   const state = (): Promise<State> => tab.eval<State>('window.__revive.state()');
   const go = (what: string): Promise<string> => tab.eval<string>(`window.__revive.${what}`);
 
-  /** Идут ли кадры: два замера с паузой — единственный честный ответ. */
-  const drawing = async (ms = 400): Promise<number> => {
+  /** Сколько кадров за окно: два замера с паузой — единственный честный ответ на «кадров нет». */
+  const drawing = async (ms: number): Promise<number> => {
     const before = await state();
     await sleep(ms);
     const after = await state();
     return after.frames - before.frames;
+  };
+
+  /**
+   * Пошли ли кадры: ждём больше `FLOWING` кадров, но не дольше `FLOWING_MS`. Спрашивается свойство «идут», а не частота:
+   * на машине без видеокарты (приёмка на сервере, программный WebGL — docs/handbook/acceptance.md, «Ночная приёмка на
+   * сервере (УС-2)») город рисует несколько кадров в секунду, и окно в 400 мс там давало два кадра при живой сцене
+   * (27.10.2026). Мёртвая сцена не даст их и за пять секунд; сколько ждали — замер.
+   */
+  const flowing = async (): Promise<{ n: number; ms: number }> => {
+    const before = await state();
+    const t0 = performance.now();
+    let n = 0;
+    while (n <= FLOWING && performance.now() - t0 < FLOWING_MS) {
+      await sleep(100);
+      n = (await state()).frames - before.frames;
+    }
+    return { n, ms: Math.round(performance.now() - t0) };
   };
 
   const first = await state();
@@ -327,7 +347,7 @@ async function report(): Promise<void> {
   const restoredAt = await tab.eval<number>('window.__revive.restore()');
   await sleep(700);
   const back = await state();
-  const backFrames = await drawing();
+  const backFrames = await flowing();
   const rebusy = await tab.eval<number>(`window.__revive.longest(${restoredAt})`);
   check('контекст вернулся', !back.lost, `lost=${back.lost}`);
   // Возвращённый контекст three поднимает с нуля, и первый кадр после возврата собирает все программы и заливает все
@@ -337,8 +357,8 @@ async function report(): Promise<void> {
   // свежем состоянии света (docs/scene-revive.md, раздел 10.5).
   check(
     'кадры пошли снова',
-    backFrames > 5,
-    `кадров за 400 мс: ${live(backFrames)}, программ у города до потери ${live(whole.programs)}, после возврата ${live(back.programs)}, самая долгая задача страницы после возврата — ${live(rebusy)} мс`,
+    backFrames.n > FLOWING,
+    `кадров: ${live(backFrames.n)} за ${live(backFrames.ms)} мс, программ у города до потери ${live(whole.programs)}, после возврата ${live(back.programs)}, самая долгая задача страницы после возврата — ${live(rebusy)} мс`,
   );
   check('диорама та же, пересборки не потребовалось', back.tag === first.tag, `сцена №${back.tag}`);
   // Плотность буфера у достроенного города может опустить сторож плавности (см. шапку файла) — сравнивается правило:
@@ -365,9 +385,9 @@ async function report(): Promise<void> {
   // Кадры меряются у пересобранного города, а не у дымки новой сцены: город приходит заново тем же путём, что на старте.
   await settled('новый город достроен');
   const fresh = await state();
-  const rebuiltFrames = await drawing();
+  const rebuiltFrames = await flowing();
   check('у новой сцены живой контекст', !fresh.lost, `lost=${fresh.lost}`);
-  check('кадры идут', rebuiltFrames > 5, `кадров за 400 мс: ${live(rebuiltFrames)}`);
+  check('кадры идут', rebuiltFrames.n > FLOWING, `кадров: ${live(rebuiltFrames.n)} за ${live(rebuiltFrames.ms)} мс`);
   // Свою ссылку стенд роняет до подсчёта: считаем утечки игры, а не свои.
   await go('forget()');
   const alive = await tab.alive('window.__scene');
@@ -389,12 +409,12 @@ async function report(): Promise<void> {
 
   const backAt = await tab.eval<number>('window.__revive.hide(false)');
   await sleep(300);
-  const shown = await drawing();
+  const shown = await flowing();
   const busy = await tab.eval<number>(`window.__revive.longest(${backAt})`);
   check(
     'при возвращении кадры идут снова',
-    shown > 5,
-    `кадров за 400 мс: ${live(shown)}, самая долгая задача страницы после возврата — ${live(busy)} мс`,
+    shown.n > FLOWING,
+    `кадров: ${live(shown.n)} за ${live(shown.ms)} мс, самая долгая задача страницы после возврата — ${live(busy)} мс`,
   );
 
   // ---------- 4. Размер, поменявшийся в фоне ----------
@@ -705,7 +725,7 @@ async function telegram(): Promise<void> {
       posted.includes('web_app_request_viewport'),
       `отправлено клиенту: ${[...new Set(posted)].join(', ') || 'ничего'}`,
     );
-    await tab.eval<string>(`(() => { const g = window.__game.getState(); const b = g.s.buildings.find((x) => x.type === 'gathering'); g.openBuilding(b.id); return JSON.stringify('ok'); })()`);
+    await tab.eval<string>(`(() => { const g = window.__game.getState(); const b = g.s.buildings.find((x) => x.type === 'hunter_hut'); g.openBuilding(b.id); return JSON.stringify('ok'); })()`);
     await sleep(800);
     await fold(tab);
     checkLayout('окно постройки', await tab.eval<Layout>(layoutOf('.canvas-wrap canvas', '.nx-nav')), { nav: true, canvas: true });
@@ -744,10 +764,16 @@ async function telegram(): Promise<void> {
     await sleep(1000);
     await fold(tab);
     checkLayout('карта', await tab.eval<Layout>(layoutOf('.worldmap canvas', '.nx-mapnav')), { nav: true, canvas: true });
+    // Тоже «идут», а не частота (`flowing`): больше трёх кадров карты, ждём не дольше `FLOWING_MS`. `__mapPerf` отдаёт
+    // журнал и обнуляет его — кадры складываются.
     await tab.eval<number>('JSON.stringify(window.__mapPerf().length)');
-    await sleep(500);
-    const mapFrames = await tab.eval<number>('JSON.stringify(window.__mapPerf().length)');
-    check('карта: кадры идут', mapFrames > 3, `кадров карты за 500 мс: ${live(mapFrames)}`);
+    const mapFrom = performance.now();
+    let mapFrames = 0;
+    while (mapFrames <= 3 && performance.now() - mapFrom < FLOWING_MS) {
+      await sleep(100);
+      mapFrames += await tab.eval<number>('JSON.stringify(window.__mapPerf().length)');
+    }
+    check('карта: кадры идут', mapFrames > 3, `кадров карты: ${live(mapFrames)} за ${live(Math.round(performance.now() - mapFrom))} мс`);
     // Без срока молчания поток держал бы свои места до перезапуска, и регион не допёкся бы никогда.
     interface Bake {
       plan: { chunks: number } | null;

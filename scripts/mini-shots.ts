@@ -684,8 +684,8 @@ async function main(): Promise<void> {
           `JSON.stringify([...document.querySelectorAll('.nx-top > *')].map((e) => (e.getAttribute('aria-label') || e.className) + ' ' + Math.round(e.getBoundingClientRect().width)))`,
         );
         console.log(`  ячейки: ${cells.join(' · ')}`);
-        // Окно двора: строка промысла стоит у своего двора (навес собирателей — «Ягоды»).
-        await tab.eval<string>(`(() => { const g = window.__game.getState(); const b = g.s.buildings.find((x) => x.type === 'gathering'); g.openBuilding(b.id); return JSON.stringify('ok'); })()`);
+        // Окно двора: строка промысла стоит у своего двора (сбор — «Ягоды» — с ЗД-1 у Охотничьего двора, game/merged.ts).
+        await tab.eval<string>(`(() => { const g = window.__game.getState(); const b = g.s.buildings.find((x) => x.type === 'hunter_hut'); g.openBuilding(b.id); return JSON.stringify('ok'); })()`);
         await sleep(1500);
         await snap(tab, 'yard', began);
         await tab.eval<string>(`(() => { window.__game.getState().closeSheet(); return JSON.stringify('ok'); })()`);
