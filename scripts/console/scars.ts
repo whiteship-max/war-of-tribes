@@ -161,19 +161,38 @@ function deriveScarTask(a: { id: ScarId; seeds: number }): ScarDerived {
 export const deriveScarsFan = (ids: readonly ScarId[], seeds: number): Promise<ScarDerived[]> =>
   fan(deriveScarTask, import.meta.url, ids.map((id) => ({ id, seeds })));
 
-/** Сила каждой черты при записанных величинах и её ориентир — проверка; `ids` — только названные (прочие не считаются). */
-export function scarChecks(seeds: number, ids?: readonly ScarId[]): { id: ScarId; aim: number; strength: number }[] {
-  const aims = new Map<string, number>();
-  return SCARS.filter((def) => !ids || ids.includes(def.id)).map((def) => {
-    const b = benchOf(def.id);
-    const key = `${JSON.stringify(b.troops)}|${def.good}`;
-    const aim = aims.get(key) ?? scarAim(b.troops, def.good, seeds);
-    aims.set(key, aim);
-    return { id: def.id, aim, strength: scarStrength(b, [def.id], seeds) };
-  });
+export interface ScarCheck {
+  id: ScarId;
+  aim: number;
+  strength: number;
+}
+
+/** Сила черты `id` при записанной величине и её ориентир. `aims` — ориентиры, уже посчитанные этим процессом. */
+function scarCheck(id: ScarId, seeds: number, aims: Map<string, number>): ScarCheck {
+  const def = SCAR_BY_ID[id];
+  const b = benchOf(id);
+  const key = `${JSON.stringify(b.troops)}|${def.good}`;
+  const aim = aims.get(key) ?? scarAim(b.troops, def.good, seeds);
+  aims.set(key, aim);
+  return { id, aim, strength: scarStrength(b, [id], seeds) };
+}
+
+/** Проверка черты в своём процессе веера: ориентир — заново (он детерминирован, итог тот же, что подряд). */
+function checkScarTask(a: { id: ScarId; seeds: number }): ScarCheck {
+  return scarCheck(a.id, a.seeds, new Map());
+}
+
+/**
+ * Сила каждой черты при записанных величинах и её ориентир — проверка; `ids` — только названные (прочие не считаются). Больше
+ * одной — веером (`lib/fan`, по процессу на черту, в бюджете ядер), итог — в порядке таблицы.
+ */
+export async function scarChecks(seeds: number, ids?: readonly ScarId[]): Promise<ScarCheck[]> {
+  const want = SCARS.filter((def) => !ids || ids.includes(def.id)).map((def) => def.id);
+  if (want.length === 1) return [scarCheck(want[0], seeds, new Map())];
+  return fan(checkScarTask, import.meta.url, want.map((id) => ({ id, seeds })));
 }
 
 /** Конных в мерке против конницы — не меньше `HORSE_HEAVY` (иначе черта в мерке не действует). */
 export const horseShareOfMix = (): number => shareOf(kindsOf(HORSE_MIX), HORSE_KINDS);
 
-serveFan(import.meta.url, { deriveScarTask });
+serveFan(import.meta.url, { deriveScarTask, checkScarTask });

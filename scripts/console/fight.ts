@@ -62,8 +62,8 @@ npm run fight -- --a <сторона> --d <сторона> [ключи]
                            --check — только сила при записанной вершине
   --derive-scars           вывод величин черт армии (SCAR_SIZE в src/game/scarrules.ts, ДР-4): добрая в своём бою — как
                            шкала духа на верху, дурная — её зеркало; сидов — --runs (100); --check — только сила при записанных;
-                           --scar ИМЯ[,ИМЯ…] — только названные (ghosts, woodfear…): несколько — веером, по процессу
-                           на черту (бюджет ядер); проверка — тоже только их
+                           --scar ИМЯ[,ИМЯ…] — только названные (ghosts, woodfear…), и вывод, и проверка; несколько
+                           черт (и проверка всех) — веером, по процессу на черту (бюджет ядер)
   --width W                ширина фронта полосы, бойцов строя (по умолчанию W игры = ${FRONT_WIDTH})
   --seed S                 сид первого боя (1); --runs N — боёв подряд на сидах S, S+1, … (1)
   --log                    журнал боя целиком (каждое событие); без него — фазы и ключевые события
@@ -299,6 +299,6 @@ async function deriveScarsCommand(): Promise<never> {
   }
   console.log(`Записано: ${JSON.stringify(SCAR_SIZE)}`);
   console.log('Сила при записанных (во сколько раз армия с чертой стоит той же без неё в её бою):');
-  for (const c of scarChecks(seeds, ids)) console.log(`  ${SCARS.find((x) => x.id === c.id)!.name.padEnd(18)} ×${c.strength.toFixed(3)}  (ориентир ×${c.aim.toFixed(3)})`);
+  for (const c of await scarChecks(seeds, ids)) console.log(`  ${SCARS.find((x) => x.id === c.id)!.name.padEnd(18)} ×${c.strength.toFixed(3)}  (ориентир ×${c.aim.toFixed(3)})`);
   process.exit(0);
 }
