@@ -382,7 +382,7 @@ async function panelShots(tab: Tab): Promise<void> {
     }
     const found = await tab.eval<boolean>(`JSON.stringify((() => { const h = [...document.querySelectorAll('h3')].find((e) => e.textContent.trim() === 'Найм'); if (h) h.scrollIntoView({ block: 'start' }); return !!h; })())`);
     await sleep(800);
-    if (found) await snap(`${TAG}-${type}-hire.png`);
+    if (found) await snap(`${TAG}-${type.replace(':', '-')}-hire.png`);
     await tab.eval<string>(`(() => { window.__game.getState().closeSheet(); return JSON.stringify('ok'); })()`);
     await sleep(600);
   }

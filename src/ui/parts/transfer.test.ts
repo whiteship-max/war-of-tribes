@@ -135,6 +135,11 @@ describe('окно состава дела: остаётся | уходит, и�
     expect(html, 'мощь уходящих').toContain(`>${fmtInt(Math.round(troopPower(HELD)))}<`);
     expect(html, 'оборона города').toContain('Оборона города');
     expect(html, 'строка полководца').toContain('В городе — защищает стены');
+    // К низу меню липнет только «Отправить» (`.ms-send` — последний блок окна): итог в потоке, строки состава не закрыты.
+    const bar = html.slice(html.indexOf('class="ms-bar ms-send"'));
+    expect(count(html, 'class="ms-bar ms-send"'), 'липкая полоса одна').toBe(1);
+    expect(bar, 'в липкой полосе — «Отправить»').toContain('>Отправить<');
+    for (const flow of ['Оборона города', 'Мощь', 'Остаётся']) expect(bar, `«${flow}» — в потоке, не в липкой полосе`).not.toContain(flow);
     expect(html).toContain(SEND_HINT);
     expect(armySize(s)).toBe(troopTotal(ARMY));
   });
@@ -237,7 +242,8 @@ describe('итог передачи — функциями игры, разбо�
 });
 
 describe('касание передачи — не мельче порогов судьи', () => {
-  const CSS = readFileSync(join(__dirname, 'muster.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  // Окно состава и верх «Дружины» — `muster.css`; дверь вида в составе «Дружины» — `army.css` (ДР-6).
+  const CSS = ['muster.css', 'army.css'].map((f) => readFileSync(join(__dirname, f), 'utf8')).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
   const prop = (sel: string, name: string): number | null => {
     const v = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
       .filter(([, s]) => s.split(',').map((x) => x.trim()).includes(sel))
@@ -250,7 +256,7 @@ describe('касание передачи — не мельче порогов �
     return m ? Number(m[1]) : null;
   };
   it('вид — дверь 44, кнопки шага — 44, виды без бойцов — 44, ячейки итога верха — не мельче справки', () => {
-    expect(prop('.ms-kind', 'min-height')).toBeGreaterThanOrEqual(TAP_TARGET);
+    expect(prop('button.dr-kind', 'min-height'), 'вид в составе «Дружины» — дверь в карточку').toBeGreaterThanOrEqual(TAP_TARGET);
     expect(prop('.ms-steps .stepper.wide-steps button', 'width')).toBeGreaterThanOrEqual(TAP_TARGET);
     expect(prop('.ms-steps .stepper.wide-steps button', 'height')).toBeGreaterThanOrEqual(TAP_TARGET);
     expect(prop('.ms-more-b', 'width')).toBeGreaterThanOrEqual(TAP_TARGET);

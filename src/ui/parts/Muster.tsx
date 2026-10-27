@@ -338,8 +338,9 @@ export function Muster({ send }: { send: MusterSend }) {
         </>
       )}
 
-      {rows.length > 0 ? (
-        <div className="ms-bar ms-send">
+      {/* Итог — в потоке окна; к низу меню липнет только «Отправить» (ДР-6: липкая полоса с итогом закрывала строки состава). */}
+      {rows.length > 0 && (
+        <div className="ms-bar">
           <Table
             label="Итог"
             cols={sumCols}
@@ -380,11 +381,9 @@ export function Muster({ send }: { send: MusterSend }) {
               },
             ]}
           />
-          {sendBtn}
         </div>
-      ) : (
-        <div className="ms-bar ms-send">{sendBtn}</div>
       )}
+      <div className="ms-bar ms-send">{sendBtn}</div>
     </div>
   );
 }
