@@ -174,10 +174,13 @@ export const fieldTroops = (f: Holding, at?: number): TroopStack =>
  * его состав выбирают из гарнизона в окне дела (`ErrandOrder.troops`), и окно этот отказ снимает. «нет отряда» — мерка
  * окна (`ui/map/ring.emptyRetinue`), одна на все двери полководца.
  */
-export const NO_BAND_HOME = 'У полководца нет отряда. Бойцов ему дают из гарнизона в окне дела.';
+export const NO_BAND_HOME = 'У полководца нет отряда: его дают в окне дела.';
 
-/** Отказ составу дела вне города: в поле состав не меняется (ДР-6, `LocalWorld.takeBand`). */
-export const BAND_AS_IS = 'Полководец не в городе: уходит с тем отрядом, что при нём.';
+/**
+ * Отказ раскладке не у своего города — и составу дела вне города: в поле состав не меняется (ДР-6, `LocalWorld.takeBand`,
+ * `regroupBlock`). Одна строка на обе двери.
+ */
+export const BAND_AS_IS = 'Отряд собирают только у своего города.';
 
 /** Первые `n` бойцов со слабого конца: список казарм идёт от дешёвого к дорогому. */
 export function weakest(t: TroopStack, n: number): TroopStack {

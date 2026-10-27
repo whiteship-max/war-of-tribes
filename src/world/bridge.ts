@@ -28,7 +28,7 @@ import {
   warningSeconds,
 } from '@/game/derived';
 import { militiaOf, towerArchersAt } from '@/game/build';
-import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
+import { troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
 import {
   applyExpedition,
@@ -227,7 +227,6 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
     // Места агентов: кто на них и кому пора на покой. Мир ведёт фигуры, племя — людей.
     ...people(s),
     // Вставшие из лазарета раненые отряда полководца — счётчиком партии: мир вернёт их ему. Нуля нет — нет и поля.
-    ...(troopTotal(s.risen ?? {}) > 0 ? { risen: { ...s.risen } } : {}),
     ...traitsOut(s),
     // Замки гейта на участь: какие участи игрок объявить не может — готовой строкой
     // двери гейта. Мир не знает ни ветвей, ни уровней, как не знает черт.
@@ -403,8 +402,6 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     troopsLost: e.lostTroops,
     // Где пали и ранены ли: бой в поле кладёт раненых при полководце, рассеянные не ранены.
     field: e.field,
-    // Чья доля павших дома — отряд полководца: его раненые встанут его бойцами (docs/retinue.md).
-    standing: e.standing,
     routed: e.routed ?? false,
     scoutsLost: e.lost.scout ?? 0,
     resources: e.resources,

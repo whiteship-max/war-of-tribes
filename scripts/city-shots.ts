@@ -414,8 +414,10 @@ async function marchShots(tab: Tab, what: string): Promise<void> {
   const lair = await tab.eval<{ x: number; y: number; id: string } | string>(`(async () => {
     const w = window.__world.getState();
     await w.pulse();
-    const err = ${what === 'dr6' ? 'null' : 'await w.setGarrison({ spearman: 60, archer: 20, legionary: 16 })'};
+    // Отряд прежних снимков — приказом раскладки мира (окна игры его больше не зовут, ДР-6); у \`dr6\` его нет вовсе.
+    const err = ${what === 'dr6' ? 'null' : "await (await import('/src/world/api.ts')).worldApi().setGarrison({ spearman: 60, archer: 20, legionary: 16 })"};
     if (err) return JSON.stringify(err);
+    await w.pulse();
     const home = w.info && w.info.home;
     if (!home) return JSON.stringify('нет дома');
     let best = null;

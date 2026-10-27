@@ -999,7 +999,8 @@ describe('две стороны лагеря: древесина и проход
     expect((await world.strikePlan('home', false)).reason).toBe(STRIKE_FROM_TOWN);
     expect((await world.strikePlan('home', true)).reason).toBe(STRIKE_FROM_TOWN);
     expect(await world.strikeCamp('home', true)).toBe(STRIKE_FROM_TOWN);
-    expect((await world.attack({})).error).toBe(STRIKE_FROM_TOWN);
+    // Удара по месту у полководца в городе нет: отряда при нём нет (ДР-6), окна этот приказ из города не зовут.
+    expect((await world.attack({})).error).toBe('При полководце нет отряда.');
     // А вылазкой дружина выходит вместе с остальными — отдельного приказа нет.
     const res = await world.sortie(GARRISON);
     expect(res.error).toBeNull();

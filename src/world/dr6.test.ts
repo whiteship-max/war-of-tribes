@@ -169,7 +169,7 @@ describe('каждое дело полководца — состав в сво�
     expect(troopTotal((await b.fig()).troops), 'отряда нет — все в гарнизоне').toBe(0);
   }, 120_000);
 
-  it('вне города состав не меняется: тот же — уходит, иной — отказ словами мира', async () => {
+  it('вне города состав не меняется: состав в приказе — отказ словами мира, без состава — уходит тем, что при нём', async () => {
     const b = await bench();
     // Отряд при нём и он в поле: приказ раскладки старого клиента дома, затем выход за ворота.
     expect(await b.world.setGarrison({ ...WANT })).toBeNull();
@@ -186,9 +186,9 @@ describe('каждое дело полководца — состав в сво�
     const opt = (await b.world.errands('general', goal)).find((o) => o.id === 'storm')!;
     expect(opt.can, `область: удар из поля открыт — ${opt.reason}`).toBe(true);
     const other = await b.world.errand({ agent: 'general', target: goal, deed: 'storm', fate: 'plunder', shownAt: opt.at, troops: { ...HOST } });
-    expect(other, 'иной состав вне города — отказ').toBe(BAND_AS_IS);
+    expect(other, 'состав вне города — отказ').toBe(BAND_AS_IS);
     expect((await b.fig()).troops, 'отряд тот же').toEqual(WANT);
-    expect(await b.world.errand({ agent: 'general', target: goal, deed: 'storm', fate: 'plunder', shownAt: opt.at, troops: { ...WANT } })).toBeNull();
+    expect(await b.world.errand({ agent: 'general', target: goal, deed: 'storm', fate: 'plunder', shownAt: opt.at })).toBeNull();
     expect((await b.fig()).troops, 'ушёл с тем, что при нём').toEqual(WANT);
   }, 120_000);
 });

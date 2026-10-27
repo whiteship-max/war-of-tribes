@@ -12,7 +12,7 @@ import { playerProfile, toOutcome } from './bridge';
 
 const START = 1_700_000_000_000;
 
-const profile = (army: TroopStack, risen?: TroopStack): PlayerProfile => ({
+const profile = (army: TroopStack, _risen?: TroopStack): PlayerProfile => ({
   name: 'Тест',
   pop: 120,
   defense: 30,
@@ -20,7 +20,6 @@ const profile = (army: TroopStack, risen?: TroopStack): PlayerProfile => ({
   army,
   stock: { food: 500, wood: 80 },
   stash: 0,
-  ...(risen ? { risen } : {}),
 });
 
 describe('отряд полководца в городе — гарнизон, вставшие раненые — тоже', () => {
@@ -60,8 +59,8 @@ describe('отряд полководца в городе — гарнизон, 
   });
 });
 
-describe('мост раскладки: доля отряда в потерях и счётчик вставших', () => {
-  it('последствие везёт долю отряда полководца, слепок — счётчик вставших; нуля в слепке нет', () => {
+describe('мост раскладки: доли отряда и счётчика вставших племя не везёт', () => {
+  it('последствие без доли отряда полководца, слепок без счётчика вставших (ДР-6: его раненые — гарнизон)', () => {
     const o = toOutcome({
       id: 'e1',
       lost: { warrior: 4 },
@@ -74,11 +73,10 @@ describe('мост раскладки: доля отряда в потерях �
       text: '',
       good: true,
     });
-    expect(o.standing).toEqual({ spearman: 3 });
+    expect('standing' in o, 'доля отряда племени не нужна').toBe(false);
     const s = createInitialState(7);
-    // Слепок новой партии тот же, что до раскладки: поля нет (он лежит в сохранении мира).
-    expect('risen' in playerProfile(s)).toBe(false);
+    // Счётчик из старого сохранения слепок не везёт: мир его не читает.
     s.risen = { spearman: 5 };
-    expect(playerProfile(s).risen).toEqual({ spearman: 5 });
+    expect('risen' in playerProfile(s)).toBe(false);
   });
 });

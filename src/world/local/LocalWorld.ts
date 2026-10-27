@@ -5669,7 +5669,7 @@ export class LocalWorld implements WorldApi {
       };
     }
     if (troopTotal(f.troops ?? {}) === 0) {
-      return { meet: null, reason: this.noBand(now, 'При полководце нет отряда. За дружиной надо домой.') };
+      return { meet: null, reason: this.noBand(now) };
     }
     const from = this.figureAt(f, now);
     const ahead = marchPosition(m, now);
@@ -8127,7 +8127,7 @@ export class LocalWorld implements WorldApi {
     if (busy) return busy;
     if (f.phase === 'moving') return 'Полководец в пути, отряд к нему не подойдёт.';
     if (f.handover) return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
-    if (!this.touching(this.figureAt(f, now))?.home) return 'Отряд собирают только у своего города.';
+    if (!this.touching(this.figureAt(f, now))?.home) return BAND_AS_IS;
     return null;
   }
 
@@ -8230,17 +8230,14 @@ export class LocalWorld implements WorldApi {
   /**
    * Состав отряда на дело полководца (ДР-6, docs/siege_v2.md, «Решения ДР-6»): выбран в окне дела из гарнизона. В своём
    * городе перевод мгновенный (`regroupInstant`), и отряд встаёт тем же переводом, что раскладка (`regroup`), — а дело,
-   * которому мир отказал, возвращает всех в гарнизон (отмена): за отказ не платят ни составом, ни усталостью. Вне города —
-   * тот отряд, что при нём: в поле состав не меняется, и иной состав в приказе — отказ. Без состава — null, ничего не
-   * трогают. Строка — отказ, функция — отмена перевода.
+   * которому мир отказал, возвращает всех в гарнизон (отмена): за отказ не платят ни составом, ни усталостью. Вне города
+   * состав в приказе — отказ: в поле состав не меняется, и окно дела его там не шлёт — уходит тот отряд, что при нём. Без
+   * состава — null, ничего не трогают. Строка — отказ, функция — отмена перевода.
    */
   private takeBand(troops: TroopStack | undefined, now: number): string | (() => void) | null {
     if (troops === undefined) return null;
     const f = this.save.figures.general;
-    if (!this.regroupInstant(now)) {
-      const held = f.troops ?? {};
-      return TROOP_IDS.every((id) => Math.floor(own(troops, id) ?? 0) === (held[id] ?? 0)) ? null : BAND_AS_IS;
-    }
+    if (!this.regroupInstant(now)) return BAND_AS_IS;
     const was = { troops: f.troops, handover: f.handover, rest: f.rest, homeRest: this.save.homeRest };
     const err = this.regroup(troops, now);
     if (err) return err;
@@ -8273,11 +8270,11 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Отказ «отряда нет» словами места: в городе отряд дают в окне дела (`NO_BAND_HOME`), вне города — `field`. Мерка
+   * Отказ «отряда нет» словами места: в городе отряд дают в окне дела (`NO_BAND_HOME`), вне города — тот, что был. Мерка
    * «нет отряда» одна (`ui/map/ring.emptyRetinue`).
    */
-  private noBand(now: number, field = 'При полководце нет отряда.'): string {
-    return inTown(this.save.figures.general, now) ? NO_BAND_HOME : field;
+  private noBand(now: number): string {
+    return inTown(this.save.figures.general, now) ? NO_BAND_HOME : 'При полководце нет отряда.';
   }
 
   /**
@@ -8658,8 +8655,6 @@ export class LocalWorld implements WorldApi {
         won: false,
       };
     }
-    // В своём городе отряда нет (ДР-6): лагерь у своих стен из города бьют вылазкой, другой цели у ворот нет.
-    if (inTown(f, now)) return { error: this.siegeOf(HOME_ID, now) ? STRIKE_FROM_TOWN : 'Рядом нет цели.', reportId: null, won: false };
     if (troopTotal(f.troops ?? {}) === 0) return { error: 'При полководце нет отряда.', reportId: null, won: false };
     const near = this.touching(this.figureAt(f, now));
     if (!near) return { error: 'Рядом нет цели.', reportId: null, won: false };

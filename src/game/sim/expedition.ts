@@ -52,8 +52,6 @@ export interface ExpeditionOutcome {
   troopsLost?: TroopStack;
   /** Сколько из `troopsLost` пало при полководце в поле: их раненые лягут, когда дружина вернётся. */
   field?: TroopStack;
-  /** Сколько из `troopsLost` дома было отрядом полководца: их раненые встанут его бойцами (docs/retinue.md). */
-  standing?: TroopStack;
   /** Потери рассеяны, а не ранены: падение голодом, разгром полководца. Раненых нет. */
   routed?: boolean;
   /** Плюс — привезли добычу, минус — унесли у нас. */
@@ -346,7 +344,7 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
 
   // Лазарет: доля павших ранена и встанет в строй тем же бойцом (`sim/infirmary`). Разведчики —
   // не бойцы строя, и рассеянные не ранены: они погибшими и записываются.
-  const care = woundsOfBattle(s, lost, o.field, o.routed ?? false, o.standing);
+  const care = woundsOfBattle(s, lost, o.field, o.routed ?? false);
   s.stats.died += Math.max(0, soldiersLost + fallen - care.laid - care.carried);
   recordTroopsLost(s, soldiersLost);
 

@@ -1784,8 +1784,8 @@ export interface HomeEffect {
    */
   field?: TroopStack;
   /**
-   * Сколько из `lostTroops` дома было отрядом полководца, стоявшим с гарнизоном (`muster.standingShare`): их раненые
-   * встанут его бойцами (docs/retinue.md). Поля нет, если его отряд у стены не стоял.
+   * Сколько из `lostTroops` дома было отрядом полководца, стоявшим с гарнизоном (`muster.standingShare`). Поля нет, если его
+   * отряд у стены не стоял. С ДР-6 племя его не читает: раненые его отряда — как все (docs/siege_v2.md, «Решения ДР-6»).
    */
   standing?: TroopStack;
   /**
@@ -2151,12 +2151,6 @@ export interface PlayerProfile {
    * до гейта участи, до первого пульса, который кладёт свежий.
    */
   fateLocks?: Partial<Record<Fate, string>>;
-  /**
-   * Сколько раненых из отряда полководца встало из лазарета за партию, по видам (`GameState.risen`) — счётчик растёт и
-   * не убывает. Мир переводит их полководцу по разнице со своей отметкой (`StoredFigure.risenSeen`), когда тот дома
-   * (docs/retinue.md). Нет поля — ноль.
-   */
-  risen?: TroopStack;
 }
 
 export interface TribeInfo {

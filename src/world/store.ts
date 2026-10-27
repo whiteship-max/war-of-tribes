@@ -342,8 +342,6 @@ export interface WorldStore {
    * из руки и с камеры тоже: держать камеру на том, кого не рисуют, нечем.
    */
   shelter: (id: FigureId, on: boolean) => Promise<string | null>;
-  /** Полководец забирает гарнизон или возвращает его домой. */
-  setGarrison: (troops: TroopStack | null) => Promise<string | null>;
   /** Полководец бьёт по цели, у которой стоит. */
   attack: (order: AttackOrder) => Promise<string | null>;
   /**
@@ -395,8 +393,6 @@ export interface WorldStore {
   breakout: (troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
   /** Пакт с соседом-игроком: предложить/принять или разорвать. */
   pact: (castle: SettlementId, on: boolean) => Promise<string | null>;
-  /** На выручку союзнику в осаде. */
-  relief: (castle: SettlementId) => Promise<string | null>;
   sortie: (troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
   negotiate: (deal: DealId) => Promise<string | null>;
   /** Открыть меню приказов агента по этой клетке; `pick` — дело, выбранное до меню (сразу окно дела, ДР-6). */
@@ -689,19 +685,6 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
-  setGarrison: async (troops) => {
-    const err = await worldApi().setGarrison(troops);
-    if (err) {
-      haptic('error');
-      return err;
-    }
-    haptic('medium');
-    // Сразу же: пока не прошёл пульс, деревня всё ещё считает эту дружину своей.
-    await get().pulse();
-    await get().refreshCard();
-    return null;
-  },
-
   attack: async (order) => {
     const res = await worldApi().attack(order);
     if (res.error) {
@@ -915,18 +898,6 @@ export const useWorld = create<WorldStore>((set, get) => ({
       return err;
     }
     haptic('light');
-    await get().refreshCard();
-    return null;
-  },
-
-  relief: async (castle) => {
-    const err = await worldApi().relief(castle);
-    if (err) {
-      haptic('error');
-      return err;
-    }
-    haptic('medium');
-    await get().pulse();
     await get().refreshCard();
     return null;
   },
