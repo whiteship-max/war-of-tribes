@@ -813,7 +813,7 @@ HEAD один на всех, см. правило 8). Значит развес�
   (`PlayerProfile.spiritFed`) и уход голодом не из отряда (`GameState.awayFed`) (`gait.test.ts`, `gaitworld.test.ts`,
   `netlify/lib/wargait.test.ts`, `game/trainfed.test.ts`; docs/siege_v2.md, 25). Выбирают его в окне дела (ДР-7): строки трёх
   режимов у дела — `ErrandOption.gaits`, приказ — `ErrandOrder.gait` (дома даром, отказ дела возвращает прежний), убыль и вывоз
-  по составу окна — `gait.gaitTake`; в пути — окно отряда (`parts/GaitDesk`) (`world/dr7.test.ts`; docs/city_v3.md, «Решения ДР-7»).
+  по составу окна — `gaitview.gaitTake` (строки — докачкой `world/local/gaitrows`); в пути — окно отряда (`parts/GaitDesk`) (`world/dr7.test.ts`; docs/city_v3.md, «Решения ДР-7»).
 - **Дело агента** — свободной ходьбы нет: агент идёт к цели (свой город, двор, город игрока, отряд в пути) делом
   `WorldApi.errand` по меню `errands` (таблица `world/data/errands`) и сам возвращается домой (`LocalWorld.errandBack`);
   приказа «в клетку» в `WorldApi` нет (`world/errands.test.ts`; agents, docs/AGENTS.md, раздел 16).

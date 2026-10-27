@@ -29,10 +29,11 @@
 //                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`;
 //                                                `FIGHT=stance|at:…|hit:dx:dy`, `FIGHTSHOT=swing:dx:dy` — бой мечом (Г-11);
 //                                                `BENCH=8` — цена кадра покоев как вошли и после `LIFE` (секунды замера)
-//   GAME=1 MARCH=send npm run city:shots     — режим марша (ДР-2, docs/siege_v2.md, 25): карточка ближнего логова с выбором
-//                                                режима — обычный, налегке, с обозом (кадр на каждый); `MARCH=squad` — окно
-//                                                отряда полководца дома и в пути налегке (смена: стоянка и цена, второе касание);
-//                                                `MARCH=dr6` — «Дойти и ударить» и окно дела с составом (ДР-6, 29)
+//   GAME=1 MARCH=dr7 npm run city:shots      — режим марша в окне дела (ДР-7, docs/city_v3.md, «Решения ДР-7»): «Дойти и
+//                                                осадить» — состав и три режима («Налегке» погашено), обоз, список дел со сроком
+//                                                выбранного режима, удар налегке; `MARCH=squad` — окно отряда полководца дома и в
+//                                                пути налегке (смена: стоянка и цена, второе касание); `MARCH=dr6` — «Дойти и
+//                                                ударить» и окно дела с составом (ДР-6, 29)
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
 //                                                (docs/city.md, 16.5); `GAME=1 WXMAP=1 LEGEND=1` — окно в самой игре
 //   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
@@ -389,12 +390,12 @@ async function panelShots(tab: Tab): Promise<void> {
 }
 
 /**
- * Режим марша (ДР-2, `MARCH=send|squad` к `GAME=1`): войско и отряд полководцу, карта, ближнее живое логово у дома.
- * `send` — карточка логова: выбор режима таблицей (кадр на обычный, налегке, с обозом) и кнопки похода под ней; `squad` —
- * окно отряда в «Походах»: дома (смена даром) и в пути налегке к логову (смена — стоянка и энергия, кадр после первого
- * касания). Это стенд, не партия: войско дано рукой. `dr6` — поход без раскладки (ДР-6, docs/siege_v2.md, «Решения ДР-6»):
- * карточка логова с «Дойти и ударить», окно дела с составом «остаётся | уходит» как открылось и после «+10» у двух видов —
- * отряда при полководце нет, он берёт его в окне.
+ * Режим марша (ДР-2, `MARCH=dr7|squad|dr6` к `GAME=1`): войско и отряд полководцу, карта, ближнее живое логово у дома.
+ * `dr7` — режим в окне дела (ДР-7): «Дойти и осадить» → «+10» у двух видов → три режима («Налегке» погашено с причиной),
+ * обоз, «Назад» — список дел со сроком обоза, «Ударить» налегке. `squad` — окно отряда в «Походах»: дома и в пути налегке к
+ * логову (смена — стоянка и энергия, кадр после первого касания). Это стенд, не партия: войско дано рукой. `dr6` — поход без
+ * раскладки (ДР-6, docs/siege_v2.md, «Решения ДР-6»): карточка логова с «Дойти и ударить», окно дела с составом «остаётся |
+ * уходит» как открылось и после «+10» у двух видов — отряда при полководце нет, он берёт его в окне.
  */
 async function marchShots(tab: Tab, what: string): Promise<void> {
   await tab.eval<string>(`(() => {
@@ -415,7 +416,7 @@ async function marchShots(tab: Tab, what: string): Promise<void> {
     const w = window.__world.getState();
     await w.pulse();
     // Отряд прежних снимков — приказом раскладки мира (окна игры его больше не зовут, ДР-6); у \`dr6\` его нет вовсе.
-    const err = ${what === 'dr6' ? 'null' : "await (await import('/src/world/api.ts')).worldApi().setGarrison({ spearman: 60, archer: 20, legionary: 16 })"};
+    const err = ${what === 'dr6' || what === 'dr7' ? 'null' : "await (await import('/src/world/api.ts')).worldApi().setGarrison({ spearman: 60, archer: 20, legionary: 16 })"};
     if (err) return JSON.stringify(err);
     await w.pulse();
     const home = w.info && w.info.home;
@@ -439,8 +440,6 @@ async function marchShots(tab: Tab, what: string): Promise<void> {
     console.log(`  марш → .city-shots/${name}`);
   };
   const run = (js: string): Promise<string> => tab.eval<string>(`(async () => { ${js}; return JSON.stringify('ok'); })()`);
-  /** Карточку — к таблице режима: шапка и кнопки похода под ней в одном кадре. */
-  const toPick = (): Promise<string> => run(`document.querySelector('.gait-pick')?.scrollIntoView({ block: 'center' })`);
   if (what === 'dr6') {
     const go = `[...document.querySelectorAll('button')].find((b) => b.textContent.startsWith('Дойти и ударить'))`;
     await run(`await window.__world.getState().select({ x: ${lair.x}, y: ${lair.y} })`);
@@ -458,19 +457,35 @@ async function marchShots(tab: Tab, what: string): Promise<void> {
     await snap(`${TAG}-window-picked.png`);
     return;
   }
-  if (what === 'send') {
+  if (what === 'dr7') {
+    const take = `const bs = [...document.querySelectorAll('button[aria-label="Взять с собой 10"]')]; bs[0]?.click(); bs[1]?.click(); bs[1]?.click()`;
+    const toGait = (): Promise<string> => run(`document.querySelector('.gait-pick')?.scrollIntoView({ block: 'center' })`);
     await run(`await window.__world.getState().select({ x: ${lair.x}, y: ${lair.y} })`);
     await sleep(3000);
-    await toPick();
+    await run(`[...document.querySelectorAll('button')].find((b) => b.textContent.startsWith('Дойти и осадить'))?.click()`);
+    await sleep(3000);
+    await run(take);
+    await sleep(1000);
+    await toGait();
     await sleep(800);
-    await snap(`${TAG}-send-normal.png`);
-    for (const [i, g] of [[0, 'light'], [2, 'train']] as const) {
-      await run(`document.querySelectorAll('.gait-pick .kit-cells.pick')[${i}]?.click()`);
-      await sleep(2500);
-      await toPick();
-      await sleep(800);
-      await snap(`${TAG}-send-${g}.png`);
-    }
+    await snap(`${TAG}-siege.png`);
+    await run(`document.querySelectorAll('.gait-col')[2]?.click()`);
+    await sleep(1000);
+    await toGait();
+    await sleep(800);
+    await snap(`${TAG}-siege-train.png`);
+    await run(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Назад')?.click()`);
+    await sleep(1500);
+    await snap(`${TAG}-list-train.png`);
+    await run(`[...document.querySelectorAll('.nx-obtn')].find((b) => b.textContent.startsWith('Ударить'))?.click()`);
+    await sleep(2500);
+    await run(take);
+    await sleep(800);
+    await run(`document.querySelectorAll('.gait-col')[0]?.click()`);
+    await sleep(1000);
+    await toGait();
+    await sleep(800);
+    await snap(`${TAG}-storm-light.png`);
     return;
   }
   // Окно отряда — дома: смена даром.
