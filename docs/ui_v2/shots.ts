@@ -38,6 +38,9 @@
 //   GROUP=au3 …                                    — АУ-3, ECO-1 (docs/audit/OWNER-DECISIONS.md, п. 1): окно «Склад
 //                                                    заполнен» — отмена стройки, ответ на весть, «Начать» промысла;
 //                                                    строка «Склад повреждён» в летописи
+//   GROUP=pn1 WEATHER=clear NIGHT=0 …              — ПН-00 (docs/gdd/path_of_sword.md, 3.5.7): карта — вид открытия, весь
+//                                                    регион (дальний вид ограничителя), кромка знания и пергамент;
+//                                                    `NIGHT` — ночь карты адресом (`?night=`), 0 — день
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -375,7 +378,33 @@ function sb2b(view: string, cell = false): string {
   })()`;
 }
 
+/**
+ * ПН-00: карта на масштабе `scale` над своим домом (`__mapCam`, тот же `hold`, что у пальца); null — вид открытия карты.
+ * Печатает, дальний ли вид у кадра (`tw/far.farFrame`) и масштаб, до которого пустила рамка региона.
+ */
+function mapAt(scale: number | null): string {
+  return `(async () => {
+    ${STAY}
+    window.__ui.reset();
+    window.__game.getState().openMap();
+    await new Promise((r) => setTimeout(r, 2500));
+    const home = (await import('/src/world/store.ts')).useWorld.getState().info?.home;
+    if (!home) return JSON.stringify('мира нет');
+    if (${scale !== null}) window.__mapCam(home.x, home.y, ${scale ?? 0});
+    await new Promise((r) => setTimeout(r, 600));
+    const far = (await import('/src/ui/map/tw/far.ts')).farFrame();
+    return JSON.stringify('дом ' + home.x + '|' + home.y + (far ? ', дальний вид' : ', подробный вид'));
+  })()`;
+}
+
 const GROUPS: Record<string, Step[]> = {
+  // ПН-00 (docs/gdd/path_of_sword.md, 3.5.7): камера без поводка — вид открытия, карта, отдалённая до всего региона (дальний
+  // вид ограничителя `tw/far.ts`), и терра инкогнита — пергамент без рельефа за кромкой круга обзора дома.
+  pn1: [
+    { name: 'pn1-map-start', run: mapAt(null), wait: 5000 },
+    { name: 'pn1-map-far', run: mapAt(3.5), wait: 5000 },
+    { name: 'pn1-terra', run: mapAt(18), wait: 5000 },
+  ],
   city: [
     { name: '01-city', run: ui('reset()'), wait: 1500 },
     { name: '02-tip-gold', run: ui(`click('Золото', '.nx-top')`), wait: 400 },
@@ -1557,7 +1586,7 @@ async function group(name: string, steps: Step[]): Promise<void> {
   const began = Date.now();
   try {
     await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
-    await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?probe=1&fpscap=${FPS}&quality=low${process.env.WEATHER ? `&weather=${process.env.WEATHER}` : ''}` });
+    await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?probe=1&fpscap=${FPS}&quality=low${process.env.WEATHER ? `&weather=${process.env.WEATHER}` : ''}${process.env.NIGHT ? `&night=${process.env.NIGHT}` : ''}` });
     await sleep(1500);
     await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
     await tab.send('Page.reload');
