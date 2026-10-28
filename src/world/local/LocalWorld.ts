@@ -10702,14 +10702,14 @@ export class LocalWorld implements WorldApi {
     const SITE: Record<Exclude<WarBattle['site'], 'field'>, string> = { wall: 'Штурм', sortie: 'Вылазка', camp: 'Удар по лагерю', joint: 'Совместный удар' };
     const field2 = b.site === 'field';
     const lostText = lostMen > 0 ? ` Наших пало ${lostMen}.` : ' Наши все целы.';
-    // Бой в поле (ПЛ-1) — слова куска перехвата; перехватил союзник — бой его, наш гарнизон не выходил.
-    const helperCity = allied ? cityOr(this.castleOf(b.ally as SettlementId)?.city) : undefined;
-    const words = field2
-      ? this.meet?.fieldWords(w, b, ours, won, ours === 'atk' ? (helperCity ?? other) : other, lostText, ours === 'def' ? helperCity : undefined)
-      : null;
     // Вылазка на машину и выручка союзника — свои слова (docs/siege_v2.md, раздел 5).
     const burnt = b.burn ? MACHINE_NAME[b.burn].toLowerCase() : null;
     const helper = b.ally ? this.castleOf(b.ally as SettlementId) : null;
+    // Бой в поле (ПЛ-1) — слова куска перехвата; перехватил союзник — бой его, наш гарнизон не выходил.
+    const helperCity = allied ? cityOr(helper?.city) : undefined;
+    const words = field2
+      ? this.meet?.fieldWords(w, b, ours, won, ours === 'atk' ? (helperCity ?? other) : other, lostText, ours === 'def' ? helperCity : undefined)
+      : null;
     const site = burnt ? `Вылазка на ${burnt === 'осадная башня' ? 'осадную башню' : burnt}` : allied ? `Выручка из «${cityOr(helper?.city)}»` : SITE[b.site as keyof typeof SITE];
     const hit = burnt ? (b.won ? 'сожгли' : 'отбита') : null;
     const title = words
