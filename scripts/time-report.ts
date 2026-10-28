@@ -79,8 +79,9 @@ import {
   warLevelOfTroop,
 } from '@/game/data/realm';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
-import { TROOPS, TROOP_BY_ID } from '@/game/data/troops';
-import { KIND_OF, gearOfTroop } from '@/game/battle/kinds';
+import { TROOPS, TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
+import { KIND_OF, gearOfTroop, type TroopStack } from '@/game/battle/kinds';
+import { awayOf, homeOf } from '@/world/muster';
 import { realSpan } from '@/game/span';
 import { GEM_WAIT, RUSH_FREE_SECONDS, SHOP_DAILY, SHOP_GOODS, SHOP_LOT, START_GEMS, gemsForWait, rushPriceOfWork, rushSeconds, shopHours, shopPrice, yardHourly } from '@/game/gemrules';
 import { upgradeWork } from '@/game/labour';
@@ -272,7 +273,7 @@ const AGENTS_SEEDS = (process.env.AGENTS_SEEDS ?? '7,42,101').split(',').map(Num
 const VISIT = 180;
 /** Шаг прогона: пульс мира, шаг племени и решения, с. Племя здесь — только часы службы. */
 const AGENTS_STEP = 120;
-const GARRISON = { legionary: 40, spearman: 30, archer: 20 };
+const GARRISON: TroopStack = { legionary: 40, spearman: 30, archer: 20 };
 type Style = 'careful' | 'careless';
 const SEATS = ['scout', 'spy', 'general'] as const;
 type Seat = (typeof SEATS)[number];
@@ -374,7 +375,7 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
         top[id] = 1;
         void g;
       },
-      after: async ({ g, world, now, figures }) => {
+      after: async ({ g, world, now, marches, figures }) => {
         const w: Inside = world;
         if (!g.agents.general.vacant) {
           const person = g.agents.general.person;
@@ -438,7 +439,12 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
         let genTarget: string | null = null;
         if (gen.place === 'map' && gen.phase !== 'moving' && gen.readyAt <= at) {
           if (gen.atHome && Object.values(gen.troops).every((k) => !k)) {
-            await w.setGarrison(GARRISON);
+            // Вернувшись, отряд встаёт гарнизоном (ДР-6): игрок берёт тот же состав из того, что есть дома, — после потерь
+            // его меньше, а просьба сверх дома миру не годится («Столько бойцов дома нет.»), и полководец простоял бы дома.
+            const home = homeOf(g.army, awayOf(marches, figures));
+            const band: TroopStack = {};
+            for (const id of TROOP_IDS) if (GARRISON[id]) band[id] = Math.min(GARRISON[id] ?? 0, home[id] ?? 0);
+            await w.setGarrison(band);
           } else if (!resting(gen) && !(await stormless(gen))) {
             // Логово бьют полной дружиной: уставшая идёт к цели и стоит у неё до следующего захода (`readyToStrike`).
             const ready = readyToStrike(gen);
@@ -551,7 +557,7 @@ async function agentsSection(): Promise<void> {
   const service = RETIRE_AGE - AGENT_AGE0;
   console.log('=== 2. СЛУЖБА АГЕНТА ===');
   console.log(`Мир → последствия → партия настоящим пульсом, миры ${AGENTS_SEEDS.join(', ')}, ${AGENTS_DAYS} суток на мир, заход раз в ${VISIT / 60} ч,`);
-  console.log(`шаг прогона ${AGENTS_STEP} с. Статуя 10, Дозор 3, дружина ${Object.values(GARRISON).reduce((a, b) => a + b, 0)}; пустое место нанимается на первом же заходе. Полководец жжёт`);
+  console.log(`шаг прогона ${AGENTS_STEP} с. Статуя 10, Дозор 3, дружина ${Object.values(GARRISON).reduce((a, b) => a + (b ?? 0), 0)}; пустое место нанимается на первом же заходе. Полководец жжёт`);
   console.log('ближайшее логово (стоит у него — бьёт, иначе — «дойти и ударить»), разведчик ходит к логовам по кругу, лазутчик');
   console.log('выведывает у логова, где стоит. Без сил на своё дело агент идёт домой сам; полководца без сил на штурм игрок ведёт домой;');
   console.log('дома ждёт полного запаса.');

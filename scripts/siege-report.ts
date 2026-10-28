@@ -672,16 +672,20 @@ for (const level of LEVELS) {
               const eff = after.effects.find((e) => e.id === `${rep.id}-eff`);
               const lost = eff?.lostTroops ?? {};
               const fig = after.figures.find((f) => f.id === 'general')!;
-              const druzhinaLost = troopTotal(general.troops) - troopTotal(fig.troops);
-              const townFell = troopTotal(lost) - Math.max(0, druzhinaLost);
-              // Город после провала — по правилу учёта, на армии после потерь.
+              // Потери дружины — из боя (`field` последствия: павшие при полководце в поле), а не разницей отряда: с ДР-6
+              // уцелевшая дружина у своих ворот входит в гарнизон (`homecoming`), и отряд полководца после боя пуст.
+              const druzhinaLost = eff?.field ? troopTotal(eff.field) : Math.max(0, troopTotal(general.troops) - troopTotal(fig.troops));
+              const druzhinaBack = fig.phase === 'home' ? Math.max(0, troopTotal(general.troops) - druzhinaLost - troopTotal(fig.troops)) : 0;
+              const townFell = troopTotal(lost) - druzhinaLost;
+              // Город после провала — по правилу учёта, на армии после потерь; вошедшая в гарнизон дружина — не в счёт.
               const army = troopsAfter(fz.g.army, lost);
               const townAfter = homeOf(army, awayOf(after.marches, after.figures.map((f) => (f.id === 'general' ? { ...f, phase: 'field' as const } : f))));
+              const townLeft = troopTotal(townAfter) - druzhinaBack;
               jointFail.garrisonWent += troopTotal(garrisonBefore);
               jointFail.garrisonFell += townFell;
-              jointFail.townLeft += troopTotal(townAfter);
-              if (troopTotal(townAfter) === 0) jointFail.townEmpty++;
-              if (fig.phase === 'home' && troopTotal(fig.troops) > 0) jointFail.druzhinaHome++;
+              jointFail.townLeft += townLeft;
+              if (townLeft === 0) jointFail.townEmpty++;
+              if (fig.phase === 'home' && druzhinaBack + troopTotal(fig.troops) > 0) jointFail.druzhinaHome++;
               if (fig.phase === 'down') jointFail.generalDown++;
             }
           }
