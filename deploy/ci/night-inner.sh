@@ -20,6 +20,9 @@ step() {
   printf '%s\t%s\t%s\t%s\n' "$name" "$code" "$(($(date +%s) - t0))" "$(date -u +%H:%M:%S)" >> "$dir/summary.tsv"
   return $code
 }
+# Прибор пути `roam:report` ночью — полным прогоном (ПН-0ч, docs/handbook/acceptance.md, «Прибор пути»); дома и в облаке —
+# малым. Окружение наследуют и отчёт, и база во втором worktree (`reports.ts`, `runTraced`): сверка — полный с полным.
+export ROAM_SIZE=full
 step ci npm ci --no-audit --no-fund || { echo stop > "$dir/status"; exit 1; }
 step typecheck npm run typecheck
 step test npm test

@@ -142,6 +142,13 @@ describe('границы ночного скрипта', () => {
     ]);
   });
 
+  it('прибор пути ночью — полным прогоном, и база с ним же: окружение задано до шагов', () => {
+    const inner = read('deploy/ci/night-inner.sh');
+    const at = inner.search(/^export ROAM_SIZE=full$/m);
+    expect(at, 'export ROAM_SIZE=full в night-inner.sh').toBeGreaterThan(0);
+    expect(at).toBeLessThan(inner.search(/^step ci /m));
+  });
+
   it('Chromium контейнера: WebGL программный, флаги отчёта — последними, потолок кадров не снят', () => {
     const wrap = read('deploy/ci/chromium.sh');
     expect(wrap).toContain('--use-angle=swiftshader');
