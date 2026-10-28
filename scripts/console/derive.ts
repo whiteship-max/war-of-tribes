@@ -7,12 +7,13 @@ import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { viteNode } from '../lib/fan';
-import { FOES, GATE_SETTLE, NOT_SETTLED_EXIT, WALL_SETTLE, W_SWING, facesMove, gateMove, gateSettled, wMove, withFaces, type Faces, type Foe, type Table } from './fixpoint';
+import { FOES, GATE_SETTLE, NOT_SETTLED_EXIT, WALL_SETTLE, W_SWING, facesMove, gateMove, gateSettled, wMove, withBurn, withFaces, type Faces, type Foe, type Table } from './fixpoint';
 import { ROOT, fail, has, heavy, helpIf, num, parseArgs, rejectUnknown } from './lib';
 
 const C = 'derive';
 const HELP = `
 npm run derive -- w | gate [--steps N] [--write] [--pause M]
+npm run derive -- burn [--write]
 npm run derive -- step [--from A] [--to B]
 Вывод неподвижной точки (правило 16): шаг считает число на записанном, записанное правится на выведенное, и так, пока
 выведенное не совпадёт с записанным.
@@ -21,6 +22,9 @@ npm run derive -- step [--from A] [--to B]
            уведённые), без «Лазарета», «Сожжённых» и «Морали»; шаг кости — на выведенном W, на окне ширин W − 2 … W + 2
            (bench.stepHold, ПБ-1); стена и лестницы — раздел «сила стены» siege:report (siege-wall.wallFacesOf), тем же
            кругом: точка села, когда W неподвижен и грани в четверти грани от записанных
+  burn     окно после сожжения BURN_IMMUNE — раздел «окна защиты» sack:report: наибольшая отстройка после сожжения по этапам
+           лестницы поражения, вверх до суток игрока (ПБ-1); шаг один — окно в свою выборку не входит; правило проверяется на
+           известной точке (окно после грабежа — SIEGE_IMMUNE владельца), не дало её — стоп, код 3
   step     кривая шага кости по W отрезка (--from, --to; по умолчанию W конфига ± 5): монотонно ли и где скачки (задача 22.7);
            ничего не пишет
   gate     таблица сил у ворот — раздел 4б raid-mix: партии мерки и ровный бой (без кривых медианного, окрестности и боя
@@ -86,7 +90,15 @@ if (child) {
     for (const who of ['wolves', 'raiders'] as const) for (let level = 1; level <= 10; level++) table[who].push(Math.round(gateValue(evens, level, who).value));
     for (const who of ['wolves', 'raiders'] as const) console.log(`  ${who === 'wolves' ? 'волки     ' : 'разбойники'} выведено ${table[who].join(', ')}; записано ${GATE_POWER[who].join(', ')}`);
     console.log(`DERIVE ${JSON.stringify({ was: GATE_POWER, table })}`);
-  } else fail(C, 'w или gate');
+  } else if (what === 'burn') {
+    // Окно после сожжения (ПБ-1, п. 6): раздел «окна защиты» `sack:report` — лестница поражения и правило окна той же функцией.
+    const { defeatLadder, protectWindows } = await import('../sack-ladder');
+    const { BURN_IMMUNE, SIEGE_IMMUNE } = await import('@/world/data/tuning');
+    const w = protectWindows(await defeatLadder());
+    const day = 24 * 3600_000;
+    console.log(`  наибольшая отстройка: после грабежа ${w.plunder.hours.toFixed(1)} ч, после сожжения ${w.burn.hours.toFixed(1)} ч; правило даёт ${w.plunder.days} и ${w.burn.days} сут`);
+    console.log(`DERIVE ${JSON.stringify({ was: Math.round(BURN_IMMUNE / day), days: w.burn.days, hours: w.burn.hours, plunderDays: w.plunder.days, siegeDays: Math.round(SIEGE_IMMUNE / day) })}`);
+  } else fail(C, 'w, gate или burn');
   process.exit(0);
 }
 
@@ -120,10 +132,10 @@ if (what === 'step') {
 // ---------- Драйвер ----------
 
 const write = has(args, 'write');
-const steps = write ? num(C, args, 'steps', what === 'gate' ? 3 : 4, { int: true, min: 1, max: 8 }) : 1;
+const steps = write && what !== 'burn' ? num(C, args, 'steps', what === 'gate' ? 3 : 4, { int: true, min: 1, max: 8 }) : 1;
 const pause = num(C, args, 'pause', 3, { min: 0 });
 rejectUnknown(C, args);
-if (what !== 'w' && what !== 'gate') fail(C, 'что выводить: w или gate');
+if (what !== 'w' && what !== 'gate' && what !== 'burn') fail(C, 'что выводить: w, gate, burn или step');
 // Замок машины — на весь вывод: шаги — потомки, и между шагами машину никто не займёт (machinelock: потомки не ждут).
 await heavy(`вывод ${what}`);
 
@@ -192,11 +204,29 @@ async function stepAt(w: number): Promise<number> {
   return Math.ceil(diceStepFor(DICE.hold, 0.1, 12, w) * 1e4) / 1e4;
 }
 
+const TUNING = path.join(ROOT, 'src', 'world', 'data', 'tuning.ts');
+
 const t0 = Date.now();
 const history: string[] = [];
 /** Код выхода: «не сошлось» — `NOT_SETTLED_EXIT`, стоп и доклад (решение владельца 26.10.2026, `fixpoint.ts`). */
 let code = 0;
-if (what === 'w') {
+if (what === 'burn') {
+  // Не неподвижная точка: окно в свою выборку не входит (лестница меряет отстройку, а не окно) — шаг один.
+  const r = (await step()) as { was: number; days: number; hours: number; plunderDays: number; siegeDays: number };
+  if (r.plunderDays !== r.siegeDays) {
+    history.push(`ПРАВИЛО НЕ ДАЁТ известной точки: окно после грабежа ${r.plunderDays} сут, владелец назначил ${r.siegeDays} — записанное оставлено, стоп и доклад (код ${NOT_SETTLED_EXIT})`);
+    code = NOT_SETTLED_EXIT;
+  } else if (r.days === r.was) history.push(`BURN_IMMUNE сходится: ${r.days} сут (отстройка после сожжения ${r.hours.toFixed(1)} ч)`);
+  else if (!write) history.push(`выведено ${r.days} сут при записанных ${r.was} (отстройка ${r.hours.toFixed(1)} ч); записать — --write`);
+  else {
+    const out = withBurn(readFileSync(TUNING, 'utf8'), r.days);
+    if (out === null) fail(C, 'не нашёл BURN_IMMUNE в src/world/data/tuning.ts — его вид изменился, правка руками');
+    writeFileSync(TUNING, out);
+    history.push(`записано: BURN_IMMUNE ${r.days} сут (было ${r.was}; отстройка после сожжения ${r.hours.toFixed(1)} ч) — src/world/data/tuning.ts`);
+  }
+  console.log('');
+  for (const h of history) console.log(h);
+} else if (what === 'w') {
   const seen: number[] = [];
   const seenFaces: Faces[] = [];
   let final: string | null = null;

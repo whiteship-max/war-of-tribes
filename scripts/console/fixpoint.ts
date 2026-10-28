@@ -145,3 +145,11 @@ export function withFaces(src: string, faces: Faces): string | null {
   const found = /export const WALL_FACES = [\d.]+;/.test(src) && /export const LADDER_FACES = [\d.]+;/.test(src);
   return found ? b : null;
 }
+
+// ---------- Окно после сожжения (ПБ-1, п. 6) ----------
+
+/** Записать окно после сожжения в исходник `world/data/tuning.ts`: `BURN_IMMUNE = shieldTime(N * 24 * 60 * MIN)`. Не нашлось — `null`. */
+export function withBurn(src: string, days: number): string | null {
+  const re = /export const BURN_IMMUNE = shieldTime\(\d+ \* 24 \* 60 \* MIN\);/;
+  return re.test(src) ? src.replace(re, `export const BURN_IMMUNE = shieldTime(${days} * 24 * 60 * MIN);`) : null;
+}

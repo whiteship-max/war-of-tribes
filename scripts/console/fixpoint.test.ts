@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { GATE_SETTLE, W_SWING, facesMove, gateMove, gateSettled, wMove, withFaces, type Table } from './fixpoint';
+import { GATE_SETTLE, W_SWING, facesMove, gateMove, gateSettled, wMove, withBurn, withFaces, type Table } from './fixpoint';
 
 const table = (wolves: number[], raiders: number[]): Table => ({ wolves, raiders });
 
@@ -95,5 +95,16 @@ describe('вывод граней стены вместе с W (ПБ-1, п. 3)',
     expect(out).toMatch(/export const WALL_FACES = 11\.1;/);
     expect(out).toMatch(/export const LADDER_FACES = 8\.2;/);
     expect(withFaces('const x = 1;', at(1, 1))).toBeNull();
+  });
+});
+
+describe('запись окна после сожжения (ПБ-1, п. 6)', () => {
+  it('находит строку BURN_IMMUNE в настоящем src/world/data/tuning.ts и пишет сутки', () => {
+    const src = readFileSync(path.resolve('src/world/data/tuning.ts'), 'utf8');
+    const out = withBurn(src, 2);
+    expect(out, 'строка окна найдена').not.toBeNull();
+    expect(out).toMatch(/export const BURN_IMMUNE = shieldTime\(2 \* 24 \* 60 \* MIN\);/);
+    expect(out!.length - src.length).toBe(0);
+    expect(withBurn('const x = 1;', 2)).toBeNull();
   });
 });
