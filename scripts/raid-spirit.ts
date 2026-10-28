@@ -6,7 +6,8 @@
 //
 // Цель весов причин духа (решение владельца 26.10.2026): **армия обычного города держит мораль около 70** — нейтрали боя
 // (`SPIRIT.even`). Обычный город — партии «Найма», из боёв которых выводится W (набор правила 16: бои выборки W, наша сторона
-// на входе). Мера — медиана **потолка** морали по этим боям: веса причин (`spiritrules`, Д5) складывают потолок шкалы, а
+// на входе; поведения — `raid-live.W_STYLES`: «всё, что прокормит» не входит, решение владельца по ПБ-1, П4, 28.10.2026 — обычный
+// город платит). Мера — медиана **потолка** морали по этим боям: веса причин (`spiritrules`, Д5) складывают потолок шкалы, а
 // значение — это путь от дна к потолку, который держат жалованье и терпение (Д3), и его не сдвигает ни один вес. Значение
 // печатается рядом — сколько боёв идёт с долгом по жалованью, видно по строке «терпение». Тот же разбор печатает шаг вывода W
 // (`npm run derive -- w`).
@@ -15,11 +16,10 @@ import type { SpiritLineId } from '@/game/spiritrules';
 import { pad, q } from './raid-common';
 import { median } from './lib/front';
 import type { Spirited } from './lib/spirited';
-import { NAME, STYLES, type Out, type Style } from './raid-live';
+import { NAME, STYLES, W_STYLES, ladderStyle, outOfW, wOuts, type Out, type Style } from './raid-live';
 import type { Hired } from './raid-hiring';
 
 const every = (outs: Out[]): Spirited[] => outs.flatMap((o) => o.l.spirits);
-const hiredOuts = (hired: Hired): Out[] => [...Object.values(hired.ladder).flat(), ...Object.values(hired.fresh).flat(), ...hired.captives];
 
 /** Бои выборки W — без боёв у ворот по событиям (как `lib/front.widthSample`). */
 const sample = (ss: readonly Spirited[]): Spirited[] => ss.filter((s) => !s.gate);
@@ -30,7 +30,7 @@ const cut = (xs: number[]): string => (xs.length ? [0.1, 0.25].map((p) => q(xs, 
 export function spiritOfHired(
   hired: Hired,
 ): { fights: number; morale: number; discipline: number; low: number; high: number; moraleCeil: number; disciplineCeil: number } | null {
-  const all = sample(every(hiredOuts(hired)));
+  const all = sample(every(wOuts(hired)));
   if (all.length === 0) return null;
   const m = all.map((s) => s.morale);
   return {
@@ -69,14 +69,15 @@ function row(label: string, ss: Spirited[], ceil = false): void {
 
 /** Строки по частям «Найма»: значение или потолок. */
 function parts(hired: Hired, ceil: boolean): void {
-  const ladder = Object.entries(hired.ladder);
+  const ladder = Object.entries(hired.ladder).filter(([k]) => W_STYLES.includes(ladderStyle(k)));
   const levels = [...new Set(ladder.map(([k]) => Number(k.split(':')[1])))].sort((a, b) => a - b);
   for (const level of levels) row(`А. лестница мерки, ур. ${level}`, sample(ladder.filter(([k]) => Number(k.split(':')[1]) === level).flatMap(([, outs]) => every(outs))), ceil);
-  row('Б. партия с первой секунды', sample(every(Object.values(hired.fresh).flat())), ceil);
+  row('Б. партия с первой секунды', sample(every((Object.entries(hired.fresh) as [Style, Out[]][]).filter(([s]) => W_STYLES.includes(s)).flatMap(([, o]) => o))), ceil);
   row('В. уведённые люди', sample(every(hired.captives)), ceil);
-  const all = every(hiredOuts(hired));
+  const all = every(wOuts(hired));
   row('все бои выборки W', sample(all), ceil);
   row('у ворот по событиям (вне W)', all.filter((s) => s.gate), ceil);
+  row(`«${NAME.feed}» (вне W, П4)`, sample(every(outOfW(hired))), ceil);
 }
 
 export function spiritSection(hired: Hired): void {
@@ -91,7 +92,7 @@ export function spiritSection(hired: Hired): void {
   console.log('Потолок (без жалованья и терпения):');
   console.log(' бои                             боёв  мораль: 10-я…25-я…медиана…75-я…90-я  дисциплина: 10-я…25-я…медиана…75-я…90-я');
   parts(hired, true);
-  const inW = sample(every(hiredOuts(hired)));
+  const inW = sample(every(wOuts(hired)));
   if (inW.length === 0) return;
   console.log('Причины в боях выборки W — среднее по боям, мораль / дисциплина (сумма строк — дух на входе):');
   for (const [id, name] of LINES) {
@@ -120,14 +121,14 @@ function byStyle(hired: Hired): void {
   for (const [k, outs] of Object.entries(hired.ladder)) put(k.split(':')[0] as Style, outs);
   for (const [style, outs] of Object.entries(hired.fresh) as [Style, Out[]][]) put(style, outs);
   put('means', hired.captives);
-  const inW = [...by.values()].flat();
+  const inW = sample(every(wOuts(hired)));
   console.log('По поведениям (ПБ-1, п. 4) — сколько боёв выборки W идут с долгом по жалованью или голодом войска (строка «терпение»):');
   console.log(' поведение                       боёв  с терпением  мораль: медиана');
   for (const style of STYLES) {
     const ss = by.get(style) ?? [];
     if (ss.length === 0) continue;
     const n = ss.filter(patient).length;
-    console.log(` ${NAME[style].padEnd(30)} ${pad(ss.length, 5)}  ${pad(`${n} (${((100 * n) / ss.length).toFixed(1)} %)`, 11)}  ${pad(median(ss.map((s) => s.morale)).toFixed(1), 15)}`);
+    console.log(` ${`${NAME[style]}${W_STYLES.includes(style) ? '' : ' (вне W)'}`.padEnd(30)} ${pad(ss.length, 5)}  ${pad(`${n} (${((100 * n) / ss.length).toFixed(1)} %)`, 11)}  ${pad(median(ss.map((s) => s.morale)).toFixed(1), 15)}`);
   }
   const n = inW.filter(patient).length;
   console.log(` ${'все бои выборки W'.padEnd(30)} ${pad(inW.length, 5)}  ${pad(`${n} (${inW.length ? ((100 * n) / inW.length).toFixed(1) : '0.0'} %)`, 11)}  ${pad(inW.length ? median(inW.map((s) => s.morale)).toFixed(1) : '—', 15)}`);

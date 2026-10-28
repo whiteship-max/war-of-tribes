@@ -5,6 +5,8 @@
 // которые игра играет. Бои здесь — все записи боя из прогонов «Найма», которые отчёт уже сделал
 // (`Hired`: лестница мерки, партия с первой секунды, уведённые люди): второй раз они не гоняются. Что такое
 // фронт меньшей стороны, решает `lib/front.ts`; раздел только раскладывает бои по частям и печатает.
+// Поведения выборки — `raid-live.W_STYLES` (решение владельца по ПБ-1, П4, 28.10.2026: W меряет обычного игрока): бои «всё,
+// что прокормит» в W не входят и печатаются строкой «вне выборки»; прогоны сами — те же, их другие разделы читают целиком.
 //
 // Ширина из этого раздела — вывод, а не выбор: W — медиана по всем боям выборки, и другой строкой её не
 // подменяют. Строки по частям и по видам стоят рядом, чтобы было видно, чей бой тянет медиану.
@@ -20,7 +22,7 @@ import { DICE, FRONT, FRONT_WIDTH } from '@/battle';
 import { armyAt, diceStepFor } from '@/battle/bench';
 import { pad, pct, q } from './raid-common';
 import { median, widthOf, widthSample, type Front } from './lib/front';
-import type { Out } from './raid-live';
+import { NAME, W_STYLES, ladderStyle, outOfW, wOuts, type Out, type Style } from './raid-live';
 import type { Hired } from './raid-hiring';
 
 /** Вид отчёта мира словами (`Report.kind`). */
@@ -39,21 +41,21 @@ function row(label: string, fs: Front[]): void {
   console.log(` ${label.padEnd(36)} ${pad(fs.length, 5)}  ${pad(cut(small), 38)}  ${pad(big.length ? median(big).toFixed(1) : '—', 15)}`);
 }
 
-/** Все прогоны «Найма», из которых выводится W: лестница, партия с первой секунды, уведённые люди. */
-const hiredOuts = (hired: Hired): Out[] => [...Object.values(hired.ladder).flat(), ...Object.values(hired.fresh).flat(), ...hired.captives];
 
 /**
  * W и шаг кости из прогонов «Найма» — одна функция на раздел и на вывод (`npm run derive -- w`): W — медиана фронта меньшей
  * стороны по боям выборки, шаг — наименьший, до четырёх знаков вверх, при котором большая на 10 % держит поле не чаще
  * доли владельца (`DICE.hold`) на решётках «Лезвия» окна ширин вокруг W (`bench.stepHold`, ПБ-1, п. 2). Боёв нет — `null`.
  */
-export function widthOfHired(hired: Hired): { fights: number; w: number; size: number; step: number } | null {
-  const all = fronts(hiredOuts(hired));
+export function widthOfHired(hired: Hired, step: (w: number) => number = stepAt): { fights: number; w: number; size: number; step: number } | null {
+  const all = fronts(wOuts(hired));
   if (all.length === 0) return null;
   const w = widthOf(all);
-  const size = armyAt(w);
-  return { fights: all.length, w, size, step: Math.ceil(diceStepFor(DICE.hold, 0.1, 12, w) * 1e4) / 1e4 };
+  return { fights: all.length, w, size: armyAt(w), step: step(w) };
 }
+
+/** Шаг кости на ширине `w` — наименьший, до четырёх знаков вверх (`bench.diceStepFor` на окне ширин, ПБ-1, п. 2). */
+export const stepAt = (w: number): number => Math.ceil(diceStepFor(DICE.hold, 0.1, 12, w) * 1e4) / 1e4;
 
 export function widthSection(hired: Hired): void {
   console.log('');
@@ -64,15 +66,17 @@ export function widthSection(hired: Hired): void {
   console.log('Бои у ворот по событиям (волки, разбойники) в выборку не входят (слово владельца, 14.29): их сила была долей обороны, числом руками; с шага 5');
   console.log('пересмотра баланса она — таблица по уровню посёлка (data/events.GATE_POWER), выведенная ядром на нынешних W и шаге кости, — в выборке W была бы функцией от себя (П5, 14.35).');
   console.log(' бои                                   боёв  фронт полосы меньшей: 10-я…25-я…медиана…75-я…90-я  большей: медиана');
-  const ladder = Object.entries(hired.ladder);
+  // Поведения выборки — `W_STYLES` (решение владельца по ПБ-1, П4): «всё, что прокормит» — строкой вне выборки.
+  const ladder = Object.entries(hired.ladder).filter(([k]) => W_STYLES.includes(ladderStyle(k)));
   const levels = [...new Set(ladder.map(([k]) => Number(k.split(':')[1])))].sort((a, b) => a - b);
   for (const level of levels) row(`А. лестница мерки, ур. ${level}`, fronts(ladder.filter(([k]) => Number(k.split(':')[1]) === level).flatMap(([, outs]) => outs)));
-  row('Б. партия с первой секунды', fronts(Object.values(hired.fresh).flat()));
+  row('Б. партия с первой секунды', fronts((Object.entries(hired.fresh) as [Style, Out[]][]).filter(([s]) => W_STYLES.includes(s)).flatMap(([, o]) => o)));
   row('В. уведённые люди', fronts(hired.captives));
-  const outs = hiredOuts(hired);
+  const outs = wOuts(hired);
   const all = fronts(outs);
   for (const kind of [...new Set(all.map((f) => f.kind))].sort()) row(`вид отчёта: ${KIND[kind] ?? kind}`, all.filter((f) => f.kind === kind));
   row('все бои выборки', all);
+  row(`вне выборки: «${NAME.feed}» (П4)`, fronts(outOfW(hired)));
   console.log(` вне выборки: боёв у ворот по событиям — ${every(outs).length - all.length}`);
   if (all.length === 0) {
     console.log('Боёв нет — W не из чего выводить.');

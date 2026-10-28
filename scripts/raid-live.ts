@@ -51,6 +51,49 @@ export const NAME: Record<Style, string> = {
 };
 
 /**
+ * Поведения, чьи бои входят в выборку W и в цель морали обычного города (решение владельца по ПБ-1, П4, 28.10.2026): W меряет
+ * обычного игрока, а «всё, что прокормит» по определению не платит — нанимает, пока есть хлеб, о казне не думает, — и его бои с
+ * долгом по жалованью тянули бы ширину боя и мораль обычного города (docs/siege_v2.md, «Решения ПБ-1»). В остальных разделах и
+ * отчётах поведение остаётся: его лестница, найм и строки «по поведениям» печатаются как прежде.
+ */
+export const W_STYLES: readonly Style[] = STYLES.filter((s) => s !== 'feed');
+
+/** Прогоны «Найма», как их раскладывает раздел: лестница (`поведение:уровень`), партия с первой секунды, уведённые люди. */
+export interface HiredRuns {
+  ladder: Record<string, Out[]>;
+  fresh: Partial<Record<Style, Out[]>>;
+  captives: Out[];
+}
+
+/** Поведение прогона лестницы по ключу `поведение:уровень`. */
+export const ladderStyle = (key: string): Style => key.split(':')[0] as Style;
+
+/**
+ * Прогоны «Найма», из боёв которых выводятся W и цель морали обычного города, — одна дверь на раздел «Ширина поля», «Дух
+ * дружины» и вывод `npm run derive -- w`: лестница и партия с первой секунды — поведений выборки (`W_STYLES`), уведённые люди —
+ * все (у них «по средствам» и «высокий налог»).
+ */
+export function wOuts(h: HiredRuns): Out[] {
+  return [
+    ...Object.entries(h.ladder)
+      .filter(([k]) => W_STYLES.includes(ladderStyle(k)))
+      .flatMap(([, o]) => o),
+    ...(Object.entries(h.fresh) as [Style, Out[]][]).filter(([s]) => W_STYLES.includes(s)).flatMap(([, o]) => o),
+    ...h.captives,
+  ];
+}
+
+/** Прогоны «Найма» вне выборки W — поведений не из `W_STYLES`: их бои печатаются строкой «вне W». */
+export function outOfW(h: HiredRuns): Out[] {
+  return [
+    ...Object.entries(h.ladder)
+      .filter(([k]) => !W_STYLES.includes(ladderStyle(k)))
+      .flatMap(([, o]) => o),
+    ...(Object.entries(h.fresh) as [Style, Out[]][]).filter(([s]) => !W_STYLES.includes(s)).flatMap(([, o]) => o),
+  ];
+}
+
+/**
  * Поведение — это игрок общего автопилота с параметрами, а не свой автопилот. Налог закреплён у
  * поведения: высокий — у «высокого налога», умеренный — у остальных.
  */
