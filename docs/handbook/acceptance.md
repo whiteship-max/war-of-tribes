@@ -378,6 +378,93 @@ ssh tribe@169.58.98.192 'cd ~/tribe && docker compose logs --since 24h app | gre
 одного коммита сверх `master`). **Оставлена** `claude/au-2-fin-money-tywth3` — один коммит сверх `master` (`2a0345d`, 25.10.2026, только
 `docs/audit/AU-2.md`: облачная передача «АУ-1 не дождался»; в `master` её нет).
 
+### Передача: приёмка pn-0 — пауза (28.10.2026, стоп на монотонности у ворот, пауза словом владельца)
+
+Задание — слить и выложить `game/pn-0` (ПН-1ч, ПБ-1, ПН-0ч, ПБ-1б); множители теста уже 1, патч правил не нужен; всё тяжёлое — в
+контейнере `tribe-ci` на 6 ядрах (меньше — если растёт отклик `/api/time`). Числа «было → стало», флаги и решения по правилу 19 —
+docs/siege_v2.md, 31.7. **В `master` не влито, не выложено, приёмки не было; последний принятый на сервере — `22215a0`**
+(ночная база `refs/ci/accepted` — `546a217`).
+
+**Сделано.** Ветка `game/merge-pn0` (GitHub): от `master` `379d961` перемоткой на `game/pn-0` `184948a`, конфликтов нет; замков дома
+не было; пол на дереве слияния зелёный. Выводы по 31.5 — коммитами в клоне сервера `/opt/tribe-ci/pn0/wt`, пакетом домой, дифф
+прочитан (правило 10): черты `05f57a1`, W, шаг кости и грани `b886544` … `0fa14bf`, таблица у ворот `2855bb8`, стабильность `55a64b0`,
+комментарии у чисел `f06bdd1`, передача в siege_v2 `08c8ae2`. Итог: **W 110 → 103, шаг кости 0.0424 → 0.0445, стена 10.4 → 8.7,
+лестницы 7.9 → 6.3**, таблица у ворот заново (три шага, все строки в 1 %), **`CROWN_MTTH` 259 → 276**, `STAB_CALM` 10.72 → 10.73,
+`BURN_IMMUNE` — 3 сут, тот же; кривая шага на W 98…108 не монотонна (наибольший скачок 2.79 %) — для записи.
+
+**На чём стоп.** Полный `npm test` на итоговом дереве `f06bdd1`: один красный из 5582 — `src/world/gatemono.test.ts`, 2-й уровень:
+без кости стая в 201 волк берёт верх над гарнизоном мерки, в 202 — нет. Новый сбой монотонности у ворот — известный дефект чётности
+резерва (как 333 и 335 на 3-м уровне при W 95, docs/siege_v2.md, 22.2); при W 97, 102 и 110 точек нет.
+Typecheck, сборка (первая загрузка 609.5 КБ) и `fan.test` — зелёные. Отчёты стартовали раньше, чем легла задержка, и сняты через две
+минуты, до первого отчёта: в `.git/tribe-reports` нового нет.
+
+**Два пути — решает владелец:**
+
+1. **Записать точку в список известных сбоев и идти дальше** (по образцу решения 20.10.2026, 22.2): в `gatemono.test.ts` —
+   `KNOWN_DROPS` для W 103 `{ 2: [202] }` и строка в комментарии над списком; ядро — отдельной работой. Числа выводов остаются: тест
+   их не задевает и в замыкания отчётов не входит (отчёты его не импортируют).
+2. **Сначала чинить ядро** (резерв при развёртывании, `src/battle/`) — тогда выводы заново по 31.5: бой меняется, и W, шаг кости,
+   грани, таблица у ворот, стабильность и срок сожжения выводятся на новом ядре (черты — заново или проверкой `--check`).
+
+**Что осталось** (после решения):
+
+- `npm test` зелёный на итоговом дереве (пол: typecheck и сборка — вместе с ним).
+- `npm run reports -- --all --base 22215a0f9d273e26fa14c5397640f0a23046fd31 --before` — все 24, с `ROAM_SIZE=full` (ночь гоняет `roam`
+  целиком, а размер в ключ кэша не входит — решение правила 19; у `roam` базы нет, только прогон). Каждый «СДВИНУЛСЯ» — причиной по
+  передачам (docs/gdd/path_of_sword.md, разделы 11–12; docs/siege_v2.md, 31); стоп и доклад: сдвиг без объяснения, бой нарушил
+  обещания (кость, монотонность), браузерный красный.
+- Пакет домой, если в клоне легли коммиты; числа отчётов — в docs/siege_v2.md, 31.7; push `game/merge-pn0`.
+- `/perf` «до» — сводка с сервера (карта по классам устройств за 7 дней) в docs/gdd/path_of_sword.md, раздел 11. Щуп —
+  `/opt/tribe-ci/probe/perf-pn0.ts`, собрать заново из итогового дерева (собранные дома `.mjs` — с дерева до выводов).
+- Слияние в `master` перемоткой и push; щуп сохранений до (`probe/saves-pn0.ts`, собрать из итогового дерева); копия базы и
+  выкладка игры и сервера вместе (`deploy/update.sh` через `setsid nohup` с логом); проверка: боевой адрес — новая сборка, журнал без
+  ошибок, щуп сохранений после — все партии и миры открываются; флаги и «внимание:» на живых описях с минуты выкладки
+  (`probe/watchflags-pn0.ts`, `SINCE`) — перечислить, не откатывать. Откат — только если игра не открывается у всех или падает
+  сервер; базу из копии не восстанавливать без слова владельца.
+- `night.sh --install` (расписание ночи снято на паузу — возвращает его она же); база ночи на выложенном коммите —
+  `night.sh --accept <коммит>` после разбора вывода, `roam` тоже. `--accept` ищет `refs/ci/rules/<коммит>`: его кладёт ночь, а при
+  `rules=master` (множители 1) он равен самому коммиту.
+- Строка в «Сколько стоит приёмка» — эта приёмка и новый полностью принятый коммит на машине сервера.
+- Ветки: удалить `game/pn-a`, `game/pn-1`, `game/pb-1`, `game/pn-0`, `game/merge-pn0` и `claude/*` — только если у них нет коммитов
+  сверх `master`, остальные перечислить; рабочая копия `C:/Users/white/Desktop/tribe-merge-pn0` (с junction `node_modules`) — убрать.
+
+**Состояние на паузе.** Клон `/opt/tribe-ci/pn0/wt` — на `f06bdd1`, чистый (без `08c8ae2` и этой передачи — там только документы);
+очередь задержана файлом `/opt/tribe-ci/pn0/hold` (`step.sh` не пускает шаг, пока он лежит). Контейнера `tribe-ci` нет: `run.sh`
+удаляет его по концу очереди (снята на шаге 47, код 143); образ `tribe-ci:latest` на месте. Замки сняты: брошенный
+`/opt/tribe-ci/home/.heavy-job.lock` (прогон в снятом контейнере) удалён, на хосте сервера и дома замка нет; висящих процессов нет ни
+там, ни там. **Расписание ночи снято словом владельца** — ночь пошла бы в 01:30 CET по `master` `379d961`; прежняя строка —
+`/opt/tribe-ci/night/crontab.before-pn0-pause`. Очереди, шаг и запуск — `/opt/tribe-ci/pn0/` (`run.sh`, `step.sh`, `q1.sh` … `q5.sh`),
+логи — `/opt/tribe-ci/logs/pn0/`.
+
+**Команды, чтобы продолжить:**
+
+```bash
+ssh tribe@169.58.98.192 'cat /opt/tribe-ci/logs/pn0/status; tail -6 /opt/tribe-ci/logs/pn0/summary.tsv'   # где стоит
+# путь 1: правка gatemono.test.ts в C:/Users/white/Desktop/tribe-merge-pn0, коммит явным путём, push game/merge-pn0; клон — вровень:
+ssh tribe@169.58.98.192 'cd /opt/tribe-ci/pn0/wt && git fetch -q origin && git merge --ff-only origin/game/merge-pn0 && git log --oneline -1'
+ssh tribe@169.58.98.192 'rm /opt/tribe-ci/pn0/hold'
+# очередь — новым файлом по образцу q5.sh (бегущую не править): шапка S, L, WT как в q5, затем
+#   bash $S 50 test 1 npm test || exit 1
+#   bash $S 51 build 1 npm run build || exit 1
+#   ROAM_SIZE=full bash $S 52 reports 0 npm run reports -- --all --base 22215a0f9d273e26fa14c5397640f0a23046fd31 --before
+#   echo "ОЧЕРЕДЬ 6 ГОТОВА $(date -u +%FT%TZ)" > $L/status
+ssh tribe@169.58.98.192 'setsid nohup sh /opt/tribe-ci/pn0/run.sh q6.sh > /dev/null 2>&1 < /dev/null &'   # одной командой, без cd &&
+ssh tribe@169.58.98.192 'grep -nE "замыкани|СДВИНУЛСЯ|в базе отчёта нет|без базы" /opt/tribe-ci/logs/pn0/52-reports.log'
+# щупы — собрать в рабочей копии из итогового дерева (cwd — корень копии):
+#   npx esbuild <щуп>.ts --bundle --platform=node --format=esm --alias:@root=. --alias:@=./src --define:import.meta.env={} \
+#     --banner:js="import { createRequire as __tribeReq } from 'module'; const require = __tribeReq(import.meta.url);" --outfile=<щуп>.mjs
+ssh tribe@169.58.98.192 'cd ~/tribe && docker compose exec -T app node --no-warnings --input-type=module - < /opt/tribe-ci/probe/perf-pn0.mjs'
+ssh tribe@169.58.98.192 'cd ~/tribe && docker compose exec -T app node --no-warnings --input-type=module - < /opt/tribe-ci/probe/saves-pn0.mjs'   # до и после
+git -C "C:/Users/white/Desktop/War of Tribes" fetch origin
+git -C "C:/Users/white/Desktop/War of Tribes" merge --ff-only origin/game/merge-pn0
+git -C "C:/Users/white/Desktop/War of Tribes" push origin master
+ssh tribe@169.58.98.192 'setsid nohup sh -c "cd ~/tribe && sh deploy/update.sh" > /opt/tribe-ci/logs/pn0/deploy.log 2>&1 < /dev/null &'
+ssh tribe@169.58.98.192 'cd ~/tribe && docker compose logs --since 1h app | grep -iE "error|exception|внимание:"'
+ssh tribe@169.58.98.192 'cd ~/tribe && docker compose exec -T -e SINCE=<мс выкладки> app node --no-warnings --input-type=module - < /opt/tribe-ci/probe/watchflags-pn0.mjs'
+ssh tribe@169.58.98.192 'sh /opt/tribe-ci/night/bin/night.sh --install'   # расписание и ночные скрипты из origin/master
+ssh tribe@169.58.98.192 'sh /opt/tribe-ci/night/bin/night.sh --accept <выложенный коммит>'
+```
+
 ## Прибор пути `roam:report` (ПН-0ч)
 
 *Пачка ПН-0 ГДД «Путь меча» (docs/gdd/path_of_sword.md, 6.5, 7.1; разбор — раздел 11 ГДД).* Отчёт лёгкий и один процесс: веера
