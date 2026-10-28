@@ -17,7 +17,7 @@
 //   npm run stability:report                 — цели на записанных числах
 //   npm run stability:report -- --derive     — вывод `STAB_DRAG` и `STAB_CALM` (пишет в src/game/stabrules.ts)
 //   SEEDS=1,2,3 DAYS=96 npm run stability:report — набор Ц1 (по умолчанию сиды 1…3, 96 игр. дн.)
-//   CROWN_SEEDS=1,…,6 CROWN_DAYS=480 — набор вестей державы (СБ-2, раздел «Вести державы»: частота, дрейф, вывод `CROWN_MTTH`)
+//   CROWN_SEEDS=1,…,12 CROWN_DAYS=480 — набор вестей державы (СБ-2, раздел «Вести державы»: частота, дрейф, вывод `CROWN_MTTH`); по умолчанию — `lib/drift.CROWN_SET` (ПБ-1, П7)
 //   ESTATES_DERIVE=1 npm run stability:report — вывод пользы и цены сословий (РТ-2, раздел «Сословия»; пишет estaterules.ts)
 //
 // Сословия (РТ-2, docs/stability.md, «РТ-2»):
@@ -32,7 +32,7 @@
 //      (первый бесплатный), и при молчании. Срок `CROWN_MTTH` выводится из частоты (`--derive`): на приходе сетки весть
 //      державы выпадает с вероятностью `1 − exp(−Δ·S/M)`, где S — сумма весов по редкости в ровной игре, Δ — шаг сетки.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { bandVerdict, meanBand } from './lib/drift';
+import { CROWN_SET, bandVerdict, meanBand } from './lib/drift';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { GameState, JobId } from '@/game/types';
@@ -161,7 +161,7 @@ const CROWN_PER_DAY = 1;
 const CROWN_DRIFT_BAND = 5;
 /** Настоящие сутки — игровых дней (сутки отлучки). */
 const REAL_DAY = 48;
-const CROWN_SEEDS = (process.env.CROWN_SEEDS ?? '1,2,3,4,5,6').split(',').map(Number).filter((n) => n > 0);
+const CROWN_SEEDS = (process.env.CROWN_SEEDS ?? CROWN_SET.join(',')).split(',').map(Number).filter((n) => n > 0);
 const CROWN_DAYS = Number(process.env.CROWN_DAYS) > 0 ? Number(process.env.CROWN_DAYS) : 480;
 
 interface CrownRun {
