@@ -27,6 +27,7 @@
     "sack:report": "vite-node scripts/sack-report.ts",
     "order:report": "vite-node scripts/order-report.ts",
     "market:report": "vite-node scripts/market-report.ts",
+    "roam:report": "vite-node scripts/roam-report.ts",
     "stability:report": "vite-node scripts/stability-report.ts",
     "tap:report": "vite-node scripts/tap-report.ts",
     "prologue:stand": "vite-node scripts/prologue-stand.ts",

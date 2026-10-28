@@ -18,11 +18,12 @@ describe('замыкания отчётов на этом репозитории
   };
 
   // Двадцать второй — `stability:report` (СБ-1, docs/stability.md, раздел 3), двадцать третий — `market:report` (РН-1,
-  // docs/city_v3.md, «Решения РН-1»): оба лёгкие, их гоняют и в облаке.
-  it('отчёты — это команды `*:report`, и их двадцать три', () => {
+  // docs/city_v3.md, «Решения РН-1»), двадцать четвёртый — `roam:report` (ПН-0, docs/gdd/path_of_sword.md, раздел 11): все
+  // лёгкие, их гоняют и в облаке.
+  it('отчёты — это команды `*:report`, и их двадцать четыре', () => {
     const scripts = Object.keys(setup.scripts).filter((s) => s.endsWith(':report'));
     expect(found.filter((o) => o.kind === 'report').map((o) => `${o.name}:report`)).toEqual(scripts);
-    expect(scripts).toHaveLength(23);
+    expect(scripts).toHaveLength(24);
     // Стенд предыстории — не отчёт приёмки: он выведен из списка суффиксом (CLAUDE.md, правило 9).
     expect(Object.keys(setup.scripts)).toContain('prologue:stand');
   });
