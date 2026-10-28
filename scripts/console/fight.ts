@@ -37,7 +37,7 @@ import { AXIS_AIM, SPIRIT_AIM, SPIRIT_CHECKS, SPIRIT_MIX, deriveSpirit, strength
 import { BEST_GENERAL, deriveFlank, flankChecks } from './flank';
 import { TACTICS_TOP } from '@/game/commandrules';
 import { SCARS, SCAR_SIZE, type ScarId } from '@/game/scarrules';
-import { deriveScar, deriveScars, deriveScarsFan, horseShareOfMix, scarChecks } from './scars';
+import { SCAR_DEPTH, deriveScar, deriveScars, deriveScarsFan, horseShareOfMix, scarChecks } from './scars';
 
 const C = 'fight';
 const HELP = `
@@ -61,7 +61,8 @@ npm run fight -- --a <сторона> --d <сторона> [ключи]
                            командира каждого рода и уровня; сторона — --a (по умолчанию та же мерка), сидов — --runs (200);
                            --check — только сила при записанной вершине
   --derive-scars           вывод величин черт армии (SCAR_SIZE в src/game/scarrules.ts, ДР-4): добрая в своём бою — как
-                           шкала духа на верху, дурная — её зеркало; сидов — --runs (100); --check — только сила при записанных;
+                           шкала духа на верху, дурная — её зеркало; мерка — армия в ${SCAR_DEPTH} ширины фронта на полосу при любом W,
+                           растяжка с дробью (ПБ-1); сидов — --runs (100); --check — только сила при записанных;
                            --scar ИМЯ[,ИМЯ…] — только названные (ghosts, woodfear…), и вывод, и проверка; несколько
                            черт (и проверка всех) — веером, по процессу на черту (бюджет ядер)
   --width W                ширина фронта полосы, бойцов строя (по умолчанию W игры = ${FRONT_WIDTH})

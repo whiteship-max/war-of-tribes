@@ -7,14 +7,22 @@
 // Ориентир — дух ДР-1: добрая черта в своём бою стоит, как одна шкала духа на верху (мораль 100 при дисциплине 70), дурная —
 // столько же отнимает (её зеркало: единица, делённая на силу доброй). Ориентир меряется той же меркой на том же составе, что и
 // черта. Дно шкалы (×0,875) дурной не годится: при потолке поправки `SCAR_CAP` черта до него не дотягивает (27.2).
-import { SPIRIT, type Spirit } from '@/battle';
-import { HORSE_KINDS } from '@/battle/types';
+//
+// **Мерка одной формы при любом W (ПБ-1, п. 1; docs/siege_v2.md, «Решения ПБ-1»).** Прежде мерка была составом в 340 голов (872
+// бойца строя): фронт полос полон при любом W, а резерв — 872 − 3W, и сколько встанет в резерв, решала ширина. Сила черты от W
+// зависела: «Горцы» ×1.053 при W 100 и ×1.073 при W 120, «Лесной морок» ×0.958 и ×0.944 (200 сидов). Теперь армия мерки в бойцах
+// строя пропорциональна W (`SCAR_DEPTH` ширин на полосу, доли родов — состава мерки): развёртывание при любом W одно — фронт полон,
+// резерв той же доли. Меньше ширины мерку не сделать: пешие встают от центра (`setup.deployInto`), и армия, что везде влезает,
+// стояла бы одной средней полосой. Растянутая армия — с дробью (`stretched`): род — вниз до целого и ещё один с долей дроби, монетой
+// сида, — ступеней меры у целых бойцов нет.
+import { FRONT, FRONT_WIDTH, SPIRIT, stackTotal, type Spirit, type Stack } from '@/battle';
+import { HORSE_KINDS, UNIT_KINDS } from '@/battle/types';
 import { resolveField, type FieldSide } from '@/world/battle';
 import { kindsOf } from '@/game/battle/price';
 import type { TroopStack } from '@/game/battle/kinds';
 import { SCARS, SCAR_BY_ID, SCAR_SIZE, shareOf, type ScarId, type ScarSide, type ScarWhere } from '@/game/scarrules';
 import { SCAR_CAP } from '@/battle/config';
-import { SPIRIT_MIX, scaled, strengthOf } from './spirit';
+import { SPIRIT_MIX } from './spirit';
 import { fan, serveFan } from '../lib/fan';
 
 /** Мерка черты против конницы (`pikewall`): та же армия мерки с конницей — конных в родах ядра не меньше четверти. */
@@ -51,18 +59,44 @@ export function benchOf(id: ScarId): ScarBench {
   }
 }
 
-/** Доля побед армии с чертами `scars` против той же армии в `k` раз без них, на сидах `1…seeds` (ничья — половина). */
-export function scarShare(b: ScarBench, held: ScarId[], k: number, seeds: number): number {
-  const us = kindsOf(b.troops);
-  const them = kindsOf(scaled(b.troops, k));
-  const scars: ScarSide = { held, ...(b.hungry ? { hungry: true as const } : {}) };
+/** Глубина мерки: бойцов строя на полосу — столько ширин фронта (фронт полон, за ним — резерв той же доли при любом W). */
+export const SCAR_DEPTH = 2.5;
+
+/**
+ * Армия мерки в бойцах строя при ширине `width`: доли родов — состава `troops` (`kindsOf`), всего — `SCAR_DEPTH` ширин на каждую из
+ * полос фронта. Без ширины — ширина конфига: мерка бьётся там, где бьётся мир.
+ */
+export function benchKinds(troops: TroopStack, width = FRONT_WIDTH): Stack {
+  const base = kindsOf(troops);
+  const f = (SCAR_DEPTH * FRONT.length * width) / stackTotal(base);
+  const out = { ...base };
+  for (const k of UNIT_KINDS) out[k] = Math.round(base[k] * f);
+  return out;
+}
+
+/** Монета сида `i` для дроби растяжки: дробная часть `i · φ` — ровно по отрезку, без повторов на соседних сидах. */
+export const ditherOf = (i: number): number => (i * 0.6180339887498949) % 1;
+
+/** Армия `kinds` в `k` раз с дробью: каждый род — вниз до целого и ещё один, если монета `u` меньше дроби. В среднем — ровно `k`. */
+export function stretched(kinds: Stack, k: number, u: number): Stack {
+  const out = { ...kinds };
+  for (const kind of UNIT_KINDS) out[kind] = Math.floor(kinds[kind] * k + u);
+  return out;
+}
+
+/**
+ * Доля побед армии мерки `b` с поправкой `ours` (черты или дух) против той же армии в `k` раз без неё, на сидах `1…seeds` (ничья —
+ * половина); место боя — `where` (по умолчанию — место черты).
+ */
+function benchShare(b: ScarBench, ours: Omit<FieldSide, 'kinds'>, k: number, seeds: number, where: ScarWhere = b.where): number {
+  const us = benchKinds(b.troops);
   let won = 0;
   for (let i = 1; i <= seeds; i++) {
     const seed = i * 7919;
-    const ours: FieldSide = { kinds: us, scars };
-    const theirs: FieldSide = { kinds: them };
+    const mine: FieldSide = { kinds: us, ...ours };
+    const theirs: FieldSide = { kinds: stretched(us, k, ditherOf(i)) };
     const atk = i % 2 === 0;
-    const f = resolveField({ seed, attacker: atk ? ours : theirs, defender: atk ? theirs : ours, where: b.where });
+    const f = resolveField({ seed, attacker: atk ? mine : theirs, defender: atk ? theirs : mine, where });
     const w = f.result?.winner;
     if (w === 'draw') won += 0.5;
     else if ((w === 'attacker') === atk) won += 1;
@@ -70,22 +104,35 @@ export function scarShare(b: ScarBench, held: ScarId[], k: number, seeds: number
   return won / seeds;
 }
 
-/** Сила черт `held` в их бою: k, при котором армия с ними бьётся с той же армией в k раз ровно (бисекция, 12 шагов). */
-export function scarStrength(b: ScarBench, held: ScarId[], seeds: number, lo = 0.4, hi = 1.8): number {
+/** Доля побед армии с чертами `scars` против той же армии в `k` раз без них, на сидах `1…seeds` (ничья — половина). */
+export function scarShare(b: ScarBench, held: ScarId[], k: number, seeds: number): number {
+  const scars: ScarSide = { held, ...(b.hungry ? { hungry: true as const } : {}) };
+  return benchShare(b, { scars }, k, seeds);
+}
+
+/** k, при котором доля `share(k)` — ровно половина (бисекция, 12 шагов). */
+function evenK(share: (k: number) => number, lo = 0.4, hi = 1.8): number {
   let a = lo;
   let c = hi;
   for (let i = 0; i < 12; i++) {
     const m = (a + c) / 2;
-    if (scarShare(b, held, m, seeds) > 0.5) a = m;
+    if (share(m) > 0.5) a = m;
     else c = m;
   }
   return (a + c) / 2;
 }
 
-/** Ориентир черты (Ш5) на составе `troops`: одна шкала духа на верху — добрая, её зеркало (единица на ту же силу) — дурная. */
-export function scarAim(troops: TroopStack, good: boolean, seeds: number): number {
+/** Сила черт `held` в их бою: k, при котором армия с ними бьётся с той же армией в k раз ровно. */
+export const scarStrength = (b: ScarBench, held: ScarId[], seeds: number, lo = 0.4, hi = 1.8): number =>
+  evenK((k) => scarShare(b, held, k, seeds), lo, hi);
+
+/**
+ * Ориентир черты (Ш5) на мерке `b`: одна шкала духа на верху — добрая, её зеркало (единица на ту же силу) — дурная. Та же армия
+ * мерки и та же растяжка, бой — в чистом поле (ориентир — дух, а не место).
+ */
+export function scarAim(b: ScarBench, good: boolean, seeds: number): number {
   const spirit: Spirit = { morale: SPIRIT.top, discipline: SPIRIT.even };
-  const top = strengthOf(troops, spirit, seeds);
+  const top = evenK((k) => benchShare(b, { spirit }, k, seeds, {}));
   return good ? top : 1 / top;
 }
 
@@ -107,7 +154,7 @@ export function deriveScar(id: ScarId, seeds: number, aims: Map<string, number>)
   const def = SCAR_BY_ID[id];
   const b = benchOf(id);
   const key = `${JSON.stringify(b.troops)}|${def.good}`;
-  const aim = aims.get(key) ?? scarAim(b.troops, def.good, seeds);
+  const aim = aims.get(key) ?? scarAim(b, def.good, seeds);
   aims.set(key, aim);
   const was = SCAR_SIZE[id];
   const at = (x: number): number => {
@@ -172,7 +219,7 @@ function scarCheck(id: ScarId, seeds: number, aims: Map<string, number>): ScarCh
   const def = SCAR_BY_ID[id];
   const b = benchOf(id);
   const key = `${JSON.stringify(b.troops)}|${def.good}`;
-  const aim = aims.get(key) ?? scarAim(b.troops, def.good, seeds);
+  const aim = aims.get(key) ?? scarAim(b, def.good, seeds);
   aims.set(key, aim);
   return { id, aim, strength: scarStrength(b, [id], seeds) };
 }
@@ -193,6 +240,6 @@ export async function scarChecks(seeds: number, ids?: readonly ScarId[]): Promis
 }
 
 /** Конных в мерке против конницы — не меньше `HORSE_HEAVY` (иначе черта в мерке не действует). */
-export const horseShareOfMix = (): number => shareOf(kindsOf(HORSE_MIX), HORSE_KINDS);
+export const horseShareOfMix = (): number => shareOf(benchKinds(HORSE_MIX), HORSE_KINDS);
 
 serveFan(import.meta.url, { deriveScarTask, checkScarTask });
