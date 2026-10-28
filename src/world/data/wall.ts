@@ -21,8 +21,8 @@ import { BREACH_MAX } from './siegeroll';
  * штурм поля ×1.01 лагеря; docs/siege_v2.md, 23.14): на W 102 оборона — 10.4, лестницы — 7.9, вместе с `CAMP_WASTE` 0.021;
  * второй прогон сошёлся — с ходу ×2.00 поля, три пролома ×1.31.
  */
-export const WALL_FACES = 8.8;
-export const LADDER_FACES = 6.1;
+export const WALL_FACES = 8.7;
+export const LADDER_FACES = 6.3;
 
 /**
  * Цели владельца, из которых выведены грани (docs/siege_v2.md, 17.1): ровный штурм — перевес над лагерем, при котором
