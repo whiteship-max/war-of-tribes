@@ -219,7 +219,7 @@ describe('/api/perf: подпись, отказ подделке, номер з�
 describe('/perf: считает верно', () => {
   /** Слабый Android: 900 кадров по 16 мс и 100 по 50 — медиана 60, худшие 5 % — 20. Сильный iPhone — ровно 60. */
   const days = (): PerfDay[] => [
-    mergePerf(null, 'cweak', batch({ fps: { city: { 16: 900, 50: 100 } }, drops: [{ p: 'city', f: 'high', t: 'medium' }], freeze: [{ k: 'rebuild', ms: 2100 }], first: 9000, ready: 12_000, err: 2 }), NOW),
+    mergePerf(null, 'cweak', batch({ fps: { city: { 16: 900, 50: 100 }, map: { 16: 300, 40: 20 } }, drops: [{ p: 'city', f: 'high', t: 'medium' }], freeze: [{ k: 'rebuild', ms: 2100 }], first: 9000, ready: 12_000, err: 2 }), NOW),
     mergePerf(null, 'cgood', batch({ dev: IPHONE, q: 'high', fps: { city: { 16: 1000 }, battle: { 16: 500, 40: 500 } }, drops: [], freeze: [{ k: 'restore', ms: 600 }], first: 2000, ready: 4000, long: null }), NOW),
   ];
 
@@ -246,6 +246,10 @@ describe('/perf: считает верно', () => {
     expect(text).toContain('ролик боя 60 · 25 (устр. 1, кадров 1000)');
     expect(text).toContain('Android слабый 60 · 20 (устр. 1)');
     expect(text).toContain('iPhone средний 60 · 60 (устр. 1)');
+    expect(text).toContain('карта 60 · 25 (устр. 1, кадров 320)');
+    // Карта по классам (ПН-00, С3): только у тех, у кого есть кадры карты, — за те же 7 дней.
+    expect(text).toContain('Карта по классам устройств:\nAndroid слабый 60 · 25 (устр. 1)');
+    expect(text.slice(text.indexOf('Карта по классам'))).not.toMatch(/^iPhone/m);
     expect(text).toContain('Уровень графики сейчас: высокий 1, средний 1, низкий 0');
     expect(text).toContain('Сторож опустил: 1 — высокий→средний 1 (город 1)');
     expect(text).toContain('Замирание при возврате (случаев 2): медиана 600 мс, худшее 2.1 с (пересборок сцены 1)');

@@ -260,6 +260,7 @@ const big = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} млн` 
 
 /** Место города — по нему классы и худшие устройства. Именем, а не полем: `.city` в коде — имя города (`cityname.test.ts`). */
 const TOWN: PerfPlace = 'city';
+const MAP: PerfPlace = 'map';
 
 /** Сколько кадров нужно месту, чтобы его худшие 5 % что-то значили: ~10 секунд хода. */
 export const MIN_FRAMES = 300;
@@ -338,16 +339,23 @@ export function perfSummary(days: PerfDay[], period: number): string {
     const h = own.reduce((a, d) => addHist(a, d.fps[p]), {} as Hist);
     lines.push(`${PLACE_WORD[p]} ${fpsPair(h)} (устр. ${own.length}, кадров ${big(framesOf(h))})`);
   }
-  const classes = new Map<string, { h: Hist; n: number }>();
-  for (const d of devs) {
-    if (!d.fps[TOWN]) continue;
-    const c = classes.get(classOf(d.dev)) ?? { h: {}, n: 0 };
-    addHist(c.h, d.fps[TOWN]);
-    c.n++;
-    classes.set(classOf(d.dev), c);
-  }
-  if (classes.size) {
-    lines.push('', 'Город по классам устройств:');
+  // По классам — город и карта: карта — ради замера «до и после» свободной камеры (ПН-00, решение С3: худшие 5 % кадров
+  // карты у слабого Android не хуже прежнего; docs/gdd/path_of_sword.md, 3.5.7). За те же 7 дней, что вся сводка.
+  for (const [place, head] of [
+    [TOWN, 'Город по классам устройств:'],
+    [MAP, 'Карта по классам устройств:'],
+  ] as const) {
+    const classes = new Map<string, { h: Hist; n: number }>();
+    for (const d of devs) {
+      const h = d.fps[place];
+      if (!h) continue;
+      const c = classes.get(classOf(d.dev)) ?? { h: {}, n: 0 };
+      addHist(c.h, h);
+      c.n++;
+      classes.set(classOf(d.dev), c);
+    }
+    if (!classes.size) continue;
+    lines.push('', head);
     for (const [c, v] of [...classes].sort((a, b) => a[0].localeCompare(b[0]))) lines.push(`${c} ${fpsPair(v.h)} (устр. ${v.n})`);
   }
   const lv = (q: string): number => devs.filter((d) => d.q === q).length;
