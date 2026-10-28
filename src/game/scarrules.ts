@@ -203,22 +203,26 @@ export const isScarId = (v: unknown): v is ScarId => typeof v === 'string' && (S
  * 22.8): сила черты отвечает на W (мерка 340 бойцов стоит у края фронта 3W), и черты выводятся вместе с W — при W 113 (1000 сидов)
  * ушли «Горцы» и шесть дурных, при W 110 — все, кроме «Стены копий» и «Стойких в осаде»; записанное — вывод на 1000 сидах при W 110 и
  * шаге кости 0.0344 (`--derive-scars --scar ghosts,fords,highland,nightwolves,arrowfear,woodfear,wallshy,frostbit --runs 1000`, сила
- * ×1.048 и ×0.947 при ориентирах ×1.053 и ×0.950 — ступень меры). «Ночная паника» — величина «Лесного морока», «Голодный ропот» —
- * «Битых у стен»: одно направление и мерка выводятся один раз, как у `deriveScars`.
+ * ×1.048 и ×0.947 при ориентирах ×1.053 и ×0.950 — ступень меры). **Приёмка pn-0 на сервере** (docs/siege_v2.md, 31.7): мерка ПБ-1
+ * одной формы при любом W (`scripts/console/scars.ts`), черты от W не зависят и выводятся до W; записанное — вывод всех двенадцати
+ * на 1000 сидах при W 110 и шаге кости 0.0424 (`--derive-scars --scar ghosts,fords,highland,pikewall,walls,nightwolves,arrowfear,
+ * woodfear,wallshy,nightpanic,frostbit,grumble --runs 1000`): ориентир доброй ×1.064 («Стены копий» — ×1.034), дурной ×0.940, сила
+ * при выведенной — в 0.003 от ориентира. «Ночная паника» — величина «Лесного морока», «Голодный ропот» — «Битых у стен»: одно
+ * направление и мерка (у `deriveScars` они выводятся один раз; веером — каждая своим процессом, вывод тот же).
  */
 export const SCAR_SIZE: Record<ScarId, number> = {
-  ghosts: 0.59,
-  fords: 0.59,
-  highland: 0.51,
-  pikewall: 0.61,
+  ghosts: 0.5,
+  fords: 0.45,
+  highland: 0.48,
+  pikewall: 0.55,
   walls: 0.29,
-  nightwolves: 0.4,
-  arrowfear: 0.28,
-  woodfear: 0.24,
-  wallshy: 0.24,
-  nightpanic: 0.24,
-  frostbit: 0.37,
-  grumble: 0.24,
+  nightwolves: 0.32,
+  arrowfear: 0.32,
+  woodfear: 0.25,
+  wallshy: 0.25,
+  nightpanic: 0.25,
+  frostbit: 0.38,
+  grumble: 0.25,
 };
 
 // ---------- Признаки ----------
