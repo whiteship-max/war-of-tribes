@@ -4,10 +4,12 @@ import { describe, expect, it } from 'vitest';
 import type { BuildingTypeId, TroopId } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { BUILDINGS } from '@/game/data/buildings';
+import { RESOURCE_IDS } from '@/game/constants';
+import { upgradeWork } from '@/game/labour';
 import { TROOPS, TROOP_BY_ID, type TroopDef } from '@/game/data/troops';
 import { KIND_OF } from '@/game/battle/kinds';
 import { UNIT_STATS, type UnitKind } from '@/battle';
-import { POWER_SCALE, buildingsPower, power, troopWeight, troopsPower } from './power';
+import { POWER_SCALE, buildingWeight, buildingsPower, power, troopWeight, troopsPower } from './power';
 
 /**
  * Заводит фиктивный вид бойцов ровно там же, где заводят настоящий: в списке
@@ -120,6 +122,18 @@ describe('мощь', () => {
       stats.melee = melee;
     }
     expect(power(s)).toBe(before);
+  });
+
+  it('труд в мере здания — дверью времени стройки: у двора — более долгое дело, а не сумма частей (ПБ-1, П5)', () => {
+    // Область — дворы с двумя делами (ЗД-1): только у них сумма частей и более долгое дело расходятся.
+    const yards = BUILDINGS.filter((d) => (d.parts?.length ?? 0) > 1);
+    expect(yards.length, 'дворов с двумя делами нет — правилу негде действовать').toBeGreaterThan(0);
+    const plain = BUILDINGS.find((d) => !d.parts && d.work > 0) as (typeof BUILDINGS)[number];
+    const cost = (d: (typeof BUILDINGS)[number]): number => upgradeWork(d, 1) + RESOURCE_IDS.reduce((n, r) => n + (d.cost[r] ?? 0), 0);
+    for (const y of yards) {
+      expect(upgradeWork(y, 1), `${y.id}: более долгое дело короче суммы`).toBeLessThan(y.work);
+      expect(buildingWeight(y) / buildingWeight(plain), `${y.id}: вес двора — трудом стройки`).toBeCloseTo(cost(y) / cost(plain), 12);
+    }
   });
 
   it('в power.ts нет ни одного имени здания и ни одного имени вида бойцов', () => {

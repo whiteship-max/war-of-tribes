@@ -14,6 +14,7 @@ import type { GameState, TroopId } from '@/game/types';
 import type { BuildingDef } from '@/game/data/buildings';
 import { RESOURCE_IDS } from '@/game/constants';
 import { BUILDINGS } from '@/game/data/buildings';
+import { upgradeWork } from '@/game/labour';
 import { TROOPS } from '@/game/data/troops';
 import { MORALE, PIP, UNIT_STATS } from '@/battle';
 import { KIND_OF, profileOfTroop } from '@/game/battle/kinds';
@@ -34,9 +35,13 @@ export const POWER_SCALE = 10;
 
 // ---------- Посёлок ----------
 
-/** Во что обходится один уровень здания: труд плюс материалы, как в конфиге. */
+/**
+ * Во что обходится один уровень здания: труд плюс материалы, как в конфиге. Труд — той же дверью, что время стройки
+ * (`labour.upgradeWork` первого уровня): у двора с двумя делами это более долгое из дел, а не сумма частей (`BuildingDef.work`),
+ * — мощь и срок двора меряются одним трудом (решение владельца по ПБ-1, П5, 28.10.2026; docs/siege_v2.md, «Решения ПБ-1»).
+ */
 const buildingCost = (def: BuildingDef): number =>
-  def.work + RESOURCE_IDS.reduce((n, r) => n + (def.cost[r] ?? 0), 0);
+  upgradeWork(def, 1) + RESOURCE_IDS.reduce((n, r) => n + (def.cost[r] ?? 0), 0);
 
 /**
  * Мера «обычного здания»: среднее по тем, что вообще строятся. Делить на неё
