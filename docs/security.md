@@ -121,8 +121,7 @@
 ## 5. Что сделать владельцу руками
 
 1. **Отозвать токен бота** — @BotFather → `/mybots` → бот → **API Token** → **Revoke current token**, получить новый.
-   - Вписать новый в `.env` на сервере (`TELEGRAM_BOT_TOKEN`) и `cd ~/tribe && docker compose up -d`; в Netlify (запасной) —
-     Environment variables и новый деплой.
+   - Вписать новый в `.env` на сервере (`TELEGRAM_BOT_TOKEN`) и `cd ~/tribe && docker compose up -d`.
    - Вебхук заново новым токеном (docs/NOTIFY.md, раздел 12): `setWebhook` с `url=https://game.kingsvassals.com/api/bot`,
      тем же `secret_token`, что `TELEGRAM_WEBHOOK_SECRET`, и `allowed_updates=["message","callback_query","my_chat_member","pre_checkout_query"]` —
      последнее необязательно: с ним человек, которому кто-то выставил счёт от имени бота, услышит отказ словами, без него
@@ -132,8 +131,8 @@
      так нужен.
 2. **Адрес Main App в @BotFather** — `/mybots` → бот → **Bot Settings → Configure Mini App** (главная мини-аппка) →
    `https://game.kingsvassals.com`; там же **Menu Button** — тот же адрес; если заведена мини-аппка `/newapp` —
-   `/myapps` → она → **Edit Web App URL**. Нигде не должно остаться `celebrated-yeot-73e410.netlify.app` (кроме случая
-   отката на Netlify, docs/SERVER.md, 15). Закрыть игру в Telegram и открыть заново.
+   `/myapps` → она → **Edit Web App URL**. Нигде не должно остаться адреса `*.netlify.app` (Netlify не
+   используется с 28.10.2026). Закрыть игру в Telegram и открыть заново.
 3. Проверить, что заданы `TELEGRAM_WEBHOOK_SECRET` и `ADMIN_IDS`: без них строка запуска начинается «внимание:».
 4. TON — когда будет готов тестовый кошелёк (раздел 4).
 

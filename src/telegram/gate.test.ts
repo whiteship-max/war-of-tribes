@@ -10,8 +10,8 @@ const at = (host: string, more: Partial<Launch> = {}): Launch => ({ host, hash: 
 const SIGNED = 'query_id=AAE&user=%7B%22id%22%3A1%7D&auth_date=1&hash=ab';
 
 describe('заслон: вне Telegram вместо игры — экран со ссылкой на бота', () => {
-  it('боевой адрес и запасной Netlify без подписи — экран, а не игра', () => {
-    for (const host of ['game.kingsvassals.com', 'celebrated-yeot-73e410.netlify.app', '169.58.98.192'])
+  it('боевой адрес без подписи — экран, а не игра', () => {
+    for (const host of ['game.kingsvassals.com', '169.58.98.192'])
       expect(telegramOnly(at(host)), host).toBe(true);
   });
 
