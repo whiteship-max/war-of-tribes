@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DAY_LENGTH, SOLDIER_FOOD, TEST_ARMY_FOOD } from './constants';
 import type { GameState, SiegeState } from './types';
 
-// ВРЕМЕННО ВОЙСКО НЕ ЕСТ ДЛЯ ТЕСТА (`TEST_ARMY_FOOD`, docs/handbook/acceptance.md, «Временно: войско не ест»): паёк бойца
-// одной дверью `build.soldierFoodPerDay` — расход склада дома и под осадой, слепок осады, пол расхода сервера и потолок книги
+// Паёк войска `TEST_ARMY_FOOD` (0 — «войско не ест» для теста с 24.10.2026, с ПН-01 — снова 1, docs/gdd/path_of_sword.md,
+// С1): паёк бойца одной дверью `build.soldierFoodPerDay` — расход склада дома и под осадой, слепок осады, пол расхода сервера и потолок книги
 // запасов; при 0 бойцы голодом не уходят, сервер флага не ставит. При 1 — всё как раньше. Обе ветви — подменой множителя
 // в свежем наборе модулей: у каждой свой `load`.
 
@@ -48,9 +48,9 @@ function starved(m: Mods): number {
   return before - m.derived.armySize(s);
 }
 
-describe('временно войско не ест: паёк бойца одной дверью', () => {
-  it('множитель теста — 0 (вернуть 1 перед запуском)', () => {
-    expect(TEST_ARMY_FOOD).toBe(0);
+describe('паёк войска: паёк бойца одной дверью', () => {
+  it('множитель пайка — 1: обычные правила (ПН-01)', () => {
+    expect(TEST_ARMY_FOOD).toBe(1);
   });
 
   for (const k of [0, 1]) {

@@ -96,7 +96,8 @@ git -C "$R" worktree prune
 git -C "$R" worktree add -q --detach "$WT" "$master" || { log "worktree не встал"; exit 1; }
 
 # Обычные правила: пока в master временные множители теста (×3 пути, войско не ест), приёмка с ними недействительна —
-# патч ставит 1 локальным коммитом, который никуда не пушится. Множители уже 1 — патч не нужен.
+# патч ставит 1 локальным коммитом, который никуда не пушится. Множители уже 1 — патч не нужен: с ПН-01 он пуст, и пустой
+# `git apply --check` не проходит — ночь идёт веткой «множители уже 1».
 if git -C "$WT" apply --check "$BIN/normal-rules.patch" 2> /dev/null; then
   git -C "$WT" apply "$BIN/normal-rules.patch"
   git -C "$WT" -c user.name=tribe-ci -c user.email=ci@localhost commit -q -am "Обычные правила — только приёмка на сервере (не пушится)"

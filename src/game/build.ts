@@ -230,7 +230,7 @@ export const headsFoodPerDay = (heads: number, seasonFood: number, rationFood: n
 
 /**
  * Паёк бойца за игровой день — новобранца и раненого тоже (`derived.soldierFoodPerDay`). Единственный читатель
- * `TEST_ARMY_FOOD` (ВРЕМЕННО ВОЙСКО НЕ ЕСТ ДЛЯ ТЕСТА; при 1 — прежний паёк).
+ * `TEST_ARMY_FOOD` (1 — обычные правила; 0 — «войско не ест» для теста).
  */
 export const soldierFoodPerDay = (seasonFood: number, rationFood: number): number =>
   SOLDIER_FOOD * TEST_ARMY_FOOD * seasonFood * rationFood;

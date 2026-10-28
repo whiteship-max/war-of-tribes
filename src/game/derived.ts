@@ -990,7 +990,7 @@ export function foodShortfall(s: GameState, mods: SeasonModifiers = seasonMods(s
 }
 
 /**
- * Ест ли боец хлеб — строй, новобранец и раненый. Нет (ВРЕМЕННО ДЛЯ ТЕСТА, `TEST_ARMY_FOOD = 0`) — голодная доля
+ * Ест ли боец хлеб — строй, новобранец и раненый. Нет (только при `TEST_ARMY_FOOD = 0` — «войско не ест» для теста) — голодная доля
  * `foodShortfall.army` ложится только на наёмных мастеров, и бойцы голодом не уходят (`sim/upkeep`, `upkeepInfo`).
  */
 export const troopsEat = (s: GameState, mods: SeasonModifiers = seasonMods(s)): boolean => soldierFoodPerDay(s, mods) > 0;

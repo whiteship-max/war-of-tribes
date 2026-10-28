@@ -1,15 +1,11 @@
 // Лазутчик дома у соседа (BTL-8, п. 5): слепок обороны знает, дома ли лазутчик города, а дела, которых слепок ещё не знал,
 // его поправляют (`war.spyHomeAt`). Гибель, случившаяся раньше слепка, в нём уже учтена — на месте павшего новый, — а прежде
 // любой павший лазутчик записи войн держал город «без лазутчика дома» всю неделю записи, и охрана от чужих была ниже.
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { CastleClaim, RosterFile, SpyWatch, WarOrder, WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { applyOrder, emptyWars, spyMenuOf, type SheetAt, type SpyRow, type WarFile } from './war.js';
 import { ENERGY_MAX } from '../../src/world/data/energy.js';
-
-// ВРЕМЕННО ×3 ДЛЯ ТЕСТА: держим ×1, как spy.test.ts; ×3 проверяет netlify/lib/warfast.test.ts. Снять вместе с возвратом
-// `TEST_TRAVEL_SPEED` к 1.
-vi.mock('../../src/world/data/tuning.js', async (actual) => ({ ...(await actual<object>()), TEST_TRAVEL_SPEED: 1 }));
 
 const A = 'tg-1001';
 const B = 'tg-1002';

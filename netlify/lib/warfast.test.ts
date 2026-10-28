@@ -8,9 +8,9 @@ import { FIGURE_BY_ID } from '../../src/world/data/figures.js';
 import { MARCH_MIN_SECONDS, TEST_TRAVEL_SPEED } from '../../src/world/data/tuning.js';
 import { asGame, realMs } from '../../src/game/pace.js';
 
-// ВРЕМЕННО ×3 ДЛЯ ТЕСТА (`TEST_TRAVEL_SPEED`, docs/handbook/acceptance.md, «Временно: ×3 пути для теста»): срок пути
-// втрое короче одной дверью `geo.travelTime`, сервер войны принимает приход по новому сроку без флага, а походы, вышедшие
-// по прежнему сроку, доходят по записанному. При 1 — прежняя формула.
+// Множитель пути `TEST_TRAVEL_SPEED` (×3 для теста с 24.10.2026, с ПН-01 — снова 1, docs/gdd/path_of_sword.md, С1): срок
+// пути одной дверью `geo.travelTime`, сервер войны принимает приход по сроку двери без флага, а походы, вышедшие при
+// прежнем множителе, доходят по записанному. При 1 — прежняя формула.
 
 const A = 'tg-2001';
 const B = 'tg-2002';
@@ -61,7 +61,7 @@ function setup() {
 const before = (dist: number, factor: number, speed: number): number =>
   Math.max(MARCH_MIN_SECONDS, Math.round((dist / speed) * 60 * factor * 100) / 100);
 
-describe('временно ×3: срок пути одной дверью', () => {
+describe('множитель пути: срок одной дверью', () => {
   const cases = [
     { dist: 0.3, factor: 1, speed: FIGURE_BY_ID.general.speed },
     { dist: 4, factor: 1.4, speed: FIGURE_BY_ID.spy.speed },
@@ -69,8 +69,8 @@ describe('временно ×3: срок пути одной дверью', () =
     { dist: 120, factor: 1, speed: FIGURE_BY_ID.general.speed },
   ];
 
-  it('множитель теста — 3 (вернуть 1 перед запуском)', () => {
-    expect(TEST_TRAVEL_SPEED).toBe(3);
+  it('множитель пути — 1: обычные правила (ПН-01)', () => {
+    expect(TEST_TRAVEL_SPEED).toBe(1);
   });
 
   it('при 1 — как раньше, при ×3 — втрое короче, вместе с полом пути', () => {
@@ -85,7 +85,7 @@ describe('временно ×3: срок пути одной дверью', () =
     }
   });
 
-  it('путь войны между игроками — той же дверью, втрое короче прежнего', () => {
+  it('путь войны между игроками — той же дверью', () => {
     const { roster } = setup();
     const from = roster.rows[A];
     const to = roster.rows[B];
@@ -95,7 +95,7 @@ describe('временно ×3: срок пути одной дверью', () =
   });
 });
 
-describe('временно ×3: сервер войны принимает приход по новому сроку', () => {
+describe('множитель пути: сервер войны принимает приход по сроку двери', () => {
   it('поход приходит в новый срок, бой в минуту прихода, флагов нет', () => {
     const { ctx, file, sheets, warned, roster } = setup();
     expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army({ spearman: 60, swordsman: 30 }) }, T0, ctx)).toBeNull();
@@ -126,15 +126,15 @@ describe('временно ×3: сервер войны принимает пр�
     }
   });
 
-  it('поход, вышедший по прежнему сроку, доходит по записанному: не раньше и без флага', () => {
+  it('поход, вышедший при ×3, доходит по записанному: не позже и без флага (выкладка ПН-01)', () => {
     const { ctx, file, sheets, warned } = setup();
     expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army({ spearman: 60, swordsman: 30 }) }, T0, ctx)).toBeNull();
     const w = file.wars[0];
-    const fast = w.arriveAt;
-    // Записанный до выкладки срок — втрое длиннее нового.
-    w.arriveAt = T0 + (fast - T0) * TEST_TRAVEL_SPEED;
-    expect(w.arriveAt, 'точка внутри области: прежний срок позже нового').toBeGreaterThan(fast + 1);
-    expect(advance(file, fast + 1, sheets)).toBe(false);
+    const slow = w.arriveAt;
+    // Записанный до выкладки срок — втрое короче нынешнего.
+    w.arriveAt = T0 + Math.round((slow - T0) / 3);
+    expect(w.arriveAt, 'точка внутри области: прежний срок раньше нового').toBeLessThan(slow - 1);
+    expect(advance(file, w.arriveAt - 1, sheets)).toBe(false);
     expect(w.phase).toBe('march');
     advance(file, w.arriveAt + 1, sheets);
     expect(w.battles).toHaveLength(1);

@@ -153,12 +153,11 @@ describe('границы ночного скрипта', () => {
     expect(read('deploy/ci/Dockerfile')).toMatch(new RegExp(`^FROM node:${read('.nvmrc').trim()}-bookworm$`, 'm'));
   });
 
-  it('патч обычных правил трогает только временные множители теста и их утверждения', () => {
-    const files = [...read('deploy/ci/normal-rules.patch').matchAll(/^diff --git a\/(\S+)/gm)].map((m) => m[1]);
-    expect(files.sort()).toEqual(['netlify/lib/security.test.ts', 'netlify/lib/warfast.test.ts', 'src/game/armyfood.test.ts', 'src/game/constants.ts', 'src/world/data/tuning.ts']);
-    const added = read('deploy/ci/normal-rules.patch')
-      .split('\n')
-      .filter((l) => /^\+[^+]/.test(l) && /^\+export const/.test(l));
-    expect(added).toEqual(['+export const TEST_ARMY_FOOD: number = 1;', '+export const TEST_TRAVEL_SPEED = 1;']);
+  it('патч обычных правил пуст: множители теста в master — 1 (ПН-01), ночь идёт веткой «множители уже 1»', () => {
+    expect(read('deploy/ci/normal-rules.patch')).toBe('');
+    // Ветка night.sh, по которой ночь идёт без патча, — те же строки, что в master.
+    expect(read('src/world/data/tuning.ts')).toMatch(/^export const TEST_TRAVEL_SPEED = 1;$/m);
+    expect(read('src/game/constants.ts')).toContain('TEST_ARMY_FOOD: number = 1;');
+    expect(read('deploy/ci/night.sh')).toContain("grep -q '^export const TEST_TRAVEL_SPEED = 1;'");
   });
 });

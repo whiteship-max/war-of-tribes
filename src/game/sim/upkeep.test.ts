@@ -4,7 +4,7 @@
 // симуляции при игроке (`tick`) или без него (`catchUp`), а не формулу рядом. Каждая
 // точка сначала утверждает, что она внутри области правила: казна пуста или полна,
 // войско сыто или голодно, долг есть или нет. Иначе тест проходил бы даром.
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import type { GameState, TroopId } from '../types';
 import { createInitialState, SAVE_VERSION } from '../state';
 import { deserialize, enter, serialize, loadFold } from '../save';
@@ -37,10 +37,6 @@ import { applyEffects, playerProfile, syncAway } from '@/world/bridge';
 import { awayOf } from '@/world/muster';
 import type { FigureView, HomeEffect, MarchView } from '@/world/types';
 import { troopTotal } from '../battle/kinds';
-
-// ВРЕМЕННО ВОЙСКО НЕ ЕСТ ДЛЯ ТЕСТА: этот тест держит расход и голод бойца при пайке — держим `TEST_ARMY_FOOD` 1;
-// 0 проверяет src/game/armyfood.test.ts. Снять при возврате 1.
-vi.mock('@/game/constants', async (actual) => ({ ...(await actual<object>()), TEST_ARMY_FOOD: 1 }));
 
 // Партии младше 24-й читаются дверью перехода ЗД-1 — своей докачкой, как её подгружает вход (`save.loadFold`).
 beforeAll(() => loadFold());

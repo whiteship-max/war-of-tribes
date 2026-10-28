@@ -5,7 +5,7 @@
 // - истощение налегке — только налегке и только за время вне стен (доля > 0 на отрезке больше суток);
 // - лагерь с обозом — без подвоза: путь от дома > 0 и пустой амбар, где обычный лагерь тает сильнее;
 // - энергия дороги — по пройденному пути: та же дорога стоит ту же энергию в любом режиме.
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { GAIT_LIGHT_WASTE, GAIT_SPEED, GAITS, gaitHaltMs, gaitHaul, gaitSpeed, lightShare, readGait, roadLosses, siegeBlockOf } from './gait';
 import { generalSpeed, warWalkMs, fieldWalkFloorMs, fieldReach } from './pvp';
 import { CAMP_WASTE, CAMP_WASTE_DAYS, CAMP_WASTE_HUNGRY, SIEGE_PHASE } from './data/siegeroll';
@@ -18,9 +18,6 @@ import { intercept } from './pursuit';
 import { MARCH_MIN_SECONDS } from './data/tuning';
 import { gameDaysOfMs, gameSecondsOfMs, realMs, worldDays } from '@/game/pace';
 import { CELL_COST_MIN } from './geography';
-
-// Точки скорости выведены при ×1; ×3 ложится сверху и проверяется отдельно (`travelTimeAt` с k = 3).
-vi.mock('@/world/data/tuning', async (actual) => ({ ...(await actual<object>()), TEST_TRAVEL_SPEED: 1 }));
 
 const A = { x: 100, y: 100 };
 const FAR = { x: 160, y: 130 };

@@ -12,27 +12,18 @@ import { advance, applyOrder, emptyWars, warsOf, type SheetAt, type WarRow } fro
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
 import { ringSlots } from '@/ui/map/ring';
-import { warWalkMs } from './pvp';
 import { warMoving, warSpotAt, MEET_CAMP, MEET_FAR, MEET_STALE } from './pvpmeet';
 import { positionAt } from './pursuit';
 import { setPhaseDie } from './siegeroll';
-import { GENERAL_INTERCEPTS } from './siege';
+import { GENERAL_INTERCEPTS, SIEGE_BLOCK } from './siege';
 import { troopTotal } from '@/game/battle/kinds';
 import { warRegainId } from '../../netlify/lib/contract';
 import { windfallKnown } from '../../netlify/lib/watch';
 import { warLosses } from '../../netlify/lib/book';
 
 vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_ROAD: Infinity }));
-// Временная ×3 скорость пути (`TEST_TRAVEL_SPEED`): встреча верна и при 1 — число читается живьём, тест ставит его сам.
-const travel = vi.hoisted(() => ({ k: 3 }));
-vi.mock('./data/tuning', async (actual) => {
-  const real = await actual<Record<string, unknown>>();
-  return Object.defineProperty({ ...real }, 'TEST_TRAVEL_SPEED', { get: () => travel.k, enumerable: true });
-});
-
 afterEach(() => {
   setPhaseDie(null);
-  travel.k = 3;
 });
 
 const T0 = 1_900_000_000_000;
@@ -40,8 +31,11 @@ const A = 'tg-2001';
 const B = 'tg-2002';
 const C = 'tg-2003';
 const KEYS = [A, B, C] as const;
-/** Сиды миров: у мира союзника за долгий поход не встаёт свой лагерь логова под стенами — иначе выход из города закрыт честно. */
-const SEEDS = [11, 12, 41];
+/**
+ * Сиды миров: у мира союзника за долгий поход не встаёт свой лагерь логова под стенами — иначе выход из города закрыт честно.
+ * Союзник — 46: при обычной скорости пути (ПН-01) поход втрое дольше, и у прежнего 41 лагерь логова вставал до прихода.
+ */
+const SEEDS = [11, 12, 46];
 const NAMES: Record<string, string> = { [A]: 'НиСы', [B]: 'Манчестер', [C]: 'Ливерпуль' };
 const SQUAD = { spearman: 60, swordsman: 30, archer: 30 };
 const STRONG = { spearman: 200, swordsman: 120, archer: 80 };
@@ -237,6 +231,7 @@ describe('ПЛ-1: честные отказы', () => {
     expect(war.phase, 'точка внутри области: поход ещё в пути').toBe('march');
     const { slot } = await sword(g.c, await target(g.c));
     expect(slot.on).toBe(false);
+    expect(slot.why, 'точка внутри области: у союзника под стенами нет лагеря').not.toContain(SIEGE_BLOCK);
     expect(slot.why).toMatch(/^Не догнать: отряд дойдёт раньше: им идти/);
     void MEET_FAR;
   }, 120_000);
@@ -463,26 +458,4 @@ describe('ПЛ-1: сервер не верит клиенту', () => {
     expect(war.battles[0].won).toBe(true);
     expect(war.battles.some((b) => b.site === 'wall'), 'разбитый в поле до стены не дошёл').toBe(false);
   }, 120_000);
-});
-
-describe('ПЛ-1: механика верна и без временной скорости пути', () => {
-  it('TEST_TRAVEL_SPEED = 1: встреча сервера и окна совпадают, бой в поле до прихода', async () => {
-    travel.k = 1;
-    const g = game({ [B]: STRONG });
-    const war = await march(g, 'siege', 'train');
-    const span = war.arriveAt - war.sentAt;
-    travel.k = 3;
-    const fast = warWalkMs(war.from, war.to, 'train');
-    travel.k = 1;
-    expect(span / fast, 'точка внутри области: путь втрое длиннее, чем при ×3').toBeCloseTo(3, 1);
-    const goal = await target(g.b);
-    const { slot, row } = await sword(g.b, goal);
-    expect(slot.on, `меч горит: ${slot.why}`).toBe(true);
-    expect(await g.b.errand({ agent: 'general', target: goal, deed: 'intercept', troops: { ...STRONG } })).toBeNull();
-    const meet = war.meets![0];
-    expect(Math.abs(meet.at - (row!.at + row!.walkMs))).toBeLessThan(90_000);
-    await until(g, meet.at + 1000, 60 * 60_000);
-    expect(war.battles[0]?.site).toBe('field');
-    expect(war.camp).toBeUndefined();
-  }, 180_000);
 });

@@ -19,7 +19,7 @@ import { RESOLVE_MAX, ruleResolve } from './book.js';
 import { statAt } from '../../src/game/train.js';
 import { DESERT_SHARE } from '../../src/game/data/upkeep.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
-import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, START_POP, TEST_ARMY_FOOD } from '../../src/game/constants.js';
+import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, START_POP } from '../../src/game/constants.js';
 import { START_GEMS, fullWork, rushPriceOfWork } from '../../src/game/gemrules.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { DAY_LENGTH, SPEEDS, gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
@@ -664,16 +664,6 @@ describe('ЗЩ-2: склад, казна и хлеб защитника — из
     // Точка внутри области: пол ниже честного расхода, но не ноль.
     expect(floor.townPerHour).toBeGreaterThan(0);
     expect(floor.townPerHour).toBeLessThan(eat.townPerHour);
-  });
-
-  // ВРЕМЕННО ВОЙСКО НЕ ЕСТ ДЛЯ ТЕСТА (`TEST_ARMY_FOOD`): пол бойца той же дверью — ноль, и слепок, где боец не ест, честен.
-  // При 1 тот же слепок — «расход хлеба ниже правил» (тест выше). Снять при возврате 1.
-  it('временно войско не ест: боец без пайка в слепке — без флага, в осаду ноль', async () => {
-    expect(TEST_ARMY_FOOD).toBe(0);
-    const p = player(5208);
-    expect(await p.push(card({ outlays: 0 }), NOW, { war: sheet({ perManPerHour: 0 }) })).toBe(200);
-    expect(kinds(await p.watch())).toEqual([]);
-    expect((await warSide(p)).perManPerHour).toBe(0);
   });
 });
 

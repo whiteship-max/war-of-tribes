@@ -36,10 +36,6 @@ import { shieldVillagers } from './lairs';
 import type { HomeEffect, PlayerProfile, Report, SiegeView, WorldPulse } from './types';
 import { openSky, townAt, START, type Inside } from '../../scripts/autopilot';
 
-// ВРЕМЕННО ВОЙСКО НЕ ЕСТ ДЛЯ ТЕСТА: этот тест держит расход и голод бойца при пайке — держим `TEST_ARMY_FOOD` 1;
-// 0 проверяет src/game/armyfood.test.ts. Снять при возврате 1.
-vi.mock('@/game/constants', async (actual) => ({ ...(await actual<object>()), TEST_ARMY_FOOD: 1 }));
-
 vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_ROAD: Infinity }));
 afterEach(() => setPhaseDie(null));
 

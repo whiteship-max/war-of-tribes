@@ -7,7 +7,7 @@
 // не ноль, — иначе выпавшая строка не дала бы остатка и тест прошёл бы даром.
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { GameState, ResourceId } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { RESOURCE_IDS } from '@/game/constants';
@@ -33,10 +33,6 @@ import { REST_LABEL } from '@/ui/kit/breakdown';
 import { WINDOW, makersOf, producersOf, sourceWord, type Source } from '@/ui/kit/sources';
 import { TIP_W_WIDE, type TipContent } from './tip';
 import { armyTip, energyTip, fmtInt, gemsTip, goldTip, moraleTip, popRate, popTip, rate, resTip, type TipGo } from './hudTips';
-
-// ВРЕМЕННО ВОЙСКО НЕ ЕСТ ДЛЯ ТЕСТА: этот тест держит расход и голод бойца при пайке — держим `TEST_ARMY_FOOD` 1;
-// 0 проверяет src/game/armyfood.test.ts. Снять при возврате 1.
-vi.mock('@/game/constants', async (actual) => ({ ...(await actual<object>()), TEST_ARMY_FOOD: 1 }));
 
 /** Куда повела последняя кнопка — тем же видом, что дверь набора (`kit/sources.Source`). */
 function goer(s: GameState): { go: TipGo; went: () => Source | null } {

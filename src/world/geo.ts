@@ -118,7 +118,7 @@ export function terrainFactor(seed: number, from: Coord, to: Coord): number {
 export const travelTime = (dist: number, factor: number, speed: number): GameSec =>
   travelTimeAt(dist, factor, speed, TEST_TRAVEL_SPEED);
 
-/** `travelTime` при множителе скорости `k` (ВРЕМЕННО ×3 ДЛЯ ТЕСТА, `TEST_TRAVEL_SPEED`): при 1 — прежняя формула. */
+/** `travelTime` при множителе скорости `k` (`TEST_TRAVEL_SPEED`, 1 — обычные правила): при 1 — прежняя формула. */
 export function travelTimeAt(dist: number, factor: number, speed: number, k: number): GameSec {
   const base = Math.max(MARCH_MIN_SECONDS, Math.round((dist / speed) * 60 * factor * 100) / 100);
   return asGame(k === 1 ? base : Math.round((base / k) * 100) / 100);

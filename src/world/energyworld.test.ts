@@ -8,7 +8,7 @@
 // - «дойти и ударить» — бой в минуту прихода, онлайн и офлайн, цена штурма — при приказе;
 // - цена дела — при приказе; не хватает — строка меню гаснет той же причиной, что откажет приказ;
 // - без сил на своё дело из своих ворот не выходят — та же мерка, что у цели.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { realMs, gameDaysOfMs } from '@/game/pace';
 import { LocalWorld } from './local/LocalWorld';
 import type { WorldSave } from './local/state';
@@ -21,10 +21,6 @@ import { energyBlock, idleBlock, leastPrice, roadCost, roadOf } from './energy';
 import { craftNote } from './siegecraft';
 import { distance } from './geo';
 import { shieldVillagers } from './lairs';
-
-// ВРЕМЕННО ×3 ДЛЯ ТЕСТА: точки этого теста выведены при прежней скорости пути и при ×3 выходят из области правила —
-// держим ×1; ×3 проверяет netlify/lib/warfast.test.ts. Снять вместе с возвратом `TEST_TRAVEL_SPEED` к 1.
-vi.mock('@/world/data/tuning', async (actual) => ({ ...(await actual<object>()), TEST_TRAVEL_SPEED: 1 }));
 
 const START = 1_700_000_000_000;
 

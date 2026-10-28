@@ -8,7 +8,7 @@
 //   — нельзя;
 // - лагерь с обозом — без подвоза из дома: при пустом амбаре обычный лагерь тает вдвое, обоз — базой;
 // - старое сохранение (фигура без режима, окно без режима) — обычный.
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { realMs, worldDays } from '@/game/pace';
 import { LocalWorld } from './local/LocalWorld';
 import type { WorldSave } from './local/state';
@@ -25,9 +25,6 @@ import { setPhaseDie, wasteOf } from './siegeroll';
 import { LIGHT_NO_CAMP, gaitHaltMs, lightShare, siegeBlockOf, strikeSeed, strikeWorn } from './gait';
 import { gaitTake } from './gaitview';
 import { MARCH_MIN_SECONDS } from './data/tuning';
-
-// ВРЕМЕННО ×3 ДЛЯ ТЕСТА: механика проверяется при 1 (задание ДР-2); ×3 ложится сверху (`gait.test.ts`).
-vi.mock('@/world/data/tuning', async (actual) => ({ ...(await actual<object>()), TEST_TRAVEL_SPEED: 1 }));
 
 const START = 1_700_000_000_000;
 const HOST: TroopStack = { spearman: 140, archer: 50, legionary: 30 };

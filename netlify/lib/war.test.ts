@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { readWarOrder, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { advance, applyOrder, emptyWars, fallId, generalCap, liveSheet, newsDiff, newsMap, newsOf, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
@@ -14,10 +14,6 @@ import { craftBlock, fortFaces } from '../../src/world/siegecraft.js';
 import { wallFront } from '../../src/world/wall.js';
 import { FRONT_WIDTH } from '../../src/battle/config.js';
 import type { SiegeWindow } from '../../src/world/siege.js';
-
-// ВРЕМЕННО ×3 ДЛЯ ТЕСТА: точки этого теста выведены при прежней скорости пути и при ×3 выходят из области правила —
-// держим ×1; ×3 проверяет netlify/lib/warfast.test.ts. Снять вместе с возвратом `TEST_TRAVEL_SPEED` к 1.
-vi.mock('../../src/world/data/tuning.js', async (actual) => ({ ...(await actual<object>()), TEST_TRAVEL_SPEED: 1 }));
 
 /**
  * Война между игроками (docs/pvp.md). Тесты только там, где без них можно подделать исход боя, начислить

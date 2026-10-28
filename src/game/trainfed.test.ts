@@ -1,31 +1,21 @@
 // Обоз кормит отряд (ДР-2, docs/siege_v2.md, 25.1, М5б): голод дома — нехватка хлеба на складе (`derived.foodShortfall`),
 // а у отряда полководца с обозом свой хлеб. Дух отряда в его боях — без строки голода (`sim/spirit.spiritFedOf`), и бойцы
-// отряда голодом не уходят (`GameState.awayFed`, шаг содержания тянет голодных из прочих). Механика верна при паёке 1:
-// временный `TEST_ARMY_FOOD = 0` подменён единицей в свежем наборе модулей (как в `armyfood.test.ts`).
+// отряда голодом не уходят (`GameState.awayFed`, шаг содержания тянет голодных из прочих). Механика верна при паёке 1 —
+// обычных правилах (`TEST_ARMY_FOOD`, ПН-01).
 //
 // Область правила — утверждением в самом тесте (правило 11): амбар пуст и войско голодает (доля голодных > 0), терпение
 // кончилось — уход голодом идёт.
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { DAY_LENGTH } from './constants';
+import * as derived from './derived';
+import * as state from './state';
+import * as upkeep from './sim/upkeep';
+import * as spirit from './sim/spirit';
+import * as expedition from './sim/expedition';
+import * as bridge from '../world/bridge';
 
-afterEach(() => {
-  vi.doUnmock('./constants');
-  vi.resetModules();
-});
-
-async function load(k: number) {
-  vi.resetModules();
-  vi.doMock('./constants', async (actual) => ({ ...(await actual<object>()), TEST_ARMY_FOOD: k }));
-  return {
-    derived: await import('./derived'),
-    state: await import('./state'),
-    upkeep: await import('./sim/upkeep'),
-    spirit: await import('./sim/spirit'),
-    expedition: await import('./sim/expedition'),
-    bridge: await import('../world/bridge'),
-  };
-}
-type Mods = Awaited<ReturnType<typeof load>>;
+const m = { derived, state, upkeep, spirit, expedition, bridge };
+type Mods = typeof m;
 
 /** Голодная партия: войско 120 копейщиков, склад пуст, казна полна, терпение кончилось. */
 function hungry(m: Mods) {
@@ -40,7 +30,6 @@ function hungry(m: Mods) {
 
 describe('обоз кормит отряд: голод дома его не трогает', () => {
   it('дух отряда с обозом — без строки голода; голода нет — отдельного духа нет', async () => {
-    const m = await load(1);
     const s = hungry(m);
     // Войско больше, чем кормят поля: при пустом амбаре нехватка ложится на него. Терпение не кончилось — иначе дух на дне
     // и без голода (терпение множит путь «дно — потолок»), и строку голода не видно.
@@ -65,7 +54,6 @@ describe('обоз кормит отряд: голод дома его не тр
   });
 
   it('бойцы отряда с обозом голодом не уходят: голодные — из прочих', async () => {
-    const m = await load(1);
     const run = (fed: Record<string, number>): number => {
       const s = hungry(m);
       m.expedition.setAway(s, { spearman: 80 }, 0, fed);
@@ -81,7 +69,6 @@ describe('обоз кормит отряд: голод дома его не тр
   });
 
   it('мир кладёт «кормит обоз» только у отряда с обозом вне своих стен', async () => {
-    const m = await load(1);
     const g = { id: 'general', march: { gait: 'train' }, atHome: false, phase: 'moving', gone: null, troops: { spearman: 40 } } as never;
     expect(m.bridge.awayFedOf([g])).toEqual({ spearman: 40 });
     expect(m.bridge.awayFedOf([{ ...(g as object), atHome: true } as never])).toEqual({});

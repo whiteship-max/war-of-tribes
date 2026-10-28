@@ -127,7 +127,7 @@ export function upkeepTick(s: GameState, dt: number, unfed: number): void {
   // но называлась неправда. Теперь у каждой части свой повод, свой остаток дроби и своя судьба.
   const hungry = Math.min(share, unfed);
   const owed = Math.max(0, share - hungry);
-  // Бойцы, что не едят (ВРЕМЕННО ДЛЯ ТЕСТА, `derived.troopsEat`), голодом не уходят: их доля — одна неуплата. При пайке —
+  // Бойцы, что не едят (только при `TEST_ARMY_FOOD = 0`, `derived.troopsEat`), голодом не уходят: их доля — одна неуплата. При пайке —
   // те же `hungry` и `owed`.
   const troopUnfed = troopsEat(s) ? unfed : 0;
   const troopShare = Math.max(unpaid, troopUnfed);

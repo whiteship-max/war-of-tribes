@@ -1,15 +1,11 @@
 // Тревога о дезертирах (BTL-8, п. 3; архив round1/game-core/prove-11-1): уходят головы, а не рты. Раненые и новобранцы уходят
 // голодом поголовно (`sim/upkeep`), а прогноз считал их долю ртами — `mouthCount − armySize`, — и конь всадника в строю шёл
 // туда лишним «новобранцем»: при пяти тысячах всадников тревога обещала уход вдвое больше настоящего.
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createInitialState } from './state';
 import { armySize, mastersCount, troopsEat, upkeepInfo } from './derived';
 import { DESERT_SHARE } from './data/upkeep';
 import { TROOP_IDS } from './data/troops';
-
-// ВРЕМЕННО ВОЙСКО НЕ ЕСТ ДЛЯ ТЕСТА: этот тест держит голод бойца при пайке — держим `TEST_ARMY_FOOD` 1;
-// 0 проверяет src/game/armyfood.test.ts. Снять при возврате 1.
-vi.mock('@/game/constants', async (actual) => ({ ...(await actual<object>()), TEST_ARMY_FOOD: 1 }));
 
 function starving(riders: number, recruits = 0) {
   const s = createInitialState(1);

@@ -1,5 +1,5 @@
 import '@/game/pace.minute';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { LocalWorld, HOME_ID } from './local/LocalWorld';
 import { NotifyingWorld } from './local/NotifyingWorld';
 import type { StoredMarch, WorldSave } from './local/state';
@@ -10,10 +10,6 @@ import { marchPosition } from './geo';
 import { CLIENT_KINDS, NOTICE_LIMITS, RESULT_KEEP, plainName, readNotices, type NoticeItem } from '../../netlify/lib/contract';
 import { shieldVillagers } from './lairs';
 import { SIEGE_IMMUNE } from './data/tuning';
-
-// ВРЕМЕННО ×3 ДЛЯ ТЕСТА: точки этого теста выведены при прежней скорости пути и при ×3 выходят из области правила —
-// держим ×1; ×3 проверяет netlify/lib/warfast.test.ts. Снять вместе с возвратом `TEST_TRAVEL_SPEED` к 1.
-vi.mock('@/world/data/tuning', async (actual) => ({ ...(await actual<object>()), TEST_TRAVEL_SPEED: 1 }));
 
 const START = 1_700_000_000_000;
 const MINUTE = 60_000;

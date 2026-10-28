@@ -9,7 +9,7 @@
 // где полководец жив, — иначе окно предлагало бы состав там, где мир откажет, или прятало бы его там, где мир согласен.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { LocalWorld } from '@/world/local/LocalWorld';
 import { seeded } from '@/game/sim/random';
 import type { Coord, FigureView, MarchView, PlayerProfile } from '@/world/types';
@@ -21,9 +21,6 @@ import { awayOf, postureOf, weakest } from '@/world/muster';
 import { musterDefense } from './Muster';
 import { DAY_LENGTH, realMs } from '@/game/pace';
 
-// ВРЕМЕННО ×3 ДЛЯ ТЕСТА: точки этого теста выведены при прежней скорости пути и при ×3 выходят из области правила —
-// держим ×1; ×3 проверяет netlify/lib/warfast.test.ts. Снять вместе с возвратом `TEST_TRAVEL_SPEED` к 1.
-vi.mock('@/world/data/tuning', async (actual) => ({ ...(await actual<object>()), TEST_TRAVEL_SPEED: 1 }));
 /**
  * Игровой день в часах мира. Горизонт здесь — про ход по карте, а он идёт игровым
  * временем (`geo.travelTime`, решение владельца, docs/time.md, раздел 19): написанный

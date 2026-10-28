@@ -44,7 +44,7 @@ export function spiritIn(s: GameState): SpiritIn {
   return {
     stab: stabLevel(s),
     patience: armyBar(s),
-    // Бойцы, что не едят (ВРЕМЕННО ДЛЯ ТЕСТА, `derived.troopsEat`), и не голодают.
+    // Бойцы, что не едят (только при `TEST_ARMY_FOOD = 0`, `derived.troopsEat`), и не голодают.
     unfed: troopsEat(s) ? foodShortfall(s).army : 0,
     glory: gloryNow(s),
     rite: fervour(s),
