@@ -32,6 +32,7 @@
 //      (первый бесплатный), и при молчании. Срок `CROWN_MTTH` выводится из частоты (`--derive`): на приходе сетки весть
 //      державы выпадает с вероятностью `1 − exp(−Δ·S/M)`, где S — сумма весов по редкости в ровной игре, Δ — шаг сетки.
 import { readFileSync, writeFileSync } from 'node:fs';
+import { bandVerdict, meanBand } from './lib/drift';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { GameState, JobId } from '@/game/types';
@@ -234,6 +235,17 @@ function printCrown(m: CrownMeasure): void {
   const quiet = all.reduce((t, a) => t + crownStab(a.id, CROWN_BY_ID[a.id]?.silence ?? 0), 0) / days;
   const ok = (v: number): string => (Math.abs(v) <= CROWN_DRIFT_BAND ? 'в цели' : 'ВНЕ ЦЕЛИ');
   console.log(`  сдвиг стабильности от вестей за настоящие сутки: ответы автопилота ${drift >= 0 ? '+' : '−'}${Math.abs(drift).toFixed(1)} % ступени (${ok(drift)}), молчание ${quiet >= 0 ? '+' : '−'}${Math.abs(quiet).toFixed(1)} % (${ok(quiet)}); цель ±${CROWN_DRIFT_BAND}`);
+  // Шум набора (ПБ-1, п. 7): тот же сдвиг по сидам и граница среднего — вышло ли за цель или качнулось в пределах сидов.
+  const perDay = CROWN_DAYS / REAL_DAY;
+  const bySeed = (opt: (a: { id: string; opt: number }) => number): number[] => m.runs.map((r) => r.answers.reduce((t, a) => t + crownStab(a.id, opt(a)), 0) / perDay);
+  const sign = (v: number): string => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}`;
+  for (const [name, xs] of [
+    ['ответы автопилота', bySeed((a) => a.opt)],
+    ['молчание', bySeed((a) => CROWN_BY_ID[a.id]?.silence ?? 0)],
+  ] as const) {
+    const b = meanBand(xs);
+    console.log(`  ${name} по сидам: ${xs.map(sign).join(', ')}; среднее ${sign(b.mean)} ± ${(1.96 * b.se).toFixed(1)} (95 %, ${xs.length} сидов) — ${bandVerdict(b, CROWN_DRIFT_BAND)}`);
+  }
   const by = new Map<string, number>();
   for (const a of all) by.set(a.id, (by.get(a.id) ?? 0) + 1);
   console.log(`  какие: ${[...by.entries()].sort((a, b) => b[1] - a[1]).map(([id, k]) => `${CROWN_BY_ID[id]?.title ?? id} ${k}`).join('; ')}`);
