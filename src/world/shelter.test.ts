@@ -11,7 +11,7 @@
 // внутри области, а не надеется на это.
 import { describe, expect, it } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
-import { cameraAnchor, figuresOn, useWorld } from './store';
+import { figuresOn, followSpot, useWorld } from './store';
 import { seeded } from '@/game/sim/random';
 import { FIGURE_IDS } from './data/figures';
 import { FIGURE_TOUCH } from './data/tuning';
@@ -85,9 +85,7 @@ async function walk(w: W, id: FigureId, to: Coord): Promise<FigureView> {
 async function seenAt(w: W, f: FigureView): Promise<{ map: string[]; city: boolean }> {
   const map: string[] = [];
   if (figuresOn(cellOf(f).x, cellOf(f).y, w.now()).some((x) => x.id === f.id)) map.push('тап по клетке');
-  useWorld.setState({ anchor: f.id });
-  if (cameraAnchor(w.now())?.id === f.id) map.push('камера');
-  useWorld.setState({ anchor: 'home' });
+  if (followSpot(f.id, w.now()) !== null) map.push('камера');
   if (f.phase === 'home') {
     const card = await w.world.settlement('home');
     if (card?.figuresHere.includes(f.id)) map.push('у своих ворот');

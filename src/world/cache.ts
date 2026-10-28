@@ -86,17 +86,6 @@ export function terrainAt(x: number, y: number): Terrain | null {
 }
 
 /**
- * Клетка разведана? Пока кусок не приехал, считаем закрытой: лучше показать
- * дымку, которая через мгновение разойдётся, чем мигнуть открытой землёй.
- */
-export function exploredAt(x: number, y: number): boolean {
-  const c = chunkAt(x, y);
-  if (!c) return false;
-  const i = cellIndex(c, x, y);
-  return i >= 0 && c.explored[i] === 1;
-}
-
-/**
  * Признаки местности клетки: биты `FEATURE`. Ноль — и когда в клетке ничего нет,
  * и когда кусок ещё не приехал: рисовать реку раньше земли всё равно некуда.
  */

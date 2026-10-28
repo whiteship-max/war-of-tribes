@@ -9,8 +9,7 @@ import { terrainAt } from '@/world/geo';
 import { lineStamps } from './scatter';
 import { WORLD_VIEW, freeCamera, revealWorld } from '@/debug';
 import { useWorld } from '@/world/store';
-import { CAMERA_LEASH, HOME_SIGHT, WORLD_ORIGIN, WORLD_SIZE, ZOOM_MARGIN } from '@/world/data/tuning';
-import { FogMap, exploredReach } from '@/world/fog';
+import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import type { Rect } from '@/world/types';
 import {
   type Camera,
@@ -21,12 +20,6 @@ import {
   scaleTo,
   tileIndexX,
   tileIndexY,
-  LEASH_EDGE,
-  type Leash,
-  leashCamera,
-  zoomFloor,
-  toScreen,
-  toWorld,
   tileRangeFor,
   tilesIn,
   TILE_CEILING,
@@ -536,167 +529,24 @@ describe('линии местности', () => {
   });
 });
 
-describe('камера привязана к своим', () => {
-  const SIGHT = 8;
-  const LEASH = SIGHT + CAMERA_LEASH;
-  /** Разведанный мир: эти тесты про поводок, и потолок отдаления им мешать не должен. */
-  const OPEN = { left: 200, right: 200, up: 200, down: 200 };
-  const anchorAt = (x: number, y: number): Leash => ({ x: x + 0.5, y: y + 0.5, r: LEASH, reach: OPEN });
-
-  it('дальше поводка камера не уходит', () => {
-    const a = anchorAt(HOME.x, HOME.y);
-    // Бросок пальцем через полмира — камера остаётся при своих.
-    const far = leashCamera({ cx: a.x + 200, cy: a.y - 150, scale: SCALE_OVERVIEW }, VP, a);
-    expect(Math.abs(far.cx - a.x)).toBeLessThanOrEqual(LEASH + 1e-9);
-    expect(Math.abs(far.cy - a.y)).toBeLessThanOrEqual(LEASH + 1e-9);
-  });
-
-  it('якорь не прячется под шапкой и не уходит за кромку', () => {
-    const a = anchorAt(HOME.x, HOME.y);
-    for (const scale of [SCALE_OVERVIEW, 16, SCALE_DETAIL]) {
-      const cam = leashCamera({ cx: a.x + 999, cy: a.y + 999, scale }, VP, a);
-      const [sx, sy] = toScreen(cam, VP, a.x, a.y);
-      // Запас в пикселях, а не в клетках: шапку и ряды кнопок масштаб не сжимает.
-      expect(sx).toBeGreaterThanOrEqual(LEASH_EDGE - 1e-6);
-      expect(sx).toBeLessThanOrEqual(VP.w - LEASH_EDGE + 1e-6);
-      expect(sy).toBeGreaterThanOrEqual(LEASH_EDGE - 1e-6);
-      expect(sy).toBeLessThanOrEqual(VP.h - LEASH_EDGE + 1e-6);
-    }
-  });
-
-  it('чем ближе масштаб, тем короче поводок', () => {
-    const a = anchorAt(HOME.x, HOME.y);
-    const slack = (scale: number): number => leashCamera({ cx: a.x + 999, cy: a.y, scale }, VP, a).cx - a.x;
-    // На обзоре решает поводок, вблизи — экран: разгуляться там негде, и
-    // камера почти стоит на якоре.
-    expect(slack(SCALE_OVERVIEW)).toBeCloseTo(LEASH, 6);
-    expect(slack(SCALE_DETAIL)).toBeLessThan(slack(SCALE_OVERVIEW));
-    expect(slack(SCALE_MAX)).toBeLessThan(2);
-    expect(slack(SCALE_MAX)).toBeGreaterThan(0);
-  });
-
-  it('свободный обзор мира выключен, пока его не позвали адресом', () => {
-    // Ни в игре, ни в тестах адреса нет — значит, поводок работает всегда, а
-    // отладочный обзор включается только руками.
+describe('камера свободна у всех (ПН-00)', () => {
+  it('отладочный обзор мира выключен, пока его не позвали адресом: он даёт стенду только прыжок к координатам', () => {
     expect(WORLD_VIEW).toBe('off');
     expect(freeCamera()).toBe(false);
     expect(revealWorld()).toBe(false);
   });
 
-  it('фигурой можно сделать десять шагов подряд в неразведанную сторону', () => {
-    // Это и есть проверка требования: приказ отдаётся тапом по клетке, и каждый
-    // раз должна находиться клетка за краем обзора, до которой палец достаёт, —
-    // при том что фигура ни разу не пропадает с экрана.
-    const start = { x: HOME.x, y: HOME.y };
-    let at = start;
-    let cam: Camera = { cx: at.x + 0.5, cy: at.y + 0.5, scale: SCALE_DETAIL };
-    for (let step = 0; step < 10; step++) {
-      const a = anchorAt(at.x, at.y);
-      // Игрок тянет карту вниз до упора и тапает у нижнего края, над кнопками.
-      cam = leashCamera(panBy(cam, 0, -VP.h), VP, a);
-      const [, sy] = toScreen(cam, VP, a.x, a.y);
-      expect(sy).toBeGreaterThanOrEqual(LEASH_EDGE - 1e-6);
-      const target = toWorld(cam, VP, VP.w / 2, VP.h - 140);
-      const next = { x: Math.floor(target.x), y: Math.floor(target.y) };
-      // Шаг ведёт за край обзора — иначе разведывать было бы нечего.
-      expect(next.y - at.y).toBeGreaterThan(SIGHT);
-      at = next;
-    }
-    // Десять шагов — это заметный путь, и он умещается в мире.
-    expect(at.y - start.y).toBeGreaterThan(90);
-    expect(at.y).toBeLessThan(WORLD_ORIGIN.y + WORLD_SIZE);
-  });
-});
-
-describe('дальше разведанного не отдалить', () => {
-  const DESKTOP: Viewport = { w: 1440, h: 900 };
-  /** Туман настоящий: тот же `FogMap`, что и в мире, а не выдуманная функция. */
-  const fogOf = (make: (f: FogMap) => void): FogMap => {
-    const fog = new FogMap();
-    make(fog);
-    return fog;
-  };
-  const startFog = (): FogMap => fogOf((f) => f.revealDisc(HOME, HOME_SIGHT));
-  const leashOn = (fog: FogMap, at: { x: number; y: number }): Leash => ({
-    x: at.x + 0.5,
-    y: at.y + 0.5,
-    r: HOME_SIGHT + CAMERA_LEASH,
-    reach: exploredReach(at, (x, y) => fog.has(x, y)),
-  });
-  /** Пролёт разведанного плюс запас — в клетках, по каждой оси. */
-  const span = (l: Leash): { w: number; h: number } => ({
-    w: l.reach.left + l.reach.right + 1 + ZOOM_MARGIN * 2,
-    h: l.reach.up + l.reach.down + 1 + ZOOM_MARGIN * 2,
-  });
-
-  it('щипок до упора не показывает больше разведанного', () => {
-    const a = leashOn(startFog(), HOME);
-    for (const vp of [VP, DESKTOP]) {
-      // Игрок разводит пальцы до предела — камера останавливается раньше.
-      const cam = leashCamera({ cx: a.x, cy: a.y, scale: SCALE_MIN }, vp, a);
-      expect(cam.scale).toBeGreaterThan(SCALE_MIN);
-      const rect = viewRect(cam, vp);
-      expect(rect.w).toBeLessThanOrEqual(span(a).w + 1e-6);
-      expect(rect.h).toBeLessThanOrEqual(span(a).h + 1e-6);
-      // Мир — двести клеток по стороне; в кадр не влезает и четверть.
-      expect(Math.max(rect.w, rect.h)).toBeLessThan(WORLD_SIZE / 4);
-    }
-  });
-
-  it('начальный вид от этого не становится тесным', () => {
-    // На старте разведано около девятисот клеток: круг обзора деревни.
-    const fog = startFog();
-    expect(fog.count()).toBeGreaterThan(850);
-    const a = leashOn(fog, HOME);
-    const floor = zoomFloor(VP, a.reach);
-    // Отдалить можно заметно дальше, чем открывается карта, и в кадр по длинной
-    // стороне влезает вся округа деревни: и она сама, и оба ближних соседа.
-    expect(floor).toBeLessThan(SCALE_START);
-    expect(Math.max(VP.w, VP.h) / floor).toBeGreaterThanOrEqual(2 * HOME_SIGHT);
-  });
-
-  it('дальний поход разведчика не растягивает предел у дома', () => {
-    const near = startFog();
-    const far = fogOf((f) => {
-      f.revealDisc(HOME, HOME_SIGHT);
-      // Разведчик ушёл почти через полмира и открыл за собой коридор.
-      f.revealPath(HOME, { x: HOME.x + 90, y: HOME.y }, 8);
-    });
-    expect(far.count()).toBeGreaterThan(near.count() * 2);
-    // Предел меряется вокруг якоря, а не по границе всего открытого: коридор
-    // шириной в обзор разведчика на потолок у деревни не влияет вовсе.
-    expect(leashOn(far, HOME).reach).toEqual(leashOn(near, HOME).reach);
-    expect(zoomFloor(VP, leashOn(far, HOME).reach)).toBeCloseTo(zoomFloor(VP, leashOn(near, HOME).reach), 9);
-    // А на самом разведчике открыто только вдоль коридора: поперёк — его обзор.
-    const scout = leashOn(far, { x: HOME.x + 90, y: HOME.y });
-    expect(scout.reach.left).toBeGreaterThan(50);
-    expect(scout.reach.up).toBeLessThan(HOME_SIGHT);
-    expect(scout.reach.down).toBeLessThan(HOME_SIGHT);
-  });
-
-  it('потолок один и тот же на телефоне и на десктопе', () => {
-    // Предел задан в клетках, поэтому по длинной стороне кадра их одинаково
-    // много и там, и там: в пикселях это были бы совсем разные карты.
-    const a = leashOn(startFog(), HOME);
-    const phone = leashCamera({ cx: a.x, cy: a.y, scale: SCALE_MIN }, VP, a);
-    const desk = leashCamera({ cx: a.x, cy: a.y, scale: SCALE_MIN }, DESKTOP, a);
-    expect(phone.scale).not.toBeCloseTo(desk.scale, 1);
-    const long = (cam: Camera, vp: Viewport): number => Math.max(viewRect(cam, vp).w, viewRect(cam, vp).h);
-    expect(long(phone, VP)).toBeCloseTo(long(desk, DESKTOP), 6);
-  });
-
-  it('приближение не ограничено', () => {
-    const a = leashOn(startFog(), HOME);
-    const cam = leashCamera({ cx: a.x, cy: a.y, scale: SCALE_MAX }, VP, a);
-    expect(cam.scale).toBe(SCALE_MAX);
-  });
-
-  it('неразведанный якорь не роняет потолок в ноль', () => {
-    // Так бывает на первом кадре, пока не приехал ни один кусок карты.
-    const dark = exploredReach(HOME, () => false);
-    expect(dark).toEqual({ left: 0, right: 0, up: 0, down: 0 });
-    expect(zoomFloor(VP, dark)).toBeLessThanOrEqual(SCALE_MAX);
-    expect(zoomFloor(VP, dark)).toBeGreaterThan(0);
+  it('поводка, якоря и потолка отдаления нет нигде: ни в сетке, ни в мире, ни на карте', async () => {
+    // Поведение держит `tw/far.test.ts` («камера без поводка»); здесь — что второй двери к тому же не осталось.
+    const grid = await import('./grid');
+    for (const gone of ['leashCamera', 'zoomFloor', 'LEASH_EDGE']) expect(grid, gone).not.toHaveProperty(gone);
+    const store = await import('@/world/store');
+    expect(store).not.toHaveProperty('cameraAnchor');
+    const tuning = await import('@/world/data/tuning');
+    for (const gone of ['CAMERA_LEASH', 'ZOOM_MARGIN', 'REACH_MAX']) expect(tuning, gone).not.toHaveProperty(gone);
+    const map = readFileSync(join(__dirname, 'WorldMap.tsx'), 'utf8');
+    expect(map).toContain('holdCamera(');
+    expect(map).not.toMatch(/leashCamera|cameraAnchor|zoomFloor|Дальше разведанного/);
   });
 });
 

@@ -25,8 +25,8 @@ import { hasWorldApi, setWorldApi, worldApi, type WorldApi } from './api';
 import { LocalWorld, type LocalWorldOptions } from './local/LocalWorld';
 import { NotifyingWorld } from './local/NotifyingWorld';
 import { tribePulse } from './bridge';
-import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
-import { CAMERA_LEASH, FIGURE_TOUCH, REACH_MAX } from './data/tuning';
+import { inSight, type SightDisc } from './fog';
+import { FIGURE_TOUCH } from './data/tuning';
 import { homeSight } from './sight';
 import { freshSeed } from '@/game/sim/random';
 import { readArms } from '@/heraldry/arms';
@@ -40,7 +40,6 @@ import {
   clearCache,
   clearPending,
   isPending,
-  exploredAt,
   isStale,
   markPending,
   putChunk,
@@ -244,10 +243,10 @@ export interface WorldStore {
    */
   picked: FigureId | null;
   /**
-   * На чём стоит камера. Не то же самое, что фигура в руке: приказ движения
-   * можно отпустить, а камера всё равно должна остаться на том, за кем игрок
-   * следит. Живёт в сторе, а не в компоненте, потому что от неё зависит и
-   * поводок камеры, и ряд кнопок внизу слева.
+   * За кем игрок следит: свой город или агент. Не то же самое, что фигура в руке: приказ движения можно отпустить, а
+   * выбор остаётся. Камеру он больше не держит (поводка нет с ПН-00, docs/gdd/path_of_sword.md, 3.5.7): смена — один
+   * перевод камеры к нему (`WorldMap`), дальше камера свободна. Живёт в сторе, а не в компоненте: от него зависит ряд
+   * кнопок внизу слева и агент по умолчанию у меню клетки.
    */
   anchor: AnchorId;
   reports: Report[];
@@ -1264,6 +1263,18 @@ export function figurePosition(f: FigureView, now: number): Coord {
 }
 
 /**
+ * Куда перевести камеру, когда игрок выбрал, за кем следить: перевод один, дальше камера свободна (поводка нет с ПН-00,
+ * docs/gdd/path_of_sword.md, 3.5.7). Выбывшая и укрывшаяся в городе фигура на карте не стоит — null, камера остаётся,
+ * где была.
+ */
+export function followSpot(id: AnchorId, now: number): Coord | null {
+  const g = useWorld.getState();
+  if (id === 'home') return g.info?.home ?? null;
+  const f = g.figures.find((x) => x.id === id);
+  return f && f.place === 'map' ? figurePosition(f, now) : null;
+}
+
+/**
  * Живой обзор прямо сейчас — тем же правилом, что и в мире: круг у своей
  * деревни и стоящий наблюдателем лазутчик, больше никто (см. world/sight.ts).
  * Карта считает его у себя, а не спрашивает мир, ровно по одной причине: он
@@ -1284,60 +1295,6 @@ export function sightDiscs(now: number): SightDisc[] {
     out.push({ x: at.x, y: at.y, r: f.watchSight });
   }
   return out;
-}
-
-/** Где стоит камера, насколько её отпускают от этой точки и докуда разведано. */
-export interface CameraAnchor {
-  id: AnchorId;
-  name: string;
-  /** Середина клетки: камера меряется серединами, а не углами. */
-  x: number;
-  y: number;
-  /** Радиус поводка: обзор якоря плюс запас, чтобы было куда указать. */
-  r: number;
-  /** Разведанное вокруг якоря — из него карта выводит потолок отдаления. */
-  reach: Reach;
-}
-
-/**
- * Разведанное вокруг якоря. Меряется по кэшу кусков — по тому же туману, что
- * игрок и видит на полотне, а не по маске мира: карта не имеет к ней доступа,
- * да и показывать потолок надо ровно от нарисованной дымки.
- *
- * Считается не каждый кадр: якорь меряется целой клеткой (фигура переходит её
- * за секунды), а туман меняется только с приездом куска — его и считает `chunks`.
- */
-let reachMemo: { key: string; reach: Reach } | null = null;
-
-function reachAround(x: number, y: number, chunks: number): Reach {
-  const key = `${x}|${y}|${chunks}`;
-  if (reachMemo && reachMemo.key === key) return reachMemo.reach;
-  const reach = exploredReach({ x, y }, exploredAt, REACH_MAX);
-  reachMemo = { key, reach };
-  return reach;
-}
-
-/**
- * Точка, к которой привязана камера. Выбывшая и укрывшаяся в городе фигура
- * якорем быть не может — её на карте нет, — и камера в этом случае возвращается
- * к деревне сама, а не зависает над пустым полем.
- */
-export function cameraAnchor(now: number): CameraAnchor | null {
-  const g = useWorld.getState();
-  const home = g.info?.home;
-  const at = g.anchor === 'home' ? null : g.figures.find((x) => x.id === g.anchor);
-  const live = at && at.place === 'map' ? at : null;
-  const spot = live ? figurePosition(live, now) : home ? { x: home.x, y: home.y } : null;
-  if (!spot) return null;
-  const cell = { x: Math.floor(spot.x), y: Math.floor(spot.y) };
-  return {
-    id: live ? live.id : 'home',
-    name: live ? live.name : 'Наш город',
-    x: spot.x + 0.5,
-    y: spot.y + 0.5,
-    r: (live ? live.sight : homeSight(spot)) + CAMERA_LEASH,
-    reach: reachAround(cell.x, cell.y, g.chunks),
-  };
 }
 
 /**

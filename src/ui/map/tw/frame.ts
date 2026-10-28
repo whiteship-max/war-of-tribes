@@ -27,6 +27,7 @@ import { drawTwPaper, dropPaperSheet } from './paper';
 import { probe, shownGaps } from '@/debug';
 import { drawTwZones, dropTwZones } from './zones';
 import { drawTwFog } from './fog';
+import { FAR_LABELS, decideFar, farFrame } from './far';
 import { drawGround } from './layers';
 import { moving, prebakeBusy, prebakeFrame, prebakeIdle, prebaked } from './prebake';
 import type { FrameMotion } from '../still';
@@ -167,7 +168,9 @@ function gateBadges(): BadgeKind[] {
 
 function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem[], dpr: number, now: number, markers: Map<string, MarkerKind[]>): void {
   const px = cam.scale;
-  const ma = miniAlpha(px);
+  // Дальний вид (`far.ts`): только метка места — без рогаток, меток у плеча и дыма.
+  const far = farFrame();
+  const ma = far ? 0 : miniAlpha(px);
   const bucket = miniBucket(px);
   const gate = gateBadges();
   ctx.save();
@@ -178,7 +181,7 @@ function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem
     const { s, sx, sy } = it;
     const siege = s.besieged && worksStand(s.besieged.starvesAt, now) ? s.besieged : null;
     // Рогатки растут по часам мира: шаг стройки — не чаще раза в секунду.
-    if (siege) motion.clock = true;
+    if (siege && !far) motion.clock = true;
     // Рогатки обнимают место вблизи: дальняя половина кольца — под значком, ближняя — поверх. Готовность сторон — та
     // же `works.sideWorks`, что считает бой и окна осады, на минуту кадра.
     const front = siege ? worksStep(sideWorks(siege.since, now, 'front', siege.wood)) : 0;
@@ -194,6 +197,7 @@ function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem
       drawMini(ctx, worksSprite(front, rear, 'front', px, dpr), px, bucket, sx, sy);
       ctx.globalAlpha = 1;
     }
+    if (far) continue;
     const kinds = markers.get(s.id) ?? [];
     drawBadges(ctx, it, kinds, siege !== null, s.mine ? gate : [], ma >= 0.5, dpr, now);
     // Живая карта (`alive.ts`): дым над осаждённым городом, над пепелищем и над сожжённым — после значков, огонь лагеря
@@ -317,7 +321,8 @@ function drawTimer(ctx: CanvasRenderingContext2D, text: string, x: number, y: nu
 
 function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[], dpr: number, now: number): void {
   const px = cam.scale;
-  const withTimer = px >= LABEL_FROM;
+  // Сроки походов — вблизи; на дальнем виде (`far.ts`) — только враждебных: «на город идут» важнее цены кадра.
+  const withTimer = px >= LABEL_FROM && !farFrame();
   for (const it of items) {
     const { m, look, sx, sy, fx, fy, tx, ty, standing, angle, body } = it;
     if (!standing) drawRoute(ctx, fx, fy, sx, sy, tx, ty, look.color, now, routeTrim(px));
@@ -346,6 +351,8 @@ function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[]
 
 function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, items: FigureItem[], picked: string | null, dpr: number, now: number): void {
   const px = cam.scale;
+  // Дальний вид (`far.ts`): агент — значком, без срока пути и полоски энергии.
+  const far = farFrame();
   for (const it of items) {
     const { f, px: hx, ax, py, tx, ty, unit, west } = it.spot;
     const [rx, ry] = it.at;
@@ -367,7 +374,7 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
       const [fx, fy] = toScreen(cam, vp, f.from.x + 0.5, f.from.y + 0.5);
       drawRoute(ctx, fx, fy, hx, py, tx, ty, OWN, now, routeTrim(px));
       const text = realLeft(secondsLeft(f.arriveAt, now));
-      marks.push(() => drawTimer(ctx, text, tx, ty - 8, OWN, dpr));
+      if (!far) marks.push(() => drawTimer(ctx, text, tx, ty - 8, OWN, dpr));
     }
     if (it.hostMark && it.hostBox) {
       // Войско полководца в пути — колонной за ним, как поход (`alive.ts`); стоящее — значком.
@@ -395,7 +402,7 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
       ctx.restore();
     }
     drawAgent(ctx, { kind: f.id, west }, unit, dpr, ax, py);
-    if (f.energy) drawEnergy(ctx, ax, py, unit, f.energy.value / f.energy.max, f.spent);
+    if (f.energy && !far) drawEnergy(ctx, ax, py, unit, f.energy.value / f.energy.max, f.spent);
   }
 }
 
@@ -505,12 +512,14 @@ function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, it
   // Занято до подписей: значки мест, значки отрядов, метки и сроки.
   const taken: Box[] = [...items.map((it) => it.body), ...busy, ...timers];
   const order = [...items].sort((a, b) => labelRank(b) - labelRank(a));
+  // Дальний вид (`far.ts`): подписей мест не больше потолка — своё сверх него.
+  let left = farFrame() ? FAR_LABELS : Infinity;
   for (const it of order) {
     const { s, sx, sy, body } = it;
     if (sx < -40 || sx > vp.w + 40 || body.y1 < -20 || body.y1 > vp.h + 20) continue;
     // Свой значок подписи не мешает: подпись ищет место вокруг него, а не поверх.
     let under = body.y1 + 2;
-    if (namedAt(it, cam.scale)) {
+    if (namedAt(it, cam.scale) && (s.mine || left > 0)) {
       const l = labelSprite(fitName(s.name, s.mine), s.mine, dpr, it.look.color);
       let at = -1;
       for (let i = 0; i < SPOTS && at < 0; i++) {
@@ -522,6 +531,7 @@ function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, it
         const box = labelSpot(at, body, sx, sy, l.w, l.h, { x0: 0, y0: 0, x1: 0, y1: 0 });
         taken.push(box);
         ctx.drawImage(l.canvas, box.x0, box.y0, l.w, l.h);
+        if (!s.mine) left--;
         if (at === 0) under = box.y1 + 1;
       }
     }
@@ -614,6 +624,8 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   const near = detailAlpha(cam.scale);
   const state = useWorld.getState();
   const now = worldNow();
+  // Ограничитель детализации на отдалении (ПН-00, `far.ts`): решение — раз на кадр, до всего, что его читает.
+  const far = decideFar(cam.scale, vp, state.info?.home ?? null);
 
   part('prebake');
   prebakeFrame(cam, vp, frame);
@@ -629,7 +641,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   if (PROBE) shownGaps(gaps);
   // Прибой у берегов (`alive.ts`): над землёй, под владениями, туманом и ночью; берег выводится стоя, кусками.
   part('surf');
-  const surf = drawSurf(ctx, cam, vp, ground, !moving());
+  const surf = far ? null : drawSurf(ctx, cam, vp, ground, !moving());
   if (surf === 'waves') motion.decor = true;
   if (surf === 'baking') motion.busy = true;
   // Владения — тоньше прежних, с чертой границы по краю (`tw/zones.ts`); под туманом, как и прежде. Растр — над
@@ -653,7 +665,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   for (const sm of smokes) if (drawSmoke(ctx, sm.x, sm.y, cam.scale, sm.weight, sm.seed)) motion.decor = true;
   // Облака и их тени — погода региона (docs/city.md, 15): над землёй и местами, под листом за границей региона.
   part('clouds');
-  if (drawClouds(ctx, cam, vp, nightNow())) motion.decor = true;
+  if (!far && drawClouds(ctx, cam, vp, nightNow())) motion.decor = true;
 
   // Незнакомое — лист старой карты (своё неразведанное и чужой регион), разведанное вне обзора — сепия
   // (`tw/fog.ts`): поверх мест, под всем, что движется, — как прежний туман.

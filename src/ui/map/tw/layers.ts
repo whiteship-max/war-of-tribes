@@ -8,6 +8,13 @@ import { type Camera, type Viewport, detailAlpha, tileQuad, tileRangeFor, toScre
 import { MID_BLEED, MID_CELLS, MID_PX, OVERVIEW_BLEED, OVERVIEW_PX, twLook } from './bake';
 import type { Ground } from './prebake';
 import { TW_SPEC } from './spec';
+import { farFrame } from './far';
+
+/**
+ * Рисуется ли средний слой: его даёт уровень качества, и его нет на дальнем виде (ПН-00, `far.ts`) — там земля только
+ * кусками обзора.
+ */
+const midOn = (): boolean => TW_SPEC[twLook().quality].mid && !farFrame();
 
 /** С какого масштаба средний слой проступает поверх обзора и с какого он виден целиком. */
 export const MID_LO = 12;
@@ -96,7 +103,7 @@ function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, 
   const r = range(rect, CHUNK);
   const src = CHUNK * OVERVIEW_PX;
   const close = detailAlpha(cam.scale) >= 1;
-  const mid = TW_SPEC[twLook().quality].mid && midAlpha(cam.scale) >= 1;
+  const mid = midOn() && midAlpha(cam.scale) >= 1;
   ctx.imageSmoothingEnabled = true;
   for (let cy = r.y0; cy <= r.y1; cy++) {
     for (let cx = r.x0; cx <= r.x1; cx++) {
@@ -126,7 +133,7 @@ function midCovered(g: Ground, tx: number, ty: number): boolean {
 
 /** Средний слой под тайлами ближнего масштаба: там, где тайлы видны целиком и все на месте, его нет. */
 function drawMid(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, rect: Rect, g: Ground): void {
-  if (!TW_SPEC[twLook().quality].mid) return;
+  if (!midOn()) return;
   const a = midAlpha(cam.scale);
   if (a <= 0) return;
   const close = detailAlpha(cam.scale) >= 1;
@@ -187,7 +194,7 @@ function drawNear(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, rect
  */
 export function groundFloor(cam: Camera, vp: Viewport, rect: Rect, g: Ground): 1 | 2 | 3 | 4 {
   if (detailAlpha(cam.scale) >= 1 && nearCovers(rect, g)) return 4;
-  if (TW_SPEC[twLook().quality].mid && midAlpha(cam.scale) >= 1 && everyIn(range(rect, MID_CELLS), (x, y) => g.mid(x, y) !== null)) return 3;
+  if (midOn() && midAlpha(cam.scale) >= 1 && everyIn(range(rect, MID_CELLS), (x, y) => g.mid(x, y) !== null)) return 3;
   if (everyIn(range(rect, CHUNK), (x, y) => g.overview(x, y) !== null)) return 2;
   return 1;
 }

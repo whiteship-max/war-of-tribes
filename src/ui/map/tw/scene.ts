@@ -25,6 +25,7 @@ import type { HostLook, PlaceKind, PlaceLook } from './mini';
 import { type MarkLook, STAGE_PIPS, markGeo, markPx } from './marks';
 import { SIDE_COLOR } from '@/side';
 import { withinActive } from './theatre/active';
+import { farFrame, farPick } from './far';
 
 // ---------- Масштаб: ближний или дальний ----------
 
@@ -141,8 +142,12 @@ export function placeItems(cam: Camera, vp: Viewport, list: SettlementView[], _d
     const d = placeMarkPx(mark, px);
     out.push({ s, look, mark, d, sx, sy, body: markBox(mark, d, sx, sy) });
   }
-  return out;
+  // Дальний вид (ПН-00, `far.ts`): одна метка на клетку экрана — своё, потом замки, потом прочие.
+  return farFrame() ? farPick(out, farRank, (it) => it.s.id) : out;
 }
+
+/** Важность места для сводной метки дальнего вида. */
+const farRank = (it: PlaceItem): number => (it.s.mine ? 3 : it.look.kind === 'castle' ? 2 : it.s.relation === 'barbarian' ? 0 : 1);
 
 // ---------- Войска в поле ----------
 

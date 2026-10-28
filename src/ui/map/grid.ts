@@ -5,8 +5,7 @@
 // формулах видна как пропавшая полоса при перетаскивании, поэтому они живут
 // отдельным файлом и проверяются напрямую.
 import type { Coord, Rect } from '@/world/types';
-import type { Reach } from '@/world/fog';
-import { WORLD_ORIGIN, WORLD_SIZE, ZOOM_MARGIN } from '@/world/data/tuning';
+import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import { FADE_HI, FADE_LO, SCALE_MAX, SCALE_MIN, SPARE_CELLS, TILE_CELLS, TILE_POOL, TILE_PROMISE, TILE_PX } from './const';
 
 export interface Camera {
@@ -60,68 +59,15 @@ export function clampCamera(cam: Camera): Camera {
 }
 
 /**
- * Насколько близко к кромке экрана разрешено подпустить якорь, в пикселях.
- * Мерка именно пиксельная, а не в клетках: закрывают якорь шапка карты сверху и
- * два ряда кнопок снизу, а их высота от масштаба не зависит. Ноль означал бы,
- * что фигуру можно увести ровно за край и потерять из виду.
+ * Камера карты свободна у всех (ПН-00, docs/gdd/path_of_sword.md, 3.5.7; решение владельца П2, Н11): поводка, якоря и
+ * потолка отдаления нет — прежние `leashCamera` и `zoomFloor` удалены вместе со строкой «Дальше разведанного карту не
+ * отдалить». Держат её двое: край мира (`clampCamera`) и рамка региона (`frame` — `twSlot().hold`, docs/map_tw.md, 13.5):
+ * это край мира v1, а не поводок. Сведения на отдалении не растут — их держит туман (`tw/fog.ts`), а цену кадра —
+ * ограничитель детализации (`tw/far.ts`).
  */
-export const LEASH_EDGE = 72;
-
-/**
- * Потолок отдаления: мельче какого масштаба карту не отпускают.
- *
- * Правило простое — дальше разведанного не отдалить. Без него поводок половинчат:
- * увести камеру нельзя, а щипком и так видно полмира. Считается всё в
- * **клетках**: в кадр пускают разведанное вокруг якоря плюс `ZOOM_MARGIN` с
- * каждой стороны, поэтому на телефоне и на мониторе потолок означает одно и то
- * же число клеток, а не одно и то же число пикселей.
- *
- * Из двух осей берётся большее требование: кадр не должен выйти за разведанное
- * ни вширь, ни ввысь. Приближение это ничем не ограничивает — потолок только
- * снизу, `SCALE_MAX` по-прежнему сверху.
- */
-export function zoomFloor(vp: Viewport, reach: Reach): number {
-  // Плюс единица — клетка самого якоря: она между «влево» и «вправо».
-  const span = (a: number, b: number): number => a + b + 1 + ZOOM_MARGIN * 2;
-  return Math.min(SCALE_MAX, Math.max(vp.w / span(reach.left, reach.right), vp.h / span(reach.up, reach.down)));
-}
-
-/** К чему привязана камера: место, поводок и разведанное вокруг него. */
-export interface Leash {
-  x: number;
-  y: number;
-  /** Радиус поводка: обзор якоря плюс запас. */
-  r: number;
-  /** Разведанное вокруг якоря — из него выводится потолок отдаления. */
-  reach: Reach;
-}
-
-/**
- * Поводок камеры: куда игрок вообще может смотреть.
- *
- * Свободного обзора мира у игрока нет — камера стоит на своём поселении или на
- * одной из своих фигур. Но приколачивать её к точке нельзя: приказ движения
- * отдаётся тапом по клетке, и указывать надо в темноту за краем обзора. Отсюда
- * поводок: смещение разрешено на обзор якоря плюс небольшой запас.
- *
- * Второе ограничение — экран. Отпустить камеру дальше половины видимой области
- * значило бы позволить увести фигуру за кромку и потерять её из виду, поэтому
- * из двух пределов берётся меньший: на дальнем масштабе решает поводок, на
- * ближнем — экран, а на самом близком камера просто стоит на якоре.
- *
- * Третье — потолок отдаления (`zoomFloor`), и считается он здесь же, а не рядом:
- * запас поводка меряется экраном, а экран в клетках задаёт как раз масштаб.
- */
-export function leashCamera(cam: Camera, vp: Viewport, leash: Leash): Camera {
-  const scale = Math.max(clamp(cam.scale, SCALE_MIN, SCALE_MAX), zoomFloor(vp, leash.reach));
-  const maxX = Math.min(leash.r, Math.max(0, (vp.w / 2 - LEASH_EDGE) / scale));
-  const maxY = Math.min(leash.r, Math.max(0, (vp.h / 2 - LEASH_EDGE) / scale));
-  return clampCamera({
-    ...cam,
-    scale,
-    cx: clamp(cam.cx, leash.x - maxX, leash.x + maxX),
-    cy: clamp(cam.cy, leash.y - maxY, leash.y + maxY),
-  });
+export function holdCamera(cam: Camera, vp: Viewport, frame?: (c: Camera, vp: Viewport) => Camera): Camera {
+  const held = clampCamera(cam);
+  return frame ? frame(held, vp) : held;
 }
 
 /** Сдвиг пальцем: экранные пиксели переводятся в клетки текущим масштабом. */

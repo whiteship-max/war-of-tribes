@@ -24,7 +24,7 @@ import { useRoster } from '@/net/roster';
 import { useGame } from '@/game/store';
 import { CHEATS_ON } from '@/cheats';
 import { SpeedButton } from '../SpeedButton';
-import { cameraAnchor, figuresOn, marchOn, raidAcross, useWorld, worldNow } from '@/world/store';
+import { figuresOn, followSpot, marchOn, raidAcross, useWorld, worldNow } from '@/world/store';
 import { freeCamera, frameCost, probe } from '@/debug';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
@@ -36,7 +36,7 @@ import {
   type Camera,
   type Viewport,
   clampCamera,
-  leashCamera,
+  holdCamera,
   modeFor,
   panBy,
   scaleTo,
@@ -79,7 +79,10 @@ const Legend = lazy(() => import('./Legend').then((m) => ({ default: m.Legend })
 const Rating = lazy(() => ratingUi().then((m) => ({ default: m.Rating })));
 const Feed = lazy(() => feedUi().then((m) => ({ default: m.Feed })));
 
-/** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
+/**
+ * Отладочный обзор читается один раз: адрес по ходу партии не меняется. Камера свободна у всех (ПН-00) — флаг даёт стенду
+ * только прыжок к координатам.
+ */
 const FREE_CAMERA = freeCamera();
 
 /**
@@ -203,15 +206,13 @@ export function WorldMap() {
   const vp = (): Viewport => ({ w: size.current.w, h: size.current.h });
 
   /**
-   * Поводок и потолок отдаления разом. Зовётся и в кадре, и сразу после каждого
-   * жеста: иначе кнопка масштаба успевала бы объявить вид, до которого камеру
-   * всё равно не пустят, и подпись расходилась бы с картинкой на кадр.
+   * Край мира и рамка региона (`grid.holdCamera`): поводка, якоря и потолка отдаления нет с ПН-00 (docs/gdd/path_of_sword.md,
+   * 3.5.7). Зовётся и в кадре, и сразу после каждого жеста: иначе кнопка масштаба успевала бы объявить вид, до которого
+   * камеру всё равно не пустит рамка региона, и подпись расходилась бы с картинкой на кадр.
    */
   const hold = (c: Camera): Camera => {
-    const at = FREE_CAMERA ? null : cameraAnchor(worldNow());
-    const held = at ? leashCamera(c, vp(), at) : clampCamera(c);
-    // Новый вид карты держит камеру ещё и в рамке региона игрока (docs/map_tw.md, раздел 13.5) — поверх поводка.
-    return twSlot()?.hold(held, vp()) ?? held;
+    const slot = twSlot();
+    return holdCamera(c, vp(), slot ? (h, v) => slot.hold(h, v) : undefined);
   };
 
   /**
@@ -240,15 +241,22 @@ export function WorldMap() {
     centerOn(info.home);
   }, [info]);
 
+  // Смена того, за кем следят (агент в руку из «Походов», касание стоящего агента), — один перевод камеры к нему: поводка
+  // нет (ПН-00), и дальше камера свободна — за идущим агентом сама не едет. Первый показ — над деревней (эффект выше).
+  const followed = useRef(anchor);
+  useEffect(() => {
+    if (followed.current === anchor) return;
+    followed.current = anchor;
+    const at = anchor === 'home' ? null : followSpot(anchor, worldNow());
+    if (at) cam.current = hold({ ...cam.current, cx: at.x + 0.5, cy: at.y + 0.5 });
+  }, [anchor]);
+
   /**
    * Лупа из письма: показать двор, приславший гонца.
    *
-   * Новых прав камере это не даёт. Она по-прежнему привязана к своим и заперта
-   * поводком (`hold`), поэтому до чужого двора дотягиваются единственным
-   * законным способом — отходя: чем он дальше, тем мельче масштаб. Масштаб
-   * поэтому подбирается перебором сверху вниз, а не формулой: в формулу
-   * пришлось бы вписать и поводок, и потолок отдаления, и высоту выезжающей
-   * карточки, и разошлась бы она с ними при первой же правке любого из трёх.
+   * Камера свободна (ПН-00), но держится в рамке региона (`hold`), и двор должен лечь между шапкой и выезжающей
+   * карточкой. Масштаб поэтому подбирается перебором сверху вниз, а не формулой: в формулу пришлось бы вписать и рамку
+   * региона, и высоту карточки, и разошлась бы она с ними при первой же правке.
    *
    * Не дотянулись — берётся самый дальний из допустимых видов: двор окажется у
    * кромки, но на экране, и пульс покажет, где именно. Молча оставить камеру на
@@ -381,16 +389,15 @@ export function WorldMap() {
 
     // Камера наружу — стенду снимков (`npm run map:shots`). Он ставит кадр на
     // названную клетку и масштаб и снимает картинку: «до» и «после» сравнивают
-    // одним и тем же кадром, а водить пальцем до той же точки нечем. Поводок и
-    // потолок отдаления при этом на месте — через тот же `hold`, что и жест:
-    // стенд снимает карту, а не другой её режим. Только под `?probe=1`.
+    // одним и тем же кадром, а водить пальцем до той же точки нечем. Рамка региона
+    // при этом на месте — через тот же `hold`, что и жест: стенд снимает карту,
+    // а не другой её режим. Только под `?probe=1`.
     if (PROBE) {
       (window as unknown as { __mapCam?: (x: number, y: number, scale: number) => void }).__mapCam = (x, y, scale) => {
         cam.current = hold({ cx: x + 0.5, cy: y + 0.5, scale });
         setZoomedIn(modeFor(cam.current.scale) === 'detail');
       };
-      // Касание клетки тем же `openAt`, что палец (кольцо К-2, `docs/ui_v2/shots.ts`): попасть пальцем в место, которое
-      // поводок не даёт поставить в середину, стенду нечем.
+      // Касание клетки тем же `openAt`, что палец (кольцо К-2, `docs/ui_v2/shots.ts`): стенду водить пальцем нечем.
       (window as unknown as { __mapTap?: (x: number, y: number) => void }).__mapTap = (x, y) => openAt({ x, y });
     }
 
@@ -398,10 +405,8 @@ export function WorldMap() {
       // Плотность уровня сменилась (сторож карты, настройки) — буфер под неё до рисования: присвоение размера стирает холст.
       if (wantDpr() !== size.current.dpr) resize();
       const { w, h, dpr } = size.current;
-      // Поводок держится каждый кадр, а не в момент жеста: якорь движется сам —
-      // фигура идёт, — и камера обязана идти за ним, а не отставать до первого
-      // касания. Отладочный обзор мира (`?worldview=`) поводка не знает.
-      // Мимо отметки сдвига (`still.cameraBox`): поводок — не ведение карты, идущая фигура шагает живым шагом.
+      // Рамка региона — каждый кадр, а не только в момент жеста: регион приезжает куском вида (`twSlot`) позже первого
+      // кадра. Мимо отметки сдвига (`still.cameraBox`): рамка — не ведение карты.
       cam.follow(hold(cam.current));
       const rect = viewRect(cam.current, { w, h });
       // Куски запрашиваются с запасом: тайл у края экрана не испечётся, пока не
@@ -463,8 +468,7 @@ export function WorldMap() {
     const key = formatCoord(spotlight);
     if (spotted.current?.key !== key) {
       spotted.current = { key, tries: 0, done: false };
-      // Камера возвращается к деревне: письмо приходит от соседа, а сосед стоит
-      // в пределах поводка деревни, а не идущей неизвестно где фигуры.
+      // Следим снова за деревней: письмо приходит от соседа, а не от идущей неизвестно где фигуры.
       placed.current = true;
       setAnchor('home');
       // Куски вокруг двора заказываем сами: кадр просит только то, что видит, а
@@ -705,9 +709,6 @@ export function WorldMap() {
   const toggleZoom = (): void => {
     const want = zoomedIn ? SCALE_OVERVIEW : SCALE_DETAIL;
     const next = hold(scaleTo(cam.current, vp(), want));
-    // Потолок отдаления мог не пустить дальше разведанного. Молча оставить
-    // кнопку без действия нельзя — она выглядела бы сломанной.
-    if (zoomedIn && modeFor(next.scale) === 'detail') showToast('Дальше разведанного карту не отдалить.');
     cam.current = next;
     setZoomedIn(modeFor(next.scale) === 'detail');
   };
