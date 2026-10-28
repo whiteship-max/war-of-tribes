@@ -11,11 +11,12 @@ type Priced = Pick<BuildingDef, 'cost' | 'work' | 'parts'>;
 const partsOf = (def: Partial<Priced>): readonly Partial<Pick<BuildingDef, 'cost' | 'work'>>[] => def.parts ?? [def];
 
 /**
- * Работа строителей на улучшение до уровня `toLevel` — растёт так же, как цена. У двора с двумя делами — сумма работы его
- * дел, каждое своей лестницей и своим округлением: ровно столько, сколько стоили бы два прежних здания вровень (ЗД-1).
+ * Работа строителей на улучшение до уровня `toLevel` — растёт так же, как цена. У двора с двумя делами — работа **более долгого**
+ * из его дел, каждое своей лестницей и своим округлением (ПБ-1, п. 5, решение владельца 28.10.2026: время улучшения двора — по
+ * более долгому из двух прежних, а не сумма; прежде, с ЗД-1, — сумма). Цена и возврат отмены — по-прежнему сумма частей.
  */
 export const upgradeWork = (def: Partial<Priced>, toLevel: number): number =>
-  partsOf(def).reduce((n, p) => n + Math.round((p.work ?? 0) * Math.pow(UPGRADE_GROWTH, toLevel - 1)), 0);
+  partsOf(def).reduce((n, p) => Math.max(n, Math.round((p.work ?? 0) * Math.pow(UPGRADE_GROWTH, toLevel - 1))), 0);
 
 /**
  * Цена улучшения до уровня `toLevel`: базовая стоимость, умноженная на `UPGRADE_GROWTH` за каждый уровень. У двора с двумя

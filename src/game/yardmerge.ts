@@ -89,7 +89,8 @@ export interface FoldedSites {
 /**
  * Очередь стройки после перехода (СТ-1). `levels` — уровни **до** перехода, `sites` — очередь по порядку. Стройка обеих
  * частей пары на один и тот же следующий уровень — уровень двора плюс один — становится одной стройкой двора на месте
- * первой из двух, работа — сумма: оплачена она ровно ценой двора. Стройка части в любом другом случае не переносится, а
+ * первой из двух, сделанная работа — сумма сделанного обеими (её нужно не больше труда двора — работы более долгой части, ПБ-1:
+ * лишняя стоит готовой стройкой): оплачена стройка ровно ценой двора. Стройка части в любом другом случае не переносится, а
  * возвращает цену прежнего здания. Стройка не на следующий уровень своей постройки (испорченная запись) отбрасывается.
  * Стройки прочих построек проходят как есть.
  */
@@ -175,11 +176,13 @@ export function foldParty(data: Record<string, unknown>): PartyFold {
     }
     const level = next[b.type];
     const site = folded.sites.find((x) => x.type === b.type);
+    const need = site ? upgradeWork(BUILDING_BY_ID[pair.kept], level + 1) : 0;
     buildings.push({
       ...b,
       level,
-      work: site ? site.done : 0,
-      workRequired: site ? upgradeWork(BUILDING_BY_ID[pair.kept], level + 1) : 0,
+      // Сделанное обеими частями — не больше труда двора (ПБ-1: труд — по более долгой части): лишнее — готовая стройка.
+      work: site ? Math.min(site.done, need) : 0,
+      workRequired: need,
     });
     fold.merged.push({ kept: pair.kept, gone: pair.gone, level, was: [levels[pair.kept], levels[pair.gone]] });
   }

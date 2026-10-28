@@ -122,14 +122,18 @@ describe('переход 23 → 24: уровни, рабочие, стройка
     expect(deedSlots(buildingOfType(s, 'farm')!)).toBe(4 * SLOTS_PER_LEVEL);
   });
 
-  it('стройка обеих частей на один уровень — одной стройкой двора: работа — сумма, цена — уже оплачена', () => {
+  it('стройка обеих частей на один уровень — одной стройкой двора: сделанное — сумма, труд — более долгой части, цена — уже оплачена', () => {
     const s = load({ levels: { farm: 3, pen: 3 }, sites: [{ type: 'pen', done: 50 }, { type: 'farm', done: 0 }] });
     const farm = buildingOfType(s, 'farm')!;
     expect(farm.level).toBe(3);
     expect(farm.work).toBe(50);
-    expect(farm.workRequired, 'работа двора — работа двух прежних уровней').toBe(upgradeWork(OLD.farm, 4) + upgradeWork(OLD.pen, 4));
+    expect(farm.workRequired, 'труд двора — работа более долгой из двух прежних (ПБ-1)').toBe(Math.max(upgradeWork(OLD.farm, 4), upgradeWork(OLD.pen, 4)));
     expect(farm.workRequired).toBe(upgradeWork(BUILDING_BY_ID.farm, 4));
     expect(s.buildQueue).toEqual([farm.id]);
+    // Сделано обеими больше труда двора — стройка стоит готовой, а не сверх своего труда.
+    const need = upgradeWork(BUILDING_BY_ID.farm, 4);
+    const over = load({ levels: { farm: 3, pen: 3 }, sites: [{ type: 'pen', done: need - 1 }, { type: 'farm', done: need - 1 }] });
+    expect(buildingOfType(over, 'farm')!.work, 'точка внутри области: сумма сделанного больше труда').toBe(need);
   });
 
   it('стройка, которую не на что перенести, возвращает цену прежнего здания целиком — разовым делом описи', () => {
@@ -159,7 +163,7 @@ describe('переход 23 → 24: уровни, рабочие, стройка
 });
 
 describe('цена и добыча — бит в бит прежние у того, кто качал оба вровень', () => {
-  it('цена, труд и возврат отмены двора на каждом уровне — сумма двух прежних, каждая своим округлением', () => {
+  it('цена и возврат отмены двора на каждом уровне — сумма двух прежних, труд — больший из двух (ПБ-1), каждое своим округлением', () => {
     let differs = 0;
     for (const [kept, gone] of PAIRS) {
       for (let level = 2; level <= MAX_BUILDING_LEVEL; level++) {
@@ -168,7 +172,7 @@ describe('цена и добыча — бит в бит прежние у тог
         const b = upgradeCost(OLD[gone], level);
         const sum = Object.fromEntries(RESOURCE_IDS.filter((r) => (a[r] ?? 0) + (b[r] ?? 0) > 0).map((r) => [r, (a[r] ?? 0) + (b[r] ?? 0)]));
         expect(upgradeCost(def, level), `${kept} ${level}`).toEqual(sum);
-        expect(upgradeWork(def, level), `${kept} ${level}: труд`).toBe(upgradeWork(OLD[kept], level) + upgradeWork(OLD[gone], level));
+        expect(upgradeWork(def, level), `${kept} ${level}: труд — более долгой части`).toBe(Math.max(upgradeWork(OLD[kept], level), upgradeWork(OLD[gone], level)));
         for (const started of [false, true]) {
           const ra = cancelRefund(OLD[kept], level, started);
           const rb = cancelRefund(OLD[gone], level, started);
@@ -176,7 +180,10 @@ describe('цена и добыча — бит в бит прежние у тог
         }
         // Граница области: правило «по делам» спрашивается там, где округление суммы баз дало бы другое число.
         const base = { cost: def.cost, work: def.work };
-        if (JSON.stringify(upgradeCost(base, level)) !== JSON.stringify(sum) || upgradeWork(base, level) !== upgradeWork(def, level)) differs++;
+        if (JSON.stringify(upgradeCost(base, level)) !== JSON.stringify(sum)) differs++;
+        // Труд — больший, а не сумма: точка внутри области — обе части трудятся, сумма строго больше большей.
+        expect(Math.min(upgradeWork(OLD[kept], level), upgradeWork(OLD[gone], level)), `${kept} ${level}: обе части трудятся`).toBeGreaterThan(0);
+        expect(upgradeWork(def, level)).toBeLessThan(upgradeWork(OLD[kept], level) + upgradeWork(OLD[gone], level));
       }
     }
     expect(differs, 'точки внутри области: сумма баз округлилась бы иначе').toBeGreaterThan(0);

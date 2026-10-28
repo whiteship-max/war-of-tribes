@@ -74,11 +74,14 @@ import {
   storageCap,
   taxIncomePerDay,
   councilSeat,
+  maxLevelFor,
+  upgradeInfo,
   wageOf,
   wagesPerDay,
 } from '@/game/derived';
 import { RESOURCE_IDS } from '@/game/constants';
 import { jobsOf } from '@/game/data/buildings';
+import { JOBS } from '@/game/data/jobs';
 import { EVENT_BY_ID } from '@/game/data/events';
 import { MUTINY_EVENT } from '@/game/data/order';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
@@ -222,6 +225,42 @@ export function staff(s: GameState): void {
   }
 }
 
+/** Постройки, что дают крышу, по порядку стройки автопилота. */
+const HOUSING: readonly BuildingTypeId[] = ['houses', 'town_hall'];
+
+/** Дела, которые добывают ресурс `r`, — по таблице профессий, а не списком. */
+const producersOf = (r: ResourceId): JobId[] => JOBS.filter((j) => (j.yield[r] ?? 0) > 0).map((j) => j.id);
+
+/**
+ * Приоритет жилья (ПБ-1, п. 5; docs/siege_v2.md, «Решения ПБ-1»): жильё — узкое место, а на его улучшение не хватает запасов, —
+ * прочие стройки ждут, чтобы не съесть его припас. Ставится только то, что жильё приближает: склад, если цена жилья в него не
+ * влезает, и двор, который добывает недостающее. Прежде автопилот ставил всё, что по карману, и камень, которого ждало жильё, уходил
+ * в чужие стройки: партия `pop:report` шла от 400 до 500 жителей 2 ч 21 мин («Отметки населения», приёмка ЗД-1; docs/siege_v2.md,
+ * 22.4). `true` — стройка этого решения решена: поставлена или ждём.
+ */
+function holdForHousing(s: GameState, skip: readonly BuildingTypeId[]): boolean {
+  // Крышу дают Жилища, а на их потолке — Ратуша (`BuildingDef.perLevel.housing`): копить на первое, что ещё растёт.
+  const roof = HOUSING.filter((t) => !skip.includes(t))
+    .map((t) => buildingOfType(s, t))
+    .find((b) => b && b.level < maxLevelFor(b.type));
+  if (!roof) return false;
+  const info = upgradeInfo(s, roof);
+  // Упёрлось не в запасы (очередь, потолок) — ждать нечего.
+  if (info.affordable) return false;
+  const short = RESOURCE_IDS.filter((r) => (info.cost[r] ?? 0) > s.resources[r]);
+  if (short.some((r) => (info.cost[r] ?? 0) > storageCap(s))) {
+    if (!skip.includes('storage')) startUpgrade(s, buildingOfType(s, 'storage')!.id);
+    return true;
+  }
+  for (const r of short) {
+    for (const job of producersOf(r)) {
+      const b = deedBuilding(s, job);
+      if (b && !skip.includes(b.type) && startUpgrade(s, b.id) === null) return true;
+    }
+  }
+  return true;
+}
+
 /**
  * Что улучшать дальше: жильё, склад, потом самое отстающее. `skip` — постройки, которых этот
  * игрок не поднимает никогда (`raid-growth:report` меряет им, во что обходится не поднимать ратушу);
@@ -232,10 +271,12 @@ export function build(s: GameState, skip: readonly BuildingTypeId[] = []): void 
   const cap = housingCapacity(s);
   // Жильё — узкое место: пока селить некуда, племя стоит.
   if (s.pop >= cap - 20) {
-    for (const t of (['houses', 'town_hall'] as BuildingTypeId[]).filter((x) => !skip.includes(x))) {
+    for (const t of HOUSING.filter((x) => !skip.includes(x))) {
       const b = buildingOfType(s, t)!;
       if (startUpgrade(s, b.id) === null) return;
     }
+    // Не по запасам — копить на жильё, а не отдавать его припас другим стройкам (ПБ-1, п. 5).
+    if (holdForHousing(s, skip)) return;
   }
   // Что-то упёрлось в склад — поднимаем вместимость.
   const room = storageCap(s);
