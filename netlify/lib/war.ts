@@ -85,24 +85,8 @@ import {
   type MachineId,
 } from '../../src/world/machines.js';
 import { aimOf, firePlan, reaim, thinAt, thinKinds, type Aim, type Fire, type TowerGun } from '../../src/world/bombard.js';
-import {
-  fieldReach,
-  fieldWalkFloorMs,
-  foodLeft,
-  MEET_CAMP,
-  MEET_FAR,
-  MEET_GONE,
-  MEET_SLACK_CELLS,
-  MEET_SLACK_MS,
-  MEET_STALE,
-  reliefCredit,
-  spyWalkMs,
-  WAR_GROUND_SEED,
-  warAt,
-  warMeet,
-  warSpotAt,
-  warWalkMs,
-} from '../../src/world/pvp.js';
+import { fieldReach, fieldWalkFloorMs, foodLeft, reliefCredit, spyWalkMs, WAR_GROUND_SEED, warAt, warWalkMs } from '../../src/world/pvp.js';
+import { MEET_CAMP, MEET_FAR, MEET_GONE, MEET_SLACK_CELLS, MEET_SLACK_MS, MEET_STALE, warMeet, warSpotAt } from '../../src/world/pvpmeet.js';
 import { positionAt } from '../../src/world/pursuit.js';
 import { distance } from '../../src/world/geo.js';
 import { goodsSheet, type GoodsBook } from './goods.js';
@@ -1797,7 +1781,7 @@ const cell = (p: { x: number; y: number }): { x: number; y: number } => ({ x: Ma
 
 /**
  * Поход сменил путь — повернул домой, сменил режим, встал лагерем, кончился (ПЛ-1): встреча каждого перехвата считается
- * заново той же функцией (`pvp.warMeet`) с того места, где перехватчик в эту минуту. Не догнать — перехват сорвался: дружина
+ * заново той же функцией (`pvpmeet.warMeet`) с того места, где перехватчик в эту минуту. Не догнать — перехват сорвался: дружина
  * цела и стоит в поле (`WarMissed`), донесение и путь домой — у её мира.
  */
 function rechase(w: WarRow, at: number): void {
@@ -2489,7 +2473,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
 
 /**
  * Перехват похода в поле (ПЛ-1, docs/siege_v2.md, «Решения ПЛ-1»). Перехватывает защитник или его союзник по пакту — поход
- * на город и обратный путь; точку и минуту встречи считает сервер (`pvp.warMeet`, земля пути войны), а не клиент. Отряд — не
+ * на город и обратный путь; точку и минуту встречи считает сервер (`pvpmeet.warMeet`, земля пути войны), а не клиент. Отряд — не
  * больше книги войска, место выхода — не дальше слепка (`fromWhy`), энергия — к минуте встречи с дорогой. Встреча, которую
  * видел игрок (`meet`), сверяется: точка не на пути похода или срок раньше возможного — отказ и флаг; разошлась иначе
  * (поход сменил путь после меню) — отказ без флага.

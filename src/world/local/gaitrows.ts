@@ -4,11 +4,12 @@
 // какая мерка у какого дела и отказ лагеря налегке. Своих чисел нет.
 import { realMs } from '@/game/pace';
 import { GAITS, siegeBlockOf, type Gait } from '../gait';
+import { warMeet } from '../pvpmeet';
 import type { Coord, ErrandOption, GaitRow } from '../types';
 import type { ErrandSpot, LocalWorld } from './LocalWorld';
 
 /** Мерки дорог мира, которыми считает и приказ. */
-export type GaitRoads = Pick<LocalWorld, 'walkMsTo' | 'backMsFrom' | 'warWalkOf' | 'chaseMeet' | 'strikeSeconds'>;
+export type GaitRoads = Pick<LocalWorld, 'walkMsTo' | 'backMsFrom' | 'warWalkOf' | 'chaseMeet' | 'strikeSeconds' | 'warPaceOf'>;
 
 /** Отказ строки перехвата: в этом режиме не догнать. */
 const CHASE_MISS = 'Не догнать: дойдут раньше.';
@@ -39,7 +40,8 @@ export function withGaits(w: GaitRoads, spot: ErrandSpot, list: ErrandOption[], 
     } else if (o.id === 'intercept' && spot.kind === 'march') {
       rows = rowsOf(
         (g) => {
-          const m = w.chaseMeet(spot.m, now, g);
+          // Поход игрока (ПЛ-1) — встречей сервера войны (`pvpmeet.warMeet`), той же, что посчитает приказ.
+          const m = spot.war ? warMeet(from, g, spot.war, now, w.warPaceOf()) : w.chaseMeet(spot.m, now, g);
           return m ? { walkMs: Math.max(0, Math.round(m.time - now)), backMs: w.backMsFrom('general', m.at, g) } : null;
         },
         false,

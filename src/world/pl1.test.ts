@@ -12,7 +12,8 @@ import { advance, applyOrder, emptyWars, warsOf, type SheetAt, type WarRow } fro
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
 import { ringSlots } from '@/ui/map/ring';
-import { warMoving, warSpotAt, warWalkMs, MEET_CAMP, MEET_FAR, MEET_STALE } from './pvp';
+import { warWalkMs } from './pvp';
+import { warMoving, warSpotAt, MEET_CAMP, MEET_FAR, MEET_STALE } from './pvpmeet';
 import { positionAt } from './pursuit';
 import { setPhaseDie } from './siegeroll';
 import { GENERAL_INTERCEPTS } from './siege';
@@ -338,6 +339,12 @@ describe('ПЛ-1: соседние случаи', () => {
     expect(b.regain, 'добычу отбили').toBeTruthy();
     const rc = (await g.c.reports()).find((r) => r.id === `war-${b.id}`);
     expect(rc?.title).toMatch(/^Перехват в поле/);
+    // У города бой союзника — его, а не выручка у лагеря: «осада снята» тут неправда; нападающему — кто перехватил.
+    const rb = (await g.b.reports()).find((r) => r.id === `war-${b.id}`);
+    expect(rb?.title).toBe('Перехват в поле: «Ливерпуль» разбил отряд НиСы');
+    expect(rb?.text).toMatch(/Наш гарнизон в бой не выходил/);
+    const ra = (await g.a.reports()).find((r) => r.id === `war-${b.id}`);
+    expect(ra?.title).toBe('Перехват из Ливерпуль: отряд разбит в поле');
     // Добыча: союзнику — на склад, походу — убыль, по разу; сервер знает её добром без дела у союзника.
     await g.pulse();
     await g.pulse();
