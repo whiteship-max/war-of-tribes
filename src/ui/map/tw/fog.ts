@@ -1,8 +1,8 @@
 // Край старой карты вместо тумана (docs/map_tw.md, раздел 4, «Края»; этап 2; регион — раздел 13.5). Слоя два, как
 // у прежнего тумана (`fog.ts`), и сводить их к одному нельзя (docs/handbook/world.md, «Туман войны — два слоя»):
 //
-// - **незнакомое — пергамент**: лист с чернильным берегом и значками гор, край знания — неровный, словно
-//   обгоревший. Незнакомо и неразведанное, и **чужой регион**: старая карта знает землю (атлас один на всех), но
+// - **незнакомое — пергамент**: лист с чернильным берегом, без рельефа и без точек (терра инкогнита, ПН-00), край
+//   знания — неровный, словно обгоревший. Незнакомо и неразведанное, и **чужой регион**: старая карта знает землю (атлас один на всех), но
 //   не знает, что на ней, — и за границей своего края игрок видит лист, а не пустоту и не обрыв;
 // - **разведанное в регионе, но не в живом обзоре — лёгкая сепия**: местность видна как есть, живые данные под ней
 //   устарели (карточка клетки скажет насколько). В живом обзоре — ничего.
@@ -45,10 +45,31 @@ let raster: Raster | null = null;
 const discsKey = (d: SightDisc[]): string => d.map((v) => `${v.x},${v.y},${v.r}`).join(';');
 
 /**
- * Растр полутени над рамкой. Незнакомая клетка, у которой все восемь соседей тоже незнакомы, — **глубокое
- * незнание**: её закрывает лист пергамента и здесь, сплошь. Это подложка под лист, пока тот не испечён: без неё
- * на мгновение было бы видно землю под листом, а за границей региона — чужую землю. Кромку знания рисует только
- * лист — двух кромок, мягкой и рваной, рядом не бывает.
+ * Слой клетки: два слоя, и сводить их нельзя (docs/handbook/world.md, «Туман войны — два слоя»; ПН-00):
+ * - `clear` — разведанное в живом обзоре: ничего поверх;
+ * - `shroud` — **туман войны**: разведанное вне живого обзора, лёгкая сепия — местность видна, живых данных нет;
+ * - `edge` — незнакомое у края знания: растр пуст, кромку рисует только лист (двух кромок рядом не бывает);
+ * - `parchment` — **терра инкогнита**: незнакомая клетка, у которой и все восемь соседей незнакомы, — сплошь пергамент.
+ */
+export type FogLayer = 'clear' | 'shroud' | 'edge' | 'parchment';
+
+export function fogLayer(known: (x: number, y: number) => number, seen: (x: number, y: number) => boolean, x: number, y: number): FogLayer {
+  if (known(x, y)) return seen(x, y) ? 'clear' : 'shroud';
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (known(x + dx, y + dy)) return 'edge';
+  return 'parchment';
+}
+
+/** Глубокое незнание в растре — сплошной пергамент, цвет листа. */
+const PARCHMENT: readonly [number, number, number, number] = [C.parchment[0], C.parchment[1], C.parchment[2], 255];
+
+/** Цвет слоя в растре; `clear` и `edge` растр не красит. */
+export const fogPaint = (layer: FogLayer): readonly [number, number, number, number] | null =>
+  layer === 'shroud' ? SHROUD : layer === 'parchment' ? PARCHMENT : null;
+
+/**
+ * Растр полутени над рамкой. Глубокое незнание (`fogLayer` → `parchment`) закрывает лист пергамента и здесь, сплошь.
+ * Это подложка под лист, пока тот не испечён: без неё на мгновение было бы видно землю под листом, а за границей
+ * региона — чужую землю. Кромку знания рисует только лист — двух кромок, мягкой и рваной, рядом не бывает.
  */
 function bakeRaster(rect: Rect, k: Knowledge, discs: SightDisc[], gen: number, key: string, at: number): Raster {
   const { x: x0, y: y0, w, h } = rect;
@@ -61,34 +82,16 @@ function bakeRaster(rect: Rect, k: Knowledge, discs: SightDisc[], gen: number, k
     const j = y - k.rect.y;
     return i < 0 || j < 0 || i >= k.rect.w || j >= k.rect.h ? 0 : k.known[j * k.rect.w + i];
   };
-  const [pr, pg, pb] = C.parchment;
+  const seen = (x: number, y: number): boolean => cellInSight(discs, x, y);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const wx = x0 + x;
-      const wy = y0 + y;
+      const paint = fogPaint(fogLayer(known, seen, x0 + x, y0 + y));
+      if (!paint) continue;
       const i = (y * w + x) * 4;
-      if (known(wx, wy)) {
-        if (cellInSight(discs, wx, wy)) continue;
-        d[i] = SHROUD[0];
-        d[i + 1] = SHROUD[1];
-        d[i + 2] = SHROUD[2];
-        d[i + 3] = SHROUD[3];
-        continue;
-      }
-      let deep = true;
-      for (let dy = -1; dy <= 1 && deep; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          if (known(wx + dx, wy + dy)) {
-            deep = false;
-            break;
-          }
-        }
-      }
-      if (!deep) continue;
-      d[i] = pr;
-      d[i + 1] = pg;
-      d[i + 2] = pb;
-      d[i + 3] = 255;
+      d[i] = paint[0];
+      d[i + 1] = paint[1];
+      d[i + 2] = paint[2];
+      d[i + 3] = paint[3];
     }
   }
   ctx.putImageData(img, 0, 0);

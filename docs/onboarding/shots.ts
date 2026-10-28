@@ -17,7 +17,7 @@
 // Отличие от стенда карты экранов (`docs/ui_v2/shots.ts`): **обучение и подсказки не сняты** — снимаем ровно то, что
 // видит новичок, — и касания идут настоящим пальцем (`Input.dispatchTouchEvent` по середине цели, как `tap`-отчёт), а не
 // вызовом стора: так видно, попадает ли «дырка» обучения туда, куда игрок нажмёт. Кнопка «Предыстория» стартового
-// экрана видна только под щупом (`?probe=1`, `ui/start.prologueShown`) — игроку её не показывают, поэтому стенд прячет её.
+// экрана с ПН-00 видна и игроку (`ui/start.prologueShown`) — стенд её не прячет.
 //
 // Заходы идут по очереди и продолжают друг друга: в конце захода партия (весь `localStorage`) пишется в файл
 // `STATE_DIR` (по умолчанию — `/tmp/tribe-onboard`), следующий заход кладёт её обратно перед загрузкой.
@@ -329,10 +329,10 @@ async function run(name: string, plan: { fresh: boolean; skip?: number; steps: S
       up = await tab.eval<boolean>('JSON.stringify(!!(window.__game && document.querySelector(".start-go")))').catch(() => false);
     }
     if (!up) throw new Error('стартовый экран не встал за 45 с');
-    // Игроку кнопки «Предыстория» нет (`ui/start.prologueShown`): прячем, что видно только щупу. Окно «Город не рисуется»
+    // Кнопка «Предыстория» видна и игроку (`ui/start.prologueShown`, ПН-00) — её не прячем. Окно «Город не рисуется»
     // (`SceneTrouble`) в облаке встаёт от программной отрисовки на 2 кадрах в секунду и перехватывает палец — это
     // свойство стенда, а не игры; стенд карты экранов прячет его так же.
-    await tab.eval<string>(`(() => { const st = document.createElement('style'); st.textContent = '.start-alt, .start-note, .trouble { display: none !important; }'; document.head.appendChild(st); return JSON.stringify('ok'); })()`);
+    await tab.eval<string>(`(() => { const st = document.createElement('style'); st.textContent = '.trouble { display: none !important; }'; document.head.appendChild(st); return JSON.stringify('ok'); })()`);
     await tab.eval<string>(HELPERS);
     if (!plan.fresh) {
       console.log(`  вход: ${await tapSel('.start-go')(c)}`);

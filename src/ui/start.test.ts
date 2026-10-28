@@ -71,10 +71,11 @@ describe('вход в предысторию — временная кнопка
     expect(PROLOGUE_NOTE).toMatch(/не связана/);
   });
 
-  it('игрокам скрыта, стенду (?probe=1) — на месте', () => {
-    // Слово владельца 11.10.2026: кнопку убрать, код оставить. Стенды предыстории и восстановления сцены жмут её.
-    expect(PROLOGUE_FOR_PLAYERS).toBe(false);
-    expect(prologueShown(false)).toBe(false);
+  it('игрокам открыта снова (ПН-00), стенду (?probe=1) — на месте', () => {
+    // Решение владельца 28.10.2026 (docs/gdd/path_of_sword.md, В3): кнопку открыть снова; с 11.10.2026 она была скрыта.
+    // Стенды предыстории и восстановления сцены жмут её.
+    expect(PROLOGUE_FOR_PLAYERS).toBe(true);
+    expect(prologueShown(false), 'игрок без щупа видит кнопку').toBe(true);
     expect(prologueShown(true)).toBe(true);
     expect(read('ui/StartScreen.tsx')).toContain('prologueShown(probe())');
   });
