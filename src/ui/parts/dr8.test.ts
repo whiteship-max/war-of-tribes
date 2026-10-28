@@ -214,6 +214,8 @@ describe('ДР-8: роспуск через карточку — ровно вы
       const { go, html } = card(props(s, 'spearman', { n: k, onDismiss }));
       expect(text(go.props.children), 'подпись кнопки').toBe(`Распустить ${fmtInt(k)}`);
       expect(go.props.confirm, 'двумя касаниями').toBe(true);
+      expect(go.props.warn, 'подтверждение говорит, что пропадёт (ПН-1ч)').toBe('Плата за найм и учения пропадает.');
+      expect(html, 'до первого касания строки подтверждения нет').not.toContain('Плата за найм');
       const back = dismissReturns('spearman', k);
       expect(html, 'вернутся жители').toContain(`+${fmtInt(back.people)}`);
       for (const g of Object.values(back.gear)) expect(html, 'вернётся снаряжение').toContain(`+${fmtInt(g ?? 0)}`);

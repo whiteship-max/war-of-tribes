@@ -22,6 +22,12 @@ import { fmtInt } from '@/ui/next/hudTips';
 import { Leave } from './leave';
 import { woundedOf } from './ArmyDesk';
 
+/**
+ * Строка подтверждения роспуска — под «Точно?» кнопки (ПН-1ч; из длинного пояснения, убранного ДР-8, docs/ui_v2.md, «Дружина —
+ * отложенные надписи»): что вернётся, карточка уже сказала строкой «Вернётся», а что пропадёт — только здесь.
+ */
+export const DISMISS_WARN = 'Плата за найм и учения пропадает.';
+
 /** Быстрые числа роспуска; «Все дома» — четвёртой кнопкой. */
 export const QUICK = [1, 10, 100] as const;
 
@@ -145,7 +151,7 @@ export function KindCardBody({ s, troop, n, onCount, onDismiss, onMore, onClose 
             </div>
           </dl>
         )}
-        <Btn kind="main" wide confirm why={check.blocked} onClick={() => onDismiss(k)}>
+        <Btn kind="main" wide confirm warn={DISMISS_WARN} why={check.blocked} onClick={() => onDismiss(k)}>
           Распустить {fmtInt(k)}
         </Btn>
       </div>

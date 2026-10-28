@@ -19,13 +19,21 @@ export interface BtnProps {
   why?: string | null;
   /** Необратимое: первое касание — «Точно?» на три секунды, второе — дело. */
   confirm?: boolean;
+  /** Строка подтверждения под «Точно?» — что пропадёт безвозвратно; только у `confirm`, одна строка 11 px. */
+  warn?: string;
   wide?: boolean;
   label?: string;
   /** Метка обучения (`data-tut`): шаги ищут кнопку по ней, а не по виду. */
   tut?: string;
 }
 
-export function Btn({ children, onClick, kind = 'plain', sub, why, confirm = false, wide = false, label, tut }: BtnProps) {
+/** Лицо кнопки: подпись и строка под ней; взведённая — «Точно?» и строка подтверждения (`warn`), если она есть. */
+export function btnFace(armed: boolean, children: ReactNode, sub?: ReactNode, warn?: string): ReactNode {
+  if (armed) return [<span key="t">Точно?</span>, warn ? <small key="w">{warn}</small> : null];
+  return [<span key="t">{children}</span>, sub !== undefined ? <small key="s">{sub}</small> : null];
+}
+
+export function Btn({ children, onClick, kind = 'plain', sub, why, confirm = false, warn, wide = false, label, tut }: BtnProps) {
   const [armed, arm, disarm] = useTwoTap();
   const off = Boolean(why);
   const button = (
@@ -41,8 +49,7 @@ export function Btn({ children, onClick, kind = 'plain', sub, why, confirm = fal
         onClick();
       }}
     >
-      <span>{armed ? 'Точно?' : children}</span>
-      {sub !== undefined && !armed && <small>{sub}</small>}
+      {btnFace(armed, children, sub, confirm ? warn : undefined)}
     </button>
   );
   if (!off) return button;

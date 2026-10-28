@@ -20,7 +20,7 @@ import { Num } from './Num';
 import { Row } from './Row';
 import { COL_W, Table, tracks } from './Table';
 import { Bar, fillOf } from './Bar';
-import { Btn } from './Btn';
+import { Btn, btnFace } from './Btn';
 import { SheetPage, Tabs, badgeText } from './SheetPage';
 import { REST_LABEL, breakdown, restOf, type Part } from './breakdown';
 import { WINDOW, producersOf, sourceWord, type Source, type SourceKey } from './sources';
@@ -245,6 +245,15 @@ describe('части набора: разметка', () => {
     expect(on).not.toContain('disabled');
     expect(on).not.toContain('kit-why');
     expect(on).toContain('<small>1 ч 1 мин</small>');
+  });
+
+  it('кнопка с подтверждением: взведённая — «Точно?» и строка `warn`, не взведённая — подпись и срок, без `warn`', () => {
+    const face = (armed: boolean): string =>
+      renderToStaticMarkup(h('button', null, btnFace(armed, 'Распустить 3', '1 ч', 'Плата за найм и учения пропадает.')));
+    expect(face(true)).toBe('<button><span>Точно?</span><small>Плата за найм и учения пропадает.</small></button>');
+    expect(face(false)).toBe('<button><span>Распустить 3</span><small>1 ч</small></button>');
+    // Без строки подтверждения взведённая — одно «Точно?», как прежде.
+    expect(renderToStaticMarkup(h('button', null, btnFace(true, 'Сдаться', '1 ч')))).toBe('<button><span>Точно?</span></button>');
   });
 
   it('лист окна: «закрыть» в шапке, вкладки ролью, полоса действия внизу', () => {
