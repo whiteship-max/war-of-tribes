@@ -384,7 +384,9 @@ function sb2b(view: string, cell = false): string {
  */
 function mapAt(scale: number | null): string {
   return `(async () => {
-    ${STAY}
+    // Окно «Игра открыта дважды» (свой прошлый шаг стенда): «Оставить там» прячет его без перезагрузки — «Продолжить здесь»
+    // перезагрузил бы страницу посреди захода, и помощники стенда пропали бы.
+    [...document.querySelectorAll('.modal button')].find((b) => b.textContent.includes('Оставить там'))?.click();
     window.__ui.reset();
     window.__game.getState().openMap();
     await new Promise((r) => setTimeout(r, 2500));
