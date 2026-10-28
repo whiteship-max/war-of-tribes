@@ -15,7 +15,7 @@ import type { SpiritLineId } from '@/game/spiritrules';
 import { pad, q } from './raid-common';
 import { median } from './lib/front';
 import type { Spirited } from './lib/spirited';
-import type { Out } from './raid-live';
+import { NAME, STYLES, type Out, type Style } from './raid-live';
 import type { Hired } from './raid-hiring';
 
 const every = (outs: Out[]): Spirited[] => outs.flatMap((o) => o.l.spirits);
@@ -102,4 +102,33 @@ export function spiritSection(hired: Hired): void {
     if (id !== 'base' && seen === 0) continue;
     console.log(`  ${name.padEnd(22)} ${pad(mo.toFixed(2), 7)} / ${pad(di.toFixed(2), 7)}   в ${pad(seen, 5)} боях из ${inW.length}`);
   }
+  byStyle(hired);
+}
+
+/** Бой с долгом по жалованью или голодом войска на входе: строка «терпение» отняла мораль. */
+const patient = (s: Spirited): boolean => (s.lines.patience?.morale ?? 0) < 0;
+
+/**
+ * Дух по поведениям игрока (ПБ-1, п. 4; docs/siege_v2.md, «Решения ПБ-1»): чьи бои идут с долгом или голодом — строка «терпение».
+ * Лестница (А) и партия с первой секунды (Б) — по поведению из ключа прогона; уведённые люди (В) — «по средствам».
+ */
+function byStyle(hired: Hired): void {
+  const by = new Map<Style, Spirited[]>();
+  const put = (style: Style, outs: Out[]): void => {
+    by.set(style, [...(by.get(style) ?? []), ...sample(every(outs))]);
+  };
+  for (const [k, outs] of Object.entries(hired.ladder)) put(k.split(':')[0] as Style, outs);
+  for (const [style, outs] of Object.entries(hired.fresh) as [Style, Out[]][]) put(style, outs);
+  put('means', hired.captives);
+  const inW = [...by.values()].flat();
+  console.log('По поведениям (ПБ-1, п. 4) — сколько боёв выборки W идут с долгом по жалованью или голодом войска (строка «терпение»):');
+  console.log(' поведение                       боёв  с терпением  мораль: медиана');
+  for (const style of STYLES) {
+    const ss = by.get(style) ?? [];
+    if (ss.length === 0) continue;
+    const n = ss.filter(patient).length;
+    console.log(` ${NAME[style].padEnd(30)} ${pad(ss.length, 5)}  ${pad(`${n} (${((100 * n) / ss.length).toFixed(1)} %)`, 11)}  ${pad(median(ss.map((s) => s.morale)).toFixed(1), 15)}`);
+  }
+  const n = inW.filter(patient).length;
+  console.log(` ${'все бои выборки W'.padEnd(30)} ${pad(inW.length, 5)}  ${pad(`${n} (${inW.length ? ((100 * n) / inW.length).toFixed(1) : '0.0'} %)`, 11)}  ${pad(inW.length ? median(inW.map((s) => s.morale)).toFixed(1) : '—', 15)}`);
 }
