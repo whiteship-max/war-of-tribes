@@ -90,3 +90,58 @@ export function gateMove(seen: readonly Table[], table: Table, last: boolean): G
   if (last) return { kind: 'stuck', rows: moving };
   return { kind: 'step', table: next };
 }
+
+// ---------- Стена и лестницы (ПБ-1, п. 3) ----------
+//
+// Грани обороны стены и лестниц (`world/data/wall.ts`) выводятся тем же кругом, что W и шаг кости (`npm run derive -- w`): бои у стен
+// — выборка W, а ширина решает бой у стены. Допуск — тот же, что у раздела «сила стены» `siege:report` (там «РАСХОДИТСЯ» с
+// четверти грани); повернувшая назад грань — полусуммой до десятых (правило 16).
+
+/** Грань села: выведенная ближе четверти грани к записанной — допуск раздела «сила стены». */
+export const WALL_SETTLE = 0.25;
+
+/** Грани стены: оборона и лестницы сверх неё (`WallFaces` мира — без импорта: файл держит тест без мира). */
+export interface Faces {
+  wall: number;
+  ladder: number;
+}
+const FACES = ['wall', 'ladder'] as const;
+const faceName = { wall: 'оборона стены', ladder: 'лестницы' } as const;
+
+export type FacesMove =
+  /** Обе грани сели — записать выведенные. */
+  | { kind: 'settled' }
+  /** Не севшие грани повернули назад — записать их полусуммой, флаг. */
+  | { kind: 'swing'; next: Faces; faces: string[] }
+  /** Записать: повернувшие — полусуммой, прочие — выведенными; шаг ещё. */
+  | { kind: 'step'; next: Faces }
+  /** Шаг последний, а грани `faces` идут в одну сторону — не сошлось. */
+  | { kind: 'stuck'; faces: string[] };
+
+/** Ход вывода граней после шага: `seen` — записанные грани по шагам, `derived` — выведенные, `last` — шаг последний. */
+export function facesMove(seen: readonly Faces[], derived: Faces, last: boolean): FacesMove {
+  const was = seen[seen.length - 1];
+  const prev = seen.length >= 2 ? seen[seen.length - 2] : undefined;
+  const next = { ...derived };
+  const swung: string[] = [];
+  const moving: string[] = [];
+  for (const f of FACES) {
+    if (Math.abs(derived[f] - was[f]) < WALL_SETTLE) continue;
+    if (turned(prev?.[f], was[f], derived[f])) {
+      swung.push(faceName[f]);
+      next[f] = Math.round(((derived[f] + was[f]) / 2) * 10) / 10;
+    } else moving.push(faceName[f]);
+  }
+  if (swung.length === 0 && moving.length === 0) return { kind: 'settled' };
+  if (moving.length === 0) return { kind: 'swing', next, faces: swung };
+  if (last) return { kind: 'stuck', faces: moving };
+  return { kind: 'step', next };
+}
+
+/** Записать грани в исходник `world/data/wall.ts`: строки `WALL_FACES = N;` и `LADDER_FACES = N;`. Не нашлось — `null`. */
+export function withFaces(src: string, faces: Faces): string | null {
+  const a = src.replace(/export const WALL_FACES = [\d.]+;/, `export const WALL_FACES = ${faces.wall};`);
+  const b = a.replace(/export const LADDER_FACES = [\d.]+;/, `export const LADDER_FACES = ${faces.ladder};`);
+  const found = /export const WALL_FACES = [\d.]+;/.test(src) && /export const LADDER_FACES = [\d.]+;/.test(src);
+  return found ? b : null;
+}

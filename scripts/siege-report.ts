@@ -22,11 +22,11 @@
 //     ли лагерь малыми заходами (от ответа зависит, нужен ли откат).
 //
 //   npx vite-node scripts/siege-report.ts
-import { HOME_ID, LocalWorld } from '@/world/local/LocalWorld';
+import { LocalWorld } from '@/world/local/LocalWorld';
 import type { WorldSave } from '@/world/local/state';
 import { resolveField } from '@/world/battle';
 import { guardKinds, machineFight, wallFight } from '@/world/fights';
-import { SCALING, wallFront, type Assault, type WallFront } from '@/world/wall';
+import { SCALING, wallFront, type Assault } from '@/world/wall';
 import { LADDER_FACES, WALL, WALL_BREACHES, WALL_FACES, WALL_TARGET_BREACHED, WALL_TARGET_SCALING, type WallFaces } from '@/world/data/wall';
 import { MACHINE_IDS, MACHINE_WOOD } from '@/world/data/machines';
 import { GUARD_SHARE, MACHINE_NAME } from '@/world/machines';
@@ -35,7 +35,7 @@ import { menOfPower, raidingParty } from '@/world/garrison';
 import { campPass, passKinds, sideWorks } from '@/world/works';
 import { awayOf, homeOf } from '@/world/muster';
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
-import { kindsOf, powerOf, troopPower } from '@/game/battle/price';
+import { kindsOf, powerOf } from '@/game/battle/price';
 import { stackTotal } from '@/battle';
 import {
   AI_ATTACK_MAX,
@@ -62,15 +62,14 @@ import { bountyOf, fairTribute, siegeShare, tributeGoods } from '@/world/parley'
 import { stackCarry, stackEscort } from '@/world/data/units';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
-import { buildingStat, defense, housingCapacity, productionPerDay, storageCap, hiddenStash, towerSeats, upgradeCost, wageOf } from '@/game/derived';
+import { buildingStat, defense, productionPerDay, storageCap, hiddenStash, towerSeats, upgradeCost, wageOf } from '@/game/derived';
 import { BUILDINGS } from '@/game/data/buildings';
 import { RESOURCE_IDS, SIEGE_YIELD } from '@/game/constants';
 import type { EngineId, GameState } from '@/game/types';
 import { ENGINE_BY_ID } from '@/game/data/engines';
 import { archerPerSiege, archerRecruit, crewFor, enginePrice } from './lib/engines';
-import { dayRealSeconds, gameDaysOfMs, gameDaysPerHour, realMs, worldDays } from '@/game/pace';
-import { PULSE_FLOOR } from './autopilot';
-import { setRaidPower } from './console/world';
+import { dayRealSeconds, gameDaysOfMs, gameDaysPerHour, worldDays } from '@/game/pace';
+import { STEP_MS, STORM_VARIANTS, TOWN_MIX, TOWN_SEEDS, WAIT_DAYS, armyUnit, evenK, fieldKOf, freezeSiege, frozenWindow, median, memory, phaseSieges, stepsFor, strongRaids, townAt, wallFacesOf, wallRatioOf, PHASE_LEVELS, type Frozen } from './siege-wall';
 
 const MIN = 60_000;
 const SEEDS = [11, 42, 77, 101, 202, 303];
@@ -82,25 +81,6 @@ const SEEDS = [11, 42, 77, 101, 202, 303];
  * времени и означает то же, что означал: 480 игровых дней.
  */
 const GAME_DAYS = 480;
-/**
- * Шаг мира — тоже игровым временем, с полом в настоящую минуту (`PULSE_FLOOR`, как у автопилота):
- * иначе тот же горизонт стоил бы в тридцать раз больше шагов. Десять игровых секунд — пять
- * настоящих минут при ×30, и это грубее пола, поэтому пол ни на что не влияет; он стоит затем,
- * чтобы при шкале 1 шаг остался прежним.
- *
- * `PULSE` — ручка замера, настоящих секунд, и не приёмки: ею проверяют, не меняет ли выводов более
- * редкий пульс мира (docs/time.md, раздел 18.10). Имя то же, что у автопилота.
- */
-const STEP_MS = (Number(process.env.PULSE) > 0 ? Number(process.env.PULSE) : Math.max(PULSE_FLOOR, realMs(10) / 1000)) * 1000;
-/**
- * Сколько шагов покрывают `days` игровых дней при шаге `STEP_MS`. Ждать осады отчёт ждёт игровым
- * временем: осада приходит из паузы между набегами (`AI_ATTACK_MIN..MAX`, игровые дни), а до
- * поворота шкалы эти ожидания стояли числами настоящих шагов — и после поворота не дожидались
- * ничего (docs/time.md, раздел 18).
- */
-const stepsFor = (days: number): number => Math.ceil(worldDays(days) / STEP_MS);
-/** Горизонт ожидания осады: столько же игрового времени, сколько отчёт ждал при дне в минуту. */
-const WAIT_DAYS = 360;
 /**
  * Срок мира в **игровых днях**. Всё, чем меряется осада, объявлено игровым временем —
  * рогатки, остывание, паузы набегов, выручка, проход, — и печатать их настоящими минутами
@@ -299,93 +279,7 @@ console.log('столбцы — мощь лагеря; вылазка вдеся
 
 const LEVELS = [1, 5, 10];
 const DELAYS = [0, 4, 8, 12, 16, 20, 24, 28, 36, 44, 52, 60];
-const TOWN_SEEDS = [11, 42, 77, 101, 202, 303, 404, 505];
 const VARIANTS = 3;
-const TOWN_MIX: TroopStack = { spearman: 4, archer: 3, legionary: 2, rider: 1 };
-
-/**
- * Мерка войска посёлка этапа: 20 бойцов на первом уровне и по 10 за каждый следующий.
- * Это прежняя вместимость Статуи — правилом игры она больше не является (войско держит
- * цена), но все замеры осады сняты на этих составах, и сравниваются они между
- * прогонами. Правило здесь — мерка отчёта, а не игры.
- */
-const armyUnit = (level: number): number => 20 + 10 * (level - 1);
-
-/** Посёлок уровня L: жильё на 90%, склад полон, войско — две мерки. */
-function townAt(level: number): GameState {
-  const g = createInitialState(7);
-  for (const b of g.buildings) b.level = level;
-  g.pop = Math.round(housingCapacity(g) * 0.9);
-  const n = armyUnit(level) * 2;
-  let left = n;
-  const ids = Object.keys(TOWN_MIX) as (keyof TroopStack)[];
-  ids.forEach((id, i) => {
-    const k = i === ids.length - 1 ? left : Math.round((n * (TOWN_MIX[id] ?? 0)) / 10);
-    g.army[id] = k;
-    left -= k;
-  });
-  autoAssign(g);
-  for (const r of RESOURCE_IDS) g.resources[r] = storageCap(g);
-  return g;
-}
-
-function memory(data: string | null = null) {
-  return {
-    read: (): string | null => data,
-    write: (json: string): void => {
-      data = json;
-    },
-  };
-}
-
-/**
- * Лагерь стенда — сильный (решение владельца 24.10.2026, docs/siege_v2.md, 23.14). После ОС-1 лагерь логова слабее гарнизона
- * у посёлка стенда голодом не морит: поля за стеной кормят город (штраф к хлебу ниже безубыточного), и лагерь снимается в
- * первую фазу — у L10 лагеря ×0.81…0.99 гарнизона, окно в одну фазу. Разделы ниже меряют осаду, которая морит голодом, —
- * вылазки, стороны лагеря, орудия, ход осады, «безразличие», силу стены, способы штурма, ответы, переговоры, цену падения.
- * Поэтому набег логова на наш город в пути получает мощь ×`CUT_RATIO_STRONG` гарнизона мерки кольца (бойцы строя дома, без
- * ополчения, — `LocalWorld.garrisonPower`): штраф к хлебу наибольший, поля не кормят, как у любого лагеря до ОС-1. Мощь —
- * той же дверью, что консоль (`console/world.setRaidPower`); садиться ли лагерем — решает мир в минуту прихода.
- */
-function strongRaids(world: LocalWorld, pulse: WorldPulse, g: GameState, done: Set<string>): void {
-  const save = (world as unknown as { save: WorldSave }).save;
-  const garrison = troopPower(homeOf(g.army, awayOf(pulse.marches, pulse.figures)));
-  for (const m of save.marches) {
-    if (m.own || m.targetId !== HOME_ID || done.has(m.id)) continue;
-    setRaidPower(m, CUT_RATIO_STRONG * garrison);
-    done.add(m.id);
-  }
-}
-
-interface Frozen {
-  seed: number;
-  save: string;
-  since: number;
-  starvesAt: number;
-  campPower: number;
-  g: GameState;
-}
-
-async function freezeSiege(seed: number, level: number, engine: EngineId | null = null): Promise<Frozen | null> {
-  const g = townAt(level);
-  // Орудие готово с первой минуты: башня уровня L, расчёт — лучники гарнизона (TOWN_MIX).
-  if (engine) g.engine = { id: engine, until: 0 };
-  let now = 1_700_000_000_000;
-  const store = memory();
-  const world = new LocalWorld({ seed, now: () => now, storage: store });
-  const strong = new Set<string>();
-  for (let i = 0; i < stepsFor(WAIT_DAYS); i++) {
-    now += STEP_MS;
-    const r = await world.sync(playerProfile(g));
-    strongRaids(world, r, g, strong);
-    if (!r.siege) continue;
-    const save = store.read() as string;
-    const parsed = JSON.parse(save);
-    const camp = parsed.marches.find((x: { id: string }) => x.id === parsed.sieges.home.campId);
-    return { seed, save, since: r.siege.since, starvesAt: r.siege.starvesAt, campPower: camp.power, g };
-  }
-  return null;
-}
 
 /**
  * Полководец свежим: энергия агентов (docs/agent_energy.md) — не предмет этого отчёта. Удар с тыла меряется на минутах
@@ -1245,25 +1139,9 @@ console.log('лучник против орудия: цена, с которой
 // раздела — на настоящих окнах осады (лагерь логова под посёлком L5 и L10, `freezeSiege`), числа — дверью фаз
 // (`world/siegeroll`): своей арифметики у отчёта нет.
 
-const PHASE_LEVELS = [5, 10];
 const PHASE_VARIANTS = 4;
-/** Вариантов боя у раздела «способы штурма»: разница способов — доли силы, и четырёх вариантов на неё мало. */
-const STORM_VARIANTS = 12;
-const phaseFrozen: { level: number; fz: Frozen }[] = [];
-for (const level of PHASE_LEVELS) {
-  for (const seed of TOWN_SEEDS) {
-    const fz = await freezeSiege(seed, level);
-    if (fz) phaseFrozen.push({ level, fz });
-  }
-}
+const phaseFrozen = await phaseSieges();
 
-/** Окно осады и лагерь из замороженного сохранения. */
-function frozenWindow(fz: Frozen): { win: SiegeWindow; camp: { id: string; power: number; homeDays: number }; worldSeed: number } {
-  const save = JSON.parse(fz.save);
-  const win = save.sieges.home as SiegeWindow;
-  const m = save.marches.find((x: { id: string }) => x.id === win.campId);
-  return { win, camp: { id: m.id, power: m.power, homeDays: win.homeDays ?? 0 }, worldSeed: save.seed };
-}
 
 /** Лагерь с камнемётом, готовым с минуты постановки: древесины машинам — на него с запасом (`world/machines`). */
 const MANGONEL_READY = (since: number): Pick<SiegeWindow, 'wood' | 'machines'> => ({
@@ -1418,79 +1296,11 @@ for (const id of MACHINE_IDS) {
   console.log(`${MACHINE_NAME[id].padEnd(17)} ${MACHINE_WOOD[id].toFixed(3).padStart(19)}   ${span(1).padStart(16)}   ${span(0.5).padStart(8)}   ${span(0.25).padStart(8)}`);
 }
 
-/** Лагерь и сид мира у штурма в середине осады — из сохранения, раз на осаду: штурм читает из них только числа. */
-const stormCamps = new WeakMap<Frozen, ReturnType<typeof frozenWindow>>();
-
-/**
- * Взял ли штурм войском в `k` раз сильнее лагеря к середине осады хотя бы половину боёв; `front` — стена (нет — поле без
- * стены). Ровно «доля побед из `STORM_VARIANTS` вариантов ≥ 0.5» — теми же боями в том же порядке, но до решённого ответа:
- * половина побед набрана — да; оставшимися её уже не набрать — нет. Ровный штурм спрашивает у доли только это
- * (docs/handbook/console.md, «Где было время»).
- */
-function winHalf(fz: Frozen, front: WallFront | undefined, k: number): boolean {
-  let held = stormCamps.get(fz);
-  if (!held) stormCamps.set(fz, (held = frozenWindow(fz)));
-  const { camp, worldSeed } = held;
-  const span = fz.starvesAt - fz.since;
-  const mid = fz.since + span / 2;
-  const before = Math.floor((mid - fz.since) / SIEGE_PHASE);
-  const rate = CAMP_WASTE * (1 + camp.homeDays / CAMP_WASTE_DAYS);
-  const party = raidingParty(worldSeed, camp.id, camp.power * Math.pow(1 - rate, before) * k);
-  const need = STORM_VARIANTS / 2;
-  let won = 0;
-  for (let v = 0; v < STORM_VARIANTS; v++) {
-    if (won >= need) return true;
-    if (won + (STORM_VARIANTS - v) < need) return false;
-    const { field } = wallFight({
-      seed: fz.seed * 31 + v,
-      attacker: { kinds: party.kinds },
-      defender: { kinds: kindsOf(fz.g.army), militia: militiaMen(fz.g), archers: militiaArchers(fz.g), rest: siegeWear(fz.since, mid, span) },
-      ...(front ? { front } : {}),
-    });
-    if (field.won) won += 1;
-  }
-  return won >= need;
-}
-
-/**
- * Ровный штурм одной осады за одной стеной, запомненный: «сила стены» и «способы штурма» спрашивают одни и те же стены
- * (три пролома сходятся к одной), и второй раз их не считают — бой чистая функция осады, стены и силы.
- */
-const evenKs = new WeakMap<Frozen, Map<string, number>>();
-
-/** Наименьшее `k` (до сотых), при котором штурм берёт половину боёв; бесконечность — не берёт и в двенадцать раз. */
-function evenK(fz: Frozen, front: WallFront | undefined): number {
-  let memo = evenKs.get(fz);
-  if (!memo) evenKs.set(fz, (memo = new Map()));
-  const key = JSON.stringify(front ?? null);
-  const have = memo.get(key);
-  if (have !== undefined) return have;
-  let lo = 0.25;
-  let hi = 12;
-  let k: number;
-  if (!winHalf(fz, front, hi)) k = Infinity;
-  else if (winHalf(fz, front, lo)) k = lo;
-  else {
-    while (hi - lo > 0.01) {
-      const mid = (lo + hi) / 2;
-      if (winHalf(fz, front, mid)) hi = mid;
-      else lo = mid;
-    }
-    k = hi;
-  }
-  memo.set(key, k);
-  return k;
-}
-
-function median(xs: number[]): number {
-  const a = [...xs].sort((x, y) => x - y);
-  return a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2) : NaN;
-}
 
 /** Ровный штурм поля — тот же бой без стены: мерка «во сколько раз сильнее» у целей владельца. */
-const fieldK = median(phaseFrozen.map((x) => evenK(x.fz, undefined)));
+const fieldK = fieldKOf(phaseFrozen);
 /** Ровный штурм способа `a` при гранях `faces`, в долях поля. */
-const wallRatio = (a: Assault, faces: WallFaces): number => median(phaseFrozen.map((x) => evenK(x.fz, wallFront(a, undefined, faces)))) / fieldK;
+const wallRatio = (a: Assault, faces: WallFaces): number => wallRatioOf(phaseFrozen, a, faces);
 
 console.log('');
 console.log(`--- сила стены: грани обороны стены и лестниц из целей владельца (docs/siege_v2.md, 17.1; ${phaseFrozen.length} осад × ${STORM_VARIANTS} вариантов) ---`);
@@ -1498,19 +1308,8 @@ console.log(`цели: через три пролома ровный штурм 
 console.log('поле — тот же бой без стены (ополчение и стрелки на месте); ровный штурм — медиана по осадам, как «способы штурма»;');
 console.log('сперва оборона стены (все проёмы) по трём проломам, потом лестницы сверх неё по штурму с ходу — бисекцией по граням.');
 {
-  /** Грани, при которых `ratio(faces)` доходит до цели: бисекция по монотонной доле (больше граней — дороже штурм). */
-  const solve = (ratio: (f: number) => number, target: number): number => {
-    let lo = 0;
-    let hi = 30;
-    for (let i = 0; i < 9; i++) {
-      const mid = (lo + hi) / 2;
-      if (ratio(mid) < target) lo = mid;
-      else hi = mid;
-    }
-    return Math.round(((lo + hi) / 2) * 10) / 10;
-  };
-  const wallF = solve((f) => wallRatio({ breaches: WALL_BREACHES }, { wall: f, ladder: 0 }), WALL_TARGET_BREACHED);
-  const ladderF = solve((f) => wallRatio(SCALING, { wall: wallF, ladder: f }), WALL_TARGET_SCALING);
+  // Вывод граней — одна функция на раздел и на вывод W (`npm run derive -- w`, ПБ-1, п. 3): `siege-wall.wallFacesOf`.
+  const { wall: wallF, ladder: ladderF } = wallFacesOf(phaseFrozen);
   console.log(`ровный штурм поля: ×${fieldK.toFixed(2)} лагеря`);
   console.log(`было (горы EU4, −2 только лестницам): с ходу ×${wallRatio(SCALING, { wall: 0, ladder: 2 }).toFixed(2)} поля, три пролома ×${wallRatio({ breaches: WALL_BREACHES }, { wall: 0, ladder: 2 }).toFixed(2)}`);
   console.log(`оборона стены: ${wallF} грани (в коде WALL_FACES = ${WALL_FACES}${Math.abs(wallF - WALL_FACES) < 0.25 ? '' : ' — РАСХОДИТСЯ'})`);

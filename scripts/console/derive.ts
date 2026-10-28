@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { viteNode } from '../lib/fan';
-import { FOES, GATE_SETTLE, NOT_SETTLED_EXIT, W_SWING, gateMove, gateSettled, wMove, type Foe, type Table } from './fixpoint';
+import { FOES, GATE_SETTLE, NOT_SETTLED_EXIT, WALL_SETTLE, W_SWING, facesMove, gateMove, gateSettled, wMove, withFaces, type Faces, type Foe, type Table } from './fixpoint';
 import { ROOT, fail, has, heavy, helpIf, num, parseArgs, rejectUnknown } from './lib';
 
 const C = 'derive';
@@ -19,14 +19,16 @@ npm run derive -- step [--from A] [--to B]
 
   w        W и шаг кости — раздел «Ширина поля» raid-hiring: только прогоны «Найма» (лестница, партия с первой секунды,
            уведённые), без «Лазарета», «Сожжённых» и «Морали»; шаг кости — на выведенном W, на окне ширин W − 2 … W + 2
-           (bench.stepHold, ПБ-1)
+           (bench.stepHold, ПБ-1); стена и лестницы — раздел «сила стены» siege:report (siege-wall.wallFacesOf), тем же
+           кругом: точка села, когда W неподвижен и грани в четверти грани от записанных
   step     кривая шага кости по W отрезка (--from, --to; по умолчанию W конфига ± 5): монотонно ли и где скачки (задача 22.7);
            ничего не пишет
   gate     таблица сил у ворот — раздел 4б raid-mix: партии мерки и ровный бой (без кривых медианного, окрестности и боя
            без кости — их печатает отчёт)
 
   --steps N  сколько шагов самое большее (w — 4, gate — 3, как в заданиях владельца); без --write — всегда один шаг
-  --write    править записанное между шагами: W и шаг — src/battle/config.ts (FRONT_WIDTH, DICE.step), таблица —
+  --write    править записанное между шагами: W и шаг — src/battle/config.ts (FRONT_WIDTH, DICE.step), стена и лестницы —
+             src/world/data/wall.ts (WALL_FACES, LADDER_FACES), таблица —
              src/game/data/events.ts (GATE_POWER). Без него — один шаг и печать; записанное не трогается
   --pause M  пауза между шагами, минут (3; бюджет железа: машина остывает между тяжёлыми прогонами)
 
@@ -69,7 +71,13 @@ if (child) {
     const sp = spiritOfHired(hired);
     if (sp) console.log(`  дух нашей стороны в боях выборки: мораль — медиана ${sp.morale.toFixed(1)} (10-я…90-я ${sp.low.toFixed(1)}…${sp.high.toFixed(1)}), дисциплина — медиана ${sp.discipline.toFixed(1)}; потолок — мораль ${sp.moraleCeil.toFixed(1)}, дисциплина ${sp.disciplineCeil.toFixed(1)}`);
     spiritSection(hired);
-    console.log(`DERIVE ${JSON.stringify({ was: FRONT_WIDTH, wasStep: DICE.step, w: r.w, step: r.step, fights: r.fights })}`);
+    // Стена и лестницы — пара с W (ПБ-1, п. 3): раздел «сила стены» `siege:report` той же функцией, на записанном W.
+    const { phaseSieges, wallFacesOf } = await import('../siege-wall');
+    const { WALL_FACES, LADDER_FACES } = await import('@/world/data/wall');
+    const sieges = await phaseSieges();
+    const faces = wallFacesOf(sieges);
+    console.log(`  стена (раздел «сила стены» siege:report, ${sieges.length} осад): оборона ${faces.wall} грани (записано ${WALL_FACES}), лестницы ${faces.ladder} (записано ${LADDER_FACES})`);
+    console.log(`DERIVE ${JSON.stringify({ was: FRONT_WIDTH, wasStep: DICE.step, w: r.w, step: r.step, fights: r.fights, wasFaces: { wall: WALL_FACES, ladder: LADDER_FACES }, faces })}`);
   } else if (what === 'gate') {
     const { gateEvens, gateValue } = await import('../raid-defense-mix');
     const { GATE_POWER } = await import('@/game/data/events');
@@ -157,6 +165,15 @@ function writeW(w: number, stepValue: number): void {
   writeFileSync(CONFIG, s);
 }
 
+const WALL_FILE = path.join(ROOT, 'src', 'world', 'data', 'wall.ts');
+
+/** Записать грани стены и лестниц (ПБ-1, п. 3): строки `WALL_FACES` и `LADDER_FACES` в `src/world/data/wall.ts`. */
+function writeWall(faces: Faces): void {
+  const out = withFaces(readFileSync(WALL_FILE, 'utf8'), faces);
+  if (out === null) fail(C, 'не нашёл WALL_FACES или LADDER_FACES в src/world/data/wall.ts — их вид изменился, правка руками');
+  writeFileSync(WALL_FILE, out);
+}
+
 /** Записать таблицу у ворот: строки `wolves: [...]` и `raiders: [...]` в `GATE_POWER`. */
 function writeGate(table: Table): void {
   let s = readFileSync(EVENTS, 'utf8');
@@ -181,34 +198,47 @@ const history: string[] = [];
 let code = 0;
 if (what === 'w') {
   const seen: number[] = [];
+  const seenFaces: Faces[] = [];
   let final: string | null = null;
   for (let k = 1; k <= steps; k++) {
     console.log(`--- шаг ${k} из ${steps} ---`);
     const started = Date.now();
-    const r = (await step()) as { was: number; wasStep: number; w: number; step: number; fights: number };
-    history.push(`шаг ${k}: при W ${r.was} (шаг ${r.wasStep}) выведено W ${r.w}, шаг ${r.step}, боёв ${r.fights}`);
+    const r = (await step()) as { was: number; wasStep: number; w: number; step: number; fights: number; wasFaces: Faces; faces: Faces };
+    const facesText = `стена ${r.faces.wall} (записано ${r.wasFaces.wall}), лестницы ${r.faces.ladder} (записано ${r.wasFaces.ladder})`;
+    history.push(`шаг ${k}: при W ${r.was} (шаг ${r.wasStep}) выведено W ${r.w}, шаг ${r.step}, боёв ${r.fights}; ${facesText}`);
     seen.push(r.was);
-    if (!write && r.w !== r.was) {
-      final = `один шаг: выведено W ${r.w} при записанном ${r.was}; дальше — --write (или правка руками и шаг заново)`;
+    seenFaces.push(r.wasFaces);
+    const fm = facesMove(seenFaces, r.faces, k === steps);
+    if (!write && (r.w !== r.was || fm.kind !== 'settled')) {
+      final = `один шаг: выведено W ${r.w} при записанном ${r.was}, ${facesText}; дальше — --write (или правка руками и шаг заново)`;
       break;
     }
     const move = wMove(seen, r.w, k === steps);
-    if (move.kind === 'fixed') {
-      final = `W сошёлся: ${r.w} — неподвижная точка (шаг кости ${r.step}${r.step === r.wasStep ? ', как записан' : `; записан ${r.wasStep} — правится на ${r.step}`})`;
+    if (move.kind === 'fixed' && fm.kind === 'settled') {
+      final = `W сошёлся: ${r.w} — неподвижная точка (шаг кости ${r.step}${r.step === r.wasStep ? ', как записан' : `; записан ${r.wasStep} — правится на ${r.step}`}); грани стены сели в ${WALL_SETTLE}: ${facesText}`;
       if (write && r.step !== r.wasStep) writeW(r.w, r.step);
+      if (write) writeWall(r.faces);
       break;
     }
-    if (move.kind === 'stuck') {
-      final = `НЕ СОШЛОСЬ за ${steps} шагов: последнее выведенное W ${r.w} при записанном ${r.was}; записанное оставлено — стоп и доклад (код ${NOT_SETTLED_EXIT})`;
+    if (move.kind === 'stuck' || fm.kind === 'stuck') {
+      const why = [move.kind === 'stuck' ? `W ${r.w} при записанном ${r.was}` : '', fm.kind === 'stuck' ? `в одну сторону идут: ${fm.faces.join(', ')}` : ''].filter(Boolean).join('; ');
+      final = `НЕ СОШЛОСЬ за ${steps} шагов: ${why}; записанное оставлено — стоп и доклад (код ${NOT_SETTLED_EXIT})`;
       code = NOT_SETTLED_EXIT;
       break;
     }
-    // Шаг кости — функция только W (решётка «Лезвия» размера W): у записанного W он тот, что выводит раздел на этом W.
-    const nextStep = move.next === r.w ? r.step : await stepAt(move.next);
-    writeW(move.next, nextStep);
-    console.log(`  записано: W ${move.next}, шаг кости ${nextStep} (src/battle/config.ts)`);
+    // Шаг кости — функция только W (окно ширин вокруг W, `bench.stepHold`): у записанного W он тот, что выводит раздел на этом W.
+    const nextW = move.kind === 'fixed' ? r.w : move.next;
+    const nextStep = nextW === r.w ? r.step : await stepAt(nextW);
+    const nextFaces = fm.kind === 'settled' ? r.faces : fm.next;
+    writeW(nextW, nextStep);
+    writeWall(nextFaces);
+    console.log(`  записано: W ${nextW}, шаг кости ${nextStep} (src/battle/config.ts); стена ${nextFaces.wall}, лестницы ${nextFaces.ladder} (src/world/data/wall.ts)`);
     if (move.kind === 'swing') {
-      final = `ФЛАГ (правило 19): W качается ${r.was} ↔ ${r.w} в пределах ±${W_SWING} — записана полусумма ${move.next}, шаг кости ${nextStep}`;
+      final = `ФЛАГ (правило 19): W качается ${r.was} ↔ ${r.w} в пределах ±${W_SWING} — записана полусумма ${nextW}, шаг кости ${nextStep}; стена ${nextFaces.wall}, лестницы ${nextFaces.ladder}${fm.kind === 'settled' ? '' : ' (грани на полусумме W не проверены)'}`;
+      break;
+    }
+    if (fm.kind === 'swing' && move.kind === 'fixed') {
+      final = `ФЛАГ (правило 19): W ${r.w} неподвижен, грани качаются (${fm.faces.join(', ')}) — записаны полусуммой: стена ${nextFaces.wall}, лестницы ${nextFaces.ladder}`;
       break;
     }
     await rest(started);

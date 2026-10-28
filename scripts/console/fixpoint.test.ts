@@ -1,8 +1,10 @@
 // Правила остановки `npm run derive` (fixpoint.ts): «не сошлось» — стоп, качание W в пределах ±2 — полусумма и флаг, строки
 // таблицы у ворот — так же. Область правила — шаги вывода после первого (у первого нет прежнего записанного, качаться нечему);
 // каждая точка качания проверяется на то, что она внутри: записанное ушло от прежнего, выведенное повернуло назад.
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { GATE_SETTLE, W_SWING, gateMove, gateSettled, wMove, type Table } from './fixpoint';
+import { GATE_SETTLE, W_SWING, facesMove, gateMove, gateSettled, wMove, withFaces, type Table } from './fixpoint';
 
 const table = (wolves: number[], raiders: number[]): Table => ({ wolves, raiders });
 
@@ -69,5 +71,29 @@ describe('вывод таблицы у ворот', () => {
   it('первый шаг: поворачивать нечему — не севшие идут, на последнем — не сошлось', () => {
     expect(gateMove([was], table([120, 1000], [200, 2000]), false)).toEqual({ kind: 'step', table: table([120, 1000], [200, 2000]) });
     expect(gateMove([was], table([120, 1000], [200, 2000]), true)).toEqual({ kind: 'stuck', rows: ['волки 1-го'] });
+  });
+});
+
+describe('вывод граней стены вместе с W (ПБ-1, п. 3)', () => {
+  const at = (wall: number, ladder: number) => ({ wall, ladder });
+  it('обе в четверти грани — сели; грань за четвертью — нет', () => {
+    expect(facesMove([at(10.4, 7.9)], at(10.6, 7.7), false)).toEqual({ kind: 'settled' });
+    expect(facesMove([at(10.4, 7.9)], at(10.4, 8.15), true).kind).toBe('stuck');
+    expect(facesMove([at(10.4, 7.9)], at(10.4, 9.2), false)).toEqual({ kind: 'step', next: at(10.4, 9.2) });
+  });
+  it('повернувшая назад — полусуммой до десятых и флаг; идущая в одну сторону на последнем — не сошлось с её именем', () => {
+    // Лестницы: 7.9 → 9.2 записано, выведено 8.4 — назад; оборона идёт дальше.
+    const seen = [at(10.4, 7.9), at(10.9, 9.2)];
+    expect(facesMove(seen, at(10.9, 8.4), false)).toEqual({ kind: 'swing', next: at(10.9, 8.8), faces: ['лестницы'] });
+    expect(facesMove(seen, at(11.5, 8.4), true)).toEqual({ kind: 'stuck', faces: ['оборона стены'] });
+    expect(facesMove(seen, at(11.5, 8.4), false)).toEqual({ kind: 'step', next: at(11.5, 8.8) });
+  });
+  it('запись находит обе строки в настоящем src/world/data/wall.ts', () => {
+    const src = readFileSync(path.resolve('src/world/data/wall.ts'), 'utf8');
+    const out = withFaces(src, at(11.1, 8.2));
+    expect(out, 'строки граней найдены').not.toBeNull();
+    expect(out).toMatch(/export const WALL_FACES = 11\.1;/);
+    expect(out).toMatch(/export const LADDER_FACES = 8\.2;/);
+    expect(withFaces('const x = 1;', at(1, 1))).toBeNull();
   });
 });
