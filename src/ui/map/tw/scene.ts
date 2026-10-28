@@ -227,7 +227,8 @@ export function hostItems(cam: Camera, vp: Viewport, marches: MarchView[], discs
     const mark = hostMarkOf(look);
     const d = hostMarkPx(mark, cam.scale);
     const body = markBox(mark, d, sx, sy);
-    out.push({ m, look, mark, d, pos, standing, sx, sy, fx, fy, tx, ty, angle, body, cell, target: !m.own && m.phase === 'out' });
+    // Цель пальцу — чужой отряд в пути, туда или домой с добычей (ПЛ-1: идущего домой тоже перехватывают, `store.marchOn`).
+    out.push({ m, look, mark, d, pos, standing, sx, sy, fx, fy, tx, ty, angle, body, cell, target: !m.own && (m.phase === 'out' || m.phase === 'back') });
   }
   return out;
 }

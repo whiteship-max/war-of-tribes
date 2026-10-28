@@ -12,7 +12,7 @@ import { advance, applyOrder, emptyWars, warsOf, type SheetAt, type WarRow } fro
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
 import { ringSlots } from '@/ui/map/ring';
-import { warMoving, warSpotAt, MEET_CAMP, MEET_FAR, MEET_STALE } from './pvp';
+import { warMoving, warSpotAt, warWalkMs, MEET_CAMP, MEET_FAR, MEET_STALE } from './pvp';
 import { positionAt } from './pursuit';
 import { setPhaseDie } from './siegeroll';
 import { GENERAL_INTERCEPTS } from './siege';
@@ -464,7 +464,10 @@ describe('ПЛ-1: механика верна и без временной ск�
     const g = game({ [B]: STRONG });
     const war = await march(g, 'siege', 'train');
     const span = war.arriveAt - war.sentAt;
-    expect(span, 'точка внутри области: путь втрое длиннее, чем при ×3').toBeGreaterThan(10 * 3600_000);
+    travel.k = 3;
+    const fast = warWalkMs(war.from, war.to, 'train');
+    travel.k = 1;
+    expect(span / fast, 'точка внутри области: путь втрое длиннее, чем при ×3').toBeCloseTo(3, 1);
     const goal = await target(g.b);
     const { slot, row } = await sword(g.b, goal);
     expect(slot.on, `меч горит: ${slot.why}`).toBe(true);

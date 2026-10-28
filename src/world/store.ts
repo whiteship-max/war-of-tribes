@@ -1380,7 +1380,8 @@ export function figuresOn(x: number, y: number, now: number): FigureView[] {
  */
 export function marchOn(marches: MarchView[], cell: Coord, now: number): MarchView | null {
   for (const m of marches) {
-    if (m.own || m.phase !== 'out') continue;
+    // Чужой отряд в пути — туда или домой с добычей (ПЛ-1, MAP-9): идущего домой тоже перехватывают, и касание его находит.
+    if (m.own || (m.phase !== 'out' && m.phase !== 'back')) continue;
     const at = marchPosition(m, now);
     if (Math.round(at.x) === cell.x && Math.round(at.y) === cell.y) return m;
   }

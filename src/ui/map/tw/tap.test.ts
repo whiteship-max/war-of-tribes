@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { FigureView, MarchView, SettlementView, Stage } from '@/world/types';
 import { CHUNK, WORLD_ORIGIN } from '@/world/data/tuning';
 import { chunkKey, clearCache, putChunk } from '@/world/cache';
-import { useWorld } from '@/world/store';
+import { marchOn, useWorld } from '@/world/store';
 import { marchPosition } from '@/world/geo';
 import { Gesture, TAP_MS, TAP_SLIP, TAP_TARGET } from '@/gestures';
 import { SCALE_MAX, SCALE_MIN, SCALE_START } from '../const';
@@ -221,6 +221,16 @@ describe('цель пальца: каждый объект открываетс�
         expect(aimAt(aimsOf([], [], fi), p[0], p[1], false), `агент ×${scale}`).toEqual({ x: AT.x, y: AT.y });
       }
     }
+  });
+
+  it('чужой отряд, идущий домой с добычей, — тоже цель пальцу (ПЛ-1: его перехватывают, `store.marchOn`)', () => {
+    const cam = camAt(AT.x, AT.y, SCALE_START);
+    const home = march({ phase: 'back' });
+    const hosts = hostItems(cam, VP, [home], [{ x: AT.x, y: AT.y, r: 30 }], START, DPR);
+    const pos = marchPosition(home, START);
+    const b = hosts[0].body;
+    expect(aimAt(aimsOf([], hosts, []), (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, false)).toEqual({ x: Math.round(pos.x), y: Math.round(pos.y) });
+    expect(marchOn([home], { x: Math.round(pos.x), y: Math.round(pos.y) }, START)).toBe(home);
   });
 
   it('свой поход пальцу не цель — как и прежде (`store.marchOn` ищет только чужой идущий)', () => {

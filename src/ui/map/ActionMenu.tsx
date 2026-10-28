@@ -197,6 +197,10 @@ export function ActionMenu() {
     );
   }
 
+  // Куда идёт человек: у перехвата — точка встречи, посчитанная миром (ПЛ-1), а не клетка, где отряд сейчас.
+  const where =
+    pick?.id === 'intercept' && menu.plan?.at ? `${menu.name} · встреча в ${formatCoord(menu.plan.at)}` : `${menu.name} · ${formatCoord(menu.cell)}`;
+
   // Полководец: после выбора дела — сразу окно войска (К-2): кто уходит, кто остаётся, и подтверждение там же.
   if (pick && menu.agent === 'general' && pick.id !== 'home' && menu.goal) {
     return (
@@ -204,7 +208,7 @@ export function ActionMenu() {
         {head}
         <Suspense fallback={<p className="nx-tnote">Считаем отряд…</p>}>
           <ArmySend
-            where={`${menu.name} · ${formatCoord(menu.cell)}`}
+            where={where}
             goal={menu.goal}
             o={pick}
             fates={card?.fates ?? []}
@@ -226,7 +230,7 @@ export function ActionMenu() {
       <Wrap closeMenu={closeMenu}>
         {head}
         <ErrandConfirm
-          where={`${menu.name} · ${formatCoord(menu.cell)}`}
+          where={where}
           o={pick}
           warn={leavingCamp ? CAMP_LEAVE : null}
           busy={busy}
@@ -290,6 +294,12 @@ export function ActionMenu() {
                   {menu.march.fromName} → {menu.march.toName}, дойдут через {realLeft(secondsLeft(menu.march.arriveAt, worldNow()))}.
                 </small>
                 {menu.march.rest && <small>{restLine(menu.march.rest, 'Отряд дрался', worldNow())}</small>}
+                {/* Где и когда встреча (ПЛ-1): числа плана мира — той же функцией, что посчитает сервер войны. */}
+                {menu.agent === 'general' && menu.plan?.at && (
+                  <small>
+                    Встреча в {formatCoord(menu.plan.at)} через {realLeft(menu.plan.seconds)}.
+                  </small>
+                )}
               </span>
               <b>{menu.plan ? count(menu.plan.men, 'боец', 'бойца', 'бойцов') : '—'}</b>
             </div>

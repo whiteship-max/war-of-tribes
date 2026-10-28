@@ -33,7 +33,9 @@
 //                                                осадить» — состав и три режима («Налегке» погашено), обоз, список дел со сроком
 //                                                выбранного режима, удар налегке всем гарнизоном; `MARCH=squad` — окно отряда полководца дома и в
 //                                                пути налегке (смена: стоянка и цена, второе касание); `MARCH=dr6` — «Дойти и
-//                                                ударить» и окно дела с составом (ДР-6, 29)
+//                                                ударить» и окно дела с составом (ДР-6, 29); `MARCH=pl1` — перехват похода игрока
+//                                                (ПЛ-1, docs/siege_v2.md, «Решения ПЛ-1»): кольцо над чужим походом, окно перехвата,
+//                                                донесение о бое в поле — сервер войны из `netlify/lib/war.ts` в процессе стенда
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
 //                                                (docs/city.md, 16.5); `GAME=1 WXMAP=1 LEGEND=1` — окно в самой игре
 //   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
@@ -390,6 +392,142 @@ async function panelShots(tab: Tab): Promise<void> {
 }
 
 /**
+ * Перехват похода игрока (ПЛ-1, `MARCH=pl1`): войны в стенде нет — сервера и подписи Telegram нет, — поэтому сервер войны
+ * (`netlify/lib/war.ts`, тот же код, что у боевого) работает в процессе стенда: ответы `/api/war` — его, поход «НиСы» идёт на
+ * наш город от места ближнего логова (стенд ставит его на две пятых пути). Кадры: кольцо над чужим походом, окно перехвата с составом, донесение о бое в поле
+ * (встречу стенд переносит на ближнюю минуту — ждать часы пути стенду нельзя; бой считает тот же сервер).
+ */
+async function pl1Shots(
+  tab: Tab,
+  lair: { x: number; y: number },
+  snap: (name: string) => Promise<void>,
+  run: (js: string) => Promise<string>,
+): Promise<void> {
+  // Сервер войны — в процессе стенда (номер замка считается `node:crypto`, в странице его нет): ответы `/api/war` страница
+  // получает перехватом запроса (`Fetch.requestPaused`), слепок обороны и часы — у самой страницы.
+  const W = await import('../netlify/lib/war');
+  const R = await import('../netlify/lib/roster');
+  const C = await import('../netlify/lib/contract');
+  type Probe = { now: number; sheet: import('../netlify/lib/contract').WarSheet | null; home: { x: number; y: number } | null };
+  const probe = (): Promise<Probe> =>
+    tab.eval<Probe>(`(async () => {
+      const { worldNow } = await import('/src/world/store.ts');
+      const NW = await import('/src/net/war.ts');
+      const w = window.__world.getState();
+      return JSON.stringify({ now: worldNow(), sheet: NW.warSheet(), home: w.info ? w.info.home : null });
+    })()`);
+  await run(`window.Telegram = window.Telegram || {}; window.Telegram.WebApp = window.Telegram.WebApp || {}; window.Telegram.WebApp.initData = 'stand'`);
+  const first = await probe();
+  if (!first.home || !first.sheet) {
+    console.log('  перехват: нет дома или слепка');
+    return;
+  }
+  const DEF = 'tg-stand-def';
+  const ATK = 'tg-stand-atk';
+  let roster = R.emptyRoster();
+  roster = R.upsert(roster, DEF, { name: 'Манчестер', city: 'Манчестер', power: 5000, pop: 400 }, first.now);
+  roster = R.upsert(roster, ATK, { name: 'НиСы', city: 'НиСы', power: 5000, pop: 400 }, first.now);
+  roster.rows[DEF] = { ...roster.rows[DEF], x: first.home.x, y: first.home.y };
+  roster.rows[ATK] = { ...roster.rows[ATK], x: lair.x, y: lair.y };
+  const army = { spearman: 60, swordsman: 30, archer: 30 };
+  const atk = {
+    army, home: { ...army }, militia: 20, archers: 6, resolve: 0, pips: {}, rest: 1, food: 2000, townPerHour: 20, perManPerHour: 1,
+    stock: { food: 2000, wood: 3000, stone: 1000 }, stash: 100, gold: 400, pop: 400, bonded: 20, levels: { farm: 4, palisade: 1 },
+    power: 5000, locks: {}, seen: [],
+  } as unknown as import('../netlify/lib/contract').WarSheet;
+  const file = W.emptyWars();
+  const sheets = new Map<string, import('../netlify/lib/war').SheetAt | null>();
+  const ctx = { roster, noShield: true, sheet: (k: string) => sheets.get(k) ?? null };
+  const fresh = (p: Probe): void => {
+    sheets.set(DEF, p.sheet ? { sheet: p.sheet, at: p.now } : null);
+    sheets.set(ATK, { sheet: atk, at: p.now });
+  };
+  fresh(first);
+  const err = W.applyOrder(file, ATK, {
+    op: 'march', target: R.castleIdOf(DEF), mode: 'storm', fate: 'plunder',
+    army: { troops: army, resolve: 0, pips: {}, energy: { value: 100, at: first.now, mode: 'hold' } },
+  }, first.now, ctx);
+  if (err) {
+    console.log(`  перехват: поход не вышел — ${err}`);
+    return;
+  }
+  // Поход — на двух пятых пути (стенд, не партия): только что вышедший стоит у своих ворот, на месте двора.
+  const going = file.wars[0];
+  const span = going.arriveAt - going.sentAt;
+  going.sentAt = first.now - Math.round(span * 0.4);
+  going.arriveAt = going.sentAt + span;
+  await tab.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/war*', requestStage: 'Request' }] });
+  tab.on('Fetch.requestPaused', (raw) => {
+    const q = raw as { requestId: string; request: { method: string; postData?: string } };
+    void (async () => {
+      const p = await probe();
+      fresh(p);
+      W.advance(file, p.now, sheets);
+      let error: string | null = null;
+      if (q.request.method === 'POST') {
+        const order = C.readWarOrder(JSON.parse(q.request.postData ?? 'null'));
+        error = order ? W.applyOrder(file, DEF, order, p.now, ctx) : 'Приказ не прочитан.';
+      }
+      const body = { now: p.now, wars: W.warsOf(file, DEF), spies: [], pacts: [], proposals: [], pace: 1, ...(error ? { error } : {}) };
+      await tab.send('Fetch.fulfillRequest', {
+        requestId: q.requestId,
+        responseCode: 200,
+        responseHeaders: [{ name: 'content-type', value: 'application/json' }],
+        body: Buffer.from(JSON.stringify(body)).toString('base64'),
+      });
+    })();
+  });
+  await run(`await (await import('/src/net/war.ts')).warPull(); await window.__world.getState().pulse()`);
+  // Поход в пути: кольцо над ним, меч горит.
+  await sleep(1500);
+  await run(`const w = window.__world.getState(); const m = (w.marches || []).find((x) => x.id.startsWith('war-'));
+    const { marchPosition } = await import('/src/world/geo.ts'); const { worldNow } = await import('/src/world/store.ts');
+    const at = marchPosition(m, worldNow()); window.__pl1cell = { x: Math.round(at.x), y: Math.round(at.y) };
+    // Касание отряда тем же путём, что палец (\`__mapCam\`, \`__mapTap\` → \`WorldMap.openAt\`, только под \`?probe=1\`).
+    window.__mapCam(window.__pl1cell.x, window.__pl1cell.y, 56)`);
+  await sleep(1500);
+  await run(`window.__mapTap(window.__pl1cell.x, window.__pl1cell.y)`);
+  await sleep(2500);
+  await snap(`${TAG}-ring.png`);
+  await run(`document.querySelector('.rg-btn[data-slot="general"]')?.click()`);
+  await sleep(3000);
+  await snap(`${TAG}-window.png`);
+  // Строка «Перехватить» — окно дела с составом и режимами (ДР-6, ДР-7).
+  await run(`[...document.querySelectorAll('.nx-obtn')].find((b) => b.textContent.startsWith('Перехватить'))?.click()`);
+  await sleep(2500);
+  await run(`const bs = [...document.querySelectorAll('button[aria-label="Взять с собой 10"]')]; for (let i = 0; i < 6; i++) bs[i % 3]?.click()`);
+  await sleep(1000);
+  await run(`document.querySelector('.ms-send')?.scrollIntoView({ block: 'end' })`);
+  await sleep(800);
+  await snap(`${TAG}-window-picked.png`);
+  await run(`document.querySelector('.ms-send button')?.click()`);
+  await sleep(2500);
+  // Встреча — на ближнюю минуту: и сервер, и путь полководца (стенд, не партия).
+  const war = file.wars[0];
+  const meet = war.meets?.[0];
+  if (!meet) {
+    console.log(`  перехват: не лёг — ${JSON.stringify(await tab.eval<string>(`(async () => JSON.stringify(document.querySelector('.ms-err, .kit-err')?.textContent ?? ''))()`))}`);
+    return;
+  }
+  const now = (await probe()).now;
+  meet.at = now + 4000;
+  meet.go = now;
+  await run(`await (await import('/src/net/war.ts')).warPull(); await window.__world.getState().pulse()`);
+  await sleep(5000);
+  await run(`await (await import('/src/net/war.ts')).warPull(); await window.__world.getState().pulse()`);
+  await sleep(1500);
+  const b = war.battles.find((x) => x.site === 'field');
+  if (!b) {
+    console.log('  перехват: боя нет');
+    return;
+  }
+  const id = `war-${b.id}`;
+  await run(`window.__world.getState().closeMenu?.(); window.__game.getState().openReport('${id}')`);
+  await sleep(3000);
+  await snap(`${TAG}-report.png`);
+}
+
+/**
  * Режим марша (ДР-2, `MARCH=dr7|squad|dr6` к `GAME=1`): войско и отряд полководцу, карта, ближнее живое логово у дома.
  * `dr7` — режим в окне дела (ДР-7): «Дойти и осадить» → «+10» у двух видов → три режима («Налегке» погашено с причиной),
  * обоз, «Назад» — список дел со сроком обоза, «Ударить» налегке всем гарнизоном. `squad` — окно отряда в «Походах»: дома и в пути налегке к
@@ -440,6 +578,10 @@ async function marchShots(tab: Tab, what: string): Promise<void> {
     console.log(`  марш → .city-shots/${name}`);
   };
   const run = (js: string): Promise<string> => tab.eval<string>(`(async () => { ${js}; return JSON.stringify('ok'); })()`);
+  if (what === 'pl1') {
+    await pl1Shots(tab, lair, snap, run);
+    return;
+  }
   if (what === 'dr6') {
     const go = `[...document.querySelectorAll('button')].find((b) => b.textContent.startsWith('Дойти и ударить'))`;
     await run(`await window.__world.getState().select({ x: ${lair.x}, y: ${lair.y} })`);
