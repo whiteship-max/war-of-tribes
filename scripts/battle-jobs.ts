@@ -14,7 +14,7 @@
 // Все стороны встают по правилу развёртывания (`setup.deploySetup`): раскладки, плана, приказов,
 // пресетов и быстрой атаки у боя больше нет (docs/battle_eu4.md, 14.5), и задач о них — тоже.
 import { KIND_PROFILE, TEMPER, UNIT_KINDS, UNIT_STATS, deploySetup, simulateBattle, type ArmySetup, type BattleResult, type Side } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, latticeHold, surplusSplit, type SurplusGroup, holdSize, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type LatticeDuel, type Mirrored } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, OVERSIZE_SEEDS, SEARCH, compositionLattice, diceStepFor, edgeBattles, gapAgainst, latticeHold, stepHold, surplusSplit, type SurplusGroup, holdSize, latticeDuel, mirrorOf, mirrored, oversize, oversizeHold, scaleArmy, searchPool, standstill, withDiceStep, withMoralePace, type LatticeDuel, type Mirrored } from '../src/battle/bench';
 import { buildCast } from '../src/battle/replay';
 import { fan, serveFan } from './lib/fan';
 
@@ -122,7 +122,7 @@ export type Job =
   | { kind: 'oversize'; composition: number; total: number; bare?: boolean }
   /**
    * Кость: шаг, выведенный делением отрезка на решётке «Лезвия» (`bench.diceStepFor`), доля владельца на решётке с костью
-   * конфига (`bench.latticeHold`) и поле большей без кости — на решётке и на «Ограничителе».
+   * конфига на окне ширин вывода (`bench.stepHold`) и поле большей без кости — на решётке и на «Ограничителе».
    */
   | { kind: 'dice' }
   /**
@@ -301,7 +301,8 @@ export function battleJob(job: Job): Out {
         kind: 'dice',
         derived: diceStepFor(),
         bare: withDiceStep(0, () => oversizeHold()),
-        lattice: latticeHold(),
+        // Доля владельца на наборе вывода шага — окне ширин вокруг W (`bench.stepHold`, ПБ-1, п. 2).
+        lattice: stepHold(),
         // Без кости бой от сида не зависит — одного сида хватает.
         latticeBare: withDiceStep(0, () => latticeHold(1)),
       };

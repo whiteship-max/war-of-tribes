@@ -45,14 +45,14 @@ const hiredOuts = (hired: Hired): Out[] => [...Object.values(hired.ladder).flat(
 /**
  * W и шаг кости из прогонов «Найма» — одна функция на раздел и на вывод (`npm run derive -- w`): W — медиана фронта меньшей
  * стороны по боям выборки, шаг — наименьший, до четырёх знаков вверх, при котором большая на 10 % держит поле не чаще
- * доли владельца (`DICE.hold`) на решётке «Лезвия» размера W. Боёв нет — `null`.
+ * доли владельца (`DICE.hold`) на решётках «Лезвия» окна ширин вокруг W (`bench.stepHold`, ПБ-1, п. 2). Боёв нет — `null`.
  */
 export function widthOfHired(hired: Hired): { fights: number; w: number; size: number; step: number } | null {
   const all = fronts(hiredOuts(hired));
   if (all.length === 0) return null;
   const w = widthOf(all);
   const size = armyAt(w);
-  return { fights: all.length, w, size, step: Math.ceil(diceStepFor(DICE.hold, 0.1, 12, size, w) * 1e4) / 1e4 };
+  return { fights: all.length, w, size, step: Math.ceil(diceStepFor(DICE.hold, 0.1, 12, w) * 1e4) / 1e4 };
 }
 
 export function widthSection(hired: Hired): void {
@@ -85,8 +85,8 @@ export function widthSection(hired: Hired): void {
     `При W = ${w}: фронт меньшей стороны шире W в ${share((x) => x.small > w)} боёв, большей — в ${share((x) => x.big > w)}, обеих разом — в ${share((x) => x.small > w && x.big > w)}.`,
   );
   // W и шаг кости выводятся вместе (docs/battle_eu4.md, 14.24 и 14.35). Шаг — наименьший, до четырёх знаков вверх, при котором
-  // сторона на 10 % больше держит поле не чаще доли владельца (`DICE.hold`) в боях решётки «Лезвия» (`bench.latticeHold`) на
-  // размере W (`bench.armyAt`: сбалансированный состав ставит в полосу ровно W) и при ширине W — та же функция, что печатает
+  // сторона на 10 % больше держит поле не чаще доли владельца (`DICE.hold`) в боях решёток «Лезвия» окна ширин W − 2 … W + 2
+  // (`bench.stepHold`, ПБ-1: каждая на своём размере `bench.armyAt` и своём блоке сидов) — та же функция, что печатает
   // `battle:report`, «Кость фазы», на ширине конфига. Конфиг правится по этой строке один раз.
   console.log(
     `Вывод W и шага кости: W = ${w}, размер решётки «Лезвия» ${size}, шаг кости ${step} — большая на 10 % держит поле не чаще ${Math.round(DICE.hold * 100)} % её боёв; в конфиге W ${FRONT_WIDTH}, шаг ${DICE.step}.`,

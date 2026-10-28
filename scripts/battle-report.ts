@@ -11,7 +11,7 @@
 // «Пресеты быстрой атаки», «Разрыв быстрой атаки», «Перебор расстановок», «Случайный поиск
 // расстановок», «Заслон: линия по силе» — ушли вместе с предметом; поиск наведён на составы.
 import { CIRCLE_PHASES, DICE, PHASE_PIPS, UNIT_KINDS, UNIT_STATS, KIND_PROFILE, simulateBattle, deploySetup, describeEvent, type ArmySetup, type BattleResult, type Stack } from '../src/battle';
-import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_SEEDS, EDGE_STEPS, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, kindUse, latticeFieldShare, latticeRows, latticeTop, mirrored, oversizeOf, pureKind, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, SEARCH, hasLine, lossRatio, type LatticeDuel, type LatticeRow } from '../src/battle/bench';
+import { ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, EDGE_STEPS, STEP_SEEDS, stepBattles, stepWidths, LATTICE_STEP, OVERSIZE_SIZES, holdSize, answerlessOwnKind, compositionLattice, compositionName, kindUse, latticeFieldShare, latticeRows, latticeTop, mirrored, oversizeOf, pureKind, searchPool, searchShortlist, searchFinish, OVERSIZE_CAP, OVERSIZE_SEEDS, RATIO_EVEN, SEARCH, hasLine, lossRatio, type LatticeDuel, type LatticeRow } from '../src/battle/bench';
 import { KIND_META } from '../src/battle/names';
 import { FRONT_WIDTH, circleLength, roundsCap } from '../src/battle/config';
 import { FACES, FACE_SEEDS, MONO_KINDS, VARIANT_NAMES, runJobs, type Brief, type Edge, type Job, type Out, type Pair, type Reach, type Rout } from './battle-jobs';
@@ -315,9 +315,10 @@ console.log('\n=== Кость фазы: сторона на 10% больше у�
   // Кость одна на фазу EU4 круга — огонь и натиск (сближение — хвост огня, своего броска у него нет).
   const phases = new Set(CIRCLE_PHASES.map((p) => PHASE_PIPS[p][0]).filter(Boolean)).size;
   console.log(`кость: ${DICE.faces} граней на сторону в каждой из ${phases} фаз круга (огонь и натиск) и своя у погони, без отметок; у отступления её нет; шаг ${DICE.step} на грань`);
-  const edgeAll = compositionLattice().length * EDGE_SEEDS * 2;
+  const edgeAll = stepBattles();
+  const widths = stepWidths(FRONT_WIDTH);
   console.log(
-    `поле у большей на решётке «Лезвия» (набор доли владельца), ${compositionLattice().length} составов, ${HOLD} бойцов строя: ${Math.round(lattice * edgeAll)}/${edgeAll} (${(100 * lattice).toFixed(1)}%); без кости — ${(100 * latticeBare).toFixed(1)}%`,
+    `поле у большей на решётке «Лезвия» (набор доли владельца и вывода шага — окно ширин ${widths[0]}…${widths[widths.length - 1]} по ${STEP_SEEDS} сидов, ПБ-1), ${compositionLattice().length} составов, у W ${HOLD} бойцов строя: ${Math.round(lattice * edgeAll)}/${edgeAll} (${(100 * lattice).toFixed(1)}%); без кости — ${(100 * latticeBare).toFixed(1)}%`,
   );
   console.log(`для сравнения — все составы «Ограничителя» разом: ${held}/${all} (${((100 * held) / all).toFixed(1)}%); без кости — ${Math.round(bare * all)}/${all}`);
   // В конфиг шаг записан до четырёх знаков вверх: вниз доля ушла бы выше цели.

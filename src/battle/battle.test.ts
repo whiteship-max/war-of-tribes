@@ -7,7 +7,7 @@ import { simulateBattle, standing } from './sim';
 import { deploy, deploySetup, armyTotal, emptyStack, reinforceInto, stackTotal, stackOf } from './setup';
 import { describeEvent } from './log';
 import { ANNIHILATED_AT, BREAK_AFTER, DICE, FIRE_AFTER_CONTACT, EVENT_MIN, BASE_CIRCLES, CIRCLE_MELEE, CIRCLE_PHASES, FRONT_WIDTH, MELEE_RATE, MORALE, PHASE_PIPS, PHASE_TICKS, PYRRHIC_BELOW, TEMPER, INTO_LINES, circleLength, circleTicks, meleeTicksOf, splitTicks, UNIT_STATS, roundsCap } from './config';
-import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, kindUse, latticeDuels, latticeFieldShare, latticeTop, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, hasLine, holdSize, laneFront, latticeHold, lossRatio, mirrored, openFront, oversize, oversizeOf, pureKind, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
+import { ARMY_AT_W, ARMY_SIZE, BALANCED_ARMY, COMPOSITIONS, LATTICE_STEP, compositionLattice, compositionName, kindUse, latticeDuels, latticeFieldShare, latticeTop, type LatticeRow, OVERSIZE_CAP, OVERSIZE_SEEDS, OVERSIZE_SIZES, hasLine, holdSize, laneFront, latticeHold, lossRatio, mirrored, stepHold, stepWidths, STEP_KERNEL, STEP_SEEDS, openFront, oversize, oversizeOf, pureKind, scaleArmy, setupOf, standstill, withDiceStep } from './bench';
 import { KEYS_MAX, summarize } from './report';
 import { FRONT, HORSE_KINDS, PHASES, PIP_IDS, SECTORS, UNIT_KINDS, type ArmySetup, type BattleEvent, type BattleResult, type PhaseId, type PhaseSpan, type PipId, type Side, type Stack, type Winner } from './types';
 
@@ -1137,7 +1137,8 @@ describe('кость фазы', () => {
     // Граница области: без кости бой — арифметика, и большая держит поле во всех боях. Иначе
     // «кость сдвинула долю» проверялось бы на наборе, где сдвигать было нечего.
     expect(withDiceStep(0, () => latticeHold(1)), 'без кости: все бои у большей').toBe(1);
-    const held = latticeHold();
+    // Набор вывода шага — окно ширин вокруг W (`bench.stepHold`, ПБ-1, п. 2): тот же, на котором шаг выведен.
+    const held = stepHold();
     expect(held, `с костью: поле у большей в ${(held * 100).toFixed(1)} % боёв`).toBeLessThanOrEqual(DICE.hold);
     // Выведено наименьшим шагом, при котором доля не выше цели, — значит, и не намного ниже.
     expect(held).toBeGreaterThanOrEqual(DICE.hold - 0.02);

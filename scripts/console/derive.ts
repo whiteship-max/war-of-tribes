@@ -13,11 +13,15 @@ import { ROOT, fail, has, heavy, helpIf, num, parseArgs, rejectUnknown } from '.
 const C = 'derive';
 const HELP = `
 npm run derive -- w | gate [--steps N] [--write] [--pause M]
+npm run derive -- step [--from A] [--to B]
 Вывод неподвижной точки (правило 16): шаг считает число на записанном, записанное правится на выведенное, и так, пока
 выведенное не совпадёт с записанным.
 
   w        W и шаг кости — раздел «Ширина поля» raid-hiring: только прогоны «Найма» (лестница, партия с первой секунды,
-           уведённые), без «Лазарета», «Сожжённых» и «Морали»; шаг кости — на выведенном W
+           уведённые), без «Лазарета», «Сожжённых» и «Морали»; шаг кости — на выведенном W, на окне ширин W − 2 … W + 2
+           (bench.stepHold, ПБ-1)
+  step     кривая шага кости по W отрезка (--from, --to; по умолчанию W конфига ± 5): монотонно ли и где скачки (задача 22.7);
+           ничего не пишет
   gate     таблица сил у ворот — раздел 4б raid-mix: партии мерки и ровный бой (без кривых медианного, окрестности и боя
            без кости — их печатает отчёт)
 
@@ -75,6 +79,33 @@ if (child) {
     for (const who of ['wolves', 'raiders'] as const) console.log(`  ${who === 'wolves' ? 'волки     ' : 'разбойники'} выведено ${table[who].join(', ')}; записано ${GATE_POWER[who].join(', ')}`);
     console.log(`DERIVE ${JSON.stringify({ was: GATE_POWER, table })}`);
   } else fail(C, 'w или gate');
+  process.exit(0);
+}
+
+// ---------- Кривая шага кости (ПБ-1, п. 2) ----------
+
+if (what === 'step') {
+  // Проверка задачи 22.7: шаг кости на окне вывода (`bench.stepHold`) — по каждому W отрезка; монотонно ли и где скачки. Ничего не
+  // пишет: шаг — функция одного W, записывает его вывод `w`.
+  const { DICE, FRONT_WIDTH } = await import('@/battle');
+  const { diceStepFor } = await import('@/battle/bench');
+  const from = num(C, args, 'from', FRONT_WIDTH - 5, { int: true, min: 20, max: 400 });
+  const to = num(C, args, 'to', FRONT_WIDTH + 5, { int: true, min: from, max: 400 });
+  rejectUnknown(C, args);
+  await heavy(`кривая шага кости, W ${from}…${to}`);
+  const t0 = Date.now();
+  const rows: { w: number; step: number }[] = [];
+  for (let w = from; w <= to; w++) {
+    const step = Math.ceil(diceStepFor(DICE.hold, 0.1, 12, w) * 1e4) / 1e4;
+    rows.push({ w, step });
+    console.log(`  W ${w}: шаг кости ${step}`);
+  }
+  const jumps = rows.slice(1).map((r, i) => (r.step - rows[i].step) / rows[i].step);
+  const up = jumps.every((j) => j >= 0);
+  const down = jumps.every((j) => j <= 0);
+  const worst = jumps.reduce((m, j) => (Math.abs(j) > Math.abs(m) ? j : m), 0);
+  console.log(`соседние W: наибольший скачок ${(100 * worst).toFixed(2)} %; монотонно: ${up || down ? 'да' : 'нет'}; в конфиге W ${FRONT_WIDTH}, шаг ${DICE.step}`);
+  console.log(`время: ${((Date.now() - t0) / 60000).toFixed(1)} мин`);
   process.exit(0);
 }
 
@@ -140,8 +171,8 @@ function writeGate(table: Table): void {
 /** Шаг кости на ширине `w` — та же строка, что у раздела «Ширина поля» (`raid-width.widthOfHired`). */
 async function stepAt(w: number): Promise<number> {
   const { DICE } = await import('@/battle');
-  const { armyAt, diceStepFor } = await import('@/battle/bench');
-  return Math.ceil(diceStepFor(DICE.hold, 0.1, 12, armyAt(w), w) * 1e4) / 1e4;
+  const { diceStepFor } = await import('@/battle/bench');
+  return Math.ceil(diceStepFor(DICE.hold, 0.1, 12, w) * 1e4) / 1e4;
 }
 
 const t0 = Date.now();

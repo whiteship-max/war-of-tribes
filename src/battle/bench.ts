@@ -204,17 +204,17 @@ export const EDGE_STEPS: ReadonlyArray<{ name: string; bigger: (total: number) =
 
 /**
  * Бои кривой: составы решётки `from..to` в `total` против себя же больших на ступень `EDGE_STEPS[step]`, большая —
- * по очереди с обеих сторон поля, сиды 1..`seeds`. Итог — бой и сторона большей. `width` — ширина фронта боя; нет — ширина
- * конфига.
+ * по очереди с обеих сторон поля, сиды `first`…`first + seeds − 1` (без `first` — с единицы). Итог — бой и сторона большей.
+ * `width` — ширина фронта боя; нет — ширина конфига.
  */
-export function edgeBattles(step: number, from: number, to: number, seeds: number, total = holdSize(), width?: number): Array<{ r: BattleResult; big: Side }> {
+export function edgeBattles(step: number, from: number, to: number, seeds: number, total = holdSize(), width?: number, first = 1): Array<{ r: BattleResult; big: Side }> {
   const lattice = compositionLattice();
   const out: Array<{ r: BattleResult; big: Side }> = [];
   const w = width === undefined ? {} : { width };
   for (let i = from; i < to; i += 1) {
     const small = deploySetup(scaleArmy(lattice[i], total), width ?? FRONT_WIDTH);
     const big = deploySetup(scaleArmy(lattice[i], EDGE_STEPS[step].bigger(total)), width ?? FRONT_WIDTH);
-    for (let seed = 1; seed <= seeds; seed += 1) {
+    for (let seed = first; seed < first + seeds; seed += 1) {
       out.push({ r: simulateBattle({ seed, attacker: big, defender: small, ...w }), big: 'attacker' });
       out.push({ r: simulateBattle({ seed, attacker: small, defender: big, ...w }), big: 'defender' });
     }
@@ -236,6 +236,53 @@ export function latticeHold(seeds = EDGE_SEEDS, total = holdSize(), width?: numb
   const b = edgeBattles(EDGE_HOLD_STEP, 0, compositionLattice().length, seeds, total, width);
   return b.filter((x) => x.r.winner === x.big).length / b.length;
 }
+
+/**
+ * Окно вывода шага кости (ПБ-1, п. 2; задача 22.7): шаг выводится не на одной решётке размера W, а на решётках всех ширин
+ * W − `STEP_KERNEL` … W + `STEP_KERNEL`, каждая на своём размере (`armyAt`) и своей ширине, и у каждой ширины — свой блок сидов
+ * (`stepSeedsOf`: по остатку ширины), один при любом W. Соседние W делят все бои окна, кроме крайней ширины, — шаг становится гладкой
+ * функцией W; различных костей в окне — `2·STEP_KERNEL + 1` блоков, и уровень шага меряется на них, а не на одном.
+ *
+ * Почему не «общие кости» сами по себе: они уже общие — кость в бою бросается только у фаз, по сиду боя, в одном порядке
+ * (`sim.rollDice`), и сиды 1…4 у всех W были одни, — но исход боя хаотичен по размеру армии: лишние четыре бойца меняют
+ * расстановку, и та же кость даёт другой бой (на четырёх сидах шаг прыгал между соседними W на ±6 %). А уровень шага решает
+ * набор костей: составы и ширины делят одни сиды, и на W 110 группы по восемь сидов дали 0.0436, 0.0325, 0.0520 и 0.0528
+ * (docs/siege_v2.md, «Решения ПБ-1»).
+ */
+export const STEP_KERNEL = 2;
+/** Сидов в блоке одной ширины окна: пять ширин по восемь — сорок различных сидов на шаг (вдесятеро больше прежних четырёх). */
+export const STEP_SEEDS = 8;
+
+/** Ширины окна вывода шага у ширины `width`: от `width − kernel` до `width + kernel`. */
+export const stepWidths = (width: number, kernel = STEP_KERNEL): number[] => Array.from({ length: 2 * kernel + 1 }, (_, i) => width - kernel + i);
+
+/**
+ * Первый сид блока ширины `w`: блок — по остатку ширины от числа ширин окна, так что пять соседних ширин окна берут пять разных
+ * блоков, а одна и та же ширина — один и тот же блок у любого W.
+ */
+export const stepSeedsOf = (w: number, seeds = STEP_SEEDS, kernel = STEP_KERNEL): number => {
+  const n = 2 * kernel + 1;
+  return (((w % n) + n) % n) * seeds + 1;
+};
+
+/**
+ * Доля владельца на окне вывода шага (набор, на котором выводится шаг кости, — ПБ-1, п. 2): на каждой ширине окна вокруг `width`
+ * — решётка «Лезвия» размера `armyAt(w)` при ширине `w` против себя же на 10 % больших, сиды блока ширины (`stepSeedsOf`), большая
+ * с обеих сторон поля; доля боёв всего окна, где большая удержала поле. Без доводов — на ширине конфига.
+ */
+export function stepHold(width = FRONT_WIDTH, seeds = STEP_SEEDS, kernel = STEP_KERNEL): number {
+  let held = 0;
+  let all = 0;
+  for (const w of stepWidths(width, kernel)) {
+    const b = edgeBattles(EDGE_HOLD_STEP, 0, compositionLattice().length, seeds, armyAt(w), w, stepSeedsOf(w, seeds, kernel));
+    held += b.filter((x) => x.r.winner === x.big).length;
+    all += b.length;
+  }
+  return held / all;
+}
+
+/** Боёв в окне вывода шага: ширин окна × составов решётки × сидов × две стороны поля. */
+export const stepBattles = (seeds = STEP_SEEDS, kernel = STEP_KERNEL): number => (2 * kernel + 1) * compositionLattice().length * seeds * 2;
 
 /** Людей в строю — первая и вторая линии всех полос, без резерва. */
 export const inLine = (s: ArmySetup): number => [...FRONT, ...REAR].reduce((n, k) => n + stackTotal(s.sectors[k]), 0);
@@ -299,17 +346,17 @@ export function surplusSplit(set: 'limiter' | 'lattice', total = holdSize()): Re
  * Наименьшая величина кости, при которой большая на 10 % удерживает поле не чаще `hold`: делением
  * отрезка. Доля убывает с величиной кости — чем сильнее удача, тем чаще меньшая устоит. Отрезок
  * `hi` взят с запасом: при нём удача разбрасывает урон фазы на ±45 %, дальше кость решала бы всё.
- * Меряется там, где держится доля владельца (`holdSize`): на размере W, **на решётке «Лезвия»** (`latticeHold`; набор выбран
- * до вывода — docs/battle_eu4.md, 14.35, заход 30.09 (день), шаг 3: критерий владельца стоит на «Лезвии», решётка — правило, а
- * не список, и делится по месту прибавки так же, как бои мира вокруг W; прежде — «Ограничитель», `oversizeHold`). `width` —
- * ширина фронта боя: вывод на ширине, которой ещё нет в конфиге (`raid-hiring:report`, «Ширина поля»: W и шаг выводятся
- * вместе), зовёт размер `armyAt(W)` и эту ширину; нет — ширина конфига.
+ * Меряется там, где держится доля владельца: **на решётке «Лезвия»** (набор выбран до вывода — docs/battle_eu4.md, 14.35, заход
+ * 30.09 (день), шаг 3: критерий владельца стоит на «Лезвии», решётка — правило, а не список, и делится по месту прибавки так же,
+ * как бои мира вокруг W; прежде — «Ограничитель», `oversizeHold`), **на окне ширин вокруг W** (`stepHold`, ПБ-1, п. 2: прежде — на
+ * одной ширине W и четырёх сидах, и шаг прыгал между соседними W). `width` — ширина фронта, на которой выводится шаг: вывод на
+ * ширине, которой ещё нет в конфиге (`raid-hiring:report`, «Ширина поля»: W и шаг выводятся вместе); нет — ширина конфига.
  */
-export function diceStepFor(hold = DICE.hold, hi = 0.1, steps = 12, total = holdSize(), width?: number): number {
+export function diceStepFor(hold = DICE.hold, hi = 0.1, steps = 12, width = FRONT_WIDTH): number {
   let lo = 0;
   for (let i = 0; i < steps; i += 1) {
     const mid = (lo + hi) / 2;
-    if (withDiceStep(mid, () => latticeHold(EDGE_SEEDS, total, width)) > hold) lo = mid;
+    if (withDiceStep(mid, () => stepHold(width)) > hold) lo = mid;
     else hi = mid;
   }
   return hi;
