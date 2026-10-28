@@ -83,8 +83,9 @@ describe('командиры флангов у своих стен — тем ж
       return code.slice(from, end);
     };
     for (const head of ['private resolveIncoming(', 'private gateFight(', 'async sortie(']) {
-      expect(body(head), `${head} — бой флангов`).toMatch(/this\.flankDeed\(field, '(defender|attacker)', [^,]+, (at|now), this\.save\.home\)/);
+      expect(body(head), `${head} — бой флангов у своей клетки`).toMatch(/this\.flankDeed\(field, '(defender|attacker)', [^,)]+, (at|now)\)/);
     }
     expect(body('private warBattle('), 'оборона в войне — свой бой города, не выручка союзника').toMatch(/general \|\| \(ours === 'def' && !allied\) \? this\.flankDeed\(/);
+    expect(code, 'клетка боя флангов по умолчанию — свой город').toMatch(/private flankDeed\(field: FieldOutcome, us: Side, ok: boolean, at: number, spot: Coord = this\.save\.home\)/);
   });
 });

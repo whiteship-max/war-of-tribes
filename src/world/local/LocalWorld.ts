@@ -3422,7 +3422,7 @@ export class LocalWorld implements WorldApi {
       morale: field.won ? 6 : -5,
       battle: field.won ? 'won' : 'lost',
       ...scarOf(field, 'attacker'),
-      ...this.flankDeed(field, 'attacker', field.won, now, this.save.home),
+      ...this.flankDeed(field, 'attacker', field.won, now),
       text: field.won ? 'Вылазка сняла осаду.' : 'Вылазка отбита, лагерь стоит.',
       good: field.won,
     });
@@ -4319,9 +4319,9 @@ export class LocalWorld implements WorldApi {
    * что у полководца, чью дружину перебили) × доля выбитых его фланга (`FieldOutcome.flankLoss`): фланг перебит до последнего —
    * командир гибнет так же часто, как полководец. Опыт и кость гибели кладёт племя (`sim/command.commandBattle`). Командиров в бою
    * не было — поля нет. С ПБ-1 (п. 8) — и бой у своих стен, где фланги ведёт оборону полководец в городе (набег на стену, вызов к
-   * воротам, вылазка, оборона в войне): та же формула, клетка — своя (`routPeril` без дали).
+   * воротам, вылазка, оборона в войне): та же формула, клетка — своя (`spot` по умолчанию — свой город, `routPeril` без дали).
    */
-  private flankDeed(field: FieldOutcome, us: Side, ok: boolean, at: number, spot: Coord): { flanks?: FlankBattle } {
+  private flankDeed(field: FieldOutcome, us: Side, ok: boolean, at: number, spot: Coord = this.save.home): { flanks?: FlankBattle } {
     const loss = field.flankLoss?.[us];
     if (!loss || !field.result) return {};
     const peril = routPeril(distance(this.save.home, spot));
@@ -6149,7 +6149,7 @@ export class LocalWorld implements WorldApi {
       battle: outcome.won ? 'lost' : 'won',
       ...scarOf(field, 'defender'),
       // Командиры флангов у своей стены — тем же боем, что в поле (ПБ-1, п. 8): гибель разбитого у своей клетки × доля выбитых.
-      ...this.flankDeed(field, 'defender', !outcome.won, at, this.save.home),
+      ...this.flankDeed(field, 'defender', !outcome.won, at),
       // Прорвались — значит, дошли и до хозяйства за стеной. Насколько плохо,
       // решает то, сколько от заслона осталось; что с этим делать, знает племя.
       sacked: outcome.won ? Math.max(0.35, outcome.defenderLoss) : 0,
@@ -6355,7 +6355,7 @@ export class LocalWorld implements WorldApi {
       morale: def.townsfolk ? 0 : field.won ? -GATE_MORALE_LOST : GATE_MORALE_WON,
       battle: field.won ? 'lost' : 'won',
       ...scarOf(field, 'defender'),
-      ...this.flankDeed(field, 'defender', !field.won, at, this.save.home),
+      ...this.flankDeed(field, 'defender', !field.won, at),
       text,
       good: !field.won,
     });
