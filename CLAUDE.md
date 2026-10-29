@@ -382,6 +382,14 @@ HEAD один на всех, см. правило 8). Значит развес�
   `sim/spirit` со входами отряда; числа и формулы — `roamrules` (одни на игру и будущую книгу отряда сервера). До выпуска Среза 1 всё
   закрыто выключателем `ROAM_ON`. Разойдись правило у двоих — отряд терял бы людей у одного и жил у другого, или чужое сохранение
   открыло бы путь игроку;
+- `src/game/sim/prestige.ts` — престиж одной дверью (ПН-2, docs/gdd/path_of_sword.md, 14): `GameState.prestige` пишет только
+  `movePrestige` (итог похода, награда задания, ответ вести), ступень — `prestigeStage` по порогам, которых в коде нет до вывода.
+  Разойдись запись у двоих — престиж падал бы ниже нуля у одного и не падал у другого;
+- `src/game/rulertraits.ts`, `src/game/rulernow.ts` и `netlify/lib/rulerbook.ts` — черты правителя (ПН-2, решение П10): счёт дел
+  `Ruler.deeds` (у героя пути — `RoamHero.deeds`) — необязательное поле, пишет одна дверь `sim/dynasty.noteRulerDeed`; черты —
+  чистая функция `rulertraits.rulerTraitsOf` (правила — докачкой), читают их двери только числами `rulernow.rulerTraitNumbers`;
+  сервер выводит черты из счёта описи той же функцией (`rulerbook.claimedRuler`, правило «ruler»). Разойдись правило у двоих —
+  сервер счёл бы подделкой честную черту или пропустил бы лояльность и дисциплину, которых правитель не заслужил;
 - `src/profile/types.ts` — профиль игрока лежит в сохранении племени целиком: имя, лицо и
   имя города (`ProfileState.city`) — его поля;
 - `src/world/local/state.ts` — `WORLD_SAVE_VERSION` и миграции мира;
@@ -767,8 +775,17 @@ HEAD один на всех, см. правило 8). Значит развес�
   `settleBandWounds`, `addStock` с ключом `cargo`, `spiritIn`), числа — `roamrules`; фураж — поле сезона из `SEASON_MODIFIERS`; до выпуска
   — за `ROAM_ON` (`roamflag.test.ts`: развилка без выключателя — красный тест), партия лорда — байт в байт (`sim/lordprint.test.ts`)
   (`sim/roam.test.ts`; docs/gdd/path_of_sword.md, 13).
+- **Престиж** — одна дверь `sim/prestige.movePrestige` (по исходникам — `sim/prestige.test.ts`); слово игрока — «Престиж»; ступень —
+  `prestigeStage` по порогам вывода (до вывода — заглушка прибора `roam:report`) (docs/gdd/path_of_sword.md, 14).
+- **Черты правителя** (ПН-2) — счёт дел пишет `sim/dynasty.noteRulerDeed` (бои, уровни, пиры, участь взятого города, минимальное
+  жалованье), черты — `rulertraits` (пороги — формы черт агентов, пары на оси не держатся), читают двери только
+  `rulernow.rulerTraitNumbers`: память боёв и дисциплина — `sim/spirit`, выручка — `sim/market.marketBoost`, стройка —
+  `derived.buildBoost` (потолок Старосты общий, `stewardBuild`), подавление мятежа — `sim/stability`, лояльность — слагаемое `ruler`
+  в `estaterules.loyaltyParts`; бой ядра, очки, выработку и оборону черты не трогают; сервер — правило «ruler», те же числа в
+  потолках сословий, духа, рынка и стройки (`rulertraits.test.ts`, `sim/realm.test.ts`, `net/rulercard.test.ts`,
+  `security.test.ts`; docs/gdd/path_of_sword.md, 14).
 - **Держава** — очки `sim/points` (`bank`, `spend`), гейт `sim/tech` (поля `requiresTech` нет — тест),
-  дом правителя `sim/dynasty` (realm). Вещи — только на правителе (`sim/gear.wear`, ДР-7); с агентов надетое снято при чтении
+  дом правителя `sim/dynasty` (realm), черты правителя — числами `rulernow.rulerTraitNumbers`. Вещи — только на правителе (`sim/gear.wear`, ДР-7); с агентов надетое снято при чтении
   (`sim/agents.gearOff`, строка летописи), вещь на агенте в описи — флаг правила «agents».
 - **Стабильность** — ступень, сдвиг, полосы и мятеж пишет одна дверь `sim/stability` (числа — `game/stabrules`, слова
   раздела и прогноз вестей — `sim/stabview`); веса причин — просадки морали, полосы невольников и войска — ропот и терпение,
