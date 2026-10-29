@@ -781,6 +781,13 @@ HEAD один на всех, см. правило 8). Значит развес�
   `settleBandWounds`, `addStock` с ключом `cargo`, `spiritIn`), числа — `roamrules`; фураж — поле сезона из `SEASON_MODIFIERS`; до выпуска
   — за `ROAM_ON` (`roamflag.test.ts`: развилка без выключателя — красный тест), партия лорда — байт в байт (`sim/lordprint.test.ts`)
   (`sim/roam.test.ts`; docs/gdd/path_of_sword.md, 13).
+- **Ход отряда бродяги** (ПН-3) — запись хода `RoamState.way` (режим марша — только `way.gait`), `.camp`, `.energy` пишет одна дверь
+  `sim/roam.setMove`; путь (`roamWalkMs` = дорога похода войны), положение (`roamWhere` от записи и минуты), отказы словами, лагерь трёх
+  видов, рогатки (`throughWorks`), место выхода (`placeBand`) — одна дверь `world/roam` на мир бродяги и на реестр сервера
+  (`roster.bandOrder`: подделка — отказ и флаг); `WorldApi.roam*` есть только у мира бродяги (`world/local/RoamWorld`, своим куском) и
+  зовёт их только карта бродяги (`ui/map/roam/`); руины — `world/ruins` постоянной солью; числа без вывода — `game/roamstubs` (прибор
+  берёт их тем же числом, сторож чтений `watchStubs`); всё за `ROAM_ON` и на сервере (`roam.test.ts`, `roamworld.test.ts`,
+  `lordmap.test.ts`, `band.test.ts`, `bandoff.test.ts`; docs/gdd/path_of_sword.md, 15).
 - **Престиж** — одна дверь `sim/prestige.movePrestige` (по исходникам — `sim/prestige.test.ts`); слово игрока — «Престиж»; ступень —
   `prestigeStage` по порогам вывода (до вывода — заглушка прибора `roam:report`) (docs/gdd/path_of_sword.md, 14).
 - **Черты правителя** (ПН-2) — счёт дел пишет `sim/dynasty.noteRulerDeed` (бои, уровни, пиры, участь взятого города, минимальное
