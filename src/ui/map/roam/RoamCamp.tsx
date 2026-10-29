@@ -7,14 +7,14 @@ import { worldApi } from '@/world/api';
 import type { RoamCampRow, RoamCampView } from '@/world/types';
 import type { CampKind } from '@/world/roammove';
 import { formatCoord } from '@/world/geo';
+import { num, signedWhole } from '@/game/num';
 import { Icon } from '@/ui/icons/Icon';
 
 const pct = (x: number): string => `${Math.round(x * 100)} %`;
-const signed = (x: number): string => (Math.round(x) === 0 ? '0' : `${x > 0 ? '+' : '−'}${Math.round(Math.abs(x))}`);
 
 /** Что даёт вид лагеря — одной строкой. */
 export const gainText = (r: RoamCampRow): string =>
-  `фураж ${pct(r.forage)} пайка · дух ${signed(r.morale)}${r.heal > 1 ? ` · раненые встают в ${r.heal.toFixed(1).replace('.', ',')} раза быстрее` : ''}`;
+  `фураж ${pct(r.forage)} пайка · дух ${signedWhole(r.morale)}${r.heal > 1 ? ` · раненые встают в ${num(r.heal, 1)} раза быстрее` : ''}`;
 
 export function RoamCamp({ onClose }: { onClose: () => void }) {
   const showToast = useGame((g) => g.showToast);
