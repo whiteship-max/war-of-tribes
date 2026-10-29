@@ -178,6 +178,20 @@ export function rise(
   return { keep, back };
 }
 
+/**
+ * Лечение (ПН-6, ГДД 3.3.1): раненые со сроком не позже `until` встают сейчас — срок к часам партии, встают той же дверью. Одна дверь
+ * лазарета и раненых отряда (`groups`). Возвращает, сколько групп подняли.
+ */
+export function hasten(s: GameState, groups: WoundGroup[], until: number): number {
+  let n = 0;
+  for (const g of groups) {
+    if (g.until === null || g.until > until + 1e-6 || g.until <= s.time) continue;
+    g.until = s.time;
+    n++;
+  }
+  return n;
+}
+
 /** Шаг партии: чей срок прошёл — встают в строй того же вида. Возвращает, сколько встало. */
 export function settleWounds(s: GameState): number {
   if (!s.wounded || s.wounded.length === 0) return 0;

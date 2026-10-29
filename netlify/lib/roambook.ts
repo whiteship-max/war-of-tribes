@@ -6,7 +6,7 @@
  * **Приход — только подтверждённый сервером:**
  *  — старт: отряд Воина (`game/roamstart.WARRIOR`) — книга новой строки;
  *  — просящиеся (`join`): номер прихода — на сетке почты (`game/mailgrid.awayArrival`) от сида партии из описи; приход уже наступил и
- *    не старше суток (срок вести); каждый номер — один раз; людей — не больше потолка прихода (`askrules.askCap` — та же доля хешем
+ *    не старше двух сроков вести (ответ мог ждать связи); номера — только по возрастанию, каждый один раз; людей — не больше потолка прихода (`askrules.askCap` — та же доля хешем
  *    сида, высшая ступень и самые щедрые условия: ступень, лагерь и мораль — слово клиента);
  *  — найм (`hire`): отряд стоит у точки найма (вольный город общий — `world/roampoints.townAt`; село — своё по сиду мира, его сервер
  *    не знает: слово клиента) и не быстрее учений казарм первого уровня (`askrules.drillMs`): учения идут подряд, и очередь не длиннее
@@ -24,7 +24,7 @@
 import type { AdminGrant, BandBookOrder, BandCell, RoamBookRow, TroopKey } from './contract.js';
 import { BAND_LIMITS, TROOP_KEYS } from './contract.js';
 import { canPromote } from '../../src/game/promoterules.js';
-import { askCap, captiveCap, drillMs, FIGHTS_PER_MOVE } from '../../src/game/askrules.js';
+import { DRILL_AHEAD_MS, askCap, captiveCap, drillMs, FIGHTS_PER_MOVE } from '../../src/game/askrules.js';
 import { awayArrival } from '../../src/game/mailgrid.js';
 import { WARRIOR } from '../../src/game/roamstart.js';
 import { LETTER_TTL } from '../../src/world/data/tuning.js';
@@ -35,8 +35,8 @@ import { realTime } from '../../src/game/pace.js';
 /** Запаздывание часов: приход, наступивший у клиента на столько раньше сервера, — честный. */
 export const BOOK_SLACK_MS = realTime(2 * 60_000);
 
-/** Очередь учений найма не длиннее суток: дальше казармы не берут заказ (та же граница — у окна найма в игре). */
-export const DRILL_AHEAD_MS = realTime(24 * 3_600_000);
+/** Очередь учений найма не длиннее суток (`askrules.DRILL_AHEAD_MS` — та же граница у окна найма в игре). */
+export { DRILL_AHEAD_MS };
 
 type Troops = Partial<Record<TroopKey, number>>;
 
@@ -99,8 +99,9 @@ export function bookOrder(book: RoamBookRow, o: BandBookOrder, at: BookAt): Book
     if (at.seed === undefined) return no('Сервер ещё не видел партии — повтори позже.');
     if (o.k <= book.join) return no('Эти люди уже приняты.', `Просящиеся прихода ${o.k} — второй раз (книга: последний ${book.join}).`);
     const came = awayArrival(at.seed, o.k);
-    if (came > at.now + BOOK_SLACK_MS || at.now - came > LETTER_TTL + BOOK_SLACK_MS)
-      return no('Этих людей у лагеря нет.', `Просящиеся прихода ${o.k}: по сетке почты приход ${came > at.now ? 'ещё не наступил' : 'старше суток'}.`);
+    if (came > at.now + BOOK_SLACK_MS) return no('Этих людей у лагеря нет.', `Просящиеся прихода ${o.k}: по сетке почты приход ещё не наступил.`);
+    // Ответ мог прийти позже срока вести: связь пропала, приказ ждал в очереди. Старше двух сроков — отказ без флага: людей не ждут.
+    if (at.now - came > 2 * LETTER_TTL) return no('Эти люди ушли — ответ опоздал.');
     const cap = askCap(at.seed, o.k);
     if (o.n > cap) return no(`Пришло не больше ${cap}.`, `Просящиеся прихода ${o.k}: игра назвала ${o.n}, потолок прихода ${cap}.`);
     put('clubman', o.n);

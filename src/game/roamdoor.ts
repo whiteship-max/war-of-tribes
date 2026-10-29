@@ -4,11 +4,14 @@
 import { provideRoamDoor, type RoamDoor } from './roamlazy';
 import { beginRoam, mergeRoam, roamFor, setMove } from './sim/roam';
 import { addCargo } from './sim/cargo';
+import { bandMailArrive } from './sim/bandasks';
+import { healBand } from './sim/bandwounds';
 import { bandSpiritIn } from './sim/bandspirit';
 import { toBand } from './sim/bandgrant';
 import { warriorStart } from './roamorigin';
 import { bandSeatOf } from '@/net/bandseat';
 import { bandRow, keepRoster } from '@/net/bandroster';
+import { flushBook } from '@/net/bandbook';
 import { readMove } from '@/world/roammove';
 import type { GameState } from './types';
 import { profileName } from '@/profile/identity';
@@ -22,6 +25,8 @@ function startRoam(s: GameState, was: GameState): string | null {
 export const ROAM_DOOR: RoamDoor = {
   /** Шаг отряда кусками (`sim/tick.liveStep`, `absence`). */
   roamFor,
+  /** Вести отряда на сетке почты — «Просятся в отряд» (ПН-6). */
+  roamMail: (s, from, now) => void bandMailArrive(s, from, now),
   /** Фаза и отряд из сохранения (`save.deserialize`). */
   mergeRoam,
   /** Запись хода, которую вывел сервер (`store` → реестр). */
@@ -40,6 +45,10 @@ export const ROAM_DOOR: RoamDoor = {
   /** Ответ реестра: строка отряда и видимость (`net/roster.keep`), встал ли отряд (`roster.seated`). */
   keepRoster,
   bandRow,
+  /** Очередь книги отряда — перед отметкой (`net/roster`, ПН-6). */
+  flushBook,
+  /** Лечение отряда за алмазы (`sim/gems.applyGemDeeds`, ПН-6). */
+  healBand,
 };
 
 provideRoamDoor(ROAM_DOOR);

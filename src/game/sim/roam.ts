@@ -12,20 +12,24 @@
 //      (`roamrules.bandHunger`, как амбар города);
 //   3. содержание: кошель, долг, терпение, уход (`sim/upkeep.bandUpkeep`).
 // Дух не тикает: он читается из этих полей (`sim/spirit.spiritIn`, входы отряда).
-import type { GameState, RoamOrigin, RoamState, RulerTally, TroopId, WoundGroup } from '../types';
+import type { GameState, MarketState, RoamDrill, RoamOrigin, RoamState, RulerTally, TroopId, WoundGroup } from '../types';
+import { isBookOrder, readBandOrder, type BandBookOrder } from '../../../netlify/lib/contract';
+import { mergeMarket } from './caravan';
+import { OUTBOX_MAX } from './bandranks';
 import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
 import { TROOP_IDS } from '../data/troops';
 import { seasonMods } from '../derived';
 import { roamOn } from '../roamflag';
 import { bandHunger, bandRationPerDay, campSpirit, forageShare } from '../roamrules';
 import { readTally } from '../rulernow';
-import { troopTotal } from '../battle/kinds';
 // Мир — только данными (`world/data/*`) и формой записи хода (`world/roammove`): дверь режима марша (`world/gait`) и дверь хода
 // (`world/roam`) тянут осаду, землю и регионы, и шаг города, который зовёт этот модуль диспетчером, сдвинул бы ими первую загрузку.
-import { GAIT_HAUL, type Gait } from '@/world/data/gait';
-import { UNIT_BY_ID } from '@/world/data/units';
-import { readMove, readTrip, standWay, tripOfWay, wayGait, type CampKind, type RoamMove, type RoamTrip } from '@/world/roammove';
-import { gameDaysOfMs } from '../pace';
+import type { Gait } from '@/world/data/gait';
+import { cargoCap } from '../cargocap';
+import { readMove, readTrip, standWay, tripOfWay, type CampKind, type RoamMove, type RoamTrip } from '@/world/roammove';
+import { gameDaysOfMs, realMs } from '../pace';
+import { DRILL_MAX, FED_MAX, townStep } from './roamtown';
+import { TOWN_MARKETS } from '../townrules';
 import { addStock } from './stock';
 import { trimCargo } from './cargo';
 import { hastenBandWounds, settleBandWounds } from './bandwounds';
@@ -46,13 +50,8 @@ export interface RoamStart {
   food: number;
 }
 
-/**
- * Вместимость обоза (ГДД 3.3.5): ноша бойца мира (`units.warrior.carry` — та же, что у обоза полководца) на голову строя, режимом
- * марша хода (`GAIT_HAUL` — та же поклажа, что у `gait.gaitHaul`: налегке меньше, с обозом больше; режим — поле хода `way.gait`,
- * решение ПН-3). Раненых несут — они не везут. Золото не весит. Телеги — с происхождениями (ПН-17), когда прибор выведет их
- * вместимость.
- */
-export const cargoCap = (r: Pick<RoamState, 'band' | 'way'>): number => troopTotal(r.band) * UNIT_BY_ID.warrior.carry * GAIT_HAUL[wayGait(r.way)];
+/** Вместимость обоза (ГДД 3.3.5) — своим модулем (`game/cargocap`): её читает и рынок вольного города (ПН-6). */
+export { cargoCap };
 
 /** Отказ войти в путь — словами; можно — `null`. */
 export function roamBlock(s: GameState): string | null {
@@ -167,6 +166,8 @@ export function mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'> {
         const trip = readTrip(r.trip);
         return trip && move && tripOfWay(trip, move.way) ? { trip } : {};
       })(),
+      // ПН-6: рынки вольных городов, хлеб сёл, учения, просящиеся, пленные и очередь книги — целые записи, не больше потолков.
+      ...readTown(r),
       ...((): { beaten?: { id: string; until: number }[] } => {
         const list = Array.isArray(r.beaten) ? r.beaten : [];
         const beaten = list
@@ -182,6 +183,44 @@ export function mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'> {
 
 /** Побитых точек партия помнит не больше стольких — старые уходят первыми (пепелище и так сходит). */
 export const BEATEN_MAX = 32;
+
+
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const keyOk = (v: unknown): v is string => typeof v === 'string' && /^[\w.:-]{6,64}$/.test(v);
+
+/** Поля отряда ПН-6 из сохранения (`mergeRoam`): только целые записи, каждая проверена; мусор — нет поля. */
+function readTown(r: Record<string, unknown>): Pick<RoamState, 'markets' | 'fed' | 'drill' | 'ask' | 'captives' | 'outbox'> {
+  const out: Pick<RoamState, 'markets' | 'fed' | 'drill' | 'ask' | 'captives' | 'outbox'> = {};
+  if (r.markets && typeof r.markets === 'object') {
+    const markets: Record<string, MarketState> = {};
+    for (const [k, v] of Object.entries(r.markets as Record<string, unknown>).slice(-TOWN_MARKETS)) if (/^town:-?\d+:-?\d+$/.test(k)) markets[k] = mergeMarket(v);
+    if (Object.keys(markets).length) out.markets = markets;
+  }
+  if (Array.isArray(r.fed)) {
+    const fed = (r.fed as Record<string, unknown>[])
+      .filter((f) => f && typeof f.id === 'string' && finite(f.took) && finite(f.at))
+      .slice(0, FED_MAX)
+      .map((f) => ({ id: String(f.id).slice(0, 64), took: Math.max(0, f.took as number), at: f.at as number }));
+    if (fed.length) out.fed = fed;
+  }
+  if (Array.isArray(r.drill)) {
+    const drill: RoamDrill[] = [];
+    for (const d of (r.drill as Record<string, unknown>[]).slice(0, DRILL_MAX)) {
+      if (!d || !TROOP_IDS.includes(d.kind as TroopId) || typeof d.at !== 'string' || !finite(d.work) || !finite(d.n) || !keyOk(d.key)) continue;
+      drill.push({ kind: d.kind as TroopId, n: Math.max(1, Math.floor(d.n)), at: d.at.slice(0, 64), work: Math.max(0, d.work), key: d.key });
+    }
+    if (drill.length) out.drill = drill;
+  }
+  const ask = r.ask as Record<string, unknown> | undefined;
+  if (ask && finite(ask.k) && finite(ask.men) && ask.men >= 1) out.ask = { k: Math.floor(ask.k), men: Math.floor(ask.men) };
+  const cap = r.captives as Record<string, unknown> | undefined;
+  if (cap && finite(cap.n) && cap.n >= 1 && finite(cap.until) && keyOk(cap.key)) out.captives = { n: Math.floor(cap.n), until: cap.until, key: cap.key };
+  if (Array.isArray(r.outbox)) {
+    const box = (r.outbox as unknown[]).map((o) => (o && typeof o === 'object' ? readBandOrder(o) : null)).filter((o): o is BandBookOrder => o !== null && isBookOrder(o));
+    if (box.length) out.outbox = box.slice(-OUTBOX_MAX);
+  }
+  return out;
+}
 
 /**
  * Хлеб в обозе сейчас и через `ms` мс мира хода в режиме `g` — для окна хода («провиант к приходу», ГДД 5.4): паёк сезона (`roamrules
@@ -244,7 +283,7 @@ export function setTrip(s: GameState, t: RoamTrip | null): void {
 /**
  * Шаг отряда длиной `dt` игровых секунд — одной дверью при игроке и в догоне: правил отлучки у отряда нет, он живёт по часам.
  */
-export function roamStep(s: GameState, dt: number): void {
+export function roamStep(s: GameState, dt: number, now?: number): void {
   const r = s.roam;
   if (!r || !(dt > 0)) return;
   const dayBefore = Math.floor(s.time / DAY_LENGTH);
@@ -262,10 +301,18 @@ export function roamStep(s: GameState, dt: number): void {
   if (fromCargo > 0) addStock(s, 'food', -fromCargo, cargoCap(r), 'cargo');
   const unfed = fromCargo > had ? bandHunger(r, mods) : 0;
   bandUpkeep(s, dt, unfed);
+  // Город (ПН-6): постой и учения найма идут, пока отряд стоит у вольного города или села — по настоящей минуте куска.
+  if (now !== undefined) townStep(s, dt, now);
   if (Math.floor(s.time / DAY_LENGTH) > dayBefore) trimLog(s);
 }
 
-/** Прожить `dt` игровых секунд кусками не длиннее `step` (шаг догона — `sim/tick.CATCHUP_STEP`, его передаёт диспетчер). */
-export function roamFor(s: GameState, dt: number, step: number): void {
-  for (let left = dt; left > 0; left -= step) roamStep(s, Math.min(step, left));
+/**
+ * Прожить `dt` игровых секунд кусками не длиннее `step` (шаг догона — `sim/tick.CATCHUP_STEP`, его передаёт диспетчер). `now` — настоящая
+ * минута конца окна: конец каждого куска — назад от неё на остаток окна (постой и учения у города знают, где стоял отряд).
+ */
+export function roamFor(s: GameState, dt: number, step: number, now?: number): void {
+  for (let left = dt; left > 0; left -= step) {
+    const d = Math.min(step, left);
+    roamStep(s, d, now === undefined ? undefined : now - realMs(left - d));
+  }
 }

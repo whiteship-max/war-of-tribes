@@ -20,8 +20,13 @@ import { roamOn } from './roamflag';
  * реестр собирает и сборка сервера (через двери склада и духа), а кусок тянет сетевые модули игры, которых у сервера нет.
  */
 export interface RoamDoor {
-  /** Шаг отряда кусками (`sim/roam.roamFor`; зовут `sim/tick.liveStep`, `absence`). */
-  roamFor(s: GameState, dt: number, step: number): void;
+  /**
+   * Шаг отряда кусками (`sim/roam.roamFor`; зовут `sim/tick.liveStep`, `absence`); `now` — настоящая минута конца окна (постой и учения
+   * у города, ПН-6).
+   */
+  roamFor(s: GameState, dt: number, step: number, now?: number): void;
+  /** Вести отряда на сетке почты за окно `from`…`now` (ПН-6: «Просятся в отряд», `sim/bandasks.bandMailArrive`). */
+  roamMail(s: GameState, from: number, now: number): void;
   /** Фаза и отряд из сохранения (`sim/roam.mergeRoam`; зовёт `save.deserialize`). */
   mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'>;
   /** Запись хода одной дверью (`sim/roam.setMove`) и её разбор (`world/roammove.readMove`) — строка, которую вывел сервер. */
@@ -40,6 +45,10 @@ export interface RoamDoor {
   /** Ответ реестра: строка отряда и видимость (`net/bandroster`; зовёт `net/roster.keep`), встал ли отряд. */
   keepRoster(res: RosterResponse): void;
   bandRow(): BandRow | null;
+  /** Очередь приказов книги отряда серверу (ПН-6, `net/bandbook`) — зовёт реестр перед отметкой отряда. */
+  flushBook(): Promise<void>;
+  /** Лечение отряда за алмазы (ПН-6, `sim/bandwounds.healBand`; зовёт `sim/gems.applyGemDeeds`): сколько встало. */
+  healBand(s: GameState, until: number): number;
 }
 
 let door: RoamDoor | null = null;

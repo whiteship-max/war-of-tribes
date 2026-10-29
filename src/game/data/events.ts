@@ -882,6 +882,14 @@ export const EVENTS: EventDef[] = [
 
 export const EVENT_BY_ID = Object.fromEntries(EVENTS.map((e) => [e.id, e])) as Record<string, EventDef>;
 
+/**
+ * Весть своего куска (ПН-6: «Просятся в отряд» — кусок пути): кладёт её на стол своя дверь прихода, а не кость вестей посёлка, поэтому
+ * в `EVENTS` её нет; закрывает — та же почта (`sim/mail`), и для этого вид ложится в `EVENT_BY_ID` при загрузке куска.
+ */
+export const addEventDef = (e: EventDef): void => {
+  EVENT_BY_ID[e.id] = e;
+};
+
 export function pickEvent(s: GameState): EventDef | null {
   const weighted = EVENTS.map((e) => [e, e.weight(s)] as const).filter(([, w]) => w > 0);
   const total = weighted.reduce((a, [, w]) => a + w, 0);

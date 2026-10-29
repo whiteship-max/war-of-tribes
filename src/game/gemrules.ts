@@ -11,8 +11,8 @@ import type { BuildingTypeId, ResourceId } from './types';
 import { BUILDING_BY_ID } from './data/buildings';
 import { own } from './guard';
 import { YARDS } from './data/yards';
-import { MAX_BUILDING_LEVEL, SLOTS_PER_LEVEL } from './constants';
-import { gameDaysPerHour, gameRate, gameSeconds, realSec, realSeconds } from './pace';
+import { MAX_BUILDING_LEVEL, SLOTS_PER_LEVEL, WOUND_DAYS } from './constants';
+import { DAY_LENGTH, gameDaysPerHour, gameRate, gameSeconds, realSec, realSeconds } from './pace';
 import { upgradeWork } from './labour';
 import { DAY_MS } from './time';
 import { dayIndex } from './data/daily';
@@ -70,6 +70,20 @@ export const rushFreeWork = (): number => gameSeconds(RUSH_FREE_SECONDS) * GEM_R
 
 /** Цена ускорения остатка работы `work`: последние пять минут даром, остальное — по кривой. Ноль — ускорение даром. */
 export const rushPriceOfWork = (work: number): number => gemsForWait(rushSeconds(work) - RUSH_FREE_SECONDS);
+
+// ------------------------------------------------ лечение (ПН-6) ---
+
+/**
+ * Цена «Поднять раненых сейчас» (ПН-6, docs/gdd/path_of_sword.md, 3.3.1, решение В11): оставшийся срок раненых — настоящие секунды —
+ * той же кривой ожидания, что ускорение стройки; последние пять минут даром. Одна цена на игру — у лорда (лазарет города) и у бродяги.
+ */
+export const healPriceOfLeft = (leftSeconds: number): number => gemsForWait(leftSeconds - RUSH_FREE_SECONDS);
+
+/** Полный срок раненых — настоящие секунды (`WOUND_DAYS`): больше этого остатка не бывает, и сервер больше не принимает. */
+export const healFullSeconds = (): number => realSeconds(WOUND_DAYS * DAY_LENGTH);
+
+/** Сколько настоящих секунд раненым группы со сроком `until` (игровые секунды) лежать при часах партии `time`. */
+export const healLeft = (until: number, time: number): number => realSeconds(Math.max(0, until - time));
 
 /** Может ли постройка этого типа строиться до этого уровня — то, что сервер знает о стройке без книги стройки. */
 export function rushLevelOk(type: string, level: number): type is BuildingTypeId {
@@ -134,7 +148,7 @@ export const GOOD_OF: Readonly<Record<ResourceId, string>> = {
 /** Запись журнала, как её видят обе стороны: изменение, вид и дело. */
 export interface GemLineOf {
   delta: number;
-  kind: 'start' | 'purchase' | 'buy' | 'rush' | 'refund';
+  kind: 'start' | 'purchase' | 'buy' | 'rush' | 'refund' | 'heal';
   res?: ResourceId;
   amount?: number;
   building?: string;
@@ -156,6 +170,8 @@ export function gemLine(e: GemLineOf, name: (building: string) => string = (b) =
         ? 'покупка'
         : e.kind === 'buy'
           ? `лавка: ${e.amount ?? SHOP_LOT} ${e.res ? GOOD_OF[e.res] : ''}`.trim()
+          : e.kind === 'heal'
+            ? 'лечение: раненые подняты'
           : `${e.kind === 'refund' ? 'возврат за ускорение' : 'ускорение'}: ${e.building ? name(e.building) : 'стройка'}${e.level ? ` до ур. ${e.level}` : ''}`;
   return `${signedGems(e.delta)} ${what}`;
 }

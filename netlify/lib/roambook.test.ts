@@ -45,8 +45,10 @@ describe('книга отряда: приход', () => {
     expect(at().now).toBeGreaterThan(AT);
     const early = bookOrder(startBook(), { op: 'join', key: 'join-early', k: K, n: 1 }, at({ now: AT - BOOK_SLACK_MS - 1 }));
     expect(early.forged).toMatch(/не наступил/);
-    const late = bookOrder(startBook(), { op: 'join', key: 'join-late', k: K, n: 1 }, at({ now: AT + LETTER_TTL + BOOK_SLACK_MS + 1 }));
-    expect(late.forged).toMatch(/старше суток/);
+    // Ответ, ждавший связи, — принят до двух сроков вести; старше — отказ без флага.
+    expect(bookOrder(startBook(), { op: 'join', key: 'join-wait', k: K, n: 1 }, at({ now: AT + LETTER_TTL + BOOK_SLACK_MS + 1 })).error).toBeNull();
+    const late = bookOrder(startBook(), { op: 'join', key: 'join-late', k: K, n: 1 }, at({ now: AT + 2 * LETTER_TTL + 1 }));
+    expect([late.error !== null, late.forged]).toEqual([true, null]);
     // Описи ещё нет — отказ без флага: честная партия повторит.
     const blind = bookOrder(startBook(), { op: 'join', key: 'join-blind', k: K, n: 1 }, at({ seed: undefined }));
     expect([blind.error !== null, blind.forged]).toEqual([true, null]);

@@ -9,7 +9,7 @@
 import type { TroopId } from './types';
 import { TROOP_BY_ID } from './data/troops';
 import { trainRateAt } from './train';
-import { realMs } from './pace';
+import { realMs, realTime } from './pace';
 import { roamStub } from './roamstubs';
 
 /** Вид, который приходит сам и в который принимают пленных (3.4.1, 3.4.5): первый вид войск. */
@@ -94,3 +94,6 @@ export const drillRate = (kind: TroopId): number => trainRateAt(Boolean(TROOP_BY
 
 /** Настоящих мс учений `n` бойцов вида — у сервера (книга отряда: найм не быстрее учений). */
 export const drillMs = (kind: TroopId, n: number): number => realMs((drillWork(kind) * Math.max(0, n)) / drillRate(kind));
+
+/** Очередь учений найма не длиннее суток: дальше казармы не берут заказ — одна граница у окна найма и у книги отряда сервера. */
+export const DRILL_AHEAD_MS = realTime(24 * 3_600_000);

@@ -10,7 +10,7 @@ import type { GameState, TroopId } from '../types';
 import { DAY_LENGTH, WOUND_DAYS } from '../constants';
 import { TROOP_IDS } from '../data/troops';
 import { troopTotal } from '../battle/kinds';
-import { rise, takeWounded } from './infirmary';
+import { hasten, rise, takeWounded } from './infirmary';
 
 /** Уложить раненых при отряде: срок `WOUND_DAYS` с этой минуты, мест не нужно. Возвращает, сколько легло. */
 export function layBandWounds(s: GameState, wounded: Partial<Record<TroopId, number>>): number {
@@ -34,6 +34,14 @@ export function hastenBandWounds(s: GameState, ahead: number): void {
   const r = s.roam;
   if (!r || !(ahead > 0)) return;
   for (const g of r.wounded) if (g.until !== null && g.until > s.time) g.until = Math.max(s.time, g.until - ahead);
+}
+
+/** Лечение отряда за алмазы (ПН-6): раненые со сроком не позже `until` встают сейчас — дверью лазарета (`infirmary.hasten`). */
+export function healBand(s: GameState, until: number): number {
+  const r = s.roam;
+  if (!r) return 0;
+  hasten(s, r.wounded, until);
+  return settleBandWounds(s);
 }
 
 /** Шаг отряда: чей срок прошёл — встают в строй отряда. Возвращает, сколько встало. */

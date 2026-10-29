@@ -3075,7 +3075,7 @@ export interface FeedResponse {
  * Начисляют только `start`, `purchase` и `refund` — одной дверью `netlify/lib/gems.creditGems`; `buy` и `rush` только
  * списывают.
  */
-export const GEM_KINDS = ['start', 'purchase', 'buy', 'rush', 'refund'] as const;
+export const GEM_KINDS = ['start', 'purchase', 'buy', 'rush', 'refund', 'heal'] as const;
 export type GemKind = (typeof GEM_KINDS)[number];
 
 /** Припасы лавки — виды склада без золота: золото за алмазы не продаётся. */
@@ -3099,6 +3099,8 @@ export interface GemEntry {
   /** Ускорение: постройка и уровень, до которого она достроена. */
   building?: string;
   level?: number;
+  /** Лечение (ПН-6): раненые со сроком не позже этой игровой секунды встают сейчас. */
+  until?: number;
 }
 
 /** Лавка за сегодня: номер суток (`gemrules.shopDay`) и сколько покупок уже сделано. */
@@ -3171,6 +3173,8 @@ export interface GemsResponse extends GemNote {
 export type GemOrder = (
   | { op: 'buy'; key: string; res: GemGood }
   | { op: 'rush'; key: string; building: string; level: number; work: number; price: number }
+  /** Лечение (ПН-6, ГДД 3.3.1): срок группы раненых (игровая секунда), сколько настоящих секунд им лежать и цена, которую видел игрок. */
+  | { op: 'heal'; key: string; until: number; left: number; price: number }
 ) & {
   /** Номер последнего применённого партией дела (FIN-4): ответ везёт дела после него. Нет — игра до FIN-4. */
   seen?: number;
@@ -3195,6 +3199,13 @@ export function readGemOrder(v: unknown): GemOrder | null {
     if (!building || !isSiteLevel(level) || work === null || work < 0 || !wholeNonNeg(price, Number.MAX_SAFE_INTEGER)) return null;
     return { op: 'rush', key, building, level, work, price, ...seen };
   }
+  if (r.op === 'heal') {
+    const until = num(r.until);
+    const left = num(r.left);
+    const { price } = r;
+    if (until === null || until < 0 || left === null || left < 0 || !wholeNonNeg(price, Number.MAX_SAFE_INTEGER)) return null;
+    return { op: 'heal', key, until, left, price, ...seen };
+  }
   return null;
 }
 
@@ -3216,12 +3227,16 @@ export function readGemEntry(v: unknown): GemEntry | null {
   if (building) out.building = building;
   const level = num(r.level);
   if (level !== null && Number.isInteger(level) && level > 0) out.level = level;
+  const until = num(r.until);
+  if (out.kind === 'heal' && until !== null && until >= 0) out.until = until;
   return out;
 }
 
 /** Есть ли у записи дело для партии: лавка кладёт припас, ускорение достраивает. */
 export const gemDeed = (e: GemEntry): boolean =>
-  (e.kind === 'buy' && e.res !== undefined && (e.amount ?? 0) > 0) || (e.kind === 'rush' && e.building !== undefined && e.level !== undefined);
+  (e.kind === 'buy' && e.res !== undefined && (e.amount ?? 0) > 0) ||
+  (e.kind === 'rush' && e.building !== undefined && e.level !== undefined) ||
+  (e.kind === 'heal' && e.until !== undefined);
 
 /** Записка из ответа: кривое или нет её — `null` (сервер до алмазов или ответ без записки). */
 export function readGemNote(v: unknown): GemNote | null {

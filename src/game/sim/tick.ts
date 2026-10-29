@@ -308,12 +308,13 @@ export const awayGameSeconds = (since: number, now: number): number =>
  * игровыми: перевод один (`game/pace`).
  */
 export function absence(s: GameState, since: number, now: number): void {
-  // Бродяга (ПН-1): отряд догоняет отлучку своим шагом — тем же порогом и тем же потолком; вестей посёлка у него нет.
+  // Бродяга (ПН-1): отряд догоняет отлучку своим шагом — тем же порогом и тем же потолком; вестей посёлка у него нет — свои (ПН-6).
   // Шаг отряда — из куска пути (`game/roamlazy`, ПН-5, хвост а): кусок есть только у того, кому путь открыт; закрыт — как прежде,
   // всё как у лорда.
   const door = s.phase === 'roam' ? roamDoor() : null;
   if (door) {
-    if (awaySeconds(since, now) > AWAY_AFTER) door.roamFor(s, awayGameSeconds(since, now), CATCHUP_STEP);
+    if (awaySeconds(since, now) > AWAY_AFTER) door.roamFor(s, awayGameSeconds(since, now), CATCHUP_STEP, now);
+    door.roamMail(s, since, now);
     return;
   }
   if (awaySeconds(since, now) > AWAY_AFTER) catchUp(s, awayGameSeconds(since, now), CATCHUP_STEP);
@@ -334,8 +335,9 @@ export function liveStep(s: GameState, real: number, now: number, lived: number 
   // Бродяга (ПН-1): шаг отряда вместо шага посёлка — по тем же часам; длинный промежуток — отлучка тем же правилом.
   const door = s.phase === 'roam' ? roamDoor() : null;
   if (door) {
-    if (real <= AWAY_AFTER) door.roamFor(s, gameSeconds(lived), CATCHUP_STEP);
-    else absence(s, now - lived * 1000, now);
+    if (real > AWAY_AFTER) return absence(s, now - lived * 1000, now);
+    door.roamFor(s, gameSeconds(lived), CATCHUP_STEP, now);
+    door.roamMail(s, now - lived * 1000, now);
     return;
   }
   // `real` — настоящие секунды устройства: по ним и только по ним решается, шаг это или отлучка

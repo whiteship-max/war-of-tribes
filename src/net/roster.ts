@@ -168,6 +168,7 @@ export const provideBand = (fn: () => Extract<BandOrder, { op: 'seat' }> | null)
 
 /** Свой ход в реестр: в фазе бродяги — строка отряда (`seat`), иначе — замка. */
 const seatOrClaim = async (): Promise<boolean> => {
+  if (roamOn() && bandSeat?.()) await roamDoor()?.flushBook();
   const seat = roamOn() ? bandSeat?.() : null;
   if (!seat) return false;
   const res = await apiPost<RosterResponse>('/api/castles', seat);

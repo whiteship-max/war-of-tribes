@@ -55,6 +55,7 @@ import { Row } from '@/ui/kit/Row';
 import { goTo } from '@/ui/kit/nav';
 import { WINDOW, sourceWord } from '@/ui/kit/sources';
 import { RushButton } from './Rush';
+import { HealRows } from './Heal';
 import { iconName } from '@/ui/icons/registry';
 import { actRoom } from '@/ui/room';
 
@@ -153,6 +154,8 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
           <RushButton b={b} />
         </div>
       )}
+      {/* Лечение за алмазы (ПН-6, решение В11): раненые лазарета — от оставшегося срока, в осаде тоже. */}
+      {b.type === 'infirmary' && <HealRows groups={s.wounded ?? []} />}
 
       {jobsOf(b.type).length > 1 ? (
         <Deeds b={b} gains={gains} trades />

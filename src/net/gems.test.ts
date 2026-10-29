@@ -62,9 +62,9 @@ describe('записка сервера — единственный источ�
     expect(gemsOffline(), 'записка вернула связь').toBeNull();
   });
 
-  it('приказов у игры два — купить в лавке и ускорить; оба только тратят', () => {
+  it('приказов у игры три — купить в лавке, ускорить стройку и поднять раненых (ПН-6); все только тратят', () => {
     const src = readFileSync(join(__dirname, 'gems.ts'), 'utf8');
-    expect([...src.matchAll(/op: '(\w+)'/g)].map((m) => m[1]).sort()).toEqual(['buy', 'rush']);
+    expect([...src.matchAll(/op: '(\w+)'/g)].map((m) => m[1]).sort()).toEqual(['buy', 'heal', 'rush']);
     expect(src).not.toMatch(/creditGems|purchase|start/);
   });
 });

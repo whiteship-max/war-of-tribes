@@ -8,6 +8,8 @@ import { create } from 'zustand';
 import { useGame } from '@/game/store';
 import { serverNow } from '@/net/clock';
 import type { MinigameId } from '@/game/data/minigames';
+import type { GameState } from '@/game/types';
+import type { Harvest, Outing } from '@/game/sim/minigames';
 import { useRealm } from './realm/open';
 
 /**
@@ -16,20 +18,35 @@ import { useRealm } from './realm/open';
  */
 export const energyNow = (): number => serverNow();
 
+/**
+ * Заработки бродяги (ПН-6, ГДД 3.7.7): игра та же, а добыча — золотом в кошель отряда, не на склад. Двери даёт кусок пути (окно города,
+ * `sim/bandearn`); промысел их только зовёт — сам он кода пути не тянет.
+ */
+export interface TradeWage {
+  /** Где игра идёт — имя города. */
+  name: string;
+  /** Золото при полном счёте — строка «до N» на карточке начала. */
+  top: number;
+  settle: (st: GameState, outing: Outing, now: number, score: number) => (Harvest & { gold: number }) | string;
+}
+
 interface TradesStore {
   /** Открыто окно «Промыслы». */
   open: boolean;
   /** Какая игра идёт; null — никакая. */
   playing: MinigameId | null;
+  /** Игра идёт на заработках (ПН-6); `null` — промысел своего города. */
+  wage: TradeWage | null;
   show: () => void;
   hide: () => void;
-  play: (id: MinigameId) => void;
+  play: (id: MinigameId, wage?: TradeWage) => void;
   stop: () => void;
 }
 
 export const useTrades = create<TradesStore>((set) => ({
   open: false,
   playing: null,
+  wage: null,
   // Окно встаёт вместо шторки и державы, а не поверх: под ним не должно висеть невидимое.
   show: () => {
     useGame.getState().closeSheet();
@@ -37,10 +54,10 @@ export const useTrades = create<TradesStore>((set) => ({
     set({ open: true });
   },
   hide: () => set({ open: false }),
-  play: (id) => {
+  play: (id, wage) => {
     useGame.getState().closeSheet();
     useRealm.getState().hide();
-    set({ open: false, playing: id });
+    set({ open: false, playing: id, wage: wage ?? null });
   },
-  stop: () => set({ playing: null }),
+  stop: () => set({ playing: null, wage: null }),
 }));

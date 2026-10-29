@@ -2964,6 +2964,25 @@ svg.nx-hbadge {
 .nx-brush {
   margin: 0 0 8px;
 }
+/* Лечение за алмазы (ПН-6): строка на группу раненых — сколько и когда встанут, кнопка с ценой. */
+.nx-heal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.nx-heal-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.nx-heal-row svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
 .nx-rush {
   display: flex;
   flex-direction: column;

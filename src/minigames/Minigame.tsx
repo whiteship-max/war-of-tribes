@@ -23,7 +23,7 @@ import { askRoom } from '@/ui/room';
 import { Icon } from '@/ui/icons/Icon';
 import { DAY_PARTS } from '@/ui/icons/registry';
 import { realSpanText } from '@/ui/parts/wait';
-import { energyNow } from '@/ui/trades';
+import { energyNow, useTrades } from '@/ui/trades';
 import { BerriesPlay } from './berriesPlay';
 import { HerdPlay } from './herdPlay';
 import { BEASTS } from './herd';
@@ -251,6 +251,8 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
   // Зерно и «до N» — на входе: раскладка не меняется посреди игры, что бы ни случилось с партией.
   const [seed] = useState(() => minigameSeed(useGame.getState().s, game));
   const [top] = useState(() => minigameHaul(useGame.getState().s, game, 1));
+  // Заработки бродяги (ПН-6): добыча — золотом в кошель отряда, дверью куска пути (`useTrades.wage`).
+  const [wage] = useState(() => useTrades.getState().wage);
   const [view, setView] = useState<StageView | null>(null);
   const [result, setResult] = useState<Harvest | string | null>(null);
   const [hint, setHint] = useState(true);
@@ -301,7 +303,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
         let out: Harvest | string = 'Добыча не засчитана';
         const g = useGame.getState();
         const ok = outing !== null && g.act((st) => {
-          const r = harvest(st, outing, energyNow(), shareOf(tally));
+          const r = wage ? wage.settle(st, outing, energyNow(), shareOf(tally)) : harvest(st, outing, energyNow(), shareOf(tally));
           if (typeof r === 'string') return r;
           out = r;
           return null;
@@ -375,7 +377,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
     if (!stageRef.current || outingRef.current) return;
     // Добыча полного счёта не влезет на склад — спросить до траты энергии (OWNER-DECISIONS, п. 1): добыча ложится сама,
     // когда выйдет время, и «Отмена» после игры сожгла бы энергию. «Отмена» здесь — энергия не тронута.
-    if (!(await askRoom(overflowOf(useGame.getState().s, minigameHaul(useGame.getState().s, game, 1))))) return;
+    if (!wage && !(await askRoom(overflowOf(useGame.getState().s, minigameHaul(useGame.getState().s, game, 1))))) return;
     const stage = stageRef.current;
     if (!stage || outingRef.current) return;
     const g = useGame.getState();
@@ -501,7 +503,14 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
               {realSpanText(GAME_SECONDS[game])}
             </span>
             <span className="mg-res mg-muted">до</span>
-            <HaulRow haul={top} />
+            {wage ? (
+              <span className="mg-res" aria-label="Золото">
+                <Icon name="res-gold" />
+                {wage.top}
+              </span>
+            ) : (
+              <HaulRow haul={top} />
+            )}
             <span className="mg-res mg-muted" aria-label="Энергия">
               <Icon name="ui-energy" />
               {MINIGAME_COST}
@@ -538,11 +547,23 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
                 </span>
                 <span>Взято {Math.round(shareOf(view.tally) * 100)} % предела</span>
               </div>
-              <div className="mg-facts">
-                <span className="mg-res mg-muted">На склад</span>
-                {Object.keys(result.stored).length > 0 ? <HaulRow haul={result.stored} /> : <span className="mg-res">ничего</span>}
-              </div>
-              {RESOURCE_IDS.some((r) => (result.stored[r] ?? 0) < (result.got[r] ?? 0)) && <small className="mg-why">Склад полон, легло не всё</small>}
+              {'gold' in result ? (
+                <div className="mg-facts">
+                  <span className="mg-res mg-muted">В кошель</span>
+                  <span className="mg-res" aria-label="Золото">
+                    <Icon name="res-gold" />
+                    {(result as { gold: number }).gold}
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div className="mg-facts">
+                    <span className="mg-res mg-muted">На склад</span>
+                    {Object.keys(result.stored).length > 0 ? <HaulRow haul={result.stored} /> : <span className="mg-res">ничего</span>}
+                  </div>
+                  {RESOURCE_IDS.some((r) => (result.stored[r] ?? 0) < (result.got[r] ?? 0)) && <small className="mg-why">Склад полон, легло не всё</small>}
+                </>
+              )}
               <small className="mg-muted">
                 Энергия {result.energy} из {ENERGY_MAX}
               </small>
@@ -551,7 +572,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
           {typeof result === 'string' && <small className="mg-why">{result}</small>}
           <div className="mg-actions">
             <button className="mg-go" onClick={onExit}>
-              В город
+              {wage ? 'К отряду' : 'В город'}
             </button>
           </div>
         </div>

@@ -23,6 +23,9 @@ export type TownKey = `town:${string}`;
 /** Ключ рынка: свой город лорда или вольный город НПС (город игрока-хозяина — ПН-14). */
 export type MarketKey = 'home' | TownKey;
 
+/** Рынков вольных городов в партии — не больше стольких (старые уходят: их нажим давно отошёл); то же число читает сохранение. */
+export const TOWN_MARKETS = 16;
+
 /** Номер точки вольного города по клетке — тот же, что у `world/roampoints`. */
 export const townKeyOf = (x: number, y: number): TownKey => `town:${x}:${y}`;
 

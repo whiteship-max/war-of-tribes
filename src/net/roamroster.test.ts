@@ -56,7 +56,8 @@ async function both(): Promise<{ r: typeof import('./roster'); b: typeof import(
   const r = await import('./roster');
   const b = await import('./bandroster');
   const lazy = await import('@/game/roamlazy');
-  lazy.provideRoamDoor({ keepRoster: b.keepRoster, bandRow: b.bandRow } as unknown as Parameters<typeof lazy.provideRoamDoor>[0]);
+  // Очереди книги отряда (ПН-6) в этих пробах нет — отметка уходит сразу.
+  lazy.provideRoamDoor({ keepRoster: b.keepRoster, bandRow: b.bandRow, flushBook: async () => {} } as unknown as Parameters<typeof lazy.provideRoamDoor>[0]);
   return { r, b };
 }
 

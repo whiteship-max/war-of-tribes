@@ -180,3 +180,7 @@ export const orderBuy = (res: GemGood): Promise<string | null> => order(`buy:${r
 /** Ускорить стройку: постройка, уровень, остаток работы и цена, которую видел игрок. */
 export const orderRush = (id: number, building: string, level: number, work: number, price: number): Promise<string | null> =>
   order(`rush:${id}`, { op: 'rush', key: freshKey(), building, level, work, price, ...seenPart() });
+
+/** Лечение (ПН-6): раненые со сроком `until` (игровая секунда) и не раньше, остаток `left` настоящих секунд, цена, которую видел игрок. */
+export const orderHeal = (until: number, left: number, price: number): Promise<string | null> =>
+  order(`heal:${until}`, { op: 'heal', key: freshKey(), until, left, price, ...seenPart() });

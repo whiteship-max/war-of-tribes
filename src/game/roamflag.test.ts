@@ -130,7 +130,17 @@ describe('выключатель Пути меча закрыт игрокам �
       });
     }
     // Граница области: развилки есть — шаг, отлучка, дух, чей счёт дел (ПН-2: герой пути или правитель), какой мир открыть и
-    // чья карта (ПН-3: мир и карта бродяги своими кусками или лорда), куда ложится указ админа (30.10.2026: посёлку или отряду).
-    expect([...new Set(forks)].sort()).toEqual(['game/rulernow.ts', 'game/sim/admin.ts', 'game/sim/spirit.ts', 'game/sim/tick.ts', 'ui/map/WorldMap.tsx', 'world/store.ts']);
+    // чья карта (ПН-3: мир и карта бродяги своими кусками или лорда), куда ложится указ админа (30.10.2026: посёлку или отряду), кого
+    // поднимает лечение за алмазы и чей отряд у дел с людьми (ПН-6: лазарет города или раненые отряда; `sim/bandranks.bandOf`).
+    expect([...new Set(forks)].sort()).toEqual([
+      'game/rulernow.ts',
+      'game/sim/admin.ts',
+      'game/sim/bandranks.ts',
+      'game/sim/gems.ts',
+      'game/sim/spirit.ts',
+      'game/sim/tick.ts',
+      'ui/map/WorldMap.tsx',
+      'world/store.ts',
+    ]);
   });
 });

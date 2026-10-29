@@ -33,6 +33,8 @@ import {
   SHOP_LOT,
   START_GEMS,
   fullWork,
+  healFullSeconds,
+  healPriceOfLeft,
   rushLevelOk,
   rushPriceOfWork,
   rushSeconds,
@@ -191,6 +193,8 @@ export function applyGemOrder(ledger: GemLedger, order: GemOrder, at: number, le
     return { ledger: { ...done.ledger, shop: { day: shop.day, used: shop.used + 1 } }, entry: done.entry };
   }
 
+  if (order.op === 'heal') return healOrder(ledger, order, at, left ?? undefined);
+
   if (!rushLevelOk(order.building, order.level) || left === null) return { ledger: null, error: 'Такой стройки нет.' };
   const full = fullWork(order.building, order.level);
   const work = Math.min(Math.max(order.work, left ?? 0), full);
@@ -208,6 +212,27 @@ export function applyGemOrder(ledger: GemLedger, order: GemOrder, at: number, le
   if (typeof done === 'string') return { ledger: null, error: done };
   const rushed = { ...done.ledger.rushed, [order.building]: (done.ledger.rushed[order.building] ?? 0) + Math.round(rushSeconds(work) * 1000) };
   return { ledger: { ...done.ledger, rushed }, entry: done.entry };
+}
+
+/**
+ * Лечение (ПН-6, ГДД 3.3.1, решение В11): «Поднять раненых сейчас» — цена по остатку срока группы той же кривой, что ускорение.
+ * Остаток сервер выводит сам — из часов партии по описи (`healLeft` у маршрута: срок группы минус часы партии сейчас) — и берёт
+ * больший из своего и названного игрой, не больше полного срока раненых: подделка, назвавшая остаток меньше, платит за настоящий.
+ * Дороже показанной — отказ и «внимание:». Тот же срок дважды за десять минут — второй приказ, а не новые раненые.
+ */
+function healOrder(ledger: GemLedger, order: Extract<GemOrder, { op: 'heal' }>, at: number, known?: number): OrderStep {
+  const sec = Math.min(Math.max(order.left, known ?? 0), healFullSeconds());
+  const price = healPriceOfLeft(sec);
+  if (price === 0) return { ledger: null, error: 'Последние пять минут раненые встают даром.' };
+  if (price > order.price) {
+    const warn = `лечение раненых до ${Math.round(order.until)} с партии: игра назвала ${order.price} алм. за ${Math.round(order.left)} с, сервер считает ${price} алм. за ${Math.round(sec)} с. Отказ, алмазы не списаны.`;
+    return { ledger: null, error: `Лечение стоит ${price}, а не ${order.price}. Посмотри цену ещё раз.`, warn };
+  }
+  const twin = ledger.list.find((e) => e.kind === 'heal' && e.until === order.until && at - e.at < RUSH_REPEAT_MS);
+  if (twin) return { ledger: null, error: 'Эти раненые уже подняты.' };
+  const done = spendGems(ledger, price, { at, kind: 'heal', key: order.key, until: order.until });
+  if (typeof done === 'string') return { ledger: null, error: done };
+  return { ledger: done.ledger, entry: done.entry };
 }
 
 // ------------------------------------------------ возврат ускорения (FIN-5) ---

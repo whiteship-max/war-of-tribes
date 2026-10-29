@@ -8,6 +8,7 @@ import type { EnergyMark } from '@/world/energy';
 import type { ItemId } from './data/items';
 import type { TraitId } from './data/traits';
 import type { FightMark } from './scarrules';
+import type { BandBookOrder } from '../../netlify/lib/contract';
 
 export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'charcoal' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
@@ -1306,6 +1307,12 @@ export interface RoamState {
    * книги отряда сервера. Пишет `sim/roamfight`, принимает `sim/bandranks.takeCaptives`. Нет поля — пленных нет.
    */
   captives?: { n: number; until: number; key: string };
+  /**
+   * Приказы книги отряда, ещё не принятые сервером (ПН-6, решение ВП4; `netlify/lib/roambook.ts`): дело легло в партию, приказ ждёт
+   * связи — уходит по порядку раньше отметки отряда (`net/bandbook`), каждый со своим ключом повтора. Кладут их двери дел отряда; нет
+   * поля — ждать нечего.
+   */
+  outbox?: BandBookOrder[];
 }
 
 /** Заказ найма на учениях (ПН-6, ГДД 3.4.3): вид, сколько, точка (номер вольного города или села) и работа учений, что осталась. */

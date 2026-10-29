@@ -30,6 +30,7 @@ import { setWageMode } from './upkeep';
 import { gameSeconds } from '../pace';
 // Кусок пути (ПН-5, хвост а): у админа он докачан до первой партии бродяги — тест держит его так же (`game/roamlazy`).
 import '../roamdoor';
+import { BAND_ASK } from './bandasks';
 
 vi.mock('../roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
 
@@ -89,7 +90,7 @@ describe('фазы и диспетчер шага', () => {
     expect(village(s), 'деревня не шагала').toBe(before);
   });
 
-  it('отлучка бродяги — догон шагом отряда под тем же потолком, без вестей посёлка', () => {
+  it('отлучка бродяги — догон шагом отряда под тем же потолком, без вестей посёлка (своя весть отряда — ПН-6)', () => {
     const s = roamParty({ spearman: 10 }, { purse: 1e6, food: 7000 });
     const before = village(s);
     const since = Date.UTC(2026, 9, 1, 12);
@@ -99,7 +100,10 @@ describe('фазы и диспетчер шага', () => {
     expect(awayGameSeconds(since, now)).toBe(MAX_OFFLINE_DAYS * DAY_LENGTH);
     absence(s, since, now);
     expect(s.time).toBeCloseTo(MAX_OFFLINE_DAYS * DAY_LENGTH, 6);
-    expect(village(s), 'ни шага посёлка, ни вестей на столе').toBe(before);
+    // Вестей посёлка нет; на столе — только своя весть отряда «Просятся в отряд» (ПН-6), она живёт той же сеткой почты.
+    expect(s.inbox.every((e) => e.defId === BAND_ASK), 'на столе — только весть отряда').toBe(true);
+    expect(JSON.parse(before).i, 'граница: до отлучки стол пуст').toEqual([]);
+    expect(village({ ...s, inbox: [] }), 'ни шага посёлка').toBe(before);
     // Длинный промежуток живого шага — та же отлучка.
     const t = s.time;
     liveStep(s, 3600, now + 3600 * 1000);

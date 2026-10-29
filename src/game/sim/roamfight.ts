@@ -26,7 +26,8 @@ import { log } from './log';
 import { yearOf } from '../derived';
 import { lairGold } from '@/world/lairs';
 import { plunder, HEAD_CARRY } from '@/world/spoils';
-import { LAIR_RUIN } from '@/world/data/tuning';
+import { LAIR_RUIN, LETTER_TTL } from '@/world/data/tuning';
+import { captivesOf } from '../askrules';
 import { BEATEN_MAX } from './roam';
 
 /** Итог боя, который отдаёт мир: кто бился, чем кончилось, кого потеряли. */
@@ -126,7 +127,11 @@ export function takeFight(s: GameState, f: FightOut): string {
     if (f.how === 'strike' && f.id) {
       r.beaten = [{ id: f.id, until: f.at + LAIR_RUIN }, ...(r.beaten ?? []).filter((b) => b.id !== f.id)].slice(0, BEATEN_MAX);
     }
-    const line = `${what} — победа.${losses} Престиж +${Math.round(fame)}${gold > 0 ? `, добыча ${gold} золота` : ''}.`;
+    // Пленные (ГДД 3.4.5, ПН-6): доля уцелевших врагов — «Принять в отряд» дубинщиками до срока вести (`sim/bandranks.takeCaptives`).
+    const taken = captivesOf(Math.round(f.foeMen * (1 - f.foeLoss)));
+    if (taken > 0) r.captives = { n: taken, until: f.at + LETTER_TTL, key: `cap-${f.seed >>> 0}-${f.at}` };
+    else delete r.captives;
+    const line = `${what} — победа.${losses} Престиж +${Math.round(fame)}${gold > 0 ? `, добыча ${gold} золота` : ''}.${taken > 0 ? ` Пленных ${taken}: можно принять в отряд.` : ''}`;
     log(s, line, 'good', `roamfight:${f.at}`);
     return line;
   }

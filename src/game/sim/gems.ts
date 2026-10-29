@@ -18,6 +18,8 @@ import { SHOP_LOT, gemLine, rushPriceOfWork, rushSeconds } from '../gemrules';
 import { layStock } from './admin';
 import { log } from './log';
 import { noteRulerDeed } from './dynasty';
+import { hasten, settleWounds } from './infirmary';
+import { roamDoor } from '../roamlazy';
 
 export {
   GEM_CONFIRM,
@@ -28,6 +30,8 @@ export {
   SHOP_LOT,
   START_GEMS,
   gemsForWait,
+  healLeft,
+  healPriceOfLeft,
   shopHours,
   shopPrice,
 } from '../gemrules';
@@ -67,6 +71,19 @@ export function finish(s: GameState, b: Building): void {
   noteRulerDeed(s, 'built');
 }
 
+// ------------------------------------------------ лечение (ПН-6) ---
+
+/**
+ * Поднять раненых со сроком не позже `until` сейчас — у лорда в лазарете, у бродяги при отряде (дверью куска пути). Зовут дело лечения
+ * с сервера и последние пять минут, которые встают даром (`healPriceOfLeft` — ноль). Возвращает, сколько встало.
+ */
+export function healNow(s: GameState, until: number): number {
+  const door = s.phase === 'roam' ? roamDoor() : null;
+  if (door) return door.healBand(s, until);
+  hasten(s, s.wounded, until);
+  return settleWounds(s);
+}
+
 // ------------------------------------------------ дела с сервера ---
 
 /**
@@ -103,6 +120,12 @@ export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number 
         s.gemUnneeded = [...gemUnneeded(s).filter((n) => n !== e.n), e.n].slice(-GEM_LIMITS.unneeded);
         log(s, `${name}: ускорение не понадобилось — стройка до ур. ${e.level} уже не идёт. ${-e.delta} алмазов вернутся, если сервер подтвердит, что она кончилась сама.`, 'info', undefined, 'build');
       }
+      continue;
+    }
+    if (e.kind === 'heal' && e.until !== undefined) {
+      // Лечение (ПН-6): раненые со сроком не позже названного встают сейчас — у лорда в лазарете, у бродяги при отряде.
+      const up = healNow(s, e.until);
+      log(s, up > 0 ? `Раненые подняты за ${-e.delta} алмазов: в строю ${up}.` : 'Лечение за алмазы: раненые уже встали сами.', up > 0 ? 'good' : 'info');
       continue;
     }
     log(s, `Алмазы: ${gemLine(e)}.`, 'info');
