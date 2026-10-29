@@ -15,6 +15,7 @@ import { provideSightSink, castles, type SightNews } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { useGame } from '@/game/store';
 import { log } from '@/game/sim/log';
+import { realTime } from '@/game/pace';
 import type { GameState } from '@/game/types';
 import { troopTotal } from '@/game/battle/kinds';
 import { CASTLE_EYE, bandLook, conspicuity, detectRange, sees } from './sight';
@@ -38,13 +39,13 @@ interface BandSight {
 export const useBandSight = create<BandSight>(() => ({ marks: [], seen: null, at: 0 }));
 
 /** След живёт двое настоящих суток: дольше место отряда уже ничего не говорит. */
-export const TRAIL_MS = 2 * 24 * 3_600_000;
+export const TRAIL_MS = realTime(2 * 24 * 3_600_000);
 /** Следов на устройстве — не больше этого: свежие вытесняют давние. */
 export const TRAIL_MAX = 24;
 /** Весть «Нас видели» — не чаще раза в десять минут. */
-export const NOTE_GAP_MS = 10 * 60_000;
+export const NOTE_GAP_MS = realTime(10 * 60_000);
 /** Тот же глаз — не чаще раза в шесть часов: отряд у замка, мимо которого ходит, не слышит о нём каждый заход. */
-export const NOTE_SAME_MS = 6 * 3_600_000;
+export const NOTE_SAME_MS = realTime(6 * 3_600_000);
 
 const TRAIL_KEY = 'tribe.bandtrail.v1';
 const NOTE_KEY = 'tribe.seennote.v1';
