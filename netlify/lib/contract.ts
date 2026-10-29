@@ -204,6 +204,11 @@ export interface RosterFile {
   v: 1;
   epoch: number;
   rows: Record<string, CastleRow>;
+  /**
+   * Отряды бродяг (ПН-3) — тем же ключом игрока, что замки: у игрока либо замок, либо отряд. Есть, только пока Путь меча открыт
+   * (`ROAM_ON`): закрыт — реестр их не читает и не пишет.
+   */
+  bands?: Record<string, BandRow>;
 }
 
 /**
@@ -236,6 +241,94 @@ export interface RosterResponse {
   /** Своя клетка. `null` — замок ещё не поставлен. */
   mine: { x: number; y: number } | null;
   castles: CastleView[];
+  /**
+   * Свой отряд бродяги (ПН-3, docs/gdd/path_of_sword.md, 3.5.6): ход, лагерь и энергия, которые вывел сервер. Поле есть, только
+   * пока Путь меча открыт (`ROAM_ON`) и у игрока есть строка отряда; чужих отрядов реестр не отдаёт вовсе (до ПН-4у), и старый
+   * клиент этого поля не читает — реестр для него прежний.
+   */
+  band?: BandRow;
+  /** Отказ приказа отряда словами (`POST`); нет — принят. */
+  error?: string;
+}
+
+// ---------- Отряд бродяги в реестре (ПН-3) ----------
+//
+// Бродяга стоит в реестре строкой `bands` рядом с замками: место выхода назначает сервер (`world/roam.placeBand` — у руин или
+// опушки, вдали от замков и новичков), ход и лагерь он выводит сам той же дверью, что клиент (`world/roam`). Клиент называет
+// только приказ — куда, каким маршем, какой лагерь — и то, что видел в окне (срок прихода): для сверки, а не для правды.
+// Пока Путь меча закрыт (`ROAM_ON`), строк отряда нет, их приказы — отказ без флага, а замок старым правилом.
+
+/** Клетка в записи реестра. */
+export interface BandCell {
+  x: number;
+  y: number;
+}
+
+/** Строка отряда бродяги в реестре: запись хода (`world/roammove.RoamMove`), знамя, престиж и метка рождения. */
+export interface BandRow {
+  /** Ход: откуда, куда, когда вышел и придёт (часы сервера, мс), режим марша — `gait` (обычный — без поля). */
+  way: { from: BandCell; to: BandCell; at: number; until: number; gait?: WarGait };
+  /** Лагерь: вид, с какой минуты стоит, сколько бойцов ставили рогатки. Нет — в пути или в поле. */
+  camp?: { kind: 'open' | 'hidden' | 'ruin'; since: number; builders: number };
+  /** Энергия отряда — отметка двери энергии (`world/energy`). */
+  energy?: WarEnergy;
+  /** Когда сервер назвал место выхода: новичок — меньше 48 настоящих часов (решение С5, ГДД 3.5.8). */
+  born: number;
+  /** Имя героя — чистым текстом, как имя вождя замка. */
+  name: string;
+  /** Знамя — герб из набора (`readArms`). */
+  arms?: string;
+  /** Престиж — слово клиента до книги отряда (ПН-13). */
+  prestige: number;
+  /** Бойцов строя — слово клиента до книги отряда (ПН-13): от него рогатки и вместимость руин. */
+  men: number;
+  seenAt: number;
+}
+
+/**
+ * Приказ отряда в реестр (`POST /api/castles`):
+ *  — `seat` — встать в реестр (место выхода назовёт сервер) или отметиться: имя, знамя, престиж, люди;
+ *  — `go` — «Идти сюда»: клетка и режим марша; `until` — срок прихода, который видел игрок (сверка, не правда);
+ *  — `camp` — «Встать лагерем» вида или снять лагерь (`null`).
+ */
+export type BandOrder =
+  | { op: 'seat'; name: string; arms?: string; prestige: number; men: number }
+  | { op: 'go'; to: BandCell; gait?: WarGait; until?: number }
+  | { op: 'camp'; kind: 'open' | 'hidden' | 'ruin' | null; men: number };
+
+/** Потолки чисел приказа отряда. */
+export const BAND_LIMITS = { prestige: 1e9, men: 1e6 } as const;
+
+/** Разбор приказа отряда: новый объект, мусор — `null` (400). Координаты — целые клетки. */
+export function readBandOrder(v: unknown): BandOrder | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const cap = (raw: unknown, max: number): number => Math.min(max, Math.max(0, Math.floor(num(raw) ?? 0)));
+  if (r.op === 'seat') {
+    const arms = r.arms === undefined || r.arms === null || r.arms === '' ? '' : readArms(r.arms) ? (r.arms as string) : null;
+    if (arms === null) return null;
+    return {
+      op: 'seat',
+      name: (str(r.name, CASTLE_LIMITS.name) !== null ? plainText(r.name, CASTLE_LIMITS.name) : null) ?? '',
+      ...(arms ? { arms } : {}),
+      prestige: cap(r.prestige, BAND_LIMITS.prestige),
+      men: cap(r.men, BAND_LIMITS.men),
+    };
+  }
+  if (r.op === 'go') {
+    const to = (r.to && typeof r.to === 'object' ? r.to : {}) as Record<string, unknown>;
+    const x = num(to.x);
+    const y = num(to.y);
+    if (x === null || y === null) return null;
+    const until = num(r.until);
+    return { op: 'go', to: { x: Math.round(x), y: Math.round(y) }, ...readGaitField(r.gait), ...(until !== null ? { until } : {}) };
+  }
+  if (r.op === 'camp') {
+    const kind = r.kind === 'open' || r.kind === 'hidden' || r.kind === 'ruin' ? r.kind : r.kind === null ? null : undefined;
+    if (kind === undefined) return null;
+    return { op: 'camp', kind, men: cap(r.men, BAND_LIMITS.men) };
+  }
+  return null;
 }
 
 /** Потолки полей строки. Реестр читают все, и раздувать его никому нельзя. */

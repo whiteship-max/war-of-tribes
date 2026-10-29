@@ -17,14 +17,15 @@ import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
 import { TROOP_IDS } from '../data/troops';
 import { seasonMods } from '../derived';
 import { ROAM_ON } from '../roamflag';
-import { bandHunger, bandRationPerDay, forageShare } from '../roamrules';
+import { bandHunger, bandRationPerDay, campSpirit, forageShare } from '../roamrules';
 import { readTally } from '../rulernow';
 import { troopTotal } from '../battle/kinds';
 // Мир — только данными (`world/data/*`) и формой записи хода (`world/roammove`): дверь режима марша (`world/gait`) и дверь хода
 // (`world/roam`) тянут осаду, землю и регионы, и шаг города, который зовёт этот модуль диспетчером, сдвинул бы ими первую загрузку.
-import { GAIT_HAUL } from '@/world/data/gait';
+import { GAIT_HAUL, type Gait } from '@/world/data/gait';
 import { UNIT_BY_ID } from '@/world/data/units';
-import { readMove, wayGait, type RoamMove } from '@/world/roammove';
+import { readMove, standWay, wayGait, type CampKind, type RoamMove } from '@/world/roammove';
+import { gameDaysOfMs } from '../pace';
 import { addStock, trimCargo } from './stock';
 import { hastenBandWounds, settleBandWounds } from './infirmary';
 import { roamStub } from '../roamstubs';
@@ -160,6 +161,31 @@ export function mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'> {
       ...(move ? { way: move.way } : {}),
       ...(move?.energy ? { energy: move.energy } : {}),
     },
+  };
+}
+
+/**
+ * Хлеб в обозе сейчас и через `ms` мс мира хода в режиме `g` — для окна хода («провиант к приходу», ГДД 5.4): паёк сезона (`roamrules
+ * .bandRationPerDay`) за вычетом фуража в пути этим режимом (`forageShare`) — те же двери, что шаг отряда. Прогноз: сезон — нынешний.
+ */
+export function foodAfter(s: GameState, ms: number, g: Gait): { now: number; at: number } {
+  const r = s.roam;
+  if (!r) return { now: 0, at: 0 };
+  const mods = seasonMods(s);
+  const eat = bandRationPerDay(r, mods.food) * gameDaysOfMs(Math.max(0, ms)) * (1 - forageShare(mods, { camp: null, way: standWay(g) }));
+  const now = r.cargo.food ?? 0;
+  return { now, at: Math.max(0, now - eat) };
+}
+
+/** Что даёт лагерь вида `kind` сейчас — для окна «Встать лагерем»: фураж, строка духа «Лагерь» и во сколько быстрее встают раненые. */
+export function campGain(s: GameState, kind: CampKind): { forage: number; morale: number; heal: number } {
+  const r = s.roam;
+  const mods = seasonMods(s);
+  const camp = { kind, since: 0, builders: 0 };
+  return {
+    forage: forageShare(mods, { camp, way: r?.way }),
+    morale: campSpirit(camp, mods),
+    heal: kind === 'open' ? roamStub('healOpen') : 1,
   };
 }
 

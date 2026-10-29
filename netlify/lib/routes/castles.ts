@@ -30,10 +30,11 @@
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { eraGate } from '../era.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, spawnMode, type Route } from '../http.js';
-import { readClaim, type CastleClaim, type RosterFile, type RosterResponse } from '../contract.js';
-import { ROSTER_KEY, prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting } from '../roster.js';
+import { readBandOrder, readClaim, type CastleClaim, type RosterFile, type RosterResponse } from '../contract.js';
+import { ROSTER_KEY, bandOrder, prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting } from '../roster.js';
 import { STORES } from '../kv.js';
-import { confirmedOf, readWatchRecord } from '../watch.js';
+import { addFlags, confirmedOf, observe, readWatchRecord } from '../watch.js';
+import { ROAM_ON } from '../../../src/game/roamflag.js';
 import { seedTown } from '../town.js';
 import { powerOfCounts } from '../../../src/profile/power.js';
 import { START_POP } from '../../../src/game/constants.js';
@@ -66,14 +67,17 @@ const QUIET_MS = 4 * 60_000;
 /** Запросов в минуту на игрока. Игре на чтение нужен один раз в `ROSTER_PULL_MS`. */
 const PER_MINUTE = 40;
 
-/** Ответ реестра: своя клетка и соседи в пределах досягаемости. */
+/**
+ * Ответ реестра: своя клетка и соседи в пределах досягаемости. Свой отряд бродяги (ПН-3) — полем `band`, только пока Путь меча
+ * открыт; чужих отрядов в ответе нет вовсе (до ПН-4у), и замки соседей отряд видит от своей клетки.
+ */
 function answer(file: RosterFile, key: string, now: number): RosterResponse {
   const own = file.rows[key];
+  const band = ROAM_ON ? file.bands?.[key] : undefined;
   const mine = own ? { x: own.x, y: own.y } : null;
-  const castles = own
-    ? viewOf(file).filter((c) => Math.hypot(c.x - own.x, c.y - own.y) <= NEAR)
-    : [];
-  return { now, epoch: rosterEpoch(), mine, castles };
+  const from = own ?? band?.way.to ?? null;
+  const castles = from ? viewOf(file).filter((c) => Math.hypot(c.x - from.x, c.y - from.y) <= NEAR) : [];
+  return { now, epoch: rosterEpoch(), mine, castles, ...(band ? { band } : {}) };
 }
 
 export const castles: Route = async (req, io) => {
@@ -104,6 +108,7 @@ export const castles: Route = async (req, io) => {
     return json(answer(file, key, now));
   }
 
+  if (req.method === 'POST') return bandRoute(req, io, key, now);
   if (req.method !== 'PUT') return deny(405, 'method');
 
   const text = await readBody(req);
@@ -126,6 +131,11 @@ export const castles: Route = async (req, io) => {
     const file = readRoster(found ? parseJson(String(found.data)) : null);
     const etag = found?.etag ?? null;
 
+    // У игрока либо замок, либо отряд (ПН-3): отряд бродяги замок не просит — честный клиент в фазе бродяги строку замка не шлёт.
+    if (file.bands?.[key]) {
+      await observe(io.stores, key, (rec) => addFlags(rec, now, [{ kind: 'forged', text: 'Строка замка от отряда бродяги: у бродяги замка нет.' }]));
+      return json({ ...answer(file, key, now), error: 'Ты бродяга: замка у тебя нет.' });
+    }
     const had = file.rows[key];
     // Ничего не изменилось и писать не за чем — отвечаем тем, что есть. Отказом
     // это не является: реестр общий, и каждая лишняя запись — ещё одна гонка за
@@ -146,6 +156,46 @@ export const castles: Route = async (req, io) => {
   // писал в него быстрее. Игра попробует ещё раз своим чередом.
   return deny(429, 'slow-down', { 'retry-after': '10' });
 };
+
+/**
+ * Приказ отряда бродяги (ПН-3, `POST`): встать в реестр, «Идти сюда», «Встать лагерем». Пока Путь меча закрыт — отказ без
+ * флага (честный клиент такого не шлёт, а неоткрытое не подделка). Ход и лагерь выводит сервер дверью `world/roam`
+ * (`roster.bandOrder`); невозможное — отказ словами и флаг в наблюдении игрока. Место выхода выбирается внутри цикла записи, как
+ * клетка замка: двое, вошедших разом, не встанут у одних руин.
+ */
+async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, now: number): Promise<Response> {
+  if (!ROAM_ON) return deny(403, 'roam-off');
+  const text = await readBody(req);
+  if (text === null) return deny(413, 'too-big');
+  const order = readBandOrder(parseJson<unknown>(text));
+  if (!order) return deny(400, 'bad-body');
+  const hot = io.stores(STORES.world, 'strong');
+  const mode = spawnMode();
+  for (let tries = 0; tries < WRITE_TRIES; tries++) {
+    const found = await hot.getWithMetadata(KEY);
+    const file = readRoster(found ? parseJson(String(found.data)) : null);
+    const etag = found?.etag ?? null;
+    const done = bandOrder(file, key, order, now, mode);
+    const flag = async (): Promise<void> => {
+      const f = done.forged;
+      if (f) await observe(io.stores, key, (rec) => addFlags(rec, now, [f]));
+    };
+    if (done.error) {
+      await flag();
+      return json({ ...answer(file, key, now), error: done.error });
+    }
+    const next = done.file;
+    // Эпоха — ещё раз, перед самой записью (OPS-3): стирание после проверки на входе не воскрешает строку старой эпохи.
+    const late = await eraGate(req, io);
+    if (late) return late;
+    const written = await hot.setJSON(KEY, next, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
+    if (written.modified) {
+      await flag();
+      return json(answer(next, key, now));
+    }
+  }
+  return deny(429, 'slow-down', { 'retry-after': '10' });
+}
 
 /**
  * Что игрок сообщил о себе, приведённое к подтверждённому книгами: мощь — формулой игры по подтверждённым уровням и войску,

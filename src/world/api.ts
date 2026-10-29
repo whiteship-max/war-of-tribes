@@ -11,11 +11,13 @@ import type { MachineId } from './data/machines';
 import type { Aim } from './data/shelling';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { ProposalAct } from './proposals';
+import type { CampKind } from './roammove';
 import type {
   AssaultMode,
   AttackOrder,
   AttackResult,
   CampView,
+  Coord,
   DealId,
   DefendOrder,
   Fate,
@@ -38,6 +40,8 @@ import type {
   PlayerProfile,
   Rect,
   RegionChunk,
+  RoamCampView,
+  RoamPlanView,
   Report,
   RivalDeedId,
   RivalMail,
@@ -94,6 +98,18 @@ export interface WorldApi {
    * нельзя. Поход на город игрока меняет режим приказом серверу войны той же дверью. null — сменил, иначе причина.
    */
   setGait(gait: Gait): Promise<string | null>;
+
+  /**
+   * Ход отряда бродяги (ПН-3, docs/gdd/path_of_sword.md, 3.5.2–3.5.3; дверь `world/roam`). Свободный ход есть **только у
+   * отряда**: эти методы есть только у мира бродяги (`world/local/RoamWorld`), у мира лорда их нет вовсе, и интерфейс лорда их не
+   * зовёт (тест по исходникам, `roamworld.test.ts`). Окно хода — `roamPlan` (теми же функциями, что исполнят приказ); «Идти
+   * сюда» — `roamTo` с режимом марша и сроком, который видел игрок (сверка сервера); «Встать лагерем» — `roamCampView` и
+   * `roamCamp` (вид или `null` — снять). null — сделано, иначе причина словами.
+   */
+  roamPlan?(to: Coord): Promise<RoamPlanView | string>;
+  roamTo?(to: Coord, gait: Gait, shownUntil?: number): Promise<string | null>;
+  roamCampView?(): Promise<RoamCampView | string>;
+  roamCamp?(kind: CampKind | null): Promise<string | null>;
 
   /** Развернуть фигуру домой. Обратный путь считается по уже пройденному. */
   recallFigure(id: FigureId): Promise<string | null>;

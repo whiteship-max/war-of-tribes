@@ -22,7 +22,21 @@ import { placeCastle, settleRandom, type Spot } from '../../src/world/settle.js'
 import { SPAWNS, inSicilyTheatre, type SpawnMode } from '../../src/world/spawn.js';
 import { ATLAS_HASH } from '../../src/world/atlas/data.js';
 import { readArms } from '../../src/heraldry/arms.js';
-import { cityName, type CastleClaim, type CastleRow, type CastleView, type RosterFile } from './contract.js';
+import { ROAM_ON } from '../../src/game/roamflag.js';
+import { energyForged, isNewcomer, placeBand, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamSeat, untilForged, ROAM_SLACK_MS, type RoamMove } from '../../src/world/roam.js';
+import { readMove } from '../../src/world/roammove.js';
+import { readGait } from '../../src/world/data/gait.js';
+import {
+  CASTLE_LIMITS,
+  cityName,
+  plainText,
+  type BandOrder,
+  type BandRow,
+  type CastleClaim,
+  type CastleRow,
+  type CastleView,
+  type RosterFile,
+} from './contract.js';
 
 /**
  * Сколько замков помещается в реестр и как долго держится замок того, кто не
@@ -79,8 +93,48 @@ export function readRoster(raw: unknown): RosterFile {
       ...(Number(c.since) > 0 ? { since: Math.floor(Number(c.since)) } : {}),
     };
   }
-  return { v: 1, epoch: rosterEpoch(), rows };
+  // Отряды бродяг (ПН-3) — только пока Путь меча открыт: закрыт — реестр их не читает, и запись реестра их не несёт.
+  const bands: Record<string, BandRow> = {};
+  if (ROAM_ON && r.bands && typeof r.bands === 'object') {
+    for (const [key, row] of Object.entries(r.bands)) {
+      const b = readBandRow(row);
+      if (b) bands[key] = b;
+    }
+  }
+  return { v: 1, epoch: rosterEpoch(), rows, ...(Object.keys(bands).length > 0 ? { bands } : {}) };
 }
+
+const whole = (v: unknown, max: number): number => Math.min(max, Math.max(0, Math.floor(Number(v) || 0)));
+
+/** Ход отряда из строки реестра — запись двери хода. */
+export const moveOfRow = (b: BandRow): RoamMove => ({ way: b.way, camp: b.camp ?? null, ...(b.energy ? { energy: b.energy } : {}) });
+
+/** Поля хода строки из записи двери хода: лагеря нет — поля нет. */
+const rowOfMove = (m: RoamMove): Pick<BandRow, 'way' | 'camp' | 'energy'> => ({
+  way: m.way,
+  ...(m.camp ? { camp: m.camp } : {}),
+  ...(m.energy ? { energy: m.energy } : {}),
+});
+
+/** Строка отряда из хранилища: ход — формой двери хода (`world/roammove.readMove`), имя и знамя — чистые. Мусор — `null`. */
+export function readBandRow(v: unknown): BandRow | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const move = readMove(r);
+  if (!move) return null;
+  return {
+    ...rowOfMove(move),
+    born: whole(r.born, Number.MAX_SAFE_INTEGER),
+    name: plainText(r.name, CASTLE_LIMITS.name) ?? '',
+    ...(readArms(r.arms) ? { arms: r.arms as string } : {}),
+    prestige: whole(r.prestige, 1e9),
+    men: whole(r.men, 1e6),
+    seenAt: whole(r.seenAt, Number.MAX_SAFE_INTEGER),
+  };
+}
+
+/** Строки реестра, которые надо пронести при записи замка: отряды — как были. */
+const bandsOf = (file: RosterFile): Pick<RosterFile, 'bands'> => (file.bands && Object.keys(file.bands).length > 0 ? { bands: file.bands } : {});
 
 /** Где уже стоят замки. Ровно это и получает правило расселения. */
 export const spotsOf = (file: RosterFile): Spot[] =>
@@ -135,6 +189,7 @@ export function upsert(file: RosterFile, key: string, claim: CastleClaim, now: n
   return {
     v: 1,
     epoch: file.epoch,
+    ...bandsOf(file),
     rows: {
       ...file.rows,
       [key]: {
@@ -184,6 +239,10 @@ export function placeNew(file: RosterFile, key: string, mode: SpawnMode | null):
  * бы ни разошлись часы.
  */
 export function prune(file: RosterFile, now: number, keep: string): RosterFile {
+  // Отряды забываются тем же сроком, что замки (ПН-3): строка, к которой никто не возвращается, не держит место у руин.
+  const bands = Object.entries(file.bands ?? {}).filter(([key, b]) => key === keep || now - b.seenAt <= ROSTER_FORGET_MS);
+  const bandsGone = bands.length !== Object.keys(file.bands ?? {}).length;
+  const keptBands = bands.length > 0 ? { bands: Object.fromEntries(bands) } : {};
   const alive = Object.entries(file.rows).filter(
     ([key, row]) => key === keep || now - row.seenAt <= ROSTER_FORGET_MS,
   );
@@ -195,8 +254,8 @@ export function prune(file: RosterFile, now: number, keep: string): RosterFile {
           // дальше — по свежести, и уходят самые давние.
           .sort((a, b) => (a[0] === keep ? -1 : b[0] === keep ? 1 : b[1].seenAt - a[1].seenAt))
           .slice(0, ROSTER_MAX);
-  if (left.length === Object.keys(file.rows).length) return file;
-  return { v: 1, epoch: file.epoch, rows: Object.fromEntries(left) };
+  if (left.length === Object.keys(file.rows).length && !bandsGone) return file;
+  return { v: 1, epoch: file.epoch, rows: Object.fromEntries(left), ...keptBands };
 }
 
 /**
@@ -216,4 +275,92 @@ export function worthWriting(file: RosterFile, key: string, claim: CastleClaim, 
     return true;
   }
   return now - had.seenAt >= quiet;
+}
+
+// ---------- Отряд бродяги (ПН-3, docs/gdd/path_of_sword.md, 3.5.6) ----------
+//
+// Строка отряда пишется так же, как замок: только своя (ключ — из подписи), место выхода — сервер, внутри цикла записи на только
+// что прочитанном реестре (двое, вошедших разом, не встанут у одних руин). Ход и лагерь сервер выводит сам дверью `world/roam` —
+// той же, что показала окно клиенту; из приказа он берёт только клетку, режим и вид лагеря, а срок, который видел игрок, —
+// для сверки. Невозможное (вода, чужой регион, руин нет, срок короче пути, сил не было и минутой раньше) — отказ и флаг; отказ,
+// который объясняет запаздывание приказа, — без флага. Пока Путь меча закрыт (`ROAM_ON`), сюда не доходит ни один приказ.
+
+/** Клетки новичков — отрядов моложе 48 настоящих часов (решение С5), кроме своего: от них держится место выхода следующего. */
+export function newcomersOf(file: RosterFile, now: number, except: string): Spot[] {
+  return Object.entries(file.bands ?? {})
+    .filter(([k, b]) => k !== except && isNewcomer(b.born, now))
+    .map(([, b]) => roamCell(b.way, now));
+}
+
+/**
+ * Место выхода нового отряда (`world/roam.placeBand`): у руин или опушки, вдали от замков и новичков; в режиме Сицилии — в
+ * регионе острова, как замки теста. Ключ — тот же, что у замка, с приставкой: повтор ищет теми же бросками.
+ */
+export function placeBandNew(file: RosterFile, key: string, now: number, mode: SpawnMode | null): Spot {
+  return placeBand(settleRandom(`band:${key}`), spotsOf(file), newcomersOf(file, now, key), mode === 'sicily' ? inSicilyTheatre : undefined);
+}
+
+/** Итог приказа отряда: реестр после него, отказ словами и флаг для наблюдения игрока. */
+export interface BandAnswer {
+  file: RosterFile;
+  error: string | null;
+  forged: { kind: 'forged' | 'walk'; text: string } | null;
+}
+
+const spot = (c: { x: number; y: number }): string => `${Math.round(c.x)}|${Math.round(c.y)}`;
+
+/**
+ * Приказ отряда бродяги: встать в реестр (место назначит сервер), «Идти сюда», «Встать лагерем». Пишет только свою строку.
+ * Возвращает новый реестр (прежний не тронут), отказ и флаг.
+ */
+export function bandOrder(file: RosterFile, key: string, o: BandOrder, now: number, mode: SpawnMode | null): BandAnswer {
+  const had = file.bands?.[key];
+  // Записанный реестр — с прополкой забытых, как у замка (`prune`): своя строка от неё защищена.
+  const put = (row: BandRow): RosterFile => prune({ ...file, bands: { ...(file.bands ?? {}), [key]: row } }, now, key);
+  const no = (error: string, forged: BandAnswer['forged'] = null): BandAnswer => ({ file, error, forged });
+  if (!ROAM_ON) return no('Путь меча ещё не открыт.');
+  // У игрока либо замок, либо отряд: игрок с замком приказов отряда не шлёт — честный клиент в фазе лорда их не знает.
+  if (file.rows[key]) return no('У тебя замок: отряда бродяги нет.', { kind: 'forged', text: 'Приказ отряда бродяги от игрока с замком в реестре.' });
+  if (o.op === 'seat') {
+    const banner = { name: o.name, ...(o.arms ? { arms: o.arms } : {}), prestige: o.prestige, men: o.men, seenAt: now };
+    if (had) {
+      const { arms: _old, ...kept } = had;
+      return { file: put({ ...kept, ...banner }), error: null, forged: null };
+    }
+    const at = placeBandNew(file, key, now, mode);
+    return { file: put({ ...rowOfMove(roamSeat(at, now)), born: now, ...banner }), error: null, forged: null };
+  }
+  if (!had) return no('Отряда в реестре нет: место выхода ещё не названо.');
+  const m = moveOfRow(had);
+  // Отряд стоял и минуту назад: клетка у клиента и у сервера одна — отказ клетки честный клиент не получает.
+  const still = !roamMoving(m.way, now) && !roamMoving(m.way, now - ROAM_SLACK_MS);
+  if (o.op === 'go') {
+    const gait = readGait(o.gait);
+    const next = roamGo(m, o.to, gait, now);
+    if (typeof next === 'string') {
+      const plan = roamPlan(m, o.to, now);
+      if (plan.block) {
+        // «Уже здесь» объясняет запаздывание (отряд дошёл, пока шёл приказ); вода, русло, гребень, край — нет.
+        const forged = plan.block === 'Отряд уже здесь.' ? null : { kind: 'forged' as const, text: `Ход отряда в ${spot(o.to)}: ${plan.block}` };
+        return no(next, forged);
+      }
+      return no(next, energyForged(m, o.to, gait, now) ? { kind: 'forged', text: `Ход отряда в ${spot(o.to)} без сил: ${next}` } : null);
+    }
+    // Срок — сервера; названный игроком срок раньше пути дальше запаздывания приказа — флаг «срок пути», ход принят своим сроком.
+    const walk =
+      o.until !== undefined && untilForged(o.until, next.way.until)
+        ? { kind: 'walk' as const, text: `Ход отряда в ${spot(o.to)}: игрок назвал приход на ${Math.round((next.way.until - o.until) / 1000)} с раньше пути.` }
+        : null;
+    const row: BandRow = { ...had, ...rowOfMove(next), seenAt: now };
+    if (!next.camp) delete row.camp;
+    return { file: put(row), error: null, forged: walk };
+  }
+  const next = roamCamp(m, o.kind, o.men, now);
+  if (typeof next === 'string') {
+    const honest = next === 'Отряд уже стоит этим лагерем.' || next === 'Лагеря нет: отряд и так стоит в поле.';
+    return no(next, still && !honest ? { kind: 'forged', text: `Лагерь отряда в ${spot(roamCell(m.way, now))}: ${next}` } : null);
+  }
+  const row: BandRow = { ...had, ...rowOfMove(next), men: o.men, seenAt: now };
+  if (!next.camp) delete row.camp;
+  return { file: put(row), error: null, forged: null };
 }

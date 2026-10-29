@@ -24,10 +24,11 @@
  * карта. Пульс мира (`PULSE_MS` в `world/store.ts`) реестра не касается вовсе.
  */
 import { create } from 'zustand';
-import type { CastleClaim, CastleView, RosterResponse } from '../../netlify/lib/contract';
+import type { BandOrder, BandRow, CastleClaim, CastleView, RosterResponse } from '../../netlify/lib/contract';
+import { ROAM_ON } from '@/game/roamflag';
 import { tgInitData } from '@/telegram/webapp';
 import { realSpan } from '@/game/span';
-import { apiGet, apiPut, type ApiFail } from './api';
+import { apiGet, apiPost, apiPut, type ApiFail } from './api';
 import { serverNow } from './clock';
 import { leaseHolder } from './session';
 import { eraLeaving, knownEra } from './era';
@@ -64,6 +65,8 @@ interface Cached {
   castles: CastleView[];
   /** Эпоха мира (docs/test_world.md). Другая — кэша нет: клетка стёртого мира новой партии не принадлежит. */
   era?: number;
+  /** Свой отряд бродяги (ПН-3): строка, которую вывел сервер. Нет — замок или Путь меча закрыт. */
+  band?: BandRow;
 }
 
 export type RosterState =
@@ -122,7 +125,7 @@ function load(): Cached | null {
     if (typeof v.at !== 'number' || typeof v.epoch !== 'number' || !Array.isArray(v.castles)) return null;
     if ((v.era ?? 0) !== knownEra()) return null;
     const mine = v.mine && typeof v.mine.x === 'number' ? { x: v.mine.x, y: v.mine.y } : null;
-    return { at: v.at, epoch: v.epoch, mine, castles: v.castles };
+    return { at: v.at, epoch: v.epoch, mine, castles: v.castles, ...(ROAM_ON && v.band ? { band: v.band } : {}) };
   } catch {
     return null;
   }
@@ -134,14 +137,62 @@ let cache: Cached | null = load();
 function keep(res: RosterResponse, at: number): void {
   // Земля сменилась — всё, что помнили, относится к другой карте. Приводить
   // тут нечего: клетка 541|822 на новой земле — другое место.
-  const next: Cached = { at, epoch: res.epoch, mine: res.mine, castles: res.castles, era: knownEra() };
+  const band = ROAM_ON ? res.band : undefined;
+  const next: Cached = { at, epoch: res.epoch, mine: res.mine, castles: res.castles, era: knownEra(), ...(band ? { band } : {}) };
   cache = next;
   write(JSON.stringify(next));
   useRoster.setState({ state: 'ok', why: '', at, count: res.castles.length });
+  if (ROAM_ON && band) bandSink?.(band);
 }
 
 /** Своя клетка: её назвал сервер. null — не называл ещё ни разу. */
 export const castleCell = (): Cell | null => (cache ? cache.mine : null);
+
+// ---------- Отряд бродяги (ПН-3) ----------
+//
+// У бродяги замка нет — в реестре он стоит строкой отряда, и место выхода называет сервер (`roster.placeBandNew`). Здесь —
+// разговор: встать в реестр (`seat`, им же и отмечаться вместо строки замка), приказы хода и лагеря (`bandOrder`) и куда класть
+// строку, которую вывел сервер (`provideBandSink` — партия кладёт её одной дверью `sim/roam.setMove`). Всё — за `ROAM_ON`.
+
+/** Свой отряд: строка, которую вывел сервер. null — не было. */
+export const bandRow = (): BandRow | null => (ROAM_ON ? (cache?.band ?? null) : null);
+
+/** Что отряд сообщает о себе, когда встаёт и отмечается: `null` — партия не в фазе бродяги (тогда — строка замка). */
+let bandSeat: (() => Extract<BandOrder, { op: 'seat' }> | null) | null = null;
+export const provideBand = (fn: () => Extract<BandOrder, { op: 'seat' }> | null): void => {
+  bandSeat = fn;
+};
+
+/** Куда отдавать строку отряда, которую прислал сервер. */
+let bandSink: ((row: BandRow) => void) | null = null;
+export const provideBandSink = (fn: (row: BandRow) => void): void => {
+  bandSink = fn;
+};
+
+/**
+ * Приказ отряда серверу: принят — строка отряда (она же ляжет в партию через `provideBandSink`), отказ — слова сервера или сети.
+ */
+export async function bandOrder(o: BandOrder): Promise<BandRow | string> {
+  if (!ROAM_ON) return 'Путь меча ещё не открыт.';
+  const res = await apiPost<RosterResponse>('/api/castles', o);
+  if (!res.ok) return WORDS[res.why];
+  if (res.data.error) return res.data.error;
+  keep(res.data, serverNow());
+  return res.data.band ?? 'Сервер не вернул отряд.';
+}
+
+/** Свой ход в реестр: в фазе бродяги — строка отряда (`seat`), иначе — замка. */
+const seatOrClaim = async (): Promise<boolean> => {
+  const seat = ROAM_ON ? bandSeat?.() : null;
+  if (!seat) return false;
+  const res = await apiPost<RosterResponse>('/api/castles', seat);
+  if (res.ok && !res.data.error) keep(res.data, serverNow());
+  else if (!res.ok) say(res.why === 'auth' ? 'off' : cache ? 'stale' : 'off', WORDS[res.why]);
+  return true;
+};
+
+/** Место уже названо: у замка — клетка, у отряда — строка отряда. */
+const seated = (): boolean => Boolean(cache?.mine || (ROAM_ON && cache?.band));
 
 /** Чужие замки: что приехало в последний раз. Пусто — реестра не было вовсе. */
 export const castles = (): CastleView[] => cache?.castles ?? [];
@@ -227,6 +278,8 @@ async function push(): Promise<boolean> {
   if (!claim || talking) return false;
   talking = true;
   try {
+    // Бродяга (ПН-3) встаёт и отмечается строкой отряда: замка у него нет, и строки замка он не шлёт.
+    if (ROAM_ON && (await seatOrClaim())) return true;
     const res = await apiPut<RosterResponse>('/api/castles', claim());
     if (res.ok) {
       keep(res.data, serverNow());
@@ -276,10 +329,10 @@ export async function rosterBoot(): Promise<void> {
   }
   say('busy', '');
   // Своя клетка этой эпохи уже известна (прошлый заход) — мир строится сразу, строка уходит своим чередом.
-  if (cache?.mine) done();
+  if (seated()) done();
   else holding = true;
   await push();
-  if (cache?.mine) done();
+  if (seated()) done();
   else void seat();
   if (!pushTimer) {
     pushTimer = setInterval(() => {
@@ -306,7 +359,7 @@ const sleep = (ms: number): Promise<void> =>
 export const SEAT_WAIT = 'Ждём, когда городу отведут место на карте.';
 
 async function seat(): Promise<void> {
-  for (let wait = SEAT_RETRY_MS; !cache?.mine; wait = Math.min(wait * 2, SEAT_RETRY_MAX_MS)) {
+  for (let wait = SEAT_RETRY_MS; !seated(); wait = Math.min(wait * 2, SEAT_RETRY_MAX_MS)) {
     if (eraLeaving()) return;
     // Причина последнего отказа — словами реестра; своё «ждём» к ней не прибавляется второй раз.
     const { state, why } = useRoster.getState();

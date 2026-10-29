@@ -9,7 +9,7 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import { type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchMarket, type WatchRuler, type WatchSpirit, type WatchStab } from '../../netlify/lib/contract';
+import { type BandOrder, type CastleClaim, type Counts, type SaveCard, type SaveRecord, type WarSheet, type WatchCard, type WatchCouncil, type WatchCrown, type WatchEstates, type WatchMarket, type WatchRuler, type WatchSpirit, type WatchStab } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { SAVE_VERSION } from '@/game/state';
 import {
@@ -55,6 +55,7 @@ import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
 import { readArms } from '@/heraldry/arms';
 import { browserStorage } from '@/world/local/state';
+import { ROAM_ON } from '@/game/roamflag';
 import { device } from './session';
 import { warSheet } from './war';
 
@@ -296,6 +297,16 @@ export function snapshotOf(s: GameState): SaveRecord {
  *
  * Координат тут нет и быть не может: где стоит замок, решает сервер.
  */
+/**
+ * Что отряд бродяги сообщает реестру, вставая и отмечаясь (ПН-3): имя героя, знамя (герб профиля), престиж и бойцов строя. Не в
+ * фазе бродяги — `null`, и реестр получает строку замка (`claimOf`). Престиж и люди — слово клиента до книги отряда (ПН-13).
+ */
+export function bandSeatOf(s: GameState): Extract<BandOrder, { op: 'seat' }> | null {
+  if (!ROAM_ON || s.phase !== 'roam' || !s.roam) return null;
+  const arms = readArms(s.profile.arms) ? (s.profile.arms as string) : null;
+  return { op: 'seat', name: s.roam.hero.name, ...(arms ? { arms } : {}), prestige: Math.floor(s.prestige), men: troopTotal(s.roam.band) };
+}
+
 export function claimOf(s: GameState): CastleClaim {
   const card = cardOf(s);
   // Имя города едет очищенным, а не названное — пустой строкой: «Безымянный город» соседи

@@ -249,7 +249,8 @@ describe('замки серверной части реестра', () => {
   });
 
   it('в реестр ходят только по этому ключу', () => {
-    const calls = [...code.matchAll(/\b(?:upsert|prune|worthWriting|answer)\([^)]*?,\s*([A-Za-z_$][\w$]*)/g)].map(
+    // Приказ отряда бродяги (ПН-3, `bandOrder`) — тем же ключом: свою строку отряда, как и замка, пишут только по нему.
+    const calls = [...code.matchAll(/\b(?:upsert|prune|worthWriting|answer|bandOrder)\([^)]*?,\s*([A-Za-z_$][\w$]*)/g)].map(
       (m) => m[1],
     );
     expect(calls.length).toBeGreaterThan(2);

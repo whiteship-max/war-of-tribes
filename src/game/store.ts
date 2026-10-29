@@ -23,12 +23,15 @@ import { provideGrants } from '@/net/admin';
 import { applyGrants } from './sim/admin';
 import { provideGemDeeds, provideGemSeen, provideGemSettled } from '@/net/gems';
 import { applyGemDeeds, gemSeen, settleUnneeded } from './sim/gems';
-import { provideClaim, rosterBoot } from '@/net/roster';
+import { provideBand, provideBandSink, provideClaim, rosterBoot } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyBoot } from '@/net/notify';
-import { claimOf } from '@/net/snapshot';
+import { bandSeatOf, claimOf } from '@/net/snapshot';
 import { CHEATS_ON, CHEAT_NO, cheatOf } from '@/cheats';
 import { applyCheat } from './sim/cheat';
+import { ROAM_ON } from './roamflag';
+import { setMove } from './sim/roam';
+import { readMove } from '@/world/roammove';
 
 /**
  * Разделы, не привязанные к месту: всё остальное живёт в панелях зданий.
@@ -330,6 +333,17 @@ export const useGame = create<GameStore>((set, get) => ({
     // соседей расселяют относительно тех, кто уже стоит, и игрок, не открывший
     // карту ни разу, всё равно на ней есть.
     provideClaim(() => claimOf(get().s));
+    // Бродяга (ПН-3) встаёт в реестр строкой отряда, а строку, которую вывел сервер, партия кладёт одной дверью хода.
+    if (ROAM_ON) {
+      provideBand(() => bandSeatOf(get().s));
+      provideBandSink((row) => {
+        const st = get().s;
+        const m = readMove(row);
+        if (!m) return;
+        setMove(st, m);
+        set({ s: { ...st } });
+      });
+    }
     void rosterBoot();
     if (loopStarted) return;
     loopStarted = true;

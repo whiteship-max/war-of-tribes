@@ -689,7 +689,7 @@ export class LocalWorld implements WorldApi {
    */
   private warCamps = new Map<string, NonNullable<WarView['camp']>>();
   /** Разведанная местность: открывается навсегда, обратно не затягивается. */
-  private fog: FogMap;
+  protected fog: FogMap;
   /** Притязания поселений на землю. Считаются один раз: поселения не переезжают. */
   private claims: Claim[];
   /** Отладочный обзор: вся земля считается разведанной. */
@@ -10361,7 +10361,7 @@ export class LocalWorld implements WorldApi {
    */
   private faithCache: { key: string; view: { id: FaithId; pressure: number } } | null = null;
 
-  private faithView(mine: FaithId | null): { id: FaithId; pressure: number } {
+  protected faithView(mine: FaithId | null): { id: FaithId; pressure: number } {
     const home = this.save.home;
     const here = faithAt(home.x, home.y);
     // Пока деревня своей веры не назвала, чужой вокруг для неё нет: считать

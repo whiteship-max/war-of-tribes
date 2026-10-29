@@ -22,6 +22,7 @@ import type { WoodPlan } from './works';
 import type { TowerGun } from './bombard';
 import type { FigurePlace } from './shelter';
 import type { EnergyView } from './energy';
+import type { CampKind } from './roammove';
 import type { TraitNumbers } from '@/game/data/traits';
 import type { SiegeRecord } from './siegerecord';
 import type { ProposalView } from './proposals';
@@ -1100,6 +1101,75 @@ export interface RegionChunk {
   influence: Uint8Array;
   /** Поселения, о которых игрок уже знает. Закрытых клеток здесь нет. */
   settlements: SettlementView[];
+  /**
+   * Руины на разведанных клетках (ПН-3, `world/ruins`) — их отдаёт только мир бродяги (`world/local/RoamWorld`): у лорда поля
+   * нет, и его карта прежняя. Закрытых клеток здесь нет.
+   */
+  ruins?: RuinMark[];
+}
+
+/** Один режим марша в окне хода отряда бродяги (ПН-3) — числа двери хода `world/roam.roamPlan`. */
+export interface RoamLegView {
+  gait: Gait;
+  /** Дорога, мс мира; выход — после стоянки смены режима (`start`), приход — `until`. */
+  walkMs: number;
+  start: number;
+  until: number;
+  /** Цена смены режима в пути (стоящему — ноль). */
+  price: number;
+  /** Энергия: сейчас, что съест дорога, что останется к приходу. */
+  energy: { now: number; road: number; left: number };
+  /** Хлеб в обозе: сейчас и к приходу (паёк в пути за вычетом фуража режима — двери партии). */
+  food: { now: number; at: number };
+  block: string | null;
+}
+
+/** Окно хода отряда бродяги (ПН-3): что будет, если приказать сейчас, — теми же функциями, что исполнят приказ. */
+export interface RoamPlanView {
+  from: Coord;
+  to: Coord;
+  /** Что в клетке цели — словами: местность, руины. */
+  where: string;
+  /** Отказ клетки (вода, русло, гребень, край, чужой регион, «уже здесь»); `null` — идти можно. */
+  block: string | null;
+  legs: RoamLegView[];
+  /** Режим марша отряда сейчас — с ним идут без стоянки. */
+  gait: Gait;
+  /** Риск засады — строка: до встреч с НПС (ПН-5) засад нет. */
+  ambush: string;
+}
+
+/** Вид лагеря в окне «Встать лагерем» (ПН-3): можно ли и что даёт — числами дверей партии. */
+export interface RoamCampRow {
+  kind: CampKind;
+  name: string;
+  /** Отказ (нет руин, не помещаемся, вода под ногами, уже стоим); `null` — можно. */
+  block: string | null;
+  /** Доля пайка с земли в этом лагере сейчас (`roamrules.forageShare`). */
+  forage: number;
+  /** Строка духа «Лагерь», очков морали (`roamrules.campSpirit`). */
+  morale: number;
+  /** Во сколько раз быстрее встают раненые. */
+  heal: number;
+}
+
+/** Окно «Встать лагерем»: где отряд, какой лагерь стоит и насколько достроены рогатки. */
+export interface RoamCampView {
+  at: Coord;
+  camp: CampKind | null;
+  /** Рогатки лагеря, 0..1 (`world/roam.campWorks`); лагеря нет — 0. */
+  works: number;
+  /** Руины под отрядом — имя; нет — `null`. */
+  ruin: string | null;
+  rows: RoamCampRow[];
+}
+
+/** Руины на карте бродяги (ПН-3): клетка, вид словами и сколько человек прячут. */
+export interface RuinMark {
+  x: number;
+  y: number;
+  name: string;
+  cap: number;
 }
 
 export interface SettlementCard extends SettlementView {
