@@ -391,6 +391,12 @@ HEAD один на всех, см. правило 8). Значит развес�
   одна дверь `world/roam` на клиент и на реестр сервера (строки `bands`, `netlify/lib/roster.ts`); руины — общие точки мира постоянной
   солью; числа без вывода — заглушки `roamstubs` (только за `ROAM_ON`, входами прибора). Разойдись правило у двоих — сервер отверг бы
   честный ход или пропустил бы отряд в воду, а руины стояли бы у двоих в разных местах;
+- `src/world/sight.ts`, `src/world/data/sight.ts` и `netlify/lib/bandsight.ts` — видимость отряда бродяги (ПН-4у,
+  docs/gdd/path_of_sword.md, 16): заметность (местность × лагерь × размер × движение × ночь × сезон — `SEASON_MODIFIERS.camouflage`) и
+  «виден ли» (расстояние ≤ радиус наблюдателя × заметность) — одна дверь на клиент и сервер; наблюдатели — ровно перечисленные в ГДД;
+  числа — вывод `roam:report` из целей обнаружения (руками не правят); кто кого видит из игроков — сервер (`bandsight`: часы партии
+  отряда ставит приказ — `BandRow.clock`, необязательное поле). Разойдись правило у двоих — сервер показал бы соседям отряд, который
+  игрок у себя видит скрытым, или спрятал бы видимый;
 - `src/game/rulertraits.ts`, `src/game/rulernow.ts` и `netlify/lib/rulerbook.ts` — черты правителя (ПН-2, решение П10): счёт дел
   `Ruler.deeds` (у героя пути — `RoamHero.deeds`) — необязательное поле, пишет одна дверь `sim/dynasty.noteRulerDeed`; черты —
   чистая функция `rulertraits.rulerTraitsOf` (правила — докачкой), читают их двери только числами `rulernow.rulerTraitNumbers`;
@@ -788,6 +794,12 @@ HEAD один на всех, см. правило 8). Значит развес�
   зовёт их только карта бродяги (`ui/map/roam/`); руины — `world/ruins` постоянной солью; числа без вывода — `game/roamstubs` (прибор
   берёт их тем же числом, сторож чтений `watchStubs`); всё за `ROAM_ON` и на сервере (`roam.test.ts`, `roamworld.test.ts`,
   `lordmap.test.ts`, `band.test.ts`, `bandoff.test.ts`; docs/gdd/path_of_sword.md, 15).
+- **Видимость отряда бродяги** (ПН-4у) — одна дверь `world/sight` (`conspicuity`, `watchRadius`, `sees`, `bandLook`; без `@/`), числа —
+  `world/data/sight.ts` и `SEASON_MODIFIERS.camouflage` (вывод `roam:report`, раздел «Доля обнаружений по видам лагеря», тест «записано =
+  выведено»); кто кого видит из игроков — сервер (`netlify/lib/bandsight.ts`: ответ реестра `bands` и `seen`, часы партии отряда — по
+  приказу, чтение ничего не пишет); клиент — следы и весть «Нас видели» своим куском (`world/bandsight`), карта — `ui/map/roam/BandsLayer`;
+  круги живого обзора лорда — `world/lookout` (`sight.test.ts`, `bandsight.test.ts` сервера и клиента, `bands.test.ts`;
+  docs/gdd/path_of_sword.md, 16).
 - **Престиж** — одна дверь `sim/prestige.movePrestige` (по исходникам — `sim/prestige.test.ts`); слово игрока — «Престиж»; ступень —
   `prestigeStage` по порогам вывода (до вывода — заглушка прибора `roam:report`) (docs/gdd/path_of_sword.md, 14).
 - **Черты правителя** (ПН-2) — счёт дел пишет `sim/dynasty.noteRulerDeed` (бои, уровни, пиры, участь взятого города, минимальное
@@ -884,7 +896,7 @@ HEAD один на всех, см. правило 8). Значит развес�
 - **Дела в осадном лагере** — укрепить лагерь и обстрел города: `world/siegecraft` (предел, польза, слова), числа —
   `world/data/siegecraft.ts`, цены — `ENERGY_PRICE`; одна дверь на лагерь под логовом и под городом игрока, сервер
   получает только дело (`war.test.ts`, `energyworld.test.ts`; agents).
-- **Мир по дверям** — где стоит боец `world/muster`, кто наблюдает `world/sight`, где агент
+- **Мир по дверям** — где стоит боец `world/muster`, кто наблюдает `world/lookout`, где агент
   `world/shelter`, мораль армии между боями `world/rest`, гибель агента `world/peril`, обстрел с башни
   `world/bombard`, участь взятого города `world/spoils.fate`, добыча `plunder` (world, agents).
 - **Земля одна на всех** — `world/atlas/` (`data.ts` руками не правят); `world/land.ts` и
