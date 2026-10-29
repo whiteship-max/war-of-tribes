@@ -279,12 +279,14 @@ describe('руины — общие точки мира постоянной с�
     expect(b).toEqual(a);
     expect(a.length).toBeGreaterThan(10);
     const block = ROAM_STUBS.ruinBlock.value;
+    // Мерка «земля двора» — правило земли (`land.settleable`), а не `ruinFit`: проверка своей же функцией прошла бы при любой.
+    expect(ruinFit).toBeDefined();
     for (const r of a) {
-      expect(ruinFit(r.x, r.y)).toBe(true);
+      expect(settleable(r.x, r.y), `${r.x},${r.y}: руины на земле двора`).toBe(true);
       const bx = Math.floor(r.x / block) * block;
       const by = Math.floor(r.y / block) * block;
       for (let y = by; y < by + block; y++)
-        for (let x = bx; x < bx + block; x++) if (ruinFit(x, y)) expect(hash2(RUIN_SALT, x, y)).toBeGreaterThanOrEqual(hash2(RUIN_SALT, r.x, r.y));
+        for (let x = bx; x < bx + block; x++) if (settleable(x, y)) expect(hash2(RUIN_SALT, x, y)).toBeGreaterThanOrEqual(hash2(RUIN_SALT, r.x, r.y));
     }
   });
 
@@ -311,6 +313,20 @@ describe('место выхода — у руин или опушки, вдал�
       expect(inSicilyTheatre(at), key).toBe(true);
       for (const o of [...castles, ...fresh]) expect(distance(at, o), key).toBeGreaterThanOrEqual(gap);
       expect(placeBand(settleRandom(key), castles, fresh, inSicilyTheatre), key).toEqual(at);
+    }
+  });
+
+  it('новички друг для друга — как замки: каждый следующий не ближе заглушки к уже вышедшим', () => {
+    // Граница: четверо у двух замков острова — столько, сколько остров вмещает с зазором; пятому места уже нет, и он встал бы правилом
+    // замка без зазора (не ошибка — место без зазора лучше никакого). Бросок вокруг замка новичков не видит — их видит только
+    // мерка зазора.
+    const gap = ROAM_STUBS.spawnGap.value;
+    const castles = SICILY.slice(0, 2);
+    const fresh: Spot[] = [];
+    for (const key of ['tg-1', 'tg-2', 'tg-3', 'tg-4']) {
+      const at = placeBand(settleRandom(key), castles, fresh, inSicilyTheatre);
+      for (const o of [...castles, ...fresh]) expect(distance(at, o), `${key} у ${o.x},${o.y}`).toBeGreaterThanOrEqual(gap);
+      fresh.push(at);
     }
   });
 
