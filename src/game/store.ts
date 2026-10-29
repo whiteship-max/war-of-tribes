@@ -18,7 +18,7 @@ import {
 import { haptic, tgDisplayName, tgInitData, tgUser } from '@/telegram/webapp';
 import { setTelegramIdentity } from '@/profile/stats';
 import { bootPaint, bootStage } from '@/boot/stage';
-import { mayWrite, provideGame, resetCarry, syncBoot } from '@/net/sync';
+import { mayWrite, provideGame, resetCarry, resetSeen, syncBoot } from '@/net/sync';
 import { provideGrants } from '@/net/admin';
 import { applyGrants } from './sim/admin';
 import { provideGemDeeds, provideGemSeen, provideGemSettled } from '@/net/gems';
@@ -300,6 +300,8 @@ export const useGame = create<GameStore>((set, get) => ({
     const { state, offlineSeconds, legacy, fresh } = await loadGame({
       // Партия прошлой эпохи мира не загружается (docs/test_world.md): новая начинается в эпохе устройства.
       era,
+      // Партию на устройстве обнулил админ — облако Telegram старше обнуления, и из него не поднимают.
+      noCloud: resetSeen(),
       // Подсчёт офлайна — не техническая пауза, а «пока тебя не было»: игрок
       // должен видеть, за что он ждёт. Кадр перед счётом обязателен — счёт
       // синхронный и до конца работы браузеру рисовать будет нечем.

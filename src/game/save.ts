@@ -604,6 +604,11 @@ export interface LoadHooks {
    * из облака: начинается новая. Нет — эпоху не сверяют (стенды и отчёты).
    */
   era?: number;
+  /**
+   * Облако Telegram не спрашивать: партию на этом устройстве обнулил админ (`net/sync.takeReset`, 30.10.2026), и всё, что лежит в
+   * облаке, старше обнуления — поднять оттуда старую партию значило бы отменить его.
+   */
+  noCloud?: boolean;
 }
 
 export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
@@ -623,7 +628,7 @@ export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
   // права стоять на пути к первому кадру, а синхронизация начинается уже после
   // запуска. Если и на сервере лежит партия, слой синхронизации увидит две
   // живые копии и спросит игрока — молча за него не выберет никто.
-  const lifted = json ? null : await rescueFromCloud(KEY);
+  const lifted = json || hooks.noCloud ? null : await rescueFromCloud(KEY);
   const chosen = json ?? lifted;
   if (chosen) await readyToRead(chosen);
   const read = chosen ? deserialize(chosen) : null;

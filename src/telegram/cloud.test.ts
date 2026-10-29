@@ -88,7 +88,8 @@ describe('со стороны двери: подъём — живой путь, 
     // подъём перебивал бы живую копию, а этого правила («за игрока молча не
     // выбирают») здесь держаться некому: спрашивать будет уже нечего.
     const save = strip(readFileSync(join(SRC, 'game', 'save.ts'), 'utf8'));
-    expect(save).toMatch(/json \? null : await rescueFromCloud\(KEY\)/);
+    // Устройство, на котором админ обнулил партию (`noCloud`, 30.10.2026), облако не спрашивает вовсе: оно старше обнуления.
+    expect(save).toMatch(/json \|\| hooks\.noCloud \? null : await rescueFromCloud\(KEY\)/);
   });
 });
 

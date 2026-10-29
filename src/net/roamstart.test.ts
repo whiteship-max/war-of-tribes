@@ -141,6 +141,7 @@ describe('обнуление партии на устройстве', () => {
     for (const k of ['tribe.save.v1', 'tribe.sync.v1', 'tribe.sync.spare.v1', 'tribe.world.v1']) expect(localStorage.getItem(k), k).toBeNull();
     expect(localStorage.getItem('tribe.prologue.v1'), 'чужое партии не тронуто').not.toBeNull();
     expect(sync.resetCarry()).toEqual({ gemSeen: 11, adminSeen: 6 });
+    expect(sync.resetSeen(), 'облако Telegram старше обнуления — не спрашивается').toBe(true);
     vi.resetModules();
     const again = await import('./sync');
     again.setResetRestart(restart);
@@ -153,6 +154,7 @@ describe('обнуление партии на устройстве', () => {
 
   it('партии на устройстве нет — метка запомнена, стирать и перезапускать нечего', async () => {
     const sync = await import('./sync');
+    expect(sync.resetSeen(), 'граница: обнуления устройство не видело').toBe(false);
     const restart = vi.fn();
     sync.setResetRestart(restart);
     expect(sync.takeReset(note({ reset: 2000 }), false)).toBe(false);
