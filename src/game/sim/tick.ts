@@ -46,6 +46,8 @@ import { settleWounds } from './infirmary';
 import { log, trimLog } from './log';
 import { addStock, stockWords, trimStock, type Gains } from './stock';
 import { recordProduced, refreshCard } from '@/profile/stats';
+import { ROAM_ON } from '../roamflag';
+import { roamFor } from './roam';
 
 export interface TickOptions {
   /** Офлайн-догон: события не запускаются. */
@@ -304,6 +306,11 @@ export const awayGameSeconds = (since: number, now: number): number =>
  * игровыми: перевод один (`game/pace`).
  */
 export function absence(s: GameState, since: number, now: number): void {
+  // Бродяга (ПН-1): отряд догоняет отлучку своим шагом — тем же порогом и тем же потолком; вестей посёлка у него нет.
+  if (ROAM_ON && s.phase === 'roam') {
+    if (awaySeconds(since, now) > AWAY_AFTER) roamFor(s, awayGameSeconds(since, now), CATCHUP_STEP);
+    return;
+  }
   if (awaySeconds(since, now) > AWAY_AFTER) catchUp(s, awayGameSeconds(since, now), CATCHUP_STEP);
   mailArrive(s, since, now);
 }
@@ -319,6 +326,12 @@ export function absence(s: GameState, since: number, now: number): void {
  */
 export function liveStep(s: GameState, real: number, now: number, lived: number = real): void {
   if (!(real > 0)) return;
+  // Бродяга (ПН-1): шаг отряда вместо шага посёлка — по тем же часам; длинный промежуток — отлучка тем же правилом.
+  if (ROAM_ON && s.phase === 'roam') {
+    if (real <= AWAY_AFTER) roamFor(s, gameSeconds(lived), CATCHUP_STEP);
+    else absence(s, now - lived * 1000, now);
+    return;
+  }
   // `real` — настоящие секунды устройства: по ним и только по ним решается, шаг это или отлучка
   // (таймер страницы стоял или нет). `lived` — сколько прожила партия; под скоростью проверки оно
   // больше `real` (`game/pace`, «Скорость проверки»), и в отлучку ускорение шаг не переводит: ускоренная

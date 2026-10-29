@@ -3,6 +3,7 @@ import type { DecreeId, RationId, TaxId } from './data/policy';
 import type { TroopStack } from './battle/kinds';
 import type { ProfileState } from '@/profile/types';
 import type { FigureId, GateCall } from '@/world/types';
+import type { Gait } from '@/world/data/gait';
 import type { ItemId } from './data/items';
 import type { TraitId } from './data/traits';
 import type { FightMark } from './scarrules';
@@ -1168,11 +1169,64 @@ export interface GameState {
    * так читаются и новая партия, и старая. Необязательное: версию сохранения не поднимает.
    */
   estates?: EstatesState;
+  /**
+   * Фаза партии (ПН-1, docs/gdd/path_of_sword.md, 6.1 и «Решения ПН-1»): бродяга Пути меча, лорд в замке, изгнанник. Поля нет —
+   * лорд: так читаются все партии до выпуска Среза 1. Шаг выбирает по ней дверь (`sim/tick.liveStep` и `absence` → бродяга —
+   * `sim/roam.roamStep`). До выпуска фаза бродяги закрыта выключателем `roamflag.ROAM_ON`: чтение сохранения её не пускает.
+   * Необязательное: версию сохранения не поднимает (решение П9 — версия растёт в выпуске Среза 1).
+   */
+  phase?: Phase;
+  /** Отряд бродяги (ПН-1): есть только в фазе `roam`. Пишут его двери ПН-1 (`sim/roam`, `sim/upkeep`, `sim/infirmary`, `sim/stock`). */
+  roam?: RoamState;
   log: LogEntry[];
   stats: Stats;
   nextId: number;
   /** Когда партия записана — в часах партии (`net/clock.partyNow`), мс. */
   lastSaved: number;
+}
+
+/** Фаза партии (ПН-1): бродяга, лорд, изгнанник. Нет поля — лорд. */
+export type Phase = 'roam' | 'lord' | 'exile';
+
+/** Происхождение бродяги (ГДД 3.1): что даёт каждое — ПН-17; здесь только имя. */
+export type RoamOrigin = 'warrior' | 'merchant' | 'craftsman' | 'taken';
+
+/**
+ * Герой бродяги (ГДД 3.2.1) — в объёме ПН-1: имя и Военное дело (1…5), от которого терпение отряда (3.3.2). Рождение, опыт по трём
+ * навыкам и счёт дел для черт приходят со своими пачками (ПН-2, ПН-17).
+ */
+export interface RoamHero {
+  name: string;
+  war: number;
+}
+
+/** Лагерь отряда (ГДД 3.5.3) в объёме ПН-1: с какой игровой секунды стоит. Вид, клетка и работы — ПН-3. */
+export interface RoamCamp {
+  since: number;
+}
+
+/**
+ * Отряд бродяги (ПН-1, ГДД 6.1.1 — черновик; поля Среза 1, которые читают и пишут двери ПН-1). Престиж — `s.prestige`, дух и
+ * шрамы — `s.spirit`, `s.scars`, ведомость жалованья — `s.pay` (одна на войско партии: у лорда — дружина города, у бродяги —
+ * отряд). Положение и путь отряда — в мире (ПН-3).
+ */
+export interface RoamState {
+  origin: RoamOrigin;
+  hero: RoamHero;
+  /** Строй отряда по видам. */
+  band: Partial<Record<TroopId, number>>;
+  /** Раненые отряда: лазарета нет, лежат при отряде (`sim/infirmary`, дверь без здания). */
+  wounded: WoundGroup[];
+  /** Кошель: золото не весит и в обоз не входит. */
+  purse: number;
+  /** Обоз (ГДД 3.3.5): добро по видам, всё вместе не выше вместимости (`sim/roam.cargoCap`). Пишет только `sim/stock.addStock`. */
+  cargo: Partial<Record<ResourceId, number>>;
+  /** Снаряжение в обозе: распущенные отдают его сюда (3.3.2). Не весит, как снаряжение на складе города. */
+  gear: Partial<Record<EquipmentId, number>>;
+  /** Режим марша — тот же, что у полководца (`world/data/gait`): поклажа обоза и фураж в пути (3.3.4, 3.3.5). */
+  gait: Gait;
+  /** Стоит лагерем; `null` — в пути. */
+  camp: RoamCamp | null;
 }
 
 /** Группа недовольных (docs/stability.md, 2.3): две новые полосы и два вида прежних сроков — ропота и терпения войска. */

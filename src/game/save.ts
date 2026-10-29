@@ -35,6 +35,8 @@ import { refreshCard } from '@/profile/stats';
 import { rescueFromCloud } from '@/telegram/cloud-rescue';
 import { enterLead, leadAt, partyNow } from '@/net/clock';
 import { CHEATS_ON } from '@/cheats';
+import { ROAM_ON } from './roamflag';
+import { mergeRoam } from './sim/roam';
 
 const KEY = 'tribe.save.v1';
 
@@ -517,6 +519,12 @@ export function deserialize(json: string): GameState | null {
     // до него всё войско дома. Старое поле никто не читает — оно не должно и ездить.
     delete (s as { warriorsAway?: unknown }).warriorsAway;
     for (const key of DROPPED) delete (s as unknown as Record<string, unknown>)[key];
+    // Фаза и отряд бродяги (ПН-1, docs/gdd/path_of_sword.md, «Решения ПН-1»): только за выключателем Пути меча и только целой
+    // записью (`sim/roam.mergeRoam`). Выключен — партия читается лордом: ни правка хранилища, ни чужая запись в фазу бродяги не
+    // пускают.
+    delete s.phase;
+    delete s.roam;
+    if (ROAM_ON) Object.assign(s, mergeRoam(data));
     // Здание, добавленное в BUILDINGS после того, как сохранение записали,
     // должно появиться в посёлке само — так же, как оно появляется в новой партии
     // (CLAUDE.md, «Правила»). Иначе игрок с сохранением остался бы без него

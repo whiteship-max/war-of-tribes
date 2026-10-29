@@ -148,36 +148,52 @@ export function woundsHome(s: GameState): number {
   return lost;
 }
 
-/** Шаг партии: чей срок прошёл — встают в строй того же вида. Возвращает, сколько встало. */
-export function settleWounds(s: GameState): number {
-  if (!s.wounded || s.wounded.length === 0) return 0;
+/**
+ * Встать в строй: группы, чей срок прошёл к `time`, уходят из `groups` в `into` бойцами того же вида, по строке летописи на
+ * бойца (`line`, склеивается счётчиком за сутки по `key`). Одна раскладка на лазарет города и на раненых отряда бродяги.
+ * Возвращает оставшиеся группы и сколько встало.
+ */
+function rise(
+  s: GameState,
+  groups: WoundGroup[],
+  into: Partial<Record<TroopId, number>>,
+  line: (one: string) => string,
+  key: (id: TroopId) => string,
+): { keep: WoundGroup[]; back: number } {
   let back = 0;
   const keep: WoundGroup[] = [];
-  for (const g of s.wounded) {
+  for (const g of groups) {
     if (g.until === null || s.time < g.until) {
       keep.push(g);
       continue;
     }
     for (const [id, n] of Object.entries(g.troops) as [TroopId, number][]) {
       if (n <= 0) continue;
-      s.army[id] = (s.army[id] ?? 0) + n;
+      into[id] = (into[id] ?? 0) + n;
       back += n;
       // По строке на бойца, склеенной счётчиком за сутки, — как у казарм.
-      for (let i = 0; i < n; i++) log(s, `Из лазарета в строй: ${TROOP_BY_ID[id].one}.`, 'good', `wound:back:${id}`);
+      for (let i = 0; i < n; i++) log(s, line(TROOP_BY_ID[id].one), 'good', key(id));
     }
   }
+  return { keep, back };
+}
+
+/** Шаг партии: чей срок прошёл — встают в строй того же вида. Возвращает, сколько встало. */
+export function settleWounds(s: GameState): number {
+  if (!s.wounded || s.wounded.length === 0) return 0;
+  const { keep, back } = rise(s, s.wounded, s.army, (one) => `Из лазарета в строй: ${one}.`, (id) => `wound:back:${id}`);
   s.wounded = keep;
   return back;
 }
 
 /**
- * Снять `n` раненых вида `id` — голодом, совсем. Первыми уходят те, кто лёг последним: при
- * полководце, потом свежие; лежавшим дольше до строя ближе всего. Возвращает, сколько снято.
+ * Снять `n` раненых вида `id` из `groups` — голодом, совсем. Первыми уходят те, кто лёг последним: при полководце, потом свежие;
+ * лежавшим дольше до строя ближе всего. Одна очередь на лазарет и на раненых отряда.
  */
-export function loseWounded(s: GameState, id: TroopId, n: number): number {
+function takeWounded(groups: WoundGroup[], id: TroopId, n: number): { keep: WoundGroup[]; gone: number } {
   let left = Math.max(0, Math.floor(n));
   let gone = 0;
-  const order = [...s.wounded].sort((a, b) => (b.until ?? Infinity) - (a.until ?? Infinity));
+  const order = [...groups].sort((a, b) => (b.until ?? Infinity) - (a.until ?? Infinity));
   for (const g of order) {
     if (left <= 0) break;
     const take = Math.min(left, g.troops[id] ?? 0);
@@ -187,6 +203,53 @@ export function loseWounded(s: GameState, id: TroopId, n: number): number {
     left -= take;
     gone += take;
   }
-  s.wounded = s.wounded.filter((g) => troopTotal(g.troops) > 0);
+  return { keep: groups.filter((g) => troopTotal(g.troops) > 0), gone };
+}
+
+/**
+ * Снять `n` раненых вида `id` — голодом, совсем. Первыми уходят те, кто лёг последним: при
+ * полководце, потом свежие; лежавшим дольше до строя ближе всего. Возвращает, сколько снято.
+ */
+export function loseWounded(s: GameState, id: TroopId, n: number): number {
+  const { keep, gone } = takeWounded(s.wounded, id, n);
+  s.wounded = keep;
+  return gone;
+}
+
+// ---------- Раненые отряда бродяги (ПН-1) ----------
+//
+// Лазарета у бродяги нет (ГДД 3.3.1): раненые лежат при отряде — мест не занимают и не ограничены местами, встают через тот же
+// срок `WOUND_DAYS`, едят тот же паёк и при голоде уходят той же дверью содержания (`sim/upkeep.bandUpkeep`) — всегда голодом и
+// совсем. Сколько павших ранено без лазарета, решает бой отряда (ПН-5) — сюда он кладёт уже раненых.
+
+/** Уложить раненых при отряде: срок `WOUND_DAYS` с этой минуты, мест не нужно. Возвращает, сколько легло. */
+export function layBandWounds(s: GameState, wounded: Partial<Record<TroopId, number>>): number {
+  const r = s.roam;
+  if (!r) return 0;
+  const troops: Partial<Record<TroopId, number>> = {};
+  for (const id of TROOP_IDS) {
+    const n = Math.max(0, Math.floor(wounded[id] ?? 0));
+    if (n > 0) troops[id] = n;
+  }
+  const n = troopTotal(troops);
+  if (n > 0) r.wounded.push({ troops, until: s.time + WOUND_DAYS * DAY_LENGTH });
+  return n;
+}
+
+/** Шаг отряда: чей срок прошёл — встают в строй отряда. Возвращает, сколько встало. */
+export function settleBandWounds(s: GameState): number {
+  const r = s.roam;
+  if (!r || r.wounded.length === 0) return 0;
+  const { keep, back } = rise(s, r.wounded, r.band, (one) => `Раненый встал в строй отряда: ${one}.`, (id) => `wound:band:${id}`);
+  r.wounded = keep;
+  return back;
+}
+
+/** Снять `n` раненых отряда вида `id` — голодом, совсем. Возвращает, сколько снято. */
+export function loseBandWounded(s: GameState, id: TroopId, n: number): number {
+  const r = s.roam;
+  if (!r) return 0;
+  const { keep, gone } = takeWounded(r.wounded, id, n);
+  r.wounded = keep;
   return gone;
 }

@@ -16,6 +16,7 @@ import type { GameState, ResourceId } from '../types';
 import { RESOURCE_IDS, RESOURCE_META } from '../constants';
 import { storageCap } from '../derived';
 import { fitStock } from '../stockrules';
+import { ROAM_ON } from '../roamflag';
 import { log } from './log';
 
 export type Gains = Partial<Record<ResourceId, number>>;
@@ -36,11 +37,23 @@ export function outlay(s: GameState): void {
 export const PROBE: { on: Probe | null } = { on: null };
 
 /**
+ * Где лежит добро: склад города (`s.resources`, вместимость — на каждый вид) или обоз отряда бродяги (`s.roam.cargo`, ПН-1:
+ * вместимость — на всё добро разом, `sim/roam.cargoCap`). Правило одно — `fitStock`.
+ */
+export type StockKey = 'resources' | 'cargo';
+
+/**
  * Положить на склад `n` (со знаком): прибавка — не выше вместимости, убавка — не ниже нуля. Возвращает, сколько легло на
  * самом деле (со знаком). Запас выше вместимости (склад только что потерял уровень) сперва сгорает строкой летописи
  * (`trimStock`): срезать его молча прибавка не вправе.
+ *
+ * Ключ `cargo` — обоз отряда (ГДД 3.3.5): `cap` — вместимость всего обоза (её считает зовущий, `sim/roam.cargoCap`), и вид
+ * ложится не выше того, что осталось свободным от прочего добра. За выключателем Пути меча (`ROAM_ON`) обоз не пишется вовсе.
  */
-export function addStock(s: GameState, r: ResourceId, n: number, cap: number = storageCap(s)): number {
+export function addStock(s: GameState, r: ResourceId, n: number, cap?: number): number;
+export function addStock(s: GameState, r: ResourceId, n: number, cap: number, key: StockKey): number;
+export function addStock(s: GameState, r: ResourceId, n: number, cap: number = storageCap(s), key: StockKey = 'resources'): number {
+  if (key === 'cargo') return ROAM_ON ? addCargo(s, r, n, cap) : 0;
   if ((s.resources[r] ?? 0) > cap) trimStock(s, cap);
   const before = s.resources[r] ?? 0;
   const after = fitStock(before, n, cap);
@@ -51,6 +64,50 @@ export function addStock(s: GameState, r: ResourceId, n: number, cap: number = s
     p.fits += Math.floor(after) - Math.floor(before);
   }
   return after - before;
+}
+
+/**
+ * Обоз отряда (ключ `cargo`): груз всего обоза не выше `cap`. Лежит выше (ушли люди, сменился режим марша) — лишнее сперва
+ * бросается строкой летописи (`trimCargo`), как сгорает излишек склада. Разовой тратой не считается: книга запасов сервера
+ * меряет склад города, а не обоз.
+ */
+function addCargo(s: GameState, r: ResourceId, n: number, cap: number): number {
+  const roam = s.roam;
+  if (!roam) return 0;
+  trimCargo(s, cap);
+  const before = roam.cargo[r] ?? 0;
+  let others = 0;
+  for (const id of RESOURCE_IDS) if (id !== r) others += Math.max(0, roam.cargo[id] ?? 0);
+  const after = fitStock(before, n, Math.max(0, cap - others));
+  if (after > 0) roam.cargo[r] = after;
+  else delete roam.cargo[r];
+  return after - before;
+}
+
+/**
+ * Привести обоз к вместимости: что сверх неё, бросается — каждый вид той же долей, строкой летописи «Обоз не поднять: брошено —
+ * …». Ничего сверх — `null`, обоз не тронут.
+ */
+export function trimCargo(s: GameState, cap: number): string | null {
+  const roam = s.roam;
+  if (!roam) return null;
+  let load = 0;
+  for (const r of RESOURCE_IDS) load += Math.max(0, roam.cargo[r] ?? 0);
+  if (!(load > cap)) return null;
+  const keep = cap > 0 ? cap / load : 0;
+  const lost: Gains = {};
+  for (const r of RESOURCE_IDS) {
+    const have = Math.max(0, roam.cargo[r] ?? 0);
+    if (have <= 0) continue;
+    const left = have * keep;
+    lost[r] = have - left;
+    if (left > 0) roam.cargo[r] = left;
+    else delete roam.cargo[r];
+  }
+  const words = stockWords(lost);
+  const line = words ? `Обоз не поднять: брошено — ${words}.` : null;
+  if (line) log(s, line, 'bad');
+  return line;
 }
 
 /** Добро словами для летописи: «древесина 120, камень 40» (`plus` — «еда +106»); целыми, доли единицы не называются. */

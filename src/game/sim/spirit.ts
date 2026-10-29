@@ -10,12 +10,14 @@
 import type { GameState, SpiritState } from '../types';
 import type { Spirit } from '@/battle';
 import { realMs } from '../pace';
-import { buildingOfType, councilGift, estatesNow, fervour, foodShortfall, troopsEat } from '../derived';
+import { buildingOfType, councilGift, estatesNow, fervour, foodShortfall, seasonMods, troopsEat } from '../derived';
 import { FERVOUR_SCALE } from '../estaterules';
 import { gloryAfter, gloryAt, payShareAt, spiritNumbers, spiritOfIn, type SpiritIn, type SpiritView, type WageMode } from '../spiritrules';
 import { statueMorale } from '../statuerules';
 import { armyBar, stabLevel } from './stability';
 import { agentLevel, seated } from './agents';
+import { ROAM_ON } from '../roamflag';
+import { bandBar, bandHunger } from '../roamrules';
 
 /** Жалованье дружине: режим, минута смены и доля восстановления в неё. Нет поля — полное и давно (доля 1). */
 export function wageTrack(s: GameState): { mode: WageMode; since: number; from: number } {
@@ -40,6 +42,7 @@ export function gloryNow(s: GameState): number {
 
 /** Готовые числа духа из партии — одной функцией на раздел «Дружины», мост и опись. */
 export function spiritIn(s: GameState): SpiritIn {
+  if (ROAM_ON && s.phase === 'roam' && s.roam) return bandSpiritIn(s, s.roam);
   const n = estatesNow(s);
   return {
     stab: stabLevel(s),
@@ -54,6 +57,29 @@ export function spiritIn(s: GameState): SpiritIn {
     general: seated(s, 'general') ? agentLevel(s, 'general') : null,
     barracks: buildingOfType(s, 'barracks')?.level ?? 0,
     statue: statueMorale(buildingOfType(s, 'statue')?.level ?? 0),
+    pay: payShare(s),
+  };
+}
+
+/**
+ * Дух отряда бродяги (ПН-1, ГДД 3.3.3) — тот же расчёт, входы отряда. Державы, храма, сословий, Казарм и Статуи у бродяги нет —
+ * их строк нет; отряд ведёт герой — дисциплина от его Военного дела, как от уровня полководца; терпение — полоса отряда
+ * (`roamrules.bandBar`: долг или голод против терпения героя), голод — доля, которую не закрывают обоз и фураж
+ * (`roamrules.bandHunger`); память боёв и жалованье — общие поля партии (`s.spirit`, `PayState.wage`).
+ */
+function bandSpiritIn(s: GameState, r: NonNullable<GameState['roam']>): SpiritIn {
+  return {
+    stab: 0,
+    patience: bandBar(s.pay?.late ?? 0, r.hero.war),
+    unfed: bandHunger(r, seasonMods(s)),
+    glory: gloryNow(s),
+    rite: 0,
+    marshal: 0,
+    knights: 0,
+    merchants: 0,
+    general: r.hero.war,
+    barracks: 0,
+    statue: 0,
     pay: payShare(s),
   };
 }
