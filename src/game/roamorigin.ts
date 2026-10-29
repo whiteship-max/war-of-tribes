@@ -4,18 +4,13 @@
 // герой с Военным делом 2, четыре копейщика и два дубинщика, 120 золота и провиант на 4 игр. дн. Числа — те же, что у входа-заглушки
 // прибора `roam:report` («origins»): второго числа нет, сверяет тест прибора (`origin.test.ts`). Вывода
 // у них нет — это заглушка, как `roamstubs`, и читает её только вход в путь за выключателем (`roamflag.roamOn`).
-import type { GameState, TroopId } from './types';
+import type { GameState } from './types';
 import type { RoamStart } from './sim/roam';
 import { seasonMods } from './derived';
 import { bandRationPerDay } from './roamrules';
+import { WARRIOR } from './roamstart';
 
-/** Воин (ГДД 3.1): ориентиры, без вывода. */
-export const WARRIOR = {
-  band: { spearman: 4, clubman: 2 } as Partial<Record<TroopId, number>>,
-  gold: 120,
-  foodDays: 4,
-  war: 2,
-} as const;
+export { WARRIOR };
 
 /** Вход Воином: провиант — паёк отряда по сезону партии на `foodDays` игр. дн. той же дверью, что шаг отряда. */
 export function warriorStart(s: GameState, hero: string): RoamStart {

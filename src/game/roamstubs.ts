@@ -186,6 +186,70 @@ export const ROAM_STUBS = {
     batch: 'ПН-7',
     orient: false,
   },
+  // ---------- ПН-6: люди и город (ГДД 3.4, 3.7.1, 3.7.7, 4.2) ----------
+  askBase: {
+    value: { lo0: 2, hi0: 4, lo4: 12, hi4: 20 } as Readonly<Record<'lo0' | 'hi0' | 'lo4' | 'hi4', number>>,
+    gdd: '3.4.1',
+    what: '«Просятся в отряд» — сколько приходит: ступень 0 — 2…4, ступень 4 — 12…20, между ними — прямой',
+    batch: 'ПН-17',
+    orient: true,
+  },
+  askCamp: {
+    value: { open: 1.5, hidden: 0.5, ruin: 0.8, none: 1 } as Readonly<Record<'open' | 'hidden' | 'ruin' | 'none', number>>,
+    gdd: '3.4.1',
+    what: '«Просятся в отряд» — множитель лагеря: открытый ×1.5 (костры видно), скрытый ×0.5, руины ×0.8, без лагеря ×1',
+    batch: 'ПН-17',
+    orient: true,
+  },
+  askWinter: {
+    value: 0.6,
+    gdd: '3.4.1',
+    what: '«Просятся в отряд» — зимой ×0.6',
+    batch: 'ПН-17',
+    orient: true,
+  },
+  askSpirit: {
+    value: { below: 40, mult: 0.5 } as Readonly<Record<'below' | 'mult', number>>,
+    gdd: '3.4.1',
+    what: '«Просятся в отряд» — мораль ниже 40 — ×0.5',
+    batch: 'ПН-17',
+    orient: true,
+  },
+  askFeed: {
+    value: 2,
+    gdd: '3.4.1',
+    what: '«Взять, сколько прокормим» — хлеба в обозе на столько игр. дн. всему отряду с новыми',
+    batch: 'ПН-17',
+    orient: false,
+  },
+  captiveShare: {
+    value: 0.2,
+    gdd: '3.4.5',
+    what: 'пленные после выигранного боя — доля уцелевших врагов, которых можно принять дубинщиками',
+    batch: 'ПН-7',
+    orient: false,
+  },
+  boardFee: {
+    value: 0.2,
+    gdd: '4.2',
+    what: 'постой в вольном городе — золота за голову и игр. день',
+    batch: 'ПН-7',
+    orient: true,
+  },
+  townMarket: {
+    value: [3, 6, 9] as readonly number[],
+    gdd: '3.7.1',
+    what: 'уровень рынка вольного города по ступени I, II, III (глубина, запас и кошель привоза — правила рынка лорда)',
+    batch: 'ПН-7',
+    orient: false,
+  },
+  townYard: {
+    value: [2, 4, 6] as readonly number[],
+    gdd: '3.7.7',
+    what: 'уровень дворов вольного города по ступени I, II, III — от него добыча промысла на заработках',
+    batch: 'ПН-7',
+    orient: false,
+  },
 } as const satisfies Record<string, RoamStub>;
 
 export type RoamStubId = keyof typeof ROAM_STUBS;

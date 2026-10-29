@@ -22,8 +22,8 @@
 import type { ActiveEvent, EventSize, GameState } from '../types';
 import { EVENT_BY_ID, eventBlock, eventCost, payEventCost, pickEvent, type EventDef } from '../data/events';
 import { atSize, sizeOf } from '../data/eventKit';
-import { LETTER_PAUSE_MAX, LETTER_PAUSE_MIN, LETTER_TTL } from '@/world/data/tuning';
-import { hashId } from '@/world/diplomacy';
+import { LETTER_TTL } from '@/world/data/tuning';
+import { AWAY_JITTER, AWAY_STEP, awayArrival } from '../mailgrid';
 import { TUTORIAL_EVENT_MUTE } from '../data/tutorial';
 import { kickFrom } from '@/world/letters';
 import { mailSlots } from './tech';
@@ -174,12 +174,7 @@ export function mailStep(s: GameState, now: number): boolean {
  * Приход k стоит в абсолютном времени и зависит только от сида партии и k: сколько
  * раз и когда игрок заглядывал и был ли он при игре, на сетку не влияет (это тест).
  */
-export const AWAY_STEP = (LETTER_PAUSE_MIN + LETTER_PAUSE_MAX) / 2;
-export const AWAY_JITTER = (LETTER_PAUSE_MAX - LETTER_PAUSE_MIN) / 2;
-
-/** Минута k-го прихода вести, мс настоящего времени. */
-export const awayArrival = (seed: number, k: number): number =>
-  k * AWAY_STEP + (hashId(`${seed}|mail|${k}`) / 2 ** 32) * AWAY_JITTER;
+export { AWAY_JITTER, AWAY_STEP, awayArrival } from '../mailgrid';
 
 /**
  * Положить на стол вести, пришедшие между `from` и `now` (настоящие мс): окно живого шага или

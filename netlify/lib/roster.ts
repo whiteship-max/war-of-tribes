@@ -24,11 +24,15 @@ import { ATLAS_HASH } from '../../src/world/atlas/data.js';
 import { readArms } from '../../src/heraldry/arms.js';
 import { energyForged, isNewcomer, placeBand, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamSeat, untilForged, ROAM_SLACK_MS, type RoamMove } from '../../src/world/roam.js';
 import { readMove } from '../../src/world/roammove.js';
+import { bookClaim, bookGrants, bookMen, bookMoved, bookOrder, firstBook, startBook } from './roambook.js';
 import { readGait } from '../../src/world/data/gait.js';
 import {
   CASTLE_LIMITS,
   cityName,
   plainText,
+  isBookOrder,
+  readRoamBook,
+  type AdminGrant,
   type BandOrder,
   type BandRow,
   type CastleClaim,
@@ -131,6 +135,10 @@ export function readBandRow(v: unknown): BandRow | null {
     men: whole(r.men, 1e6),
     seenAt: whole(r.seenAt, Number.MAX_SAFE_INTEGER),
     ...clockOf(r.clock),
+    ...((): Pick<BandRow, 'book'> => {
+      const book = readRoamBook(r.book);
+      return book ? { book } : {};
+    })(),
   };
 }
 
@@ -310,6 +318,12 @@ export function placeBandNew(file: RosterFile, key: string, now: number, mode: S
   return placeBand(settleRandom(`band:${key}`), spotsOf(file), newcomersOf(file, now, key), mode === 'sicily' ? inSicilyTheatre : undefined);
 }
 
+/** Что сервер знает о партии для книги отряда (ПН-6): сид из описи и указы админа. */
+export interface BookKnown {
+  seed?: number;
+  grants?: readonly Pick<AdminGrant, 'n' | 'troops'>[];
+}
+
 /** Итог приказа отряда: реестр после него, отказ словами и флаг для наблюдения игрока. */
 export interface BandAnswer {
   file: RosterFile;
@@ -323,7 +337,15 @@ const spot = (c: { x: number; y: number }): string => `${Math.round(c.x)}|${Math
  * Приказ отряда бродяги: встать в реестр (место назначит сервер), «Идти сюда», «Встать лагерем». Пишет только свою строку.
  * Возвращает новый реестр (прежний не тронут), отказ и флаг. `clock` — часы партии из описи (ПН-4у, `bandsight.clockOf`).
  */
-export function bandOrder(file: RosterFile, key: string, o: BandOrder, now: number, mode: SpawnMode | null, clock?: BandRow['clock']): BandAnswer {
+export function bandOrder(
+  file: RosterFile,
+  key: string,
+  o: BandOrder,
+  now: number,
+  mode: SpawnMode | null,
+  clock?: BandRow['clock'],
+  known: BookKnown = {},
+): BandAnswer {
   const had = file.bands?.[key];
   // Записанный реестр — с прополкой забытых, как у замка (`prune`): своя строка от неё защищена. Часы партии (ПН-4у) — отметка
   // сервера из описи, ставится каждым принятым приказом: событие и есть то, по чему сервер обновляет видимость.
@@ -332,16 +354,30 @@ export function bandOrder(file: RosterFile, key: string, o: BandOrder, now: numb
   // У игрока либо замок, либо отряд: игрок с замком приказов отряда не шлёт — честный клиент в фазе лорда их не знает.
   if (file.rows[key]) return no('У тебя замок: отряда бродяги нет.', { kind: 'forged', text: 'Приказ отряда бродяги от игрока с замком в реестре.' });
   if (o.op === 'seat') {
-    const banner = { name: o.name, ...(o.arms ? { arms: o.arms } : {}), prestige: o.prestige, men: o.men, seenAt: now };
+    // Книга отряда (ПН-6): новая строка — Воин; строка до книги — с первой отметки; дальше — указы админа и убыль словами клиента,
+    // а сверх книги — флаг. Людей строки (видимость, рогатки) — по книге.
+    // Клиент до ПН-6 у строки до книги (troops не шлёт) — по-старому, словами клиента.
+    const base = had ? (had.book ?? (o.troops ? firstBook(o.troops) : null)) : startBook();
+    const granted = base ? bookGrants(base, known.grants ?? []) : null;
+    const claimed = granted && o.troops ? bookClaim(granted, o.troops) : { book: granted, forged: null };
+    const book = claimed.book;
+    const banner = { name: o.name, ...(o.arms ? { arms: o.arms } : {}), prestige: o.prestige, men: book ? bookMen(book) : o.men, seenAt: now, ...(book ? { book } : {}) };
+    const forged = claimed.forged ? { kind: 'forged' as const, text: claimed.forged } : null;
     if (had) {
       const { arms: _old, ...kept } = had;
-      return { file: put({ ...kept, ...banner }), error: null, forged: null };
+      return { file: put({ ...kept, ...banner }), error: null, forged };
     }
     const at = placeBandNew(file, key, now, mode);
-    return { file: put({ ...rowOfMove(roamSeat(at, now)), born: now, ...banner }), error: null, forged: null };
+    return { file: put({ ...rowOfMove(roamSeat(at, now)), born: now, ...banner }), error: null, forged };
   }
   if (!had) return no('Отряд ещё не вышел на карту: место выхода не названо.');
   const m = moveOfRow(had);
+  if (isBookOrder(o)) {
+    if (!had.book) return no('Отряд ещё не отметился: книга не заведена.');
+    const step = bookOrder(bookGrants(had.book, known.grants ?? []), o, { now, cell: roamCell(m.way, now), moving: roamMoving(m.way, now), seed: known.seed });
+    if (step.error) return no(step.error, step.forged ? { kind: 'forged', text: step.forged } : null);
+    return { file: put({ ...had, book: step.book, men: bookMen(step.book), seenAt: now }), error: null, forged: null };
+  }
   // Отряд стоял и минуту назад: клетка у клиента и у сервера одна — отказ клетки честный клиент не получает.
   const still = !roamMoving(m.way, now) && !roamMoving(m.way, now - ROAM_SLACK_MS);
   if (o.op === 'go') {
@@ -361,16 +397,18 @@ export function bandOrder(file: RosterFile, key: string, o: BandOrder, now: numb
       o.until !== undefined && untilForged(o.until, next.way.until)
         ? { kind: 'walk' as const, text: `Ход отряда в ${spot(o.to)}: игрок назвал приход на ${Math.round((next.way.until - o.until) / 1000)} с раньше пути.` }
         : null;
-    const row: BandRow = { ...had, ...rowOfMove(next), seenAt: now };
+    const row: BandRow = { ...had, ...rowOfMove(next), seenAt: now, ...(had.book ? { book: bookMoved(had.book) } : {}) };
     if (!next.camp) delete row.camp;
     return { file: put(row), error: null, forged: walk };
   }
-  const next = roamCamp(m, o.kind, o.men, now);
+  // Рогатки ставят люди отряда — не больше, чем знает книга (ПН-6).
+  const men = had.book ? Math.min(o.men, bookMen(had.book)) : o.men;
+  const next = roamCamp(m, o.kind, men, now);
   if (typeof next === 'string') {
     const honest = next === 'Отряд уже стоит этим лагерем.' || next === 'Лагеря нет: отряд и так стоит в поле.';
     return no(next, still && !honest ? { kind: 'forged', text: `Лагерь отряда в ${spot(roamCell(m.way, now))}: ${next}` } : null);
   }
-  const row: BandRow = { ...had, ...rowOfMove(next), men: o.men, seenAt: now };
+  const row: BandRow = { ...had, ...rowOfMove(next), men: had.book ? bookMen(had.book) : o.men, seenAt: now };
   if (!next.camp) delete row.camp;
   return { file: put(row), error: null, forged: null };
 }

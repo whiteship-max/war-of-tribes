@@ -229,6 +229,16 @@ export const INPUTS = {
   townTier: fromGame('townTier'),
   villageBlock: fromGame('villageBlock'),
   vatagaBlock: fromGame('vatagaBlock'),
+  // ПН-6: люди и город — заглушки игры тем же числом.
+  askBase: fromGame('askBase'),
+  askCamp: fromGame('askCamp'),
+  askWinter: fromGame('askWinter'),
+  askSpirit: fromGame('askSpirit'),
+  askFeed: fromGame('askFeed'),
+  captiveShare: fromGame('captiveShare'),
+  boardFee: fromGame('boardFee'),
+  townMarket: fromGame('townMarket'),
+  townYard: fromGame('townYard'),
 } satisfies Record<string, Input>;
 
 export type InputId = keyof typeof INPUTS;

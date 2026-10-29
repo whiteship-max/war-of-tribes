@@ -36,7 +36,7 @@ import { STORES } from '../kv.js';
 import { addFlags, confirmedOf, observe, readWatchRecord } from '../watch.js';
 import { bandsSeen, clockAt, seenOf } from '../bandsight.js';
 import { roamOpenFor } from '../../../src/game/roamflag.js';
-import { isAdmin } from '../admin.js';
+import { grantsOf, isAdmin, type StoredGrant } from '../admin.js';
 import { seedTown } from '../town.js';
 import { powerOfCounts } from '../../../src/profile/power.js';
 import { START_POP } from '../../../src/game/constants.js';
@@ -198,6 +198,13 @@ async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, no
   } catch {
     // Наблюдение не ответило — строка живёт прежней отметкой часов.
   }
+  // Указы админа отряду (ПН-6): их бойцы ложатся в книгу отряда по номеру. Хранилище не ответило — книга подождёт следующего приказа.
+  let grants: StoredGrant[] = [];
+  try {
+    grants = (await grantsOf(io.stores, key)).list;
+  } catch {
+    grants = [];
+  }
   for (let tries = 0; tries < WRITE_TRIES; tries++) {
     const found = await hot.getWithMetadata(KEY);
     const read = readRoster(found ? parseJson(String(found.data)) : null);
@@ -205,7 +212,7 @@ async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, no
     // Вход админа в путь новой партией: своя строка замка уходит с первым «встать» отрядом (см. выше).
     const file = admin && order.op === 'seat' && read.rows[key] && !read.bands?.[key] ? dropCastle(read, key) : read;
     const time = clockAt(file.bands?.[key]?.clock, card.card, card.at);
-    const done = bandOrder(file, key, order, now, mode, time.clock);
+    const done = bandOrder(file, key, order, now, mode, time.clock, { ...(card.card?.seed !== undefined ? { seed: card.card.seed } : {}), grants });
     const flag = async (): Promise<void> => {
       const f = [...(done.forged ? [done.forged] : []), ...(time.flag && !done.error ? [time.flag] : [])];
       if (f.length > 0) await observe(io.stores, key, (rec) => addFlags(rec, now, f));
