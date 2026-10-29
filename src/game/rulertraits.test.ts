@@ -15,7 +15,7 @@ import { COMMONER_SLIGHT, LORD_FAVOR } from './commandrules';
 import { GENERAL_DRILL, GLORY_LOSS, GLORY_WIN } from './spiritrules';
 import { giftCeil } from './councilrules';
 import { RULER_AXES, RULER_BUILD, RULER_TRAITS, rulerDeedsOf, rulerNumbersOf, rulerTraitsNow, rulerTraitsOf, type RulerDeeds, type RulerTraitId } from './rulertraits';
-import { rulerTraitNumbers } from './rulernow';
+import { rulerTraitNumbers, stewardBuild } from './rulernow';
 import { noteRulerDeed, succeed } from './sim/dynasty';
 import { setWageMode } from './sim/upkeep';
 import { rebelsSettled } from './sim/stability';
@@ -270,6 +270,11 @@ describe('каждое число черты доходит до своей дв
     expect(buildBoost(builder)).toBeCloseTo(Math.max(1, Math.min(1 + giftCeil('steward'), stewardMult(builder) + RULER_BUILD) * guildsMult(builder)), 12);
     expect(buildBoost(builder), 'стройка быстрее').toBeGreaterThan(buildBoost(plain));
     expect(stewardMult(builder), 'множитель дворов — без черты').toBe(stewardMult(plain));
+    // Потолок общий: Староста высшего уровня уже упёрся — черта сверх него не прибавляет.
+    const top = 1 + giftCeil('steward');
+    expect(stewardBuild(top - 0.01, RULER_BUILD), 'граница: прибавка упирается').toBe(top);
+    expect(stewardBuild(top, RULER_BUILD)).toBe(top);
+    expect(stewardBuild(1, 0), 'без черты — как есть').toBe(1);
   });
 
   it('Торгаш и Лесной по крови — от происхождения героя пути (путь включён подменой выключателя)', async () => {
