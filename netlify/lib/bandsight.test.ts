@@ -175,9 +175,11 @@ describe('клиентское «меня не видно» не читаетс�
     const { inside } = spots(lord.mine!, NOW + 1000);
     await putBand('tg-231', bandRow(inside, { camp: undefined }));
     await call(231, NOW + 1000, 'POST', { op: 'camp', kind: 'open', men: 20, hidden: true, seen: false, conspicuity: 0, sight: { count: 0 } });
-    const row = (await file()).file.bands?.['tg-231'];
-    expect(Object.keys(row ?? {})).not.toEqual(expect.arrayContaining(['hidden']));
-    expect(JSON.stringify(row)).not.toMatch(/hidden"?:\s*true|conspicuity|"seen"|"sight"/);
+    // В хранилище — как записано, без чистки чтением: слова клиента о своей видимости там нет вовсе.
+    const raw = await home.stores(STORES.world, 'strong').getWithMetadata(ROSTER_KEY);
+    const stored = JSON.parse(String(raw?.data)).bands['tg-231'];
+    expect(stored.camp.kind).toBe('open');
+    expect(JSON.stringify(stored)).not.toMatch(/"hidden"|"conspicuity"|"seen"|"sight"/);
     const view = await call(104, NOW + 2000, 'GET');
     expect(view.bands?.map((b) => b.name)).toEqual(['Ратко']);
     expect(view.bands?.[0].camp).toBe('open');

@@ -7,15 +7,35 @@ import { bandWords } from './BandsLayer';
 
 const read = (rel: string): string => readFileSync(join(process.cwd(), rel), 'utf8');
 
-/** Строка `needle` стоит внутри блока `if (ROAM_ON) {` или в выражении за `ROAM_ON` (не дальше трёх строк вверх). */
+/**
+ * Строка `needle` стоит внутри блока `if (ROAM_ON) {` (ближайший охватывающий блок — по скобкам вверх) или за выключателем на той же
+ * строке (`ROAM_ON ?`, `if (ROAM_ON) …`). Сколько таких строк — возвращает.
+ */
 function gated(src: string, needle: RegExp): number {
   const lines = src.split('\n');
   let n = 0;
   lines.forEach((line, i) => {
     if (!needle.test(line) || /^\s*(\/\/|\*)/.test(line)) return;
     n++;
-    const near = lines.slice(Math.max(0, i - 3), i + 1).join('\n');
-    expect(near, `строка ${i + 1}: ${line.trim()}`).toMatch(/\bif \(ROAM_ON\)|ROAM_ON \?/);
+    // Развилка на той же строке: выражением `ROAM_ON ?` или оператором `if (ROAM_ON) …` без блока.
+    if (/ROAM_ON \?|\bif \(ROAM_ON\) [^{]*$/.test(line)) return;
+    // Вверх по скобкам: первая незакрытая `{` — начало охватывающего блока.
+    let depth = 0;
+    let opener = '';
+    for (let j = i - 1; j >= 0 && !opener; j--) {
+      const l = lines[j];
+      for (let k = l.length - 1; k >= 0; k--) {
+        if (l[k] === '}') depth++;
+        else if (l[k] === '{') {
+          if (depth === 0) {
+            opener = l;
+            break;
+          }
+          depth--;
+        }
+      }
+    }
+    expect(opener, `строка ${i + 1}: ${line.trim()}`).toMatch(/\bif \(ROAM_ON\) \{/);
   });
   return n;
 }
