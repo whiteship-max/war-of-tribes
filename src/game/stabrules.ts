@@ -85,7 +85,7 @@ export const STAB_DRAG = 15.71;
  * Тихие дни: сколько процентов ступени за игровой день прибавляет ровная жизнь. **Выводит `npm run stability:report`**
  * (цель Ц1: ровная игра поднимается из 0 в +1 за сутки отлучки, 48 игр. дн.) неподвижной точкой; руками не правится.
  */
-export const STAB_CALM = 10.73;
+export const STAB_CALM = 10.68;
 
 /** Толчок сдвига от боя: его мораль — мерой одного дня причины того же веса (docs/stability.md, 2.2). */
 export const battleShock = (morale: number): number => (STAB_DRAG * discontentOf(morale)) / 100;

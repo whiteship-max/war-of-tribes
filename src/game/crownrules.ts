@@ -121,7 +121,7 @@ export const CROWN_GAIN_MAX = Math.max(...CROWN_IDS.flatMap((id) => CROWN_RULES[
  * Среднее время до наступления обычной вести, игровых дней, при весе 1. **Выводит `npm run stability:report`** (раздел
  * «Вести державы», цель — около одной вести державы в настоящие сутки ровной игры); руками не правится.
  */
-export const CROWN_MTTH = 276;
+export const CROWN_MTTH = 279;
 
 /** Во сколько раз дольше ждёт своего часа весть этой редкости. */
 export const RARITY_SLOW: Record<CrownRarity, number> = { common: 1, uncommon: 2, rare: 4, once: 4 };
