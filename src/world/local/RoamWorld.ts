@@ -15,10 +15,18 @@
 // войну — мир про партию не знает).
 import type { BandOrder, BandRow } from '../../../netlify/lib/contract';
 import type { RoamState } from '@/game/types';
-import type { Coord, FigureView, PlayerProfile, Rect, RegionChunk, RoamCampView, RoamPlanView, WorldInfo, WorldPulse } from '../types';
+import type { FightOut } from '@/game/sim/roamfight';
+import type { Coord, FigureView, PlayerProfile, Rect, RegionChunk, RoamAimView, RoamCampView, RoamPlanView, WorldInfo, WorldPulse } from '../types';
 import { HOME_ID, LocalWorld, type LocalWorldOptions } from './LocalWorld';
 import { CAMP_KINDS, CAMP_NAME, campWorks, roamCamp, roamCell, roamGo, roamPlan, roamWhere, type CampKind, type RoamMove } from '../roam';
-import { wayGait } from '../roammove';
+import { wayGait, type RoamTrip, type RoamWay } from '../roammove';
+import { pointAt, pointsIn, pointWords, type RoamPoint } from '../roampoints';
+import { FOE_WORDS, foePower, foeRipe, type FoeKind } from '../roamfoes';
+import { ambushFight, ambushOdds, ambushWords, strikeFight, tripOf, type StrikeAim } from '../encounter';
+import { menOfPower } from '../garrison';
+import { isLair } from '../gen';
+import { realSpan } from '@/game/span';
+import { gameSecondsOfMs } from '@/game/pace';
 import { RUIN_NAME, ruinAt, ruinsIn } from '../ruins';
 import { energyAt } from '../energy';
 import { gaitField, type Gait } from '../gait';
@@ -40,6 +48,12 @@ export interface RoamPort {
   campGain(kind: CampKind): { forage: number; morale: number; heal: number };
   /** Часы партии, игровые секунды: ночь и сезон заметности отряда (ПН-4у). */
   partyTime(): number;
+  /** Престиж героя (ПН-5): от его ступени сила НПС (`world/roamfoes`). */
+  prestige(): number;
+  /** Записать встречу хода одной дверью (`sim/roam.setTrip`). */
+  setTrip(t: RoamTrip | null): void;
+  /** Положить итог боя (`sim/roamfight.takeFight`) и сказать о нём; вернёт строку летописи. */
+  fight(f: FightOut): string;
   /** Приказ серверу (реестр, `net/bandroster.bandOrder`) — в Telegram; нет — мир применяет правило сам. */
   order?: (o: BandOrder) => Promise<BandRow | string>;
 }
@@ -47,8 +61,6 @@ export interface RoamPort {
 /** Мир бродяги без места выхода не строится (`roamboot`); здесь — на случай, если запись хода пропала. */
 export const NO_SEAT = 'Отряд ещё не вышел на карту: место выхода не названо.';
 
-/** Риск засады в окне хода — до встреч с НПС (ПН-5) не считается: заглушка строкой, а не числом. */
-export const AMBUSH_STUB = 'Риск засады не измерен: встреч на дорогах пока нет.';
 
 export class RoamWorld extends LocalWorld {
   private readonly port: RoamPort;
@@ -95,7 +107,46 @@ export class RoamWorld extends LocalWorld {
     const ruins = ruinsIn(x, y, x + w, y + h)
       .filter((r) => c.explored[(r.y - y) * w + (r.x - x)] === 1)
       .map((r) => ({ x: r.x, y: r.y, name: RUIN_NAME[r.kind], cap: r.cap }));
-    return { ...c, settlements: c.settlements.filter((s) => s.id !== HOME_ID), ruins };
+    // Точки бродяги (ПН-5) — тоже только на разведанном; побитая ватага и побитое логово — пепелищем до срока: на карте их нет.
+    const now = this.clock();
+    const points = pointsIn(this.save.seed, x, y, x + w, y + h)
+      .filter((p) => c.explored[(p.y - y) * w + (p.x - x)] === 1 && !this.beaten(p.id, now))
+      .map((p) => ({ id: p.id, kind: p.kind, x: p.x, y: p.y, name: p.name, tier: p.tier }));
+    return { ...c, settlements: c.settlements.filter((s) => s.id !== HOME_ID && !this.beaten(s.id, now)), ruins, points };
+  }
+
+  /** Точка побита и ещё пепелище (ПН-5, `RoamState.beaten`). */
+  private beaten(id: string, now: number): boolean {
+    return (this.port.band()?.beaten ?? []).some((b) => b.id === id && b.until > now);
+  }
+
+  /** Живое логово мира в клетке (своё: мир бродяги строит их, как у лорда) или `null`. */
+  private lairAt(c: Coord, now: number): { id: string; name: string } | null {
+    for (const st of this.byId.values()) {
+      if (st.x === c.x && st.y === c.y && isLair(st) && !this.beaten(st.id, now)) return { id: st.id, name: st.name };
+    }
+    return null;
+  }
+
+  /**
+   * Точка в клетке цели (ГДД 3.5.1) и удар по ней (3.6.1): логово и ватага — бой в минуту прихода, сила — по ступени престижа
+   * (`world/roamfoes`), не по отряду; город и село — место и вход (их дела — ПН-6/7; разбоя сёл нет, Р10).
+   */
+  private aimAt(c: Coord, now: number): (RoamAimView & { foe: FoeKind | null }) | null {
+    const r = this.port.band();
+    const hurt = r?.hero.hurt !== undefined && r.hero.hurt > this.port.partyTime() ? r.hero.hurt - this.port.partyTime() : 0;
+    const lair = this.lairAt(c, now);
+    const pt: RoamPoint | null = lair ? null : pointAt(this.save.seed, c.x, c.y);
+    if (!lair && (!pt || this.beaten(pt.id, now))) return null;
+    const id = lair ? lair.id : (pt as RoamPoint).id;
+    const name = lair ? lair.name : (pt as RoamPoint).name;
+    const foe: FoeKind | null = lair ? 'lair' : pt?.kind === 'vataga' ? 'band' : null;
+    const kind: RoamAimView['kind'] = lair ? 'lair' : (pt as RoamPoint).kind;
+    const words = lair ? `${name} — логово: можно напасть.` : pointWords(pt as RoamPoint);
+    if (!foe) return { id, kind, name, words, strike: null, block: null, foe };
+    const power = foePower(this.port.prestige(), foe, foeRipe(this.save.seed, id));
+    const block = hurt > 0 ? `Герой ранен: в бой поведёт через ${realSpan(Math.ceil(hurt / gameSecondsOfMs(1000)))}.` : null;
+    return { id, kind, name, words, strike: { power, men: menOfPower(power) }, block, foe };
   }
 
   async figures(): Promise<FigureView[]> {
@@ -106,6 +157,7 @@ export class RoamWorld extends LocalWorld {
   async sync(profile: PlayerProfile): Promise<WorldPulse> {
     const now = this.clock();
     this.walkFog(now);
+    this.settleTrip(now);
     return { now, marches: [], figures: [], reports: [], effects: [], siege: null, faith: this.faithView(profile.faith ?? null), unread: 0 };
   }
 
@@ -122,13 +174,16 @@ export class RoamWorld extends LocalWorld {
     const now = this.clock();
     const p = roamPlan(m, to, now);
     const have = energyAt(m.energy, now);
+    const r = this.port.band();
+    const men = troopTotal(r?.band ?? {});
+    const aim = p.block ? null : this.aimAt(p.to, now);
     return {
       from: p.from,
       to: p.to,
       where: this.whereWords(p.to),
       block: p.block,
       gait: wayGait(m.way),
-      ambush: AMBUSH_STUB,
+      aim: aim ? { id: aim.id, kind: aim.kind, name: aim.name, words: aim.words, strike: aim.strike, block: aim.block } : null,
       legs: p.legs.map((l) => ({
         gait: l.gait,
         walkMs: l.walkMs,
@@ -138,23 +193,84 @@ export class RoamWorld extends LocalWorld {
         halt: l.start - now,
         energy: { now: have, road: l.road, left: l.left },
         food: this.port.foodAfter(l.until - now, l.gait),
+        // Засада на этой дороге (ПН-5) — те же числа, что заморозит приказ (`encounter.tripOf`): шанс видимостью, сила престижем.
+        ambush: ((): RoamPlanView['legs'][number]['ambush'] => {
+          const o = ambushOdds(this.legWay(p.from, p.to, l.start, l.until, l.gait), men, this.port.partyTime(), now, this.port.prestige(), this.save.seed);
+          return { ...o, words: ambushWords(o) };
+        })(),
         block: l.block,
       })),
     };
   }
 
-  async roamTo(to: Coord, gait: Gait, shownUntil?: number): Promise<string | null> {
+  /** Ход одного режима окна хода — та же запись, что ляжет приказом (`roam.roamGo`). */
+  private legWay(from: Coord, to: Coord, start: number, until: number, g: Gait): RoamWay {
+    return { from: { x: from.x, y: from.y }, to: { x: to.x, y: to.y }, at: start, until, ...gaitField(g) };
+  }
+
+  /**
+   * Заморозить встречу нового хода (ГДД 3.6.3) — в минуту приказа, теми же функциями, что окно хода: шанс и сила засады, кость, где и
+   * когда встреча, удар по цели. Ход уже лёг в партию (правилом мира или строкой сервера).
+   */
+  private freezeTrip(now: number, aim: StrikeAim | undefined): void {
+    const r = this.port.band();
+    if (!r?.way) return;
+    this.port.setTrip(tripOf(r.way, troopTotal(r.band), this.port.partyTime(), now, this.port.prestige(), this.save.seed, aim));
+  }
+
+  /**
+   * Разобрать встречи хода, чья минута пришла (ГДД 3.6.3): засада — в минуту встречи, удар — в минуту прихода; каждая один раз
+   * (отметка `done`). Зовут пульс мира и новый приказ (до того, как ход сменится).
+   */
+  private settleTrip(now: number): void {
+    const r = this.port.band();
+    const t = r?.trip;
+    if (!r || !t || !r.way) return;
+    let next: RoamTrip = t;
+    if (t.ambush && !t.ambush.done && now >= t.ambush.at) {
+      const a = t.ambush;
+      const band = { ...(this.port.band()?.band ?? {}) };
+      if (troopTotal(band) > 0) {
+        const f = ambushFight(t.odds.power, band, a.cell, a.seed);
+        this.port.fight({ how: 'ambush', id: '', name: FOE_WORDS.band, power: t.odds.power, foeMen: f.foeMen, foeLoss: f.foeLoss, won: f.won, lost: f.lost, seed: a.seed, at: a.at });
+      }
+      next = { ...next, ambush: { ...a, done: true } };
+      this.port.setTrip(next);
+    }
+    const st = next.strike;
+    if (st && !st.done && now >= r.way.until) {
+      const band = { ...(this.port.band()?.band ?? {}) };
+      if (troopTotal(band) > 0 && !this.beaten(st.id, now)) {
+        const f = strikeFight(st.power, band, r.way.to, r.way.from, st.seed, st.id);
+        this.port.fight({ how: 'strike', id: st.id, name: st.name, power: st.power, foeMen: f.foeMen, foeLoss: f.foeLoss, won: f.won, lost: f.lost, seed: st.seed, at: r.way.until });
+      }
+      next = { ...next, strike: { ...st, done: true } };
+      this.port.setTrip(next);
+    }
+  }
+
+  async roamTo(to: Coord, gait: Gait, shownUntil?: number, strike?: boolean): Promise<string | null> {
     const m = this.move();
     if (!m) return NO_SEAT;
     const now = this.clock();
+    // Встречи прежнего хода, чья минута прошла, — до того, как ход сменится.
+    this.settleTrip(now);
     const next = roamGo(m, to, gait, now);
     if (typeof next === 'string') return next;
-    if (this.port.order) {
-      // Правду о ходе выводит сервер той же дверью; его строку партия берёт из ответа реестра (`net/roster` → `setMove`).
-      const got = await this.port.order({ op: 'go', to: { x: next.way.to.x, y: next.way.to.y }, ...gaitField(gait), until: shownUntil ?? next.way.until });
-      return typeof got === 'string' ? got : null;
+    // Удар по цели (ПН-5): только логово и ватага, и не раненым героем; сила — та, что показало окно (престиж той же минуты).
+    let aim: StrikeAim | undefined;
+    if (strike) {
+      const a = this.aimAt(next.way.to, now);
+      if (!a?.foe || !a.strike) return 'Здесь не с кем биться.';
+      if (a.block) return a.block;
+      aim = { id: a.id, kind: a.foe, name: a.name, power: a.strike.power };
     }
-    this.port.apply(next);
+    if (this.port.order) {
+      // Правду о ходе выводит сервер той же дверью; его строку партия берёт из ответа реестра (`net/bandroster` → `setMove`).
+      const got = await this.port.order({ op: 'go', to: { x: next.way.to.x, y: next.way.to.y }, ...gaitField(gait), until: shownUntil ?? next.way.until });
+      if (typeof got === 'string') return got;
+    } else this.port.apply(next);
+    this.freezeTrip(now, aim);
     return null;
   }
 
@@ -186,6 +302,7 @@ export class RoamWorld extends LocalWorld {
     const r = this.port.band();
     if (!m || !r) return NO_SEAT;
     const now = this.clock();
+    this.settleTrip(now);
     const men = troopTotal(r.band);
     const next = roamCamp(m, kind, men, now);
     if (typeof next === 'string') return next;

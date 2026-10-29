@@ -3,7 +3,7 @@ import type { DecreeId, RationId, TaxId } from './data/policy';
 import type { TroopStack } from './battle/kinds';
 import type { ProfileState } from '@/profile/types';
 import type { FigureId, GateCall } from '@/world/types';
-import type { RoamCampRec, RoamWay } from '@/world/roammove';
+import type { RoamCampRec, RoamTrip, RoamWay } from '@/world/roammove';
 import type { EnergyMark } from '@/world/energy';
 import type { ItemId } from './data/items';
 import type { TraitId } from './data/traits';
@@ -1229,6 +1229,11 @@ export interface RoamHero {
   since?: number;
   /** Счёт дел героя (ПН-2): переходит на престол вместе с ним (ПН-11). Пишет одна дверь — `sim/dynasty.noteRulerDeed`. */
   deeds?: RulerTally;
+  /**
+   * Герой ранен (ПН-5, ГДД 3.6.4: отряд перебит, герой жив) — до какой игровой секунды: в бой не ведёт (`sim/roamfight`). Нет поля —
+   * здоров.
+   */
+  hurt?: number;
 }
 
 /**
@@ -1265,6 +1270,17 @@ export interface RoamState {
   camp: RoamCamp | null;
   /** Энергия отряда (`world/energy`): дорога уходит по дням пути, в лагере копится. Нет поля — полный запас. */
   energy?: EnergyMark;
+  /**
+   * Встреча хода с НПС, замороженная при отправке (ПН-5, ГДД 3.6.3, `world/roammove.RoamTrip`): шанс и сила засады, где и когда
+   * засада, если кость выпала, удар по цели в минуту прихода. Пишет одна дверь — `sim/roam.setTrip`; ход сменился — снимается. Нет
+   * поля — встреч у хода нет.
+   */
+  trip?: RoamTrip;
+  /**
+   * Побитые логова и ватаги (ПН-5): номер точки и до какой минуты мира её нет (пепелище — `LAIR_RUIN`). Пишет `sim/roamfight`; не
+   * больше `BEATEN_MAX`. Нет поля — никого не били.
+   */
+  beaten?: { id: string; until: number }[];
 }
 
 /** Группа недовольных (docs/stability.md, 2.3): две новые полосы и два вида прежних сроков — ропота и терпения войска. */

@@ -7,7 +7,8 @@
 // как замок без реестра ищет его правилом расселения сам. Мир, уже построенный для этой партии и эпохи, строится на прежнем месте:
 // отряд ходит, а земля вокруг места выхода — та же (иначе каждый вход рассыпал бы разведанное).
 import { useGame } from '@/game/store';
-import { setMove, foodAfter, campGain } from '@/game/sim/roam';
+import { setMove, setTrip, foodAfter, campGain } from '@/game/sim/roam';
+import { takeFight } from '@/game/sim/roamfight';
 import { roamOn } from '@/game/roamflag';
 import { partyNow } from '@/net/clock';
 import { castles, rosterReady } from '@/net/roster';
@@ -35,6 +36,17 @@ export function roamPort(): RoamPort {
     foodAfter: (ms, g) => foodAfter(s(), ms, g),
     campGain: (k) => campGain(s(), k),
     partyTime: () => s().time,
+    prestige: () => s().prestige,
+    setTrip: (t) => useGame.getState().world((st) => void setTrip(st, t)),
+    // Итог боя (ПН-5) — одной дверью партии; строка летописи — и всплывающей строкой.
+    fight: (f) => {
+      let line = '';
+      useGame.getState().world((st) => {
+        line = takeFight(st, f);
+      });
+      if (line) useGame.getState().showToast(line);
+      return line;
+    },
     ...(online ? { order: bandOrder } : {}),
   };
 }

@@ -1106,6 +1106,8 @@ export interface RegionChunk {
    * нет, и его карта прежняя. Закрытых клеток здесь нет.
    */
   ruins?: RuinMark[];
+  /** Точки бродяги на разведанных клетках (ПН-5, `world/roampoints`) — только у мира бродяги. */
+  points?: RoamPointMark[];
 }
 
 /** Один режим марша в окне хода отряда бродяги (ПН-3) — числа двери хода `world/roam.roamPlan`. */
@@ -1122,7 +1124,36 @@ export interface RoamLegView {
   energy: { now: number; road: number; left: number };
   /** Хлеб в обозе: сейчас и к приходу (паёк в пути за вычетом фуража режима — двери партии). */
   food: { now: number; at: number };
+  /**
+   * Засада на этой дороге (ПН-5, ГДД 3.6.3, `world/encounter.ambushOdds`): шанс, сила и бойцов строя ватаги — те же числа, что
+   * заморозит приказ; `words` — «засада N % · если засада — бой с ~M».
+   */
+  ambush: { p: number; power: number; men: number; words: string };
   block: string | null;
+}
+
+/** Точка мира бродяги в клетке цели (ПН-5, ГДД 3.5.1): что там и можно ли ударить. */
+export interface RoamAimView {
+  id: string;
+  /** Вольный город, село, ватага НПС, логово. */
+  kind: 'town' | 'village' | 'vataga' | 'lair';
+  name: string;
+  /** Что даёт точка — словами. */
+  words: string;
+  /** Удар по цели в минуту прихода: сила (по ступени престижа) и бойцов строя; ударить нельзя — `null`. */
+  strike: { power: number; men: number } | null;
+  /** Почему ударить нельзя (герой ранен, пепелище); `null` — можно или удара у точки нет. */
+  block: string | null;
+}
+
+/** Точка мира бродяги на карте (ПН-5): вольный город, село, ватага НПС — на разведанных клетках. */
+export interface RoamPointMark {
+  id: string;
+  kind: 'town' | 'village' | 'vataga';
+  x: number;
+  y: number;
+  name: string;
+  tier: 0 | 1 | 2 | 3;
 }
 
 /** Окно хода отряда бродяги (ПН-3): что будет, если приказать сейчас, — теми же функциями, что исполнят приказ. */
@@ -1136,8 +1167,8 @@ export interface RoamPlanView {
   legs: RoamLegView[];
   /** Режим марша отряда сейчас — с ним идут без стоянки. */
   gait: Gait;
-  /** Риск засады — строка: до встреч с НПС (ПН-5) засад нет. */
-  ambush: string;
+  /** Точка в клетке цели (ПН-5): город, село, ватага или логово; пусто — `null`. */
+  aim: RoamAimView | null;
 }
 
 /** Вид лагеря в окне «Встать лагерем» (ПН-3): можно ли и что даёт — числами дверей партии. */

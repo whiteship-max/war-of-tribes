@@ -9,11 +9,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GameState } from '@/game/types';
 import type { BandOrder, BandRow } from '../../netlify/lib/contract';
 import { createInitialState } from '@/game/state';
-import { beginRoam, campGain, foodAfter, setMove } from '@/game/sim/roam';
+import { beginRoam, campGain, foodAfter, setMove, setTrip } from '@/game/sim/roam';
 import { addStock } from '@/game/sim/stock';
 import { cargoCap } from '@/game/sim/roam';
 import { HOME_ID, LocalWorld } from './local/LocalWorld';
-import { AMBUSH_STUB, NO_SEAT, RoamWorld, type RoamPort } from './local/RoamWorld';
+import { NO_SEAT, RoamWorld, type RoamPort } from './local/RoamWorld';
+import { takeFight } from '@/game/sim/roamfight';
 import { SICILY, inSicilyTheatre } from './spawn';
 import { settleable, type Spot } from './land';
 import { roamCell, roamGo, roamSeat, roamWhere, type RoamMove } from './roam';
@@ -44,6 +45,9 @@ function portOf(s: GameState, order?: RoamPort['order']): RoamPort {
     foodAfter: (ms, g) => foodAfter(s, ms, g),
     campGain: (k) => campGain(s, k),
     partyTime: () => s.time,
+    prestige: () => s.prestige,
+    setTrip: (t) => setTrip(s, t),
+    fight: (f) => takeFight(s, f),
     ...(order ? { order } : {}),
   };
 }
@@ -103,7 +107,8 @@ describe('приказ «Идти сюда» в мире бродяги', () => 
     expect(typeof plan).toBe('object');
     if (typeof plan === 'string') return;
     expect(plan.block).toBeNull();
-    expect(plan.ambush).toBe(AMBUSH_STUB);
+    // Засада (ПН-5) — числом у каждого режима: «засада N % · если засада — бой с ~M».
+    for (const l of plan.legs) expect(l.ambush.words, l.gait).toMatch(/^засада (<1|\d+) % · если засада — бой с ~\d+$/);
     const leg = plan.legs.find((l) => l.gait === 'normal')!;
     expect(leg.food.now).toBe(200);
     expect(leg.food.at).toBeLessThan(200);

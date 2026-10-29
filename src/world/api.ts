@@ -107,7 +107,8 @@ export interface WorldApi {
    * `roamCamp` (вид или `null` — снять). null — сделано, иначе причина словами.
    */
   roamPlan?(to: Coord): Promise<RoamPlanView | string>;
-  roamTo?(to: Coord, gait: Gait, shownUntil?: number): Promise<string | null>;
+  /** `strike` — ударить по цели в клетке в минуту прихода (ПН-5: логово, ватага; сила — та, что показало окно). */
+  roamTo?(to: Coord, gait: Gait, shownUntil?: number, strike?: boolean): Promise<string | null>;
   roamCampView?(): Promise<RoamCampView | string>;
   roamCamp?(kind: CampKind | null): Promise<string | null>;
 

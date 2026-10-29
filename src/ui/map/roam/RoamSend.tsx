@@ -1,7 +1,8 @@
 // Окно хода отряда бродяги (ПН-3, docs/gdd/path_of_sword.md, 5.4 «Карта бродяги»): отряд в руке → касание клетки → это окно.
 // Куда и что там, три режима марша строками (срок, энергия к приходу, хлеб к приходу — числами мира `WorldApi.roamPlan`, теми же
-// функциями, что исполнят приказ), риск засады — заглушкой до встреч с НПС (ПН-5), «Отправить» липнет к низу. Выбора состава нет:
-// весь отряд при герое. Срок, который видел игрок, уходит с приказом — сервер сверяет его со своим.
+// функциями, что исполнят приказ), засада выбранного режима — «засада N % · если засада — бой с ~M» (ПН-5, те же числа заморозит
+// приказ), точка в клетке цели и «Напасть» у логова и ватаги — бой в минуту прихода с силой по ступени престижа; «Отправить» липнет
+// к низу. Выбора состава нет: весь отряд при герое. Срок, который видел игрок, уходит с приказом — сервер сверяет его со своим.
 import { useState, type ReactNode } from 'react';
 import { useGame } from '@/game/store';
 import { worldApi } from '@/world/api';
@@ -28,12 +29,13 @@ export function RoamSend({ plan, onClose, onSent }: { plan: RoamPlanView; onClos
   const [busy, setBusy] = useState(false);
   const leg = plan.legs.find((l) => l.gait === gait) ?? null;
   const block = plan.block ?? leg?.block ?? null;
-  const go = async (): Promise<void> => {
+  const aim = plan.aim;
+  const go = async (strike: boolean): Promise<void> => {
     if (!leg || block) return;
     setBusy(true);
-    const err = await worldApi().roamTo?.(plan.to, gait, leg.until);
+    const err = await worldApi().roamTo?.(plan.to, gait, leg.until, strike);
     setBusy(false);
-    showToast(err ?? `Отряд выступил ${GAIT_META[gait].short}: дорога — ${realSpan(leg.walkMs / 1000)}.`);
+    showToast(err ?? `${strike && aim ? `Отряд идёт на ${aim.name}` : 'Отряд выступил'} ${GAIT_META[gait].short}: дорога — ${realSpan(leg.walkMs / 1000)}.`);
     if (!err) onSent();
   };
   return (
@@ -75,15 +77,32 @@ export function RoamSend({ plan, onClose, onSent }: { plan: RoamPlanView; onClos
               ))}
             </div>
           )}
-          <Line label="Засада" value={plan.ambush} />
+          {leg && !plan.block && <Line label="Засада" value={leg.ambush.words} />}
+          {aim && (
+            <>
+              <Line label="Цель" value={aim.words} />
+              {aim.strike && <Line label="Бой" value={aim.block ?? `с ~${aim.strike.men} в минуту прихода`} />}
+            </>
+          )}
         </div>
         <div className="nx-am-foot">
           <button className="nx-go nx-go-ghost" onClick={onClose}>
             Назад
           </button>
-          <button className="nx-go" disabled={busy || block !== null} onClick={() => void go()}>
-            Отправить
-          </button>
+          {aim?.strike ? (
+            <>
+              <button className="nx-go nx-go-ghost" disabled={busy || block !== null} onClick={() => void go(false)}>
+                Идти
+              </button>
+              <button className="nx-go" disabled={busy || block !== null || aim.block !== null} onClick={() => void go(true)}>
+                Напасть
+              </button>
+            </>
+          ) : (
+            <button className="nx-go" disabled={busy || block !== null} onClick={() => void go(false)}>
+              Отправить
+            </button>
+          )}
         </div>
       </div>
     </div>

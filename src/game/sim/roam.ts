@@ -24,7 +24,7 @@ import { troopTotal } from '../battle/kinds';
 // (`world/roam`) тянут осаду, землю и регионы, и шаг города, который зовёт этот модуль диспетчером, сдвинул бы ими первую загрузку.
 import { GAIT_HAUL, type Gait } from '@/world/data/gait';
 import { UNIT_BY_ID } from '@/world/data/units';
-import { readMove, standWay, wayGait, type CampKind, type RoamMove } from '@/world/roammove';
+import { readMove, readTrip, standWay, tripOfWay, wayGait, type CampKind, type RoamMove, type RoamTrip } from '@/world/roammove';
 import { gameDaysOfMs } from '../pace';
 import { addStock } from './stock';
 import { trimCargo } from './cargo';
@@ -147,6 +147,7 @@ export function mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'> {
         name: typeof hero.name === 'string' ? hero.name.slice(0, 40) : '',
         war: Math.min(5, Math.max(1, count(hero.war))),
         ...(typeof hero.since === 'number' && Number.isFinite(hero.since) ? { since: hero.since } : {}),
+        ...(typeof hero.hurt === 'number' && Number.isFinite(hero.hurt) ? { hurt: hero.hurt } : {}),
         // Счёт дел героя (ПН-2): та же проверка, что у правителя.
         ...((): { deeds?: RulerTally } => {
           const deeds = readTally(hero.deeds);
@@ -161,9 +162,26 @@ export function mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'> {
       camp: move?.camp ?? null,
       ...(move ? { way: move.way } : {}),
       ...(move?.energy ? { energy: move.energy } : {}),
+      // Встреча с НПС (ПН-5) — только та, что принадлежит записанному ходу; побитые точки — целые записи, не больше потолка.
+      ...((): { trip?: RoamTrip } => {
+        const trip = readTrip(r.trip);
+        return trip && move && tripOfWay(trip, move.way) ? { trip } : {};
+      })(),
+      ...((): { beaten?: { id: string; until: number }[] } => {
+        const list = Array.isArray(r.beaten) ? r.beaten : [];
+        const beaten = list
+          .map((b) => (b && typeof b === 'object' ? (b as Record<string, unknown>) : {}))
+          .filter((b) => typeof b.id === 'string' && typeof b.until === 'number' && Number.isFinite(b.until))
+          .slice(0, BEATEN_MAX)
+          .map((b) => ({ id: String(b.id).slice(0, 64), until: b.until as number }));
+        return beaten.length ? { beaten } : {};
+      })(),
     },
   };
 }
+
+/** Побитых точек партия помнит не больше стольких — старые уходят первыми (пепелище и так сходит). */
+export const BEATEN_MAX = 32;
 
 /**
  * Хлеб в обозе сейчас и через `ms` мс мира хода в режиме `g` — для окна хода («провиант к приходу», ГДД 5.4): паёк сезона (`roamrules
@@ -207,7 +225,20 @@ export function setMove(s: GameState, m: RoamMove): string | null {
   r.camp = m.camp;
   if (m.energy) r.energy = m.energy;
   else delete r.energy;
+  // Встреча прежнего хода (ПН-5) с ним и уходит: новый ход — новая встреча (`setTrip`), тот же ход от сервера — та же.
+  if (r.trip && !tripOfWay(r.trip, m.way)) delete r.trip;
   return trimCargo(s, cargoCap(r));
+}
+
+/**
+ * Записать встречу хода с НПС (ПН-5, ГДД 3.6.3) — **единственная дверь записи** `RoamState.trip`: её зовёт мир бродяги в минуту
+ * приказа (заморозка — `world/encounter.tripOf`) и при разборе встречи (отметка `done`). Встреча чужого хода не ложится.
+ */
+export function setTrip(s: GameState, t: RoamTrip | null): void {
+  const r = s.roam;
+  if (!roamOn() || s.phase !== 'roam' || !r) return;
+  if (t && r.way && tripOfWay(t, r.way)) r.trip = t;
+  else delete r.trip;
 }
 
 /**

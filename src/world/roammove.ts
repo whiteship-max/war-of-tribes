@@ -133,3 +133,59 @@ export function readMove(v: unknown, latest = Infinity): RoamMove | null {
   const energy = readMark(r.energy, latest);
   return { way, camp: readCamp(r.camp), ...(energy ? { energy } : {}) };
 }
+
+// ---------- Встреча с НПС, замороженная при отправке (ПН-5, ГДД 3.6.3) ----------
+
+/** Вид цели удара (ГДД 3.6.1): логово, ватага НПС, ополчение села. Слова и сила — дверь `world/roamfoes`. */
+export type TripFoe = 'lair' | 'band' | 'militia';
+
+/**
+ * Встреча хода с НПС — то, что заморожено в минуту приказа и показано до него (`world/encounter.tripOf`): шанс засады и её сила, а
+ * если кость засады выпала — где и когда встреча; удар по цели в минуту прихода — её сила. Лежит в партии (`RoamState.trip`), пишет
+ * одна дверь (`sim/roam.setTrip`); разобрана встреча — отметка `done`, второй раз бой не идёт. Ход сменился — встреча прежнего хода
+ * снимается (`setMove`).
+ */
+export interface RoamTrip {
+  /** Ход, к которому заморожено: приход и цель. */
+  until: number;
+  to: Cell;
+  /** Шанс засады и сила засады — показанные до приказа числа. */
+  odds: { p: number; power: number };
+  /** Засада состоится: минута и клетка встречи (`pursuit.intercept`), сид боя. */
+  ambush?: { at: number; cell: Cell; seed: number; done?: true };
+  /** Удар по цели в минуту прихода: номер точки, вид, имя, сила, сид боя. */
+  strike?: { id: string; kind: TripFoe; name: string; power: number; seed: number; done?: true };
+}
+
+const FOES: readonly TripFoe[] = ['lair', 'band', 'militia'];
+
+/** Встреча из записи: новый объект; мусор — `null`. */
+export function readTrip(v: unknown): RoamTrip | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const until = num(r.until);
+  const to = cellOf(r.to);
+  const o = (r.odds && typeof r.odds === 'object' ? r.odds : {}) as Record<string, unknown>;
+  const p = num(o.p);
+  const power = num(o.power);
+  if (until === null || !to || p === null || power === null) return null;
+  const out: RoamTrip = { until, to, odds: { p: Math.max(0, Math.min(1, p)), power: Math.max(0, power) } };
+  const a = (r.ambush && typeof r.ambush === 'object' ? r.ambush : null) as Record<string, unknown> | null;
+  const at = a ? num(a.at) : null;
+  const cell = a ? cellOf(a.cell) : null;
+  const seed = a ? num(a.seed) : null;
+  if (a && at !== null && cell && seed !== null) out.ambush = { at, cell, seed, ...(a.done === true ? { done: true as const } : {}) };
+  const st = (r.strike && typeof r.strike === 'object' ? r.strike : null) as Record<string, unknown> | null;
+  if (st && typeof st.id === 'string' && FOES.includes(st.kind as TripFoe) && typeof st.name === 'string') {
+    const sp = num(st.power);
+    const ss = num(st.seed);
+    if (sp !== null && ss !== null) {
+      out.strike = { id: st.id.slice(0, 64), kind: st.kind as TripFoe, name: st.name.slice(0, 60), power: Math.max(0, sp), seed: ss, ...(st.done === true ? { done: true as const } : {}) };
+    }
+  }
+  return out;
+}
+
+/** Встреча относится к ходу `way`: тот же приход и та же цель. */
+export const tripOfWay = (t: Pick<RoamTrip, 'until' | 'to'>, way: Pick<RoamWay, 'until' | 'to'>): boolean =>
+  t.until === way.until && t.to.x === way.to.x && t.to.y === way.to.y;

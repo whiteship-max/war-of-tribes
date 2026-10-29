@@ -5,7 +5,7 @@ import type { TroopId } from '../../src/game/types';
 import type { TroopStack } from '../../src/game/battle/kinds';
 import { baseWage, powerOf, troopPower } from '../../src/game/battle/price';
 import { soldierFoodPerDay } from '../../src/game/build';
-import { RESOURCE_IDS, TEST_ARMY_FOOD } from '../../src/game/constants';
+import { DAY_LENGTH, RESOURCE_IDS, TEST_ARMY_FOOD } from '../../src/game/constants';
 import { GATE_POWER } from '../../src/game/data/events';
 import { GOOD_BY_ID } from '../../src/game/data/market';
 import { TROOP_BY_ID, TROOP_IDS } from '../../src/game/data/troops';
@@ -13,8 +13,8 @@ import { buyUnit, depthOf, shiftOf } from '../../src/game/marketrules';
 import { dayRealSeconds, gameSeconds } from '../../src/game/pace';
 import { bandPatienceDays, bandRationPerDay, bandWage, bandWagesPerDay, campSpirit, fieldForage, forageShare } from '../../src/game/roamrules';
 import { cargoCap } from '../../src/game/sim/roam';
-import { seasonModsFor } from '../../src/game/derived';
-import { SEASONS, SEASON_META } from '../../src/game/data/seasons';
+import { seasonModsFor, seasonOf } from '../../src/game/derived';
+import { SEASONS, SEASON_META, SEASON_SECONDS } from '../../src/game/data/seasons';
 import { GAIT_META, GAITS } from '../../src/world/data/gait';
 import { UNIT_BY_ID } from '../../src/world/data/units';
 import { selfCost } from '../../src/game/selfcost';
@@ -36,6 +36,11 @@ import { placeAll } from './pool';
 import { SIGHT_GOALS, STANCES, deriveSight, detectShare, goalCheck, writtenSight, type SightNumbers } from './sight';
 import { RUIN_BLOCK, RUIN_CAP } from '../../src/world/data/sight';
 import { cityValue, type Value, type ValuePrices } from './value';
+import { pointsIn, type PointKind } from '../../src/world/roampoints';
+import { FOE_KINDS, FOE_WORDS, foePower } from '../../src/world/roamfoes';
+import { ambushChance } from '../../src/world/encounter';
+import { menOfPower as foeMenOf } from '../../src/world/garrison';
+import { roamCellBlock } from '../../src/world/roam';
 
 const pad = (v: string | number, n: number): string => String(v).padStart(n);
 const padEnd = (v: string | number, n: number): string => String(v).padEnd(n);
@@ -91,11 +96,17 @@ export const PILOT: readonly InputId[] = [
   'contractR',
   'contractTerm',
   'foodGold',
-  'marks',
+  // Сила НПС, встречи и поражение (ПН-5) — двери игры `world/roamfoes`, `world/encounter` на заглушках игры тем же числом.
+  'foeTable',
+  'foeShare',
+  'foeRipe',
+  'ambushBase',
+  'ambushCap',
   'reach',
   'recruits',
   'foodMix',
-  'defeat',
+  'defeatPurse',
+  'defeatPrestige',
   'castleTiers',
   'board',
   'contracts',
@@ -129,7 +140,8 @@ export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
     R: ctx.use('contractR'),
     term: ctx.use('contractTerm'),
     etalonUpkeep: ctx.use('etalons').tiers.map((t) => wagesOf(t) + rationOf(t) * food),
-    marks: ctx.use('marks'),
+    foeShare: ctx.use('foeShare'),
+    foeRipe: ctx.use('foeRipe'),
     reach: ctx.use('reach'),
     ...roadWorld(ctx),
     recruits: ctx.use('recruits'),
@@ -138,7 +150,8 @@ export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
       village: ctx.use('village')('food'),
       town: townPrice('food', 1),
     },
-    defeat: ctx.use('defeat'),
+    defeatPurse: ctx.use('defeatPurse'),
+    defeatPrestige: ctx.use('defeatPrestige'),
     castle: {
       stage: stageOf(stages, tiers[0].prestige),
       power: GATE_POWER.raiders[tiers[0].level - 1],
@@ -452,13 +465,15 @@ const foes: Section = {
       `стили (договоры у всех — разбоя в Срезе 1 нет): ${STYLES.map((s) => `${s.name} — до ${s.edge} ровного боя, штурм от ${pct(s.storm)} разведки, лагерь ${CAMP_NAME[s.camp]}, марш ${s.gait}, запас — до захода и ещё ${s.margin} ч, ${s.takeAll ? 'берёт всех просящихся' : 'берёт, сколько прокормит'}, растит «${TROOP_BY_ID[s.grow].name.toLowerCase()}»`).join('; ')}`,
     );
     ctx.line(`вольный замок I: гарнизон ${k.castle.power} мощи (${menOfPower(k.castle.power)} бойцов строя), с ${k.castle.stage}-й ступени престижа`);
-    // Начало — снизу: на всех ступенях ровный бой отряда происхождения медианной мощи. Сверху (эталонами 4.3) вывод запирал
-    // ступени: противник выше сил — до ступени не доходит никто, и строка не выводится.
+    // Начало — с записанной в игре (ПН-5, заглушка `foeTable`: её читают засады, логова и ватаги мира бродяги): неподвижная точка
+    // проверяет, что записанное и есть вывод. Ровный бой к мощи эталона на первом шаге — ровный бой отряда происхождения медианной
+    // мощи (оценка автопилота «по силам ли дело»), дальше — эталонов ступеней.
+    const written = [...ctx.use('foeTable')];
     const first = [...origins].sort((a, b) => troopPower(a.band) - troopPower(b.band))[Math.floor((origins.length - 1) / 2)];
     const e0 = evenPower(first.band, sz.even, 'start');
     let even = k.stages.map(() => e0 / troopPower(first.band));
-    let row = k.stages.map(() => Math.round(e0 / npc.edge));
-    ctx.line(`начало: на всех ступенях — ровный бой отряда «${first.name}» (${stackWords(first.band)}) / ${npc.edge}: ${row.join(', ')}`);
+    let row = k.stages.map((_, i) => written[Math.min(i, written.length - 1)]);
+    ctx.line(`начало: записано в игре (game/roamstubs.foeTable) — ${row.join(', ')}; ровный бой отряда «${first.name}» (${stackWords(first.band)}) / ${npc.edge} — ${Math.round(e0 / npc.edge)}`);
     const seen: number[][] = [row];
     let verdict = `не села за ${sz.steps} шагов`;
     for (let step = 1; step <= sz.steps; step++) {
@@ -474,7 +489,7 @@ const foes: Section = {
       const nextEven = ev.map((x, i) => (Number.isNaN(x) ? even[i] : x / troopPower(refs[i] as TroopStack)));
       const move = rowMove(seen, derived, step === sz.steps);
       if (move.kind === 'settled') {
-        row = derived.map((x, i) => (Number.isNaN(x) ? row[i] : x));
+        // Села: выведенное в пределах допуска от записанного — записанное и есть неподвижная точка (как строка таблицы у ворот).
         even = nextEven;
         verdict = `села на шаге ${step} (в ${pct(0.01)} от записанной)`;
         break;
@@ -495,6 +510,10 @@ const foes: Section = {
     }
     ctx.line(`вывод: ${verdict}`);
     ctx.line(`сила НПС по ступеням престижа: ${row.join(', ')} мощи; ровный бой к мощи эталона: ${even.map((x) => fix(x)).join(', ')}`);
+    const same = row.length === written.length && row.every((x, i) => x === written[i]);
+    ctx.line(
+      `таблица игры (game/roamstubs.foeTable): ${same ? 'совпадает с выведенной' : `РАЗОШЛАСЬ с выведенной — в игре ${written.join(', ')}; перенести выведенное: ${row.join(', ')}`}`,
+    );
     const runs = allRuns(k, origins, row, even, sz.seeds);
     ctx.share('pilot', { runs, row, even, knobs: k, origins } satisfies Pilot);
   },
@@ -785,4 +804,74 @@ const sight: Section = {
   },
 };
 
-export const SECTIONS: readonly Section[] = [pay, band, camp, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, sight];
+/** Мир выборки «свои» точки (сёла, ватаги) — сид мира: у каждого игрока свои, прибор берёт один мир. */
+const MEET_SEED = 20261029;
+
+const meet: Section = {
+  id: 'meet',
+  title: 'Точки мира и встречи с НПС',
+  gdd: '3.5.1, 3.6.2, 3.6.3',
+  doors: ['world/roampoints.pointsIn', 'world/roamfoes.foePower', 'world/encounter.ambushChance', 'world/sight.conspicuity', 'world/spawn.SICILY'],
+  uses: ['townBlock', 'townTier', 'villageBlock', 'vatagaBlock', 'stages', 'foeTable', 'foeShare', 'foeRipe', 'ambushBase', 'ambushCap'],
+  run(ctx) {
+    // Точки — двери мира бродяги: вольные города общие (постоянная соль), сёла и ватаги — свои (сид мира). Густота — заглушки игры.
+    const R = 40;
+    const kinds: PointKind[] = ['town', 'village', 'vataga'];
+    const NAME: Record<PointKind, string> = { town: 'вольный город', village: 'село', vataga: 'ватага' };
+    ctx.line(
+      `густота: вольный город — один на ${ctx.use('townBlock')}×${ctx.use('townBlock')} клеток (ступени I/II/III — ${ctx.use('townTier').map((x) => pct(x)).join(' / ')}), село — на ${ctx.use('villageBlock')}×${ctx.use('villageBlock')}, ватага — на ${ctx.use('vatagaBlock')}×${ctx.use('vatagaBlock')}`,
+    );
+    const near: Record<PointKind, number[]> = { town: [], village: [], vataga: [] };
+    const tiers = [0, 0, 0];
+    for (const at of SICILY) {
+      const all = pointsIn(MEET_SEED, at.x - R, at.y - R, at.x + R + 1, at.y + R + 1);
+      for (const k of kinds) {
+        const d = all.filter((p) => p.kind === k).map((p) => Math.hypot(p.x - at.x, p.y - at.y));
+        near[k].push(d.length ? Math.min(...d) : Infinity);
+      }
+      for (const p of all) if (p.kind === 'town' && Math.hypot(p.x - at.x, p.y - at.y) <= R) tiers[p.tier - 1]++;
+    }
+    for (const k of kinds) {
+      const got = near[k].filter(Number.isFinite);
+      ctx.line(`от ${SICILY.length} мест Сицилии до ближайшего: ${NAME[k]} — нашлось у ${got.length}, клеток — медиана ${fix(median(near[k]), 1)}`);
+    }
+    ctx.line(`вольных городов в ${R} клетках от мест Сицилии по ступеням I/II/III (с повторами): ${tiers.join(' / ')}`);
+    ctx.line('');
+    // Сила НПС — от ступени престижа, не от отряда (3.6.2): спелость от и до, по видам цели.
+    const [lo, hi] = ctx.use('foeRipe');
+    const steps = ctx.use('stages');
+    ctx.line(`сила НПС по ступеням престижа (${steps.join(', ')}), мощь при спелости ${lo}…${hi} (бойцов строя):`);
+    for (const k of FOE_KINDS) {
+      const cells = steps.map((p) => `${foePower(p, k, lo)}…${foePower(p, k, hi)} (${foeMenOf(foePower(p, k, lo))}…${foeMenOf(foePower(p, k, hi))})`);
+      ctx.line(`  ${padEnd(FOE_WORDS[k], 15)} ${cells.join(' · ')}`);
+    }
+    ctx.line('');
+    // Засада — шанс видимостью колонны (дверь `world/sight`) по дороге 20 клеток от мест Сицилии на восток, сколько найдётся суши.
+    const L = 20;
+    // Граница: часы выборки — правда лето (зима прячет хуже: её множитель — своя строка видимости). День и ночь на дороге не
+    // разделить: игровые сутки — полчаса, и дорога в 20 клеток идёт через несколько ночей — шанс меряет их вместе.
+    if (seasonOf(SUMMER) !== 'summer') throw new Error('часы засады — не лето');
+    const DIRS = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (i * Math.PI) / 4);
+    const roads = SICILY.flatMap((at) => {
+      for (const a of DIRS) {
+        const to = { x: Math.round(at.x + Math.cos(a) * L), y: Math.round(at.y + Math.sin(a) * L) };
+        if (roamCellBlock(to) === null) return [{ from: at, to }];
+      }
+      return [];
+    });
+    ctx.line(`засада на дороге ${L} клеток (${roads.length} дорог от мест Сицилии — первая суша по восьми сторонам; лето), медиана шанса:`);
+    for (const men of [10, 20, 50]) {
+      const cells = GAITS.map((g) => {
+        const p = median(roads.map((r) => ambushChance({ from: r.from, to: r.to, at: 0, until: roamWalkMs(r.from, r.to, g), ...(g === 'normal' ? {} : { gait: g }) }, men, SUMMER, 0)));
+        return pad(`${GAIT_META[g].short} ${pct(p)}`, 26);
+      });
+      ctx.line(`  ${pad(men, 3)} чел.: ${cells.join('')}`);
+    }
+  },
+};
+
+/** Часы партии второго лета (игровые секунды) на доле `frac` второго дня сезона — для засады. */
+const summerAt = (frac: number): number => SEASON_SECONDS * (SEASONS.length + SEASONS.indexOf('summer')) + DAY_LENGTH * (1 + frac);
+const SUMMER = summerAt(0.25);
+
+export const SECTIONS: readonly Section[] = [pay, band, camp, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, meet, sight];

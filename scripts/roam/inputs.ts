@@ -17,7 +17,7 @@ import { selfCost } from '../../src/game/selfcost';
 import { ROAM_STUBS, type RoamStubId } from '../../src/game/roamstubs';
 import type { EquipmentId, ResourceId, TroopId } from '../../src/game/types';
 import type { TroopStack } from '../../src/game/battle/kinds';
-import type { Camp, Mark, Origin } from './kinds';
+import type { Camp, Origin } from './kinds';
 
 export type InputKind = 'rule' | 'stub';
 
@@ -42,7 +42,7 @@ const stub = <T>(gdd: string, what: string, batch: string, value: T, orient = tr
  * его оттуда, а не пишет второй раз; двери пути читают его там же (`roamStub`), и раздел, прочитавший заглушку дверью, обязан
  * объявить её здесь (сторож чтений — `run.ts`).
  */
-const fromGame = (id: RoamStubId): Input<number> => {
+const fromGame = <K extends RoamStubId>(id: K): Input<(typeof ROAM_STUBS)[K]['value']> => {
   const g = ROAM_STUBS[id];
   return stub(g.gdd, g.what, g.batch, g.value, g.orient);
 };
@@ -164,26 +164,12 @@ export const INPUTS = {
       war: 2,
     },
   ] as readonly Origin[]),
-  // Ступень — дверь ПН-2 (`sim/prestige.prestigeStage`); пороги — ориентир, в код до вывода не идут. Первой они нужны в игре силе НПС
-  // по ступени (ПН-5) — она и придёт с выведенными порогами.
-  stages: stub('3.9.1', 'пороги ступеней престижа: 0, 50, 150, 400, 1000 (ступень по ним — дверь ПН-2)', 'ПН-5', [0, 50, 150, 400, 1000] as readonly number[]),
   stageTier: stub('3.9.1', 'высший тир договоров по ступени: I до «Известного», II с него, III с «Грозного»', 'ПН-7', [1, 1, 2, 3, 3] as readonly number[]),
   board: stub('3.8.1', 'договоров на доске за заход', 'ПН-7', 5, false),
-  prestigeS: stub('3.8.3', 'делитель мощи в престиже договора S', 'ПН-7', 4, false),
   contractK: stub('4.3', 'множитель вида договора K', 'ПН-7', 1.6),
   contractR: stub('3.8.3', 'доля риска R в плате договора', 'ПН-7', 1, false),
   contractTerm: stub('3.8.2', 'срок договора «сжечь логово» — путь × 2 + 4 игр. дн.', 'ПН-7', { roads: 2, days: 4 }),
   foodGold: stub('4.3', 'еда в содержании эталона — по 3 золота', 'ПН-7', 3),
-  marks: stub(
-    '3.6.2',
-    'доля вида цели в силе противника и спелость',
-    'ПН-5',
-    {
-      share: { lair: 1, band: 0.7, militia: 0.5 } as Record<Mark, number>,
-      ripe: [0.6, 1] as const,
-    },
-    false,
-  ),
   // До вольного замка — с ПН-3 дверями: место выхода (`world/roam.placeBand`) и путь отряда (`roamWalkMs`) до ближайшего замка пула.
   // До дела — точки НПС (ПН-5): их на карте ещё нет, и дорога до дела — путь отряда той же дверью на брошенное расстояние.
   reach: stub('3.6.2', 'клеток до дела — точки НПС на карте придут с ПН-5', 'ПН-5', { deed: [5, 25] as const }, false),
@@ -199,7 +185,6 @@ export const INPUTS = {
     camp: { open: 1.5, hidden: 0.5, ruin: 0.8 } as Record<Camp, number>,
   }),
   foodMix: stub('3.3.4', 'откуда бродяга берёт еду сверх фуража: доля села, остальное — рынок города', 'ПН-5', 0.7, false),
-  defeat: stub('3.6.4', 'поражение: кошель перебитого — 50 % победителю; престиж проигравшего −10 %', 'ПН-5', { purse: 0.5, prestige: 0.1 }),
   castleTiers: stub('3.11.1', 'ступени вольных замков: гарнизон — строка таблицы у ворот уровня 2, 4, 6; население; доступ по престижу', 'ПН-10', [
     { name: 'Усадьба с башней', level: 2, pop: 30, prestige: 150 },
     { name: 'Замок кастеляна', level: 4, pop: 45, prestige: 400 },
@@ -224,6 +209,26 @@ export const INPUTS = {
   coldCamp: fromGame('coldCamp'),
   healOpen: fromGame('healOpen'),
   tracker: fromGame('tracker'),
+
+  // ---------- заглушки игры (ПН-5): точки мира и встречи с НПС — двери пути читают их сейчас ----------
+  // Пороги ступеней, сила НПС, доли видов и спелость, престиж победы и поражения — двери `world/roamfoes`, `sim/roamfight`; автопилот
+  // берёт их теми же числами (одно число на игру и прибор).
+  stages: fromGame('stages'),
+  foeTable: fromGame('foeTable'),
+  foeShare: fromGame('foeShare'),
+  foeRipe: fromGame('foeRipe'),
+  prestigeS: fromGame('prestigeS'),
+  defeatPurse: fromGame('defeatPurse'),
+  defeatPrestige: fromGame('defeatPrestige'),
+  heirPrestige: fromGame('heirPrestige'),
+  heroFall: fromGame('heroFall'),
+  bandWound: fromGame('bandWound'),
+  ambushBase: fromGame('ambushBase'),
+  ambushCap: fromGame('ambushCap'),
+  townBlock: fromGame('townBlock'),
+  townTier: fromGame('townTier'),
+  villageBlock: fromGame('villageBlock'),
+  vatagaBlock: fromGame('vatagaBlock'),
 } satisfies Record<string, Input>;
 
 export type InputId = keyof typeof INPUTS;

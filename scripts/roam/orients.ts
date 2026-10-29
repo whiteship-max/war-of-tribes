@@ -98,7 +98,7 @@ export const ORIENTS: readonly Orient[] = [
   {
     gdd: '3.6.5',
     what: 'наследнику пути — 25 % престижа',
-    not: 'смерти героя в модели нет (ПН-5)',
+    not: 'в игре — заглушка heirPrestige (ПН-5, `sim/roamfight.heirOfPath`); гибели героя в автопилоте нет — вывод с соратниками (ПН-9)',
   },
   {
     gdd: '3.7.1',

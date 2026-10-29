@@ -10,9 +10,9 @@
 //
 // Без `@/`: модуль собирает и сервер (место выхода и руины считает реестр).
 
-/** Заглушка: число, у которого ещё нет вывода. */
+/** Заглушка: число, у которого ещё нет вывода (ПН-5: и строка чисел — по ступеням, по видам). */
 export interface RoamStub {
-  value: number;
+  value: number | readonly number[] | Readonly<Record<string, number>>;
   /** Раздел ГДД, откуда число. */
   gdd: string;
   /** Что это — словами, для легенды прибора и шапки раздела. */
@@ -73,6 +73,119 @@ export const ROAM_STUBS = {
     batch: 'ПН-9',
     orient: true,
   },
+  // ---------- ПН-5: точки мира и встречи с НПС (ГДД 3.5.1, 3.6) ----------
+  stages: {
+    value: [0, 50, 150, 400, 1000] as readonly number[],
+    gdd: '3.9.1',
+    what: 'пороги ступеней престижа: 0, 50, 150, 400, 1000 (ступень по ним — дверь ПН-2 `prestigeStage`; первый читатель в игре — сила НПС)',
+    batch: 'ПН-10',
+    orient: true,
+  },
+  foeTable: {
+    value: [12, 45, 57, 163, 265] as readonly number[],
+    gdd: '3.6.2',
+    what: 'сила НПС по ступеням престижа, мощи — что напечатал раздел «Сила НПС — неподвижная точка» (на заглушках автопилота)',
+    batch: 'ПН-17',
+    orient: false,
+  },
+  foeShare: {
+    value: { lair: 1, band: 0.7, militia: 0.5 } as Readonly<Record<'lair' | 'band' | 'militia', number>>,
+    gdd: '3.6.2',
+    what: 'доля вида цели в силе противника: логово 1, ватага 0.7, ополчение села 0.5',
+    batch: 'ПН-7',
+    orient: false,
+  },
+  foeRipe: {
+    value: [0.6, 1] as readonly number[],
+    gdd: '3.6.2',
+    what: 'спелость противника — от и до, доля силы ступени (у точки — своим хешем)',
+    batch: 'ПН-7',
+    orient: false,
+  },
+  prestigeS: {
+    value: 4,
+    gdd: '3.8.3',
+    what: 'делитель мощи в престиже: победа даёт мощь противника / S (договор — ещё тир × 10, ПН-7)',
+    batch: 'ПН-7',
+    orient: false,
+  },
+  defeatPurse: {
+    value: 0.5,
+    gdd: '3.6.4',
+    what: 'отряд перебит — доля кошеля победителю',
+    batch: 'ПН-13',
+    orient: true,
+  },
+  defeatPrestige: {
+    value: 0.1,
+    gdd: '3.9',
+    what: 'проигранный бой — доля престижа минус',
+    batch: 'ПН-7',
+    orient: false,
+  },
+  heirPrestige: {
+    value: 0.25,
+    gdd: '3.6.5',
+    what: 'наследник пути получает долю престижа погибшего героя',
+    batch: 'ПН-9',
+    orient: true,
+  },
+  heroFall: {
+    value: 0.25,
+    gdd: '3.6.4',
+    what: 'отряд перебит — доля боёв, где герой гибнет (иначе ранен)',
+    batch: 'ПН-9',
+    orient: false,
+  },
+  bandWound: {
+    value: 0.25,
+    gdd: '3.3.1',
+    what: 'раненые без лазарета — доля павших боя отряда (лежат при отряде)',
+    batch: 'ПН-6',
+    orient: false,
+  },
+  ambushBase: {
+    value: 0.04,
+    gdd: '3.6.3',
+    what: 'засада НПС — шанс на 10 клеток дороги при заметности 1 (колонна по полю — видна ватагам так же, как кругу замка)',
+    batch: 'ПН-7',
+    orient: false,
+  },
+  ambushCap: {
+    value: 0.6,
+    gdd: '3.6.3',
+    what: 'засада НПС — шанс не выше этого на одну дорогу',
+    batch: 'ПН-7',
+    orient: false,
+  },
+  townBlock: {
+    value: 28,
+    gdd: '3.5.1',
+    what: 'густота вольных городов НПС: один на квадрат N × N клеток (общие, постоянной солью)',
+    batch: 'ПН-6',
+    orient: false,
+  },
+  townTier: {
+    value: [0.55, 0.3, 0.15] as readonly number[],
+    gdd: '3.5.1',
+    what: 'ступени вольных городов I, II, III — доли',
+    batch: 'ПН-6',
+    orient: false,
+  },
+  villageBlock: {
+    value: 16,
+    gdd: '3.5.1',
+    what: 'густота сёл: одно на квадрат N × N клеток (свои, сидом мира)',
+    batch: 'ПН-6',
+    orient: false,
+  },
+  vatagaBlock: {
+    value: 20,
+    gdd: '3.5.1',
+    what: 'густота ватаг НПС: одна на квадрат N × N клеток (свои, сидом мира)',
+    batch: 'ПН-7',
+    orient: false,
+  },
 } as const satisfies Record<string, RoamStub>;
 
 export type RoamStubId = keyof typeof ROAM_STUBS;
@@ -88,8 +201,8 @@ export function watchStubs(fn: ((id: RoamStubId) => void) | null): void {
   watcher = fn;
 }
 
-/** Число заглушки — единственная дверь чтения: сторож слышит каждое. */
-export function roamStub(id: RoamStubId): number {
+/** Значение заглушки — единственная дверь чтения: сторож слышит каждое. */
+export function roamStub<K extends RoamStubId>(id: K): (typeof ROAM_STUBS)[K]['value'] {
   watcher?.(id);
   return ROAM_STUBS[id].value;
 }

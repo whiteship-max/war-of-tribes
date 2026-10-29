@@ -37,7 +37,8 @@ import { LAIR_GOLD_PER_POWER } from '../../src/world/data/tuning';
 import type { Gait } from '../../src/world/data/gait';
 import { standWay } from '../../src/world/roammove';
 import { MARKS, type Camp, type Mark, type Origin } from './kinds';
-import { fieldFight } from './foes';
+import { foePower } from '../../src/world/roamfoes';
+import { ambushChance, ambushFight, strikeFight } from '../../src/world/encounter';
 
 /** Стиль игры автопилота — параметр прибора, как `Player` у автопилота посёлка; не вход ГДД и не заглушка пачки. */
 export interface Style {
@@ -104,7 +105,9 @@ export interface PathKnobs {
   term: { roads: number; days: number };
   /** Содержание эталона тира I…III, золота за игровой день. */
   etalonUpkeep: readonly number[];
-  marks: { share: Record<Mark, number>; ripe: readonly [number, number] };
+  /** Доля вида цели и спелость — заглушки игры (`foeShare`, `foeRipe`), сила — дверью `world/roamfoes.foePower`. */
+  foeShare: Record<Mark, number>;
+  foeRipe: readonly number[];
   /** Клеток до дела: точки НПС на карте придут с ПН-5. */
   reach: { deed: readonly [number, number] };
   /** Места выхода бродяг на мире дороги (`world/roam.placeBand`, `pool.ts`): партия выходит из своего. */
@@ -120,7 +123,9 @@ export interface PathKnobs {
   foodMix: number;
   /** Золота за единицу еды: село и рынок города. */
   foodPrice: { village: number; town: number };
-  defeat: { purse: number; prestige: number };
+  /** Поражение (3.6.4): доля кошеля перебитого победителю, доля престижа минус — заглушки игры, двери `sim/roamfight`. */
+  defeatPurse: number;
+  defeatPrestige: number;
   /** Вольный замок I: с какой ступени престижа и мощь гарнизона. */
   castle: { stage: number; power: number };
   /** Договоров на доске за заход и сколько их можно держать. */
@@ -143,6 +148,8 @@ export interface PathRun {
   bandAt: (TroopStack | null)[];
   deeds: number;
   wins: number;
+  /** Засад на дорогах к делам (ГДД 3.6.3). */
+  ambushes: number;
   storms: number;
   deserted: number;
   recruited: number;
@@ -190,14 +197,14 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
   const spot = (seed - 1) % k.spawns.length;
   const home = k.spawns[spot];
   /** Дорога до дела — путь отряда (`roamWalkMs`) от места выхода к суше на брошенном расстоянии; вода и край — бросок заново. */
-  const deedRoad = (): number => {
+  const deedRoad = (): { hours: number; to: Spot } => {
     const d = between(k.reach.deed[0], k.reach.deed[1]);
     for (let i = 0; i < 8; i++) {
       const a = rng() * Math.PI * 2;
       const to = { x: Math.round(home.x + Math.cos(a) * d), y: Math.round(home.y + Math.sin(a) * d) };
-      if (roamCellBlock(to) === null) return roamWalkMs(home, to, style.gait) / 3_600_000;
+      if (roamCellBlock(to) === null) return { hours: roamWalkMs(home, to, style.gait) / 3_600_000, to };
     }
-    return roadHours(d, style.gait);
+    return { hours: roadHours(d, style.gait), to: { x: Math.round(home.x + d), y: home.y } };
   };
   const band: TroopStack = { ...origin.band };
   // Партия-оболочка с отрядом бродяги: двери ПН-1 шагают её так же, как партию игрока. Отряд — тот же объект, что у модели.
@@ -229,6 +236,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     bandAt: k.stages.map((_, i) => (i === 0 ? { ...band } : null)),
     deeds: 0,
     wins: 0,
+    ambushes: 0,
     storms: 0,
     deserted: 0,
     recruited: 0,
@@ -326,7 +334,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
 
   const wiped = (): void => {
     if (total(band) > 0) return;
-    run.purse *= 1 - k.defeat.purse;
+    run.purse *= 1 - k.defeatPurse;
   };
 
   const sessionsOf = (day: number): number[] => {
@@ -361,7 +369,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
           run.castleAt = t;
           break;
         }
-        gain(-run.prestige * k.defeat.prestige);
+        gain(-run.prestige * k.defeatPrestige);
         wiped();
         continue;
       }
@@ -371,13 +379,14 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     const offers = Array.from({ length: k.board }, () => {
       const mark: Mark = MARKS[whole(0, MARKS.length - 1)];
       const tier = whole(1, k.stageTier[s]);
-      const foe = table[s] * k.marks.share[mark] * between(k.marks.ripe[0], k.marks.ripe[1]);
-      const road = deedRoad();
+      // Сила НПС — дверью игры (`world/roamfoes`): ступень престижа, доля вида, спелость; таблица — та, что выводится.
+      const foe = foePower(run.prestige, mark, between(k.foeRipe[0], k.foeRipe[1]), table, k.foeShare);
+      const { hours: road, to } = deedRoad();
       const roadDays = road * dayPerHour();
       // Договор (3.8.3): содержание эталона тира на срок и доля риска — добыча, у Воина и Уведённого её больше (3.1).
       const pay = k.etalonUpkeep[tier - 1] * (k.term.roads * roadDays + k.term.days) * k.K + foe * LAIR_GOLD_PER_POWER * k.R * origin.loot;
       const fame = foe / k.S + tier * 10;
-      return { mark, tier, foe, road, pay, fame };
+      return { mark, tier, foe, road, to, pay, fame };
     });
     const able = offers.filter((o) => o.foe <= power * even[s] * style.edge);
     if (able.length === 0) {
@@ -391,19 +400,39 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
       run.deeds++;
       const seedOf = mixSeed(root, deed);
       const tag = `roam-${style.id}-${origin.id}-${seed}-${deed}`;
+      // Засада на дороге к цели (ГДД 3.6.3) — дверью встреч игры: шанс видимостью колонны (`world/sight`) по этой дороге, сила —
+      // ватага по ступени престижа; бой — в пути, до дела.
+      const way = { from: { x: home.x, y: home.y }, to: o.to, at: 0, until: o.road * 3_600_000, ...(style.gait === 'normal' ? {} : { gait: style.gait }) };
+      const ambushAt = when + o.road / 2;
+      queue.push({
+        at: ambushAt,
+        apply: () => {
+          if (total(band) <= 0 || rng() >= ambushChance(way, total(band), party.time, 0)) return;
+          const power = foePower(run.prestige, 'band', between(k.foeRipe[0], k.foeRipe[1]), table, k.foeShare);
+          const mid = { x: Math.round((home.x + o.to.x) / 2), y: Math.round((home.y + o.to.y) / 2) };
+          const r = ambushFight(power, band, mid, mixSeed(seedOf, 77));
+          minus(band, r.lost);
+          run.ambushes++;
+          if (r.won) gain(power / k.S);
+          else {
+            gain(-run.prestige * k.defeatPrestige);
+            wiped();
+          }
+        },
+      });
       queue.push({
         at: when + o.road,
         apply: () => {
           // Отряд, ослабший в прежнем бою цепочки, на дело не по силам не идёт: договор сорван, платы нет.
           if (o.foe > troopPower(band) * even[s] * style.edge) return;
-          const r = fieldFight(band, o.foe, seedOf, tag);
-          lost(r.loss);
+          const r = strikeFight(o.foe, band, o.to, home, seedOf, tag);
+          minus(band, r.lost);
           if (r.won) {
             run.wins++;
             run.purse += o.pay;
             gain(o.fame);
           } else {
-            gain(-run.prestige * k.defeat.prestige);
+            gain(-run.prestige * k.defeatPrestige);
             wiped();
           }
         },
