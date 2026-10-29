@@ -25,6 +25,11 @@ import { buyGoods, marketLot, marketOffer, marketPress, sellGoods } from './mark
 import { SHIFT } from '../shift';
 import { GOOD_BY_ID } from '../data/market';
 import { earnGold, earnHaul, settleEarn } from './bandearn';
+import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST, MINIGAME_SHARE } from '../data/minigames';
+import { YARD_BY_JOB } from '../data/yards';
+import { levelOutputMult } from '../selfcost';
+import { gameDaysOfMs } from '../pace';
+import { townYardLevel } from '../townrules';
 import { beginMinigame } from './minigames';
 import { healBand } from './bandwounds';
 import { takeFight } from './roamfight';
@@ -109,6 +114,7 @@ describe('весть «Просятся в отряд» (ГДД 3.4.1)', () => {
     const t2 = awayArrival(s.seed, k + 1);
     expect(t2 - t, 'граница: следующий приход в сроке первой вести').toBeLessThan(24 * 3600_000);
     expect(bandMailArrive(s, t + 1, t2 + 1)).toBe(0);
+    expect(s.roam!.ask?.k, 'на столе — прежние просящиеся').toBe(k);
   });
 
   it('«Принять всех» — дубинщики и приказ книги; «Взять, сколько прокормим» — не больше хлеба; молчание — прогнать даром', () => {
@@ -177,6 +183,17 @@ describe('город и село (ГДД 3.4.3, 3.3.4, 4.2)', () => {
     expect(s.roam!.drill).toBeUndefined();
   });
 
+  it('учения стоят, пока отряд в пути: ушёл — заказ ждёт', () => {
+    const now = shiftWith(party({ x: TOWN.x, y: TOWN.y }), 'eq:spear');
+    const s = party({ x: TOWN.x, y: TOWN.y });
+    expect(hireAt(s, ref(TOWN), 'spearman', 1, now)).toBeNull();
+    const work = s.roam!.drill![0].work;
+    s.roam!.way = { from: { x: TOWN.x, y: TOWN.y }, to: { x: TOWN.x + 9, y: TOWN.y }, at: now - 1000, until: now + 3_600_000 };
+    townStep(s, 1, now);
+    expect(s.roam!.drill?.[0]?.work, 'в пути учений нет').toBe(work);
+    expect(s.roam!.band.spearman).toBe(4);
+  });
+
   it('хлеб села — цена села (доля продажи рынка от основы), запас дня, обоз', () => {
     expect(VILLAGE, 'граница: село есть').toBeDefined();
     expect(villageFoodPrice()).toBeGreaterThan(1);
@@ -216,6 +233,9 @@ describe('город и село (ГДД 3.4.3, 3.3.4, 4.2)', () => {
     const got = settleEarn(s, out as Exclude<typeof out, string>, ref(TOWN), NOW, 1);
     expect(typeof got).not.toBe('string');
     const gold = earnGold(earnHaul(TOWN.tier as 1 | 2 | 3, 'berries', 1));
+    // Мерка — один работник на месте двора уровня ступени (решение ПН-6), доля игры — та же, что у промысла лорда.
+    const one = (MINIGAME_SHARE * MINIGAME_COST * YARD_BY_JOB.get('gatherer')!.yield.food! * levelOutputMult(townYardLevel(TOWN.tier as 1 | 2 | 3)) * gameDaysOfMs(ENERGY_REFILL)) / ENERGY_MAX;
+    expect(earnHaul(TOWN.tier as 1 | 2 | 3, 'berries', 1).food).toBe(Math.floor(one + 1e-9));
     expect(gold, 'граница: добыча есть').toBeGreaterThan(0);
     expect(s.roam!.purse).toBe(3000 + gold);
     expect(settleEarn(s, out as Exclude<typeof out, string>, ref(TOWN), NOW, 1)).toMatch(/засчитана/);
