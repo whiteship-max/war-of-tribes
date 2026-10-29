@@ -120,6 +120,17 @@ describe('границы ночного скрипта', () => {
     expect(run).toMatch(/nice -n 19/);
   });
 
+  it('образа нет — собирает его заново до прогона, тем же Dockerfile; не собрался — ночь не начата', () => {
+    const check = code.indexOf('docker image inspect tribe-ci');
+    // Граница области: проверка стоит на пути прогона — после «контейнер занят», до отметки ночи и до контейнера.
+    expect(check, 'проверка образа есть').toBeGreaterThan(code.indexOf('контейнер tribe-ci занят'));
+    expect(check, 'до отметки ночи').toBeLessThan(code.indexOf('touch "$N/last-run"'));
+    expect(check, 'до контейнера').toBeLessThan(code.indexOf('docker run -d'));
+    const build = code.slice(check, code.indexOf('\nfi', check));
+    expect(build).toContain('docker build -q -t tribe-ci - < "$BIN/Dockerfile"');
+    expect(build).toMatch(/\|\| \{ log "[^"]+"; exit 1; \}/);
+  });
+
   it('весть уходит без кнопок и разметки', () => {
     expect(code).toContain('sendMessage');
     expect(code).not.toMatch(/reply_markup|inline_keyboard|parse_mode/);

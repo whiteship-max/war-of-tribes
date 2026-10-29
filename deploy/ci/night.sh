@@ -83,6 +83,12 @@ if [ "$mode" = night ]; then
 fi
 if docker ps -a --format '{{.Names}}' | grep -qx tribe-ci; then log "контейнер tribe-ci занят — ночь пропущена"; exit 0; fi
 if [ "$mode" != seed ] && ! git -C "$R" rev-parse -q --verify refs/ci/accepted > /dev/null; then log "базы машины нет — сначала --seed"; exit 1; fi
+# Образ уходит с сервера, пока на нём нет контейнера (28→29.10.2026 пропал между прогонами — по виду уборка неиспользуемых
+# образов): собрать заново тем же Dockerfile, что ставит --install. Не собрался — ночи нет, last-run не тронут: следующая повторит.
+if ! docker image inspect tribe-ci > /dev/null 2>&1; then
+  log "образа tribe-ci нет — собираю заново"
+  docker build -q -t tribe-ci - < "$BIN/Dockerfile" > /dev/null || { log "образ tribe-ci не собрался — ночь не идёт"; exit 1; }
+fi
 # Контейнера нет — значит, замок машины в его HOME брошен прерванным прогоном.
 rm -f "$CI/home/.heavy-job.lock"
 touch "$N/last-run"
