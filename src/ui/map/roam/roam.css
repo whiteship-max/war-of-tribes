@@ -61,3 +61,13 @@
   grid-column: 1 / -1;
   opacity: 0.8;
 }
+/* Строка «скрыт / виден» (ПН-4у): скрыт — тихо, виден — цветом чужой стороны (цвет — дверью `side.ts`, в разметке). */
+.roam-bar .roam-what .roam-sight {
+  display: block;
+  font-style: normal;
+  font-size: 12px;
+  opacity: 0.85;
+}
+.roam-bar .roam-what .roam-sight.seen {
+  opacity: 1;
+}

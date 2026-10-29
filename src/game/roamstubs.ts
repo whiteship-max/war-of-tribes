@@ -24,20 +24,6 @@ export interface RoamStub {
 }
 
 export const ROAM_STUBS = {
-  ruinCap: {
-    value: 30,
-    gdd: '3.5.1',
-    what: 'вместимость руин, человек: больший отряд в руинах лагерем не встаёт',
-    batch: 'ПН-4у',
-    orient: false,
-  },
-  ruinBlock: {
-    value: 12,
-    gdd: '3.5.1',
-    what: 'густота руин: одни руины на квадрат земли N × N клеток',
-    batch: 'ПН-4у',
-    orient: false,
-  },
   spawnGap: {
     value: 25,
     gdd: '3.5.6',
@@ -79,6 +65,13 @@ export const ROAM_STUBS = {
     what: 'раненые в открытом лагере встают быстрее — во сколько раз',
     batch: 'ПН-5',
     orient: false,
+  },
+  tracker: {
+    value: 1.5,
+    gdd: '3.2.2',
+    what: 'следопыт в отряде — радиус обнаружения отряда больше во столько раз (соратников до ПН-9 нет — не читается)',
+    batch: 'ПН-9',
+    orient: true,
   },
 } as const satisfies Record<string, RoamStub>;
 

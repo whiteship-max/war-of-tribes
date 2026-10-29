@@ -33,7 +33,8 @@ import type { Ctx, Section } from './run';
 import { evenPower, rowMove } from './foes';
 import { STYLES, roadHours, runPath, stageOf, type PathKnobs, type PathRun } from './path';
 import { placeAll } from './pool';
-import { detectShare, landAround, type SightKnobs, type Stand } from './sight';
+import { SIGHT_GOALS, STANCES, deriveSight, detectShare, goalCheck, writtenSight, type SightNumbers } from './sight';
+import { RUIN_BLOCK, RUIN_CAP } from '../../src/world/data/sight';
 import { cityValue, type Value, type ValuePrices } from './value';
 
 const pad = (v: string | number, n: number): string => String(v).padStart(n);
@@ -98,11 +99,9 @@ export const PILOT: readonly InputId[] = [
   'castleTiers',
   'board',
   'contracts',
-  // Мир дороги (`placeAll`): пул замков, место выхода дверью ПН-3 и его заглушки (зазор, руины); фураж лагеря стиля — дверью.
+  // Мир дороги (`placeAll`): пул замков, место выхода дверью ПН-3 и его заглушка (зазор; руины — вывод ПН-4у); фураж лагеря стиля — дверью.
   'pool',
   'spawnGap',
-  'ruinBlock',
-  'ruinCap',
   'forageHidden',
   'forageRuin',
 ];
@@ -261,7 +260,7 @@ const camp: Section = {
     'world/spawn.SICILY',
     'derived.seasonModsFor',
   ],
-  uses: ['forageHidden', 'forageRuin', 'campMorale', 'coldCamp', 'healOpen', 'ruinBlock', 'ruinCap'],
+  uses: ['forageHidden', 'forageRuin', 'campMorale', 'coldCamp', 'healOpen'],
   run(ctx) {
     // Двери отряда — те же, что исполняет шаг бродяги: фураж по виду лагеря, строка духа «Лагерь», раненые; числа видов — заглушки.
     ctx.line('фураж (доля пайка с земли) и дух лагеря по сезонам года 2+, двери отряда:');
@@ -280,8 +279,9 @@ const camp: Section = {
     const at = [1, 3, 6, 12, 24];
     ctx.line(`рогатки стоящего лагеря: ${at.map((h) => `${h} ч — ${pct(campWorks({ kind: 'open', since: 0, builders: 0 }, h * 3_600_000))}`).join(', ')}`);
     ctx.line('');
-    const block = ctx.use('ruinBlock');
-    ctx.line(`руины — одни на квадрат ${block} × ${block} клеток, где мог стоять двор; встают в них до ${ctx.use('ruinCap')} человек`);
+    // Густота и вместимость руин — вывод видимости (ПН-4у, раздел «Доля обнаружений по видам лагеря»).
+    const block = RUIN_BLOCK;
+    ctx.line(`руины — одни на квадрат ${block} × ${block} клеток, где мог стоять двор; встают в них до ${RUIN_CAP} человек`);
     const near = SICILY.map((at) => {
       const r = nearestRuin(at, 3 * block);
       return r ? { cells: Math.hypot(r.x - at.x, r.y - at.y), hours: roamWalkMs(at, r, 'normal') / 3_600_000 } : null;
@@ -713,39 +713,75 @@ const pool: Section = {
   },
 };
 
+/** Числа видимости строками «имя — значение», в том порядке, в каком их печатает вывод. */
+function sightRows(n: SightNumbers): [string, number][] {
+  const t = n.table;
+  return [
+    ['местность: лес', t.ground.forest],
+    ['местность: холмы', t.ground.hills],
+    ['местность: горы', t.ground.mountains],
+    ['местность: степь', t.ground.steppe],
+    ['местность: пустыня', t.ground.desert],
+    ['лагерь открытый', t.camp.open],
+    ['лагерь скрытый', t.camp.hidden],
+    ['лагерь в руинах', t.camp.ruin],
+    ['в пути', t.march],
+    ['марш налегке', t.gait.light],
+    ['марш с обозом', t.gait.train],
+    ['размер: степень', t.size.pow],
+    ['размер: пол', t.size.floor],
+    ['ночь', t.night],
+    ['обзор отряда, кл.', t.band],
+    ['зима (сезон)', n.winter],
+    ['вместимость руин, чел.', n.cap],
+    ['густота руин, кл.', n.block],
+  ];
+}
+
 const sight: Section = {
   id: 'sight',
   title: 'Доля обнаружений по видам лагеря',
-  gdd: '3.5.3, 3.5.4, 0.2',
-  doors: ['world/spawn.SICILY', 'geography.terrainAt', 'sim/random.seeded'],
-  uses: ['camps', 'sight', 'passing'],
+  gdd: '3.5.3, 3.5.4, 3.14, 0.2',
+  doors: ['world/sight.conspicuity', 'world/sight.detectRange', 'settle.placeCastle', 'ruins.nearestRuin', 'geography.terrainAt', 'world/spawn.SICILY'],
+  uses: [],
   run(ctx) {
-    const s = ctx.use('sight');
-    const k: SightKnobs = {
-      ...s,
-      camps: ctx.use('camps'),
-      passing: ctx.use('passing'),
-    };
-    const land = landAround(10);
-    const counts = new Map<string, number>();
-    for (const t of land) counts.set(t, (counts.get(t) ?? 0) + 1);
-    ctx.line(`местность — ${land.length} клеток суши в 10 вокруг мест Сицилии: ${[...counts].map(([t, n]) => `${t} ${pct(n / land.length)}`).join(', ')}`);
-    ctx.line(`чужой отряд проходит в ${k.passing[0]}…${k.passing[1]} клетках; половина проб — ночью; ${ctx.size.sight} проб на клетку таблицы`);
-    const stands: [string, Stand][] = [
-      ...CAMPS.map((c): [string, Stand] => [`лагерь ${CAMP_NAME[c]}`, { camp: c }]),
-      ['в пути налегке', { march: 'light' }],
-      ['в пути обычным', { march: 'normal' }],
-      ['в пути с обозом', { march: 'train' }],
-    ];
-    const watchers: [string, number][] = [
-      ['отряд', k.band],
-      ['следопыт', k.band * k.tracker],
-    ];
-    const men = [10, 30, 70];
-    ctx.line(`${padEnd('где', 18)} ${watchers.flatMap(([w]) => men.map((m) => pad(`${w} ${m}`, 13))).join('')}`);
-    for (const [name, at] of stands) {
-      ctx.line(`${padEnd(name, 18)} ${watchers.flatMap(([, r]) => men.map((m) => pad(pct(detectShare(k, land, at, m, r, ctx.size.sight, 1)), 13))).join('')}`);
+    // Мир выборки: столько лордов, сколько мест у теста с игроками (`spawn.SICILY`), расселением игры (`settle.placeCastle`).
+    const world = { lords: SICILY.length };
+    const runs = ctx.size.sight;
+    ctx.line(`цели обнаружения — ГДД 3.5.4 (решение ПН-4у): наблюдатель — круг замка (HOME_SIGHT), отряд — 20 человек днём летом, если не сказано иное`);
+    ctx.line(`мир выборки: ${world.lords} замков расселением игры (столько мест у теста с игроками), миров — ${runs}; земля — клетки земли двора в рамке замков`);
+    const d = deriveSight(SIGHT_GOALS, writtenSight(), runs, world);
+    const was = sightRows(writtenSight());
+    const got = sightRows(d.numbers);
+    const same = was.every(([, v], i) => v === got[i][1]);
+    ctx.line(`вывод неподвижной точкой от записанного: ${d.converged ? `сошёлся за ${d.passes} прох.` : 'НЕ СОШЁЛСЯ'}; ${same ? 'записано = выведено' : 'ЗАПИСАНО ≠ ВЫВЕДЕНО — перенеси выведенное в world/data/sight.ts и SEASON_MODIFIERS.camouflage'}`);
+    for (const w of d.why) ctx.line(`  причина: ${w}`);
+    ctx.line(`${padEnd('число', 24)} ${pad('записано', 9)} ${pad('выведено', 9)}`);
+    for (const [i, [name, v]] of was.entries()) ctx.line(`${padEnd(name, 24)} ${pad(v, 9)} ${pad(got[i][1], 9)}${v === got[i][1] ? '' : '  ←'}`);
+    ctx.line('');
+    ctx.line('цели на записанных числах — дверью игры (клеток; последняя — доля):');
+    for (const g of goalCheck(SIGHT_GOALS, writtenSight(), runs, world)) {
+      const share = g.id === 'ruinsNear';
+      const ok = share ? g.got >= g.goal : g.id === 'ruinsFull' ? g.got <= g.goal : Math.abs(g.got - g.goal) <= 0.5;
+      ctx.line(`${padEnd(g.what, 58)} цель ${pad(share ? pct(g.goal) : g.goal, 7)}  вышло ${pad(share ? pct(g.got) : fix(g.got, 1), 7)}  ${ok ? 'в цели' : 'МИМО'}`);
     }
+    ctx.line('');
+    ctx.line('доля клеток суши живого круга, где отряд 20 человек виден (вокруг замков мира выборки; руины — только клетки руин):');
+    const cols: [string, boolean, 'summer' | 'winter', 'castle' | 'band'][] = [
+      ['замок день', false, 'summer', 'castle'],
+      ['замок ночь', true, 'summer', 'castle'],
+      ['замок зимой', false, 'winter', 'castle'],
+      ['отряд день', false, 'summer', 'band'],
+    ];
+    ctx.line(`${padEnd('где отряд', 18)} ${cols.map(([c]) => pad(c, 12)).join('')}`);
+    for (const [name, st] of STANCES) {
+      ctx.line(`${padEnd(name, 18)} ${cols.map(([, night, season, kind]) => pad(pct(detectShare(st, 20, night, season, kind, runs, world)), 12)).join('')}`);
+    }
+    ctx.line('');
+    ctx.line('размер: скрытый лагерь под кругом замка днём летом');
+    ctx.line(
+      [1, 10, 20, 50, 100].map((m) => `${m} чел. — ${pct(detectShare({ camp: 'hidden' }, m, false, 'summer', 'castle', runs, world))}`).join(', '),
+    );
   },
 };
 

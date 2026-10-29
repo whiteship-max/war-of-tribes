@@ -17,8 +17,6 @@ import { selfCost } from '../../src/game/selfcost';
 import { ROAM_STUBS, type RoamStubId } from '../../src/game/roamstubs';
 import type { EquipmentId, ResourceId, TroopId } from '../../src/game/types';
 import type { TroopStack } from '../../src/game/battle/kinds';
-import type { Gait } from '../../src/world/data/gait';
-import type { Terrain } from '../../src/world/types';
 import type { Camp, Mark, Origin } from './kinds';
 
 export type InputKind = 'rule' | 'stub';
@@ -220,32 +218,12 @@ export const INPUTS = {
 
   // ---------- заглушки игры (ПН-3): числа хода и лагеря, которые двери пути читают сейчас ----------
   spawnGap: fromGame('spawnGap'),
-  ruinCap: fromGame('ruinCap'),
-  ruinBlock: fromGame('ruinBlock'),
   forageHidden: fromGame('forageHidden'),
   forageRuin: fromGame('forageRuin'),
   campMorale: fromGame('campMorale'),
   coldCamp: fromGame('coldCamp'),
   healOpen: fromGame('healOpen'),
-  camps: stub('3.5.3', 'заметность лагеря: открытый ×1.3, скрытый ×0.7, в руинах ×0.3', 'ПН-4у', { open: 1.3, hidden: 0.7, ruin: 0.3 } as Record<Camp, number>),
-  sight: stub('3.5.4', 'заметность: местность, в пути ×1.5, размер (люди/20)^0.5 не ниже 0.5, ночь 0.7, режим марша; обзор отряда 8, следопыт ×1.5', 'ПН-4у', {
-    terrain: {
-      forest: 0.5,
-      hills: 0.7,
-      mountains: 0.7,
-      plain: 1,
-      steppe: 1,
-      desert: 1.2,
-      water: 1,
-    } as Record<Terrain, number>,
-    size: { per: 20, pow: 0.5, floor: 0.5 },
-    night: 0.7,
-    gait: { light: 0.8, normal: 1, train: 1.3 } as Record<Gait, number>,
-    march: 1.5,
-    band: 8,
-    tracker: 1.5,
-  }),
-  passing: stub('3.5.4', 'на каком расстоянии от лагеря проходит чужой отряд, клеток', 'ПН-4у', [0, 12] as const, false),
+  tracker: fromGame('tracker'),
 } satisfies Record<string, Input>;
 
 export type InputId = keyof typeof INPUTS;

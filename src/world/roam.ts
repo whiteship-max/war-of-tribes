@@ -18,7 +18,7 @@
 // ЛАГЕРЬ трёх видов — где угодно на суше (`roamCamp`); в руинах — только у руин на карте и не больше их вместимости
 // (`world/ruins`). Рогатки — та же формула прохода, что у осадного лагеря (`works.throughWorks`), древесина лагеря игрока целиком
 // в поле (`BAND_WOOD`): города у лагеря бродяги нет, и с какой стороны придут, не знает никто. Что вид лагеря даёт (фураж, дух,
-// раненые), считают двери партии (`roamrules.forageShare`, `sim/spirit`, `sim/infirmary`); заметность — ПН-4у, не здесь.
+// раненые), считают двери партии (`roamrules.forageShare`, `sim/spirit`, `sim/infirmary`); заметность — дверь `world/sight` (ПН-4у).
 //
 // МЕСТО ВЫХОДА нового отряда (`placeBand`) считает сервер: у руин или опушки, не ближе заглушки `spawnGap` к замкам игроков и к
 // другим новичкам; мир бродяги не строится, пока сервер не назвал клетку (`net/roster`).
@@ -262,8 +262,8 @@ export function forestEdge(x: number, y: number): boolean {
   return false;
 }
 
-/** Укрытие для места выхода: руины или опушка (ГДД 3.5.6). */
-export const shelterAt = (at: Spot): boolean => ruinAt(at.x, at.y) !== null || forestEdge(at.x, at.y);
+/** Укрытие для места выхода: руины или опушка (ГДД 3.5.6). `block` — густота руин: вывод её (`roam:report`) пробует свои. */
+export const shelterAt = (at: Spot, block?: number): boolean => ruinAt(at.x, at.y, block) !== null || forestEdge(at.x, at.y);
 
 /**
  * Как далеко от брошенной точки искать укрытие: половина зазора замков — тот же шаг, которым обходит землю расселение
@@ -284,12 +284,13 @@ const ringOrder = (r: number): [number, number][] => {
  * расселение замка: вокруг стоящего замка (а нет замков — вокруг новичка) между зазором и дальней границей (`SETTLE_REACH`) —
  * отряд обязан мочь дойти до соседей; укрытие ищут рядом с точкой. Не нашлось — правило замка (`settle.placeCastle`) с теми же
  * соседями: место без укрытия лучше, чем никакого. `rng` — из ключа игрока (`settle.settleRandom`): повтор ищет теми же бросками.
+ * `block` — густота руин (игра и сервер зовут без неё; вывод густоты в `roam:report` пробует свои).
  */
-export function placeBand(rng: () => number, castles: readonly Spot[], newcomers: readonly Spot[], within?: (at: Spot) => boolean): Spot {
+export function placeBand(rng: () => number, castles: readonly Spot[], newcomers: readonly Spot[], within?: (at: Spot) => boolean, block?: number): Spot {
   const gap = roamStub('spawnGap');
   const others = [...castles, ...newcomers];
   const far = (at: Spot): boolean => others.every((o) => Math.hypot(o.x - at.x, o.y - at.y) >= gap);
-  const ok = (at: Spot): boolean => shelterAt(at) && far(at) && (!within || within(at)) && fitToSettle(at);
+  const ok = (at: Spot): boolean => shelterAt(at, block) && far(at) && (!within || within(at)) && fitToSettle(at);
   // Порядок списка — не факт о мире (`settle.placeCastle`): якоря сортируются по клеткам.
   const byCell = (a: Spot, b: Spot): number => a.x - b.x || a.y - b.y;
   const anchors = castles.length > 0 ? [...castles].sort(byCell) : [...newcomers].sort(byCell);

@@ -2,7 +2,9 @@
 // карта открывает его только за `ROAM_ON` и в фазе бродяги (`WorldMap`), и вешает на крючок карты (`roamhook`): знаки отряда,
 // лагеря и руин поверх кадра (`paint.ts`) и касание клетки. Отряд берут в руку касанием его знака или кнопкой полосы; с отрядом в
 // руке касание любой клетки открывает окно хода (`RoamSend`) — свобода хода есть только у отряда (П1). Лагерь — кнопкой полосы
-// (`RoamCamp`). Чужих отрядов бродяг здесь нет вовсе: до заметности (ПН-4у) их не показывают никому.
+// (`RoamCamp`). Строка «скрыт / виден» (ПН-4у) — под строкой отряда: кто нас видит (слово сервера; без сервера — те же правила по
+// замкам реестра) и на сколько клеток нас видит круг замка — дверью `world/sight` (`world/bandsight.ownSight`). Чужие отряды и их
+// следы рисует свой кусок (`BandsLayer`) — у лорда и у бродяги.
 import { useEffect, useRef, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
@@ -13,6 +15,9 @@ import { CAMP_NAME, roamCell, roamMoving } from '@/world/roam';
 import { energyShown } from '@/world/energy';
 import { troopTotal } from '@/game/battle/kinds';
 import { Icon } from '@/ui/icons/Icon';
+import { num } from '@/game/num';
+import { ownSight, seenWords, useBandSight } from '@/world/bandsight';
+import { sideColor } from '@/side';
 import { setRoamHook } from '../roamhook';
 import { paintRoam } from './paint';
 import { RoamSend } from './RoamSend';
@@ -29,6 +34,9 @@ export default function RoamLayer() {
   const men = useGame((g) => troopTotal(g.s.roam?.band ?? {}));
   const food = useGame((g) => Math.floor(g.s.roam?.cargo.food ?? 0));
   const showToast = useGame((g) => g.showToast);
+  // Строка «скрыт / виден» живёт часами партии (ночь, сезон) — перечитывается раз в игровую минуту шага, а не каждым шагом.
+  useGame((g) => Math.floor(g.s.time / 10));
+  const seenServer = useBandSight((v) => v.seen);
   const [hand, setHand] = useState(false);
   const [plan, setPlan] = useState<RoamPlanView | null>(null);
   const [campOpen, setCampOpen] = useState(false);
@@ -67,6 +75,7 @@ export default function RoamLayer() {
   const now = worldNow();
   const moving = way ? roamMoving(way, now) : false;
   const state = camp && !moving ? CAMP_NAME[camp.kind] : moving ? 'в пути' : 'стоит в поле';
+  const sight = ownSight(useGame.getState().s, now, seenServer);
   return (
     <>
       <div className="roam-bar">
@@ -88,6 +97,11 @@ export default function RoamLayer() {
                 Отряд · {men} чел. · {state}
               </b>
               энергия {energyShown(energy, now)} · хлеба {food}
+              {sight && (
+                <em className={`roam-sight${sight.seen.count > 0 ? ' seen' : ''}`} style={sight.seen.count > 0 ? { color: sideColor(false) } : undefined}>
+                  {seenWords(sight.seen)} · круг замка видит нас за {num(sight.range, 0)} кл.
+                </em>
+              )}
             </span>
             <button className="nx-mbtn" onClick={() => setCampOpen(true)} aria-label="Встать лагерем" disabled={!way}>
               <Icon name="stage-camp" />

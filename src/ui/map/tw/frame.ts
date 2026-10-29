@@ -675,7 +675,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawTwPaper(ctx, vp);
   part('hosts');
 
-  // Живой обзор — один раз на кадр, тем же модулем, что у мира (`world/sight` через `sightDiscs`).
+  // Живой обзор — один раз на кадр, тем же модулем, что у мира (`world/lookout` через `sightDiscs`).
   const discs = sightDiscs(now);
   drawHosts(ctx, cam, hostItems(cam, vp, state.marches, discs, now, dpr), dpr, now);
   drawFigures(ctx, cam, vp, figureItems(cam, vp, state.figures, now, dpr), state.picked, dpr, now);

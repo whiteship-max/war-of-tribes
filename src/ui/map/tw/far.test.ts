@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { SettlementView } from '@/world/types';
 import { HOME_SIGHT } from '@/world/data/tuning';
 import { SICILY, SICILY_SIGHT } from '@/world/spawn';
-import { homeSight } from '@/world/sight';
+import { homeSight } from '@/world/lookout';
 import { theatres } from '@/world/theatre/theatre';
 import { SCALE_MAX, SCALE_MIN, SCALE_START } from '../const';
 import { type Camera, type Viewport, holdCamera, viewRect } from '../grid';

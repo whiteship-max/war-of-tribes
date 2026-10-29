@@ -24,7 +24,7 @@
  * карта. Пульс мира (`PULSE_MS` в `world/store.ts`) реестра не касается вовсе.
  */
 import { create } from 'zustand';
-import type { BandOrder, BandRow, CastleClaim, CastleView, RosterResponse } from '../../netlify/lib/contract';
+import type { BandOrder, BandRow, BandView, CastleClaim, CastleView, RosterResponse, SeenView } from '../../netlify/lib/contract';
 import { ROAM_ON } from '@/game/roamflag';
 import { tgInitData } from '@/telegram/webapp';
 import { realSpan } from '@/game/span';
@@ -139,8 +139,11 @@ function keep(res: RosterResponse, at: number): void {
   cache = next;
   write(JSON.stringify(next));
   useRoster.setState({ state: 'ok', why: '', at, count: res.castles.length });
-  // Строка отряда бродяги (ПН-3) — своим ключом и своим оператором: выключен путь — сборщик выбрасывает его целиком.
-  if (ROAM_ON) keepBand(res.band ?? null);
+  // Строка отряда бродяги (ПН-3) и видимость отрядов (ПН-4у) — своим оператором: выключен путь — сборщик выбрасывает его целиком.
+  if (ROAM_ON) {
+    keepBand(res.band ?? null);
+    keepSight(res);
+  }
 }
 
 /** Своя клетка: её назвал сервер. null — не называл ещё ни разу. */
@@ -180,6 +183,33 @@ function keepBand(row: BandRow | null): void {
 
 /** Свой отряд: строка, которую вывел сервер. null — не было. */
 export const bandRow = (): BandRow | null => band;
+
+// ---------- Видимость отрядов (ПН-4у) ----------
+//
+// Обнаружение считает сервер (`netlify/lib/bandsight.ts`, дверью `world/sight`): чужие отряды, которых игрок видит, и кто видит свой.
+// Здесь — только доставка ответа тому, кто его ждёт (`provideSightSink`): что с ним делать — следы, шапка, весть «Нас видели» —
+// решает свой кусок (`world/bandsight`), и в первую загрузку он не едет.
+
+/** Последний ответ сервера о видимости: чужие отряды, кто видит свой отряд, минута сервера. */
+export interface SightNews {
+  bands: BandView[];
+  seen: SeenView | null;
+  at: number;
+}
+
+let sight: SightNews | null = null;
+let sightSink: ((v: SightNews) => void) | null = null;
+
+function keepSight(res: RosterResponse): void {
+  sight = { bands: res.bands ?? [], seen: res.seen ?? null, at: res.now };
+  sightSink?.(sight);
+}
+
+/** Куда отдавать ответ о видимости; пришедший раньше отдаётся сразу. */
+export const provideSightSink = (fn: ((v: SightNews) => void) | null): void => {
+  sightSink = fn;
+  if (fn && sight) fn(sight);
+};
 
 /** Что отряд сообщает о себе, когда встаёт и отмечается: `null` — партия не в фазе бродяги (тогда — строка замка). */
 let bandSeat: (() => Extract<BandOrder, { op: 'seat' }> | null) | null = null;

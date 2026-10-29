@@ -22,6 +22,7 @@ import { emptyStack } from '@/battle';
 import { PLAYER_CAMP_WOOD, WORLD_ORIGIN, WORLD_SIZE } from './data/tuning';
 import { realMs } from '@/game/pace';
 import { ROAM_STUBS } from '@/game/roamstubs';
+import { RUIN_BLOCK, RUIN_CAP } from './data/sight';
 import {
   BAND_WOOD,
   campThrough,
@@ -224,7 +225,7 @@ describe('лагерь трёх видов — где угодно на суше
   });
 
   it('в руинах: помещается — встаёт, больше вместимости — отказ словами', () => {
-    const cap = ROAM_STUBS.ruinCap.value;
+    const cap = RUIN_CAP;
     expect(RUIN.cap).toBe(cap);
     expect((roamCamp(seated(RUIN), 'ruin', cap, T0) as RoamMove).camp?.kind).toBe('ruin');
     expect(roamCamp(seated(RUIN), 'ruin', cap + 1, T0)).toBe(`В руинах помещается до ${cap} человек, а в отряде ${cap + 1}.`);
@@ -278,7 +279,7 @@ describe('руины — общие точки мира постоянной с�
     const b = ruinsIn(...rect);
     expect(b).toEqual(a);
     expect(a.length).toBeGreaterThan(10);
-    const block = ROAM_STUBS.ruinBlock.value;
+    const block = RUIN_BLOCK;
     // Мерка «земля двора» — правило земли (`land.settleable`), а не `ruinFit`: проверка своей же функцией прошла бы при любой.
     expect(ruinFit).toBeDefined();
     for (const r of a) {

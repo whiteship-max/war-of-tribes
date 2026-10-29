@@ -96,7 +96,7 @@ describe('навык не читает чисел, которыми владее
   });
 
   it('владельцы этих чисел не читают ничего от навыка', () => {
-    const whole = ['game/derived.ts', 'world/spy.ts', 'world/intel.ts', 'world/muster.ts', 'world/sight.ts'];
+    const whole = ['game/derived.ts', 'world/spy.ts', 'world/intel.ts', 'world/muster.ts', 'world/lookout.ts', 'world/sight.ts'];
     // Владелец чисел зданий от навыка не читает ничего (с ДР-7 у Статуи нет и воинской традиции). Импорт `agentrules` у него
     // один — жалованье агентов: ведомость, а не число здания; оно читает метку найма (`cand`), но не уровень, не кружки и не опыт.
     const LADDER = "import { AGENT_ROLES, recruitWage, recruitAt } from './agentrules';";

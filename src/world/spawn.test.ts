@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { landmasses, settleable } from './land';
 import { HOME_SIGHT, SETTLE_GAP } from './data/tuning';
 import { theatreAt } from './theatre/theatre';
-import { homeSight } from './sight';
+import { homeSight } from './lookout';
 import {
   COAST_REACH,
   MAINLAND,

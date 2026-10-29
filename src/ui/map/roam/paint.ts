@@ -5,6 +5,8 @@
 // записи хода (`world/roam.roamWhere`), руины — из кусков карты (`RegionChunk.ruins`, их отдаёт только мир бродяги, и только на
 // разведанной земле). Мерка экранная: знак не мельче пальца на дальнем виде и не крупнее клетки на ближнем.
 import type { RuinMark } from '@/world/types';
+import type { BandMark } from '@/world/bandsight';
+import { agoText } from '../feedWords';
 import type { RoamCampRec, RoamWay } from '@/world/roammove';
 import { roamMoving, roamWhere } from '@/world/roam';
 import { loadedIn } from '@/world/cache';
@@ -64,14 +66,14 @@ function tentGlyph(ctx: C, x: number, y: number, u: number, camp: RoamCampRec): 
   }
 }
 
-function bannerGlyph(ctx: C, x: number, y: number, u: number): void {
+function bannerGlyph(ctx: C, x: number, y: number, u: number, ours = true): void {
   ctx.strokeStyle = ROAM_MARK.pole;
   ctx.lineWidth = Math.max(1.5, u * 0.08);
   ctx.beginPath();
   ctx.moveTo(x, y + u * 0.35);
   ctx.lineTo(x, y - u * 0.6);
   ctx.stroke();
-  ctx.fillStyle = sideColor(true);
+  ctx.fillStyle = sideColor(ours);
   ctx.beginPath();
   ctx.moveTo(x, y - u * 0.6);
   ctx.lineTo(x + u * 0.55, y - u * 0.45);
@@ -119,3 +121,60 @@ export function paintRoam(ctx: C, cam: Camera, vp: Viewport, dpr: number, now: n
   ctx.restore();
   return moving;
 }
+
+/** Подпись светлым по тёмной кайме — читается на любой земле. */
+function label(ctx: C, text: string, x: number, y: number): void {
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = ROAM_MARK.labelEdge;
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = ROAM_MARK.label;
+  ctx.fillText(text, x, y);
+}
+
+/**
+ * Чужие отряды бродяг (ПН-4у): обнаруженный — знаменем чужой стороны, шатром, если стоит лагерем, стрелкой, куда смотрит колонна, и
+ * числом людей; след — бледным знаменем в пунктирном круге и давностью (тем же правилом, что снимок поселения: последнее увиденное и
+ * когда). `now` — часы сервера карты.
+ */
+export function paintBands(ctx: C, cam: Camera, vp: Viewport, dpr: number, now: number, marks: readonly BandMark[]): void {
+  if (marks.length === 0) return;
+  const u = markSize(cam.scale);
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.textAlign = 'center';
+  ctx.font = `600 ${Math.round(Math.max(10, u * 0.42))}px system-ui, sans-serif`;
+  for (const m of marks) {
+    const [x, y] = toScreen(cam, vp, m.at.x + 0.5, m.at.y + 0.5);
+    if (x < -u * 2 || y < -u * 2 || x > vp.w + u * 2 || y > vp.h + u * 2) continue;
+    if (m.visible) {
+      if (m.camp) tentGlyph(ctx, x - u * 0.35, y, u, { kind: m.camp, since: 0, builders: 0 });
+      if (m.heading) {
+        ctx.strokeStyle = sideRgba(false, 0.9);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + m.heading.x * u, y + m.heading.y * u);
+        ctx.stroke();
+      }
+      bannerGlyph(ctx, m.camp ? x + u * 0.35 : x, y, u, false);
+      label(ctx, String(m.men), x, y + u * 0.9);
+    } else {
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = sideRgba(false, 0.8);
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.arc(x, y, u * 0.6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      bannerGlyph(ctx, x, y, u * 0.8, false);
+      ctx.globalAlpha = 1;
+      if (cam.scale >= 20) label(ctx, agoText(now - m.seenAt), x, y + u * 0.95);
+    }
+  }
+  ctx.restore();
+}
+
+/** Чужой отряд в клетке касания: живой — первым, следы — свежим первым. */
+export const bandAt = (marks: readonly BandMark[], c: { x: number; y: number }): BandMark | null =>
+  marks.find((m) => m.at.x === c.x && m.at.y === c.y) ?? null;

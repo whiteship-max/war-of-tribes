@@ -27,7 +27,7 @@ import { coordKey, distance, terrainFactor } from './geo';
 import { buildable } from './geography';
 import { placeCastle } from './settle';
 import { inHomeTheatre } from './theatre/theatre';
-import { homeSight } from './sight';
+import { homeSight } from './lookout';
 import { islandNeighbours } from './spawn';
 import {
   AI_RANGE,

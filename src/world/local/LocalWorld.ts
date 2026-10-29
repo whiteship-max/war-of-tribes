@@ -196,7 +196,7 @@ import {
 import { endWords, pactWarBlock, type ProposalAct, type ProposalView } from '../proposals';
 import { takingWords } from '../raidwords';
 import { realSpan } from '@/game/span';
-import { WATCHER, homeSight, liveSight, standing } from '../sight';
+import { WATCHER, homeSight, liveSight, standing } from '../lookout';
 import { islandNeighbours } from '../spawn';
 import { canShelter, placeOf } from '../shelter';
 import { ownGearOf, revealSight, slipped } from '../agents';
@@ -4363,7 +4363,7 @@ export class LocalWorld implements WorldApi {
 
   /**
    * Живой обзор прямо сейчас: круг у своей деревни и стоящий лазутчик — больше
-   * никто (см. world/sight.ts). Отряды и остальные фигуры открывают местность,
+   * никто (см. world/lookout.ts). Отряды и остальные фигуры открывают местность,
    * но за происходящим не следят: живые данные — отдельный слой, и держать его
    * всем, у кого есть кто-нибудь в поле, значит не иметь тумана вовсе.
    *
@@ -4476,7 +4476,7 @@ export class LocalWorld implements WorldApi {
   /**
    * Радиус, которым фигура открывает землю: свой обзор плюс зоркость у
    * разведчика (`world/agents.revealSight`). Только земля: живой обзор считает
-   * `sight.liveSight`, и зоркости он не знает.
+   * `lookout.liveSight`, и зоркости он не знает.
    */
   private revealOf(id: FigureId): number {
     return revealSight(id, this.save.profile?.sightBonus ?? 0);
@@ -7227,7 +7227,7 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Мораль чужого отряда глазами игрока — живые данные: только в живом обзоре (`world/sight`), как численность. Свой
+   * Мораль чужого отряда глазами игрока — живые данные: только в живом обзоре (`world/lookout`), как численность. Свой
    * отряд и свежий — ничего.
    */
   private marchRestView(m: StoredMarch, now: number, discs: ReturnType<LocalWorld['sightDiscs']>): RestView | undefined {

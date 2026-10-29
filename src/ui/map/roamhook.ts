@@ -18,3 +18,21 @@ export const setRoamHook = (h: RoamHook | null): void => {
 };
 
 export const roamHook = (): RoamHook | null => hook;
+
+/**
+ * Крючок видимости (ПН-4у): чужие отряды бродяг и их следы — у лорда и у бродяги, своим куском (`ui/map/roam/BandsLayer`). Карта
+ * спрашивает его только за `ROAM_ON`.
+ */
+export interface SightHook {
+  paint(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number, now: number): void;
+  /** Касание клетки: `true` — там чужой отряд или его след, и карта бродяги сказала о нём. */
+  tap(c: Coord): boolean;
+}
+
+let sightHookNow: SightHook | null = null;
+
+export const setSightHook = (h: SightHook | null): void => {
+  sightHookNow = h;
+};
+
+export const sightHook = (): SightHook | null => sightHookNow;

@@ -34,6 +34,7 @@ import { readBandOrder, readClaim, type CastleClaim, type RosterFile, type Roste
 import { ROSTER_KEY, bandOrder, prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting } from '../roster.js';
 import { STORES } from '../kv.js';
 import { addFlags, confirmedOf, observe, readWatchRecord } from '../watch.js';
+import { bandsSeen, clockAt, seenOf } from '../bandsight.js';
 import { ROAM_ON } from '../../../src/game/roamflag.js';
 import { seedTown } from '../town.js';
 import { powerOfCounts } from '../../../src/profile/power.js';
@@ -77,7 +78,16 @@ function answer(file: RosterFile, key: string, now: number): RosterResponse {
   const mine = own ? { x: own.x, y: own.y } : null;
   const from = own ?? band?.way.to ?? null;
   const castles = from ? viewOf(file).filter((c) => Math.hypot(c.x - from.x, c.y - from.y) <= NEAR) : [];
-  return { now, epoch: rosterEpoch(), mine, castles, ...(band ? { band } : {}) };
+  const res: RosterResponse = { now, epoch: rosterEpoch(), mine, castles, ...(band ? { band } : {}) };
+  // Видимость отрядов бродяг (ПН-4у) — считает сервер сам, дверью `world/sight` (`bandsight.ts`): чужие отряды, которых игрок видит,
+  // и кто видит его отряд. Чтение ничего не пишет — это функция строк реестра и минуты. Путь закрыт — полей нет.
+  if (ROAM_ON) {
+    const seenBands = bandsSeen(file, key, now);
+    if (seenBands.length > 0) res.bands = seenBands;
+    const seen = seenOf(file, key, now);
+    if (seen) res.seen = seen;
+  }
+  return res;
 }
 
 export const castles: Route = async (req, io) => {
@@ -171,14 +181,24 @@ async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, no
   if (!order) return deny(400, 'bad-body');
   const hot = io.stores(STORES.world, 'strong');
   const mode = spawnMode();
+  // Часы партии отряда (ПН-4у) — из описи наблюдения, по событию: ими сервер ведёт ночь и сезон отряда до следующего приказа.
+  let card: { card: ReturnType<typeof readWatchRecord>['card']; at: number } = { card: undefined, at: 0 };
+  try {
+    const got = await io.stores(STORES.watch, 'strong').getWithMetadata(key);
+    const rec = readWatchRecord(got ? parseJson(String(got.data)) : null);
+    card = { card: rec.card, at: rec.cardAt };
+  } catch {
+    // Наблюдение не ответило — строка живёт прежней отметкой часов.
+  }
   for (let tries = 0; tries < WRITE_TRIES; tries++) {
     const found = await hot.getWithMetadata(KEY);
     const file = readRoster(found ? parseJson(String(found.data)) : null);
     const etag = found?.etag ?? null;
-    const done = bandOrder(file, key, order, now, mode);
+    const time = clockAt(file.bands?.[key]?.clock, card.card, card.at);
+    const done = bandOrder(file, key, order, now, mode, time.clock);
     const flag = async (): Promise<void> => {
-      const f = done.forged;
-      if (f) await observe(io.stores, key, (rec) => addFlags(rec, now, [f]));
+      const f = [...(done.forged ? [done.forged] : []), ...(time.flag && !done.error ? [time.flag] : [])];
+      if (f.length > 0) await observe(io.stores, key, (rec) => addFlags(rec, now, f));
     };
     if (done.error) {
       await flag();

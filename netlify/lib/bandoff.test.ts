@@ -57,6 +57,12 @@ describe('Путь меча закрыт — на сервере тоже', () =
     expect(data.band).toBeUndefined();
     expect(data.error).toBeUndefined();
     expect(data.mine).not.toBeNull();
+    // Видимость отрядов (ПН-4у) — тоже за выключателем: ни чужих отрядов, ни «кто видит», хоть строка отряда и лежит в хранилище.
+    expect(data.bands).toBeUndefined();
+    expect(data.seen).toBeUndefined();
+    const get = await ROUTES['/api/castles'](new Request('https://x/api/castles', { method: 'GET', headers: signed(302, NOW + 1000) }), io(NOW + 1000));
+    const read = (await get.json()) as RosterResponse;
+    expect([read.bands, read.seen]).toEqual([undefined, undefined]);
     const after = await home.stores(STORES.world).getWithMetadata(ROSTER_KEY);
     expect(JSON.parse(String(after!.data)).bands, 'запись реестра строк отряда не несёт').toBeUndefined();
   });

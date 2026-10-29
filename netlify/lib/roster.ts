@@ -130,7 +130,17 @@ export function readBandRow(v: unknown): BandRow | null {
     prestige: whole(r.prestige, 1e9),
     men: whole(r.men, 1e6),
     seenAt: whole(r.seenAt, Number.MAX_SAFE_INTEGER),
+    ...clockOf(r.clock),
   };
+}
+
+/** Часы партии из строки хранилища (ПН-4у): оба числа конечные и не меньше нуля, иначе поля нет. */
+function clockOf(v: unknown): Pick<BandRow, 'clock'> {
+  if (!v || typeof v !== 'object') return {};
+  const c = v as Record<string, unknown>;
+  const time = Number(c.time);
+  const at = Number(c.at);
+  return Number.isFinite(time) && Number.isFinite(at) && time >= 0 && at >= 0 ? { clock: { time, at } } : {};
 }
 
 /** Строки реестра, которые надо пронести при записи замка: отряды — как были. */
@@ -311,12 +321,13 @@ const spot = (c: { x: number; y: number }): string => `${Math.round(c.x)}|${Math
 
 /**
  * Приказ отряда бродяги: встать в реестр (место назначит сервер), «Идти сюда», «Встать лагерем». Пишет только свою строку.
- * Возвращает новый реестр (прежний не тронут), отказ и флаг.
+ * Возвращает новый реестр (прежний не тронут), отказ и флаг. `clock` — часы партии из описи (ПН-4у, `bandsight.clockOf`).
  */
-export function bandOrder(file: RosterFile, key: string, o: BandOrder, now: number, mode: SpawnMode | null): BandAnswer {
+export function bandOrder(file: RosterFile, key: string, o: BandOrder, now: number, mode: SpawnMode | null, clock?: BandRow['clock']): BandAnswer {
   const had = file.bands?.[key];
-  // Записанный реестр — с прополкой забытых, как у замка (`prune`): своя строка от неё защищена.
-  const put = (row: BandRow): RosterFile => prune({ ...file, bands: { ...(file.bands ?? {}), [key]: row } }, now, key);
+  // Записанный реестр — с прополкой забытых, как у замка (`prune`): своя строка от неё защищена. Часы партии (ПН-4у) — отметка
+  // сервера из описи, ставится каждым принятым приказом: событие и есть то, по чему сервер обновляет видимость.
+  const put = (row: BandRow): RosterFile => prune({ ...file, bands: { ...(file.bands ?? {}), [key]: clock ? { ...row, clock } : row } }, now, key);
   const no = (error: string, forged: BandAnswer['forged'] = null): BandAnswer => ({ file, error, forged });
   if (!ROAM_ON) return no('Путь меча ещё не открыт.');
   // У игрока либо замок, либо отряд: игрок с замком приказов отряда не шлёт — честный клиент в фазе лорда их не знает.

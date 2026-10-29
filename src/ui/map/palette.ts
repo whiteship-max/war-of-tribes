@@ -272,4 +272,7 @@ export const ROAM_MARK = {
   fire: FELL_MARK.flame,
   fireCore: FELL_MARK.flameCore,
   pole: '#3b2c1f',
+  /** Подписи чужого отряда (ПН-4у): число людей и давность следа — светлым по тёмной кайме. */
+  label: '#f4ead8',
+  labelEdge: 'rgba(24, 16, 12, 0.85)',
 };

@@ -28,7 +28,7 @@ import { NotifyingWorld } from './local/NotifyingWorld';
 import { tribePulse } from './bridge';
 import { inSight, type SightDisc } from './fog';
 import { FIGURE_TOUCH } from './data/tuning';
-import { homeSight } from './sight';
+import { homeSight } from './lookout';
 import { freshSeed } from '@/game/sim/random';
 import { readArms } from '@/heraldry/arms';
 import { cityName, NOTICE_LIMITS, type NoticeItem } from '../../netlify/lib/contract';
@@ -517,6 +517,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
     if (get().ready) return;
     if (booting) return booting;
     booting = (async () => {
+      // Видимость отрядов бродяг (ПН-4у): чужие отряды, следы и «кто видит свой» — своим куском, у лорда и у бродяги.
+      if (ROAM_ON) void import('./bandsight').then((m) => m.attach());
       if (!hasWorldApi()) {
         // Клетку замка называет общий реестр, и знать её надо **до** постройки
         // мира: собранный не на том месте, он потом переписывался бы под ногами
@@ -1290,7 +1292,7 @@ export function followSpot(id: AnchorId, now: number): Coord | null {
 
 /**
  * Живой обзор прямо сейчас — тем же правилом, что и в мире: круг у своей
- * деревни и стоящий наблюдателем лазутчик, больше никто (см. world/sight.ts).
+ * деревни и стоящий наблюдателем лазутчик, больше никто (см. world/lookout.ts).
  * Карта считает его у себя, а не спрашивает мир, ровно по одной причине: он
  * меняется каждый кадр, а пульс идёт раз в `PULSE_MS`, и дымка отставала бы
  * от лазутчика на два корпуса.

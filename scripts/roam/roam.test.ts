@@ -14,14 +14,15 @@ import { ORIENTS, orientSections } from './orients';
 import { STYLES, runPath } from './path';
 import { Undeclared, render, statusLines, statusOf, type Section, type Size } from './run';
 import { PILOT, SECTIONS, knobsOf } from './sections';
-import { detectShare, landAround } from './sight';
+import { GOAL_ROWS, SIGHT_GOALS, deriveSight, goalCheck, writtenSight } from './sight';
+import { SICILY } from '../../src/world/spawn';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
 const GDD = path.join(ROOT, 'docs/gdd/path_of_sword.md');
 
 /** Размер для тестов: та же машина, что у малого и полного, только мельче. */
-const TINY: Size = { name: 'малый', seeds: 1, steps: 2, even: 4, pool: 1, nft: 1, sight: 200 };
+const TINY: Size = { name: 'малый', seeds: 1, steps: 2, even: 4, pool: 1, nft: 1, sight: 1 };
 
 const stubsOf = (uses: readonly InputId[]): InputId[] => uses.filter((k) => INPUTS[k].kind === 'stub');
 const use = <K extends InputId>(k: K): InputValue<K> => INPUTS[k].value as InputValue<K>;
@@ -63,15 +64,18 @@ describe('заглушка не выдаётся за выведенное', () 
     }
   });
 
-  it('у разделов автопилота, ценности, пула и видимости заглушки есть; у пути и у отряда — нет ни одного входа', () => {
+  it('у разделов автопилота, ценности и пула заглушки есть; у пути, у отряда и у видимости — нет ни одного входа', () => {
     // Граница: что из разделов стоит на заглушках сейчас, до пачек ПН-1…ПН-17. Пачка, заменившая вход дверью, правит эту строку
     // тем же коммитом — и раздел честно переходит в «выведено».
-    for (const id of ['camp', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'sight']) {
+    for (const id of ['camp', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool']) {
       expect(statusOf((SECTIONS.find((s) => s.id === id) as Section).uses), id).toBe('НЕ ИЗМЕРЕНО');
     }
     expect(statusOf((SECTIONS.find((s) => s.id === 'road') as Section).uses)).toBe('выведено');
     // ПН-1: содержание, терпение, обоз и фураж отряда — двери, и раздел выведен сам.
     expect(statusOf((SECTIONS.find((s) => s.id === 'band') as Section).uses)).toBe('выведено');
+    // ПН-4у: видимость — дверь `world/sight` и цели ГДД 3.5.4, заглушек нет; входов пачки ПН-4у у прибора не осталось.
+    expect(statusOf((SECTIONS.find((s) => s.id === 'sight') as Section).uses)).toBe('выведено');
+    expect(Object.entries(INPUTS).filter(([, i]) => i.batch === 'ПН-4у').map(([k]) => k)).toEqual([]);
   });
 
   it('напечатанный статус каждого раздела — тот, что выводится из входов, и слова «выведено» у раздела на заглушках нет', async () => {
@@ -229,15 +233,48 @@ describe('детерминизм по сиду', () => {
     expect(keys.size, 'шесть сидов дали один и тот же путь').toBeGreaterThan(1);
   });
 
-  it('доля обнаружений — функция сида', () => {
-    const land = landAround(3);
-    const s = { ...use('sight'), camps: use('camps'), passing: use('passing') };
-    expect(detectShare(s, land, { camp: 'open' }, 30, 8, 500, 7)).toBe(detectShare(s, land, { camp: 'open' }, 30, 8, 500, 7));
-  });
-
   it('малый прогон разделов повторяется строка в строку', async () => {
     const only = ['pay', 'band', 'camp', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'pool', 'sight'];
     expect(await lines(SECTIONS, only)).toEqual(await lines(SECTIONS, only));
+  });
+});
+
+describe('видимость (ПН-4у): записано = выведено', () => {
+  const world = { lords: SICILY.length };
+
+  it('таблица игры — неподвижная точка вывода из целей: проход от записанного ничего не меняет', () => {
+    const d = deriveSight(SIGHT_GOALS, writtenSight(), 1, world);
+    expect(d.why).toEqual([]);
+    expect(d.converged).toBe(true);
+    expect(d.passes, 'записанное сходится первым же проходом').toBe(1);
+    expect(d.numbers).toEqual(writtenSight());
+  });
+
+  it('каждая цель держится на записанных числах дверью игры', () => {
+    for (const g of goalCheck(SIGHT_GOALS, writtenSight(), 1, world)) {
+      if (g.id === 'ruinsNear') expect(g.got, g.what).toBeGreaterThanOrEqual(g.goal);
+      else if (g.id === 'ruinsFull') expect(g.got, g.what).toBeLessThanOrEqual(g.goal);
+      else expect(Math.abs(g.got - g.goal), `${g.what}: цель ${g.goal}, вышло ${g.got}`).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it('сдвинутая цель — записанное больше не неподвижная точка (мерка не глуха к целям)', () => {
+    for (const id of ['hiddenForest', 'nightField', 'winterForest', 'hundredOpen', 'ruinsFull'] as const) {
+      const d = deriveSight({ ...SIGHT_GOALS, [id]: SIGHT_GOALS[id] + 3 }, writtenSight(), 1, world);
+      expect(d.numbers, id).not.toEqual(writtenSight());
+    }
+  });
+
+  it('цели ГДД 3.5.4 («Цели обнаружения», Ц1–Ц16) — те же числа, что у прибора', () => {
+    const doc = readFileSync(GDD, 'utf8');
+    GOAL_ROWS.forEach((row, i) => {
+      const line = doc.split('\n').find((l) => l.startsWith(`| Ц${i + 1} |`));
+      expect(line, `строка Ц${i + 1} (${row.what}) в ГДД`).toBeDefined();
+      const cell = (line as string).split('|')[3];
+      const n = Number((/(\d+(?:[.,]\d+)?)/.exec(cell) ?? ['', 'NaN'])[1].replace(',', '.'));
+      const want = row.id === 'ruinsNear' ? SIGHT_GOALS.ruinsNear * 100 : SIGHT_GOALS[row.id];
+      expect(n, `Ц${i + 1}: ${row.what}`).toBe(want);
+    });
   });
 });
 

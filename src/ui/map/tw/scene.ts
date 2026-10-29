@@ -4,7 +4,7 @@
 // попадал бы мимо нарисованного.
 //
 // Смысл объектов — прежний и прежними правилами: вид места — из полей мира, размер чужого отряда — только
-// в живом обзоре (`world/sight` через `sightDiscs`), точки агентов — `figures.spotsOf`.
+// в живом обзоре (`world/lookout` через `sightDiscs`), точки агентов — `figures.spotsOf`.
 //
 // Карта по регионам (docs/map_tw.md, раздел 13.5): место вне региона игрока в сцену не попадает — значит, не
 // рисуется и пальцу не цель. Мерка одна — `theatre/active.withinActive` по клетке объекта, та же, что у мира. Свои
@@ -167,7 +167,7 @@ export const CAMP_DY = 0.42;
  * Значок отряда: в поле — воин в доспехе со щитом (`troop-legionary`), стоит у цели — шатры (`stage-camp`): лагерь,
  * осадный или подмоги. Скрещённые мечи (`hud-army`) на диске читались молотками (снимки, круг 1). Плашка —
  * размер отряда по лестнице прежнего (горстка, отряд, войско, орда); слух — без плашки и приглушённо: сколько их,
- * знают только глаза (`world/sight`).
+ * знают только глаза (`world/lookout`).
  */
 export function hostMarkOf(l: HostLook): MarkLook {
   return { glyph: l.camp ? 'stage-camp' : 'troop-legionary', ring: l.color, pips: l.size, own: false, dim: l.size === 0, corner: null };
@@ -218,7 +218,7 @@ export function hostItems(cam: Camera, vp: Viewport, marches: MarchView[], discs
     }
     const angle = standing ? 0 : Math.atan2(ty - sy, tx - sx);
     const west = tx < sx;
-    // Сколько их — разведданные, и решает это одно правило на весь мир (`world/sight.ts`): свой отряд
+    // Сколько их — разведданные, и решает это одно правило на весь мир (`world/lookout.ts`): свой отряд
     // считает игрок, чужой — только глаза. Тот же вызов, что у прежнего кадра (`frame.drawMarch`).
     const old = partyLook({
       own: m.own,

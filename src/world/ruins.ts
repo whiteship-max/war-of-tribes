@@ -7,13 +7,13 @@
 // квадрату подошли; сменить соль — сменить руины у всех разом, и это тест (`roam.test.ts`, «руины общие»).
 //
 // Годная клетка — та, где может стоять двор (`land.settleable`: суша, не русло, не хребет): руины — остатки построек.
-// Густота (`ruinBlock`) и вместимость (`ruinCap`) — заглушки (`game/roamstubs`): вывести их нечем до заметности (ПН-4у).
-// Читают руины только двери пути (за `ROAM_ON`): у лорда на карте их нет.
+// Густота (`RUIN_BLOCK`) и вместимость (`RUIN_CAP`) — вывод заметности (ПН-4у, `world/data/sight.ts`, раздел `roam:report`
+// «Доля обнаружений по видам лагеря»). Читают руины только двери пути (за `ROAM_ON`): у лорда на карте их нет.
 //
 // Модуль чистый и без `@/`: его собирает сервер (лагерь в руинах и место выхода проверяет реестр).
 import { hash2 } from './geography';
 import { inWorldCell, settleable } from './land';
-import { roamStub } from '../game/roamstubs';
+import { RUIN_BLOCK, RUIN_CAP } from './data/sight';
 
 /**
  * Соль руин — своё постоянное число, не соль переправ: выбор «какая клетка квадрата» у руин и у мостов независим, и руины не
@@ -35,7 +35,7 @@ export interface Ruin {
   x: number;
   y: number;
   kind: RuinKind;
-  /** Сколько человек прячут руины (заглушка `ruinCap`): больший отряд лагерем в них не встаёт. */
+  /** Сколько человек прячут руины (`RUIN_CAP`): больший отряд лагерем в них не встаёт. */
   cap: number;
 }
 
@@ -44,7 +44,7 @@ export const ruinFit = (x: number, y: number): boolean => settleable(x, y);
 
 const floorTo = (v: number, block: number): number => Math.floor(v / block) * block;
 
-/** Кэш квадратов: ключ — угол квадрата и его размер (заглушку густоты правят — старые квадраты не годятся). */
+/** Кэш квадратов: ключ — угол квадрата и его размер (вывод густоты пробует разные — старые квадраты не годятся). */
 const blocks = new Map<string, Ruin | null>();
 
 /** Руины квадрата с углом `bx|by`; нет годной клетки — `null`. */
@@ -65,22 +65,20 @@ function ruinOfBlock(bx: number, by: number, block: number): Ruin | null {
     }
   }
   const ruin = best
-    ? { ...best, kind: RUIN_KINDS[Math.floor(hash2(RUIN_SALT + 7, best.x, best.y) * RUIN_KINDS.length) % RUIN_KINDS.length], cap: roamStub('ruinCap') }
+    ? { ...best, kind: RUIN_KINDS[Math.floor(hash2(RUIN_SALT + 7, best.x, best.y) * RUIN_KINDS.length) % RUIN_KINDS.length], cap: RUIN_CAP }
     : null;
   blocks.set(key, ruin);
   return ruin;
 }
 
-/** Руины в клетке или `null`. */
-export function ruinAt(x: number, y: number): Ruin | null {
-  const block = roamStub('ruinBlock');
+/** Руины в клетке или `null`. `block` — густота: игра и сервер зовут без неё, вывод густоты (`roam:report`) пробует свои. */
+export function ruinAt(x: number, y: number, block: number = RUIN_BLOCK): Ruin | null {
   const r = ruinOfBlock(floorTo(x, block), floorTo(y, block), block);
   return r && r.x === Math.round(x) && r.y === Math.round(y) ? r : null;
 }
 
 /** Руины в прямоугольнике `[x0, x1) × [y0, y1)` — для карты и прибора. */
-export function ruinsIn(x0: number, y0: number, x1: number, y1: number): Ruin[] {
-  const block = roamStub('ruinBlock');
+export function ruinsIn(x0: number, y0: number, x1: number, y1: number, block: number = RUIN_BLOCK): Ruin[] {
   const out: Ruin[] = [];
   for (let by = floorTo(y0, block); by < y1; by += block) {
     for (let bx = floorTo(x0, block); bx < x1; bx += block) {
@@ -92,10 +90,10 @@ export function ruinsIn(x0: number, y0: number, x1: number, y1: number): Ruin[] 
 }
 
 /** Ближайшие руины не дальше `r` клеток от `at`; нет — `null`. */
-export function nearestRuin(at: { x: number; y: number }, r: number): Ruin | null {
+export function nearestRuin(at: { x: number; y: number }, r: number, block: number = RUIN_BLOCK): Ruin | null {
   let best: Ruin | null = null;
   let bestD = Infinity;
-  for (const ruin of ruinsIn(at.x - r, at.y - r, at.x + r + 1, at.y + r + 1)) {
+  for (const ruin of ruinsIn(at.x - r, at.y - r, at.x + r + 1, at.y + r + 1, block)) {
     const d = Math.hypot(ruin.x - at.x, ruin.y - at.y);
     if (d <= r && d < bestD) {
       bestD = d;
@@ -105,7 +103,7 @@ export function nearestRuin(at: { x: number; y: number }, r: number): Ruin | nul
   return best;
 }
 
-/** Забыть посчитанное (тесты и подмена заглушек). */
+/** Забыть посчитанное (тесты и вывод густоты). */
 export function dropRuins(): void {
   blocks.clear();
 }

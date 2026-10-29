@@ -27,7 +27,7 @@ export interface Size {
   pool: number;
   /** Партий НФТ-старта под паритет. */
   nft: number;
-  /** Проб на строку доли обнаружений. */
+  /** Миров выборки на вывод чисел видимости и долю обнаружений. */
   sight: number;
 }
 
@@ -39,7 +39,7 @@ export const SIZES: Record<'small' | 'full', Size> = {
     even: 12,
     pool: 2,
     nft: 1,
-    sight: 2000,
+    sight: 2,
   },
   full: {
     name: 'полный',
@@ -48,7 +48,7 @@ export const SIZES: Record<'small' | 'full', Size> = {
     even: 24,
     pool: 6,
     nft: 3,
-    sight: 20000,
+    sight: 6,
   },
 };
 

@@ -41,6 +41,7 @@ function portOf(s: GameState, order?: RoamPort['order']): RoamPort {
     apply: (m) => void setMove(s, m),
     foodAfter: (ms, g) => foodAfter(s, ms, g),
     campGain: (k) => campGain(s, k),
+    partyTime: () => s.time,
     ...(order ? { order } : {}),
   };
 }

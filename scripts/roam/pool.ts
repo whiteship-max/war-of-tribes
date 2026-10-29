@@ -17,7 +17,8 @@ export interface Placed {
   toFree: { cells: number; hours: Record<Gait, number> }[];
 }
 
-export function placeAll(run: number, lords: number, free: number, bands: number): Placed {
+/** `block` — густота руин: прибор зовёт без неё, вывод густоты (раздел «Доля обнаружений по видам лагеря») пробует свои. */
+export function placeAll(run: number, lords: number, free: number, bands: number, block?: number): Placed {
   const taken: Spot[] = [];
   const put = (key: string): Spot => {
     const at = placeCastle(settleRandom(`roam:${run}:${key}`), taken);
@@ -28,7 +29,7 @@ export function placeAll(run: number, lords: number, free: number, bands: number
   const F = Array.from({ length: free }, (_, i) => put(`free${i}`));
   // Бродяги — новичками друг для друга: каждый следующий встаёт вдали от уже вышедших (реестр — `roster.newcomersOf`).
   const B: Spot[] = [];
-  for (let i = 0; i < bands; i++) B.push(placeBand(settleRandom(`roam:${run}:band${i}`), L, B));
+  for (let i = 0; i < bands; i++) B.push(placeBand(settleRandom(`roam:${run}:band${i}`), L, B, undefined, block));
   const toFree = B.map((b) => {
     let best = F[0];
     for (const f of F) if (distance(b, f) < distance(b, best)) best = f;

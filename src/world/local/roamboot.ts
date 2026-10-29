@@ -29,6 +29,7 @@ export function roamPort(): RoamPort {
     apply: (m) => useGame.getState().world((st) => void setMove(st, m)),
     foodAfter: (ms, g) => foodAfter(s(), ms, g),
     campGain: (k) => campGain(s(), k),
+    partyTime: () => s().time,
     ...(online ? { order: bandOrder } : {}),
   };
 }

@@ -26,6 +26,7 @@ import { terrainAt } from '../geography';
 import { TERRAIN_META } from '../data/terrain';
 import { FIGURE_BY_ID } from '../data/figures';
 import { troopTotal } from '@/game/battle/kinds';
+import { CASTLE_EYE, bandLook, conspicuity, detectRange } from '../sight';
 
 /** Дверь мира бродяги к партии и серверу — её даёт стор. */
 export interface RoamPort {
@@ -37,6 +38,8 @@ export interface RoamPort {
   foodAfter(ms: number, g: Gait): { now: number; at: number };
   /** Что даёт лагерь вида (`sim/roam.campGain`): фураж, строка духа, раненые. */
   campGain(kind: CampKind): { forage: number; morale: number; heal: number };
+  /** Часы партии, игровые секунды: ночь и сезон заметности отряда (ПН-4у). */
+  partyTime(): number;
   /** Приказ серверу (реестр, `net/roster.bandOrder`) — в Telegram; нет — мир применяет правило сам. */
   order?: (o: BandOrder) => Promise<BandRow | string>;
 }
@@ -170,7 +173,10 @@ export class RoamWorld extends LocalWorld {
       ruin: ruin ? RUIN_NAME[ruin.kind] : null,
       rows: CAMP_KINDS.map((kind) => {
         const res = roamCamp(m, kind, men, now);
-        return { kind, name: CAMP_NAME[kind], block: typeof res === 'string' ? res : null, ...this.port.campGain(kind) };
+        // Заметность лагеря этого вида здесь и сейчас (ПН-4у) — дверью `world/sight`: на сколько клеток его видит круг замка.
+        const look = bandLook({ ...m, way: { from: at, to: at, at: now, until: now }, camp: { kind, since: now, builders: men } }, men, this.port.partyTime(), now);
+        const range = detectRange(CASTLE_EYE, conspicuity(look));
+        return { kind, name: CAMP_NAME[kind], block: typeof res === 'string' ? res : null, range, ...this.port.campGain(kind) };
       }),
     };
   }

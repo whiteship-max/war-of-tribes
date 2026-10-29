@@ -1,6 +1,6 @@
 // Окно «Встать лагерем» (ПН-3, docs/gdd/path_of_sword.md, 3.5.3, 5.4): открытый, скрытый, в руинах — что каждый даёт числами
 // дверей партии (фураж, строка духа «Лагерь», раненые) и почему нельзя; рогатки стоящего лагеря; «Снять лагерь». Заметность
-// лагеря — ПН-4у: до неё окно о ней молчит, а не выдумывает. Числа — `WorldApi.roamCampView`.
+// лагеря (ПН-4у) — на сколько клеток его видит круг замка здесь и сейчас (`world/sight`). Числа — `WorldApi.roamCampView`.
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { worldApi } from '@/world/api';
@@ -14,7 +14,7 @@ const pct = (x: number): string => `${Math.round(x * 100)} %`;
 
 /** Что даёт вид лагеря — одной строкой. */
 export const gainText = (r: RoamCampRow): string =>
-  `фураж ${pct(r.forage)} пайка · дух ${signedWhole(r.morale)}${r.heal > 1 ? ` · раненые встают в ${num(r.heal, 1)} раза быстрее` : ''}`;
+  `фураж ${pct(r.forage)} пайка · дух ${signedWhole(r.morale)}${r.heal > 1 ? ` · раненые встают в ${num(r.heal, 1)} раза быстрее` : ''} · замок видит за ${num(r.range, 0)} кл.`;
 
 export function RoamCamp({ onClose }: { onClose: () => void }) {
   const showToast = useGame((g) => g.showToast);
