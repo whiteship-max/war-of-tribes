@@ -650,6 +650,9 @@ type CampPart = ({ own: TroopStack } | { kinds: Stack }) & { rest?: number };
 const WAR_BUSY = 'Полководец ведёт поход на соседа. Вернуть его можно, только отозвав поход или сняв осаду.';
 
 /** Сумма двух составов по видам. */
+
+/** Отметка участи взятого нами города в последствии — дело правителя (ПН-2: «Милостивый», «Жестокий»; пишет племя). */
+const fateMark = (fate: Fate, terms: boolean): Pick<HomeEffect, 'fate' | 'terms'> => ({ fate, ...(terms ? { terms: true as const } : {}) });
 /** Мерная дорога темпа погони, клеток (`LocalWorld.paceOf`): длиннее пола самого короткого похода в любом режиме. */
 const PACE_SPAN = 1000;
 
@@ -2736,7 +2739,7 @@ export class LocalWorld implements WorldApi {
       // Осада доведена нашим лагерем — опыт осад полководца (отметка «осада», этап 2е).
       siege: true,
       // Участь взятого города — дело правителя (ПН-2: «Милостивый», «Жестокий»); логово — не город.
-      ...(isLair(s) ? {} : { fate: declared, ...(terms ? { terms: true as const } : {}) }),
+      ...(isLair(s) ? {} : fateMark(declared, terms !== undefined)),
       text: gates ? `Осада ${s.name} кончилась: ворота открыли.` : `Осада ${s.name} кончилась: город сдался голоду.`,
       good: true,
     });
@@ -5269,7 +5272,7 @@ export class LocalWorld implements WorldApi {
       // Взятый замок считается отметкой, а не золотом: золото теперь везут и из логова.
       castle: (field.won && target.castle) || undefined,
       // Участь взятого города — дело правителя (ПН-2); логово — не город.
-      ...(took && !isLair(target) ? { fate: this.fateFor(declared, target.id, at) } : {}),
+      ...(took && !isLair(target) ? fateMark(this.fateFor(declared, target.id, at), false) : {}),
       prestige: field.won ? 4 : 0,
       morale: field.won ? 4 : -6,
       battle: field.won ? 'won' : 'lost',
@@ -10894,8 +10897,7 @@ export class LocalWorld implements WorldApi {
         // Город взят из лагеря — осада доведена: опыт осад полководца (этап 2е). Штурм с ходу — не осада.
         ...(f.by !== 'storm' || w.mode === 'siege' ? { siege: true } : {}),
         // Участь взятого города — дело правителя (ПН-2: «Милостивый», «Жестокий»).
-        fate: f.fate as Fate,
-        ...(f.terms ? { terms: true as const } : {}),
+        ...fateMark(f.fate as Fate, f.terms === true),
         prestige: 6,
         morale: 6,
         battle: null,
