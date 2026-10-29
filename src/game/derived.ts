@@ -111,6 +111,7 @@ import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
 import { WAGE_MIN_SHARE } from './spiritrules';
 import { AGENT_ROLES, recruitWage, recruitAt } from './agentrules';
 import { FLANKS, commanderSeated, leadLoyalty, type Birth, type Commander } from './commandrules';
+import { rulerTraitNumbers, stewardBuild } from './rulertraits';
 import {
   ESTATES,
   FERVOUR_SCALE,
@@ -881,10 +882,12 @@ export const estatesNow = (s: GameState): Record<EstateId, EstateNow> => estates
 export function estatesWith(s: GameState, priv: Partial<Record<EstateId, number>> | undefined): Record<EstateId, EstateNow> {
   const infl = influenceOf(levelsOf(s), priv);
   const dec = estateDecree(s);
+  // Черты правителя (ПН-2) — одно слагаемое на сословие, единственным чтением черт (`rulertraits.rulerTraitNumbers`).
+  const ruler = rulerTraitNumbers(s).loyalty;
   const out = {} as Record<EstateId, EstateNow>;
   for (const e of ESTATES) {
     // Командиры флангов (ДР-3): слагаемое знати — одно правило `loyaltyParts` решает, какому сословию оно не безразлично.
-    const parts = loyaltyParts(e, priv, infl[e], estateMood(s, e), commandLead(s));
+    const parts = loyaltyParts(e, priv, infl[e], estateMood(s, e), commandLead(s), ruler[e]);
     const loyalty = loyaltyFrom(parts);
     const strength = strengthOf(infl[e], dec === e);
     out[e] = { id: e, infl: infl[e], loyalty, parts, strength, plus: plusOf(e, strength, loyalty), minus: minusOf(e, strength), decree: dec === e };
@@ -1414,8 +1417,10 @@ export function crafterHeadShare(s: GameState, mods: SeasonModifiers = seasonMod
 /**
  * Рука стройки сверх ратуши: Староста совета (РТ-1) и цехи в силе (РТ-2) — тем же множителем, что у `buildRate`
  * (`build.buildRateOf`, не ниже единицы): доля Мастерской и мастеров в панели — ровно та, что они прибавляют к стройке.
+ * «Строитель» (черта правителя, ПН-2) — прибавкой к Старосте под его потолком (`rulertraits.stewardBuild`); выработку дворов
+ * черта не трогает: множитель дворов — `stewardMult` без неё.
  */
-export const buildBoost = (s: GameState): number => Math.max(1, stewardMult(s) * guildsMult(s));
+export const buildBoost = (s: GameState): number => Math.max(1, stewardBuild(stewardMult(s), rulerTraitNumbers(s).build) * guildsMult(s));
 
 /**
  * Множитель скорости стройки от уровня ратуши: +`TOWN_HALL_BUILD_STEP` за уровень сверх первого.

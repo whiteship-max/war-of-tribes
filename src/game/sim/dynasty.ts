@@ -14,7 +14,7 @@
 //
 // Возраст не тикает — он выводится из тех же часов деревни и той же формулы, что возраст
 // агента (`sim/agents.ageAt`): второй правды о том, как стареет человек, в игре нет.
-import type { FaithId, GameState, HousePerson, RealmState, Ruler, RulerSkills } from '../types';
+import type { FaithId, GameState, HousePerson, RealmState, Ruler, RulerSkills, RulerTally } from '../types';
 import { ADVISOR_POSTS } from '../councilrules';
 import { AGENT_AGE0, AGENT_YEAR, RETIRE_AGE, RETIRE_WARN } from '../data/agents';
 import { ADMIN_LEVELS, DIPLO_LEVELS, MAX_RULER_SKILL, MIN_RULER_SKILL, POINTS_CAP, REALM_BRANCHES, SKILL_NAME, WAR_LEVELS, startingPoints } from '../data/realm';
@@ -26,6 +26,7 @@ import { ageAt, keepInBook, mergeSkills, yearsWord } from './agents';
 import { GEAR_SLOTS, slotName } from '../data/items';
 import { bank } from './points';
 import { log } from './log';
+import { readTally, rulerPerson, wageMinClosing } from '../rulertraits';
 
 /**
  * Соль кости дома. Навыки — **не бросок общего потока партии**: `roll(s)` двигает
@@ -157,6 +158,22 @@ export function succeed(s: GameState): void {
 }
 
 /**
+ * Дело правителя (на пути — героя) в счёт его черт (ПН-2, `game/rulertraits.ts`) — **единственная** запись в счёт дел: бой
+ * дружины, достроенный уровень, праздник, участь взятого города, закрытый отрезок минимального жалованья (`n` — игровых
+ * секунд). Новый правитель приходит без дел (`succeed`): его черты — его дела.
+ */
+export function noteRulerDeed(s: GameState, deed: keyof RulerTally, n = 1): void {
+  if (!(n > 0) || !Number.isFinite(n)) return;
+  const who = rulerPerson(s);
+  if (!who) return;
+  const t = (who.deeds ??= {});
+  t[deed] = (t[deed] ?? 0) + n;
+}
+
+/** Жалованье меняют: идущий отрезок минимального — в счёт дел. Зовёт дверь жалованья (`sim/upkeep.setWageMode`) до смены. */
+export const closeWageMin = (s: GameState): void => noteRulerDeed(s, 'wageMin', wageMinClosing(s));
+
+/**
  * Шаг партии для дома: безымянным дать имя, если вера уже известна; дожившему до
  * `RETIRE_AGE` — оставить правление наследнику. Ни тика, ни накопителя: обе ветки —
  * события, а не счёт. Зовётся оттуда же, откуда шаг мест агентов (`sim/tick`).
@@ -203,7 +220,16 @@ export function mergeRealm(base: RealmState, saved: unknown): RealmState {
     return out;
   };
   return {
-    ruler: { ...ruler, bornAt: num(raw.bornAt, base.ruler.bornAt), age0: Math.max(0, num(raw.age0, base.ruler.age0)) },
+    ruler: {
+      ...ruler,
+      bornAt: num(raw.bornAt, base.ruler.bornAt),
+      age0: Math.max(0, num(raw.age0, base.ruler.age0)),
+      // Счёт дел правления (ПН-2): только известные поля, не ниже нуля; пустого нет.
+      ...((): { deeds?: RulerTally } => {
+        const deeds = readTally(raw.deeds);
+        return deeds ? { deeds } : {};
+      })(),
+    },
     heir: person(r.heir, base.heir),
     points: levels(r.points, base.points, 0, POINTS_CAP),
     pointsAt: num(r.pointsAt, base.pointsAt),

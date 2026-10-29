@@ -2735,6 +2735,8 @@ export class LocalWorld implements WorldApi {
       castle: s.castle || undefined,
       // Осада доведена нашим лагерем — опыт осад полководца (отметка «осада», этап 2е).
       siege: true,
+      // Участь взятого города — дело правителя (ПН-2: «Милостивый», «Жестокий»); логово — не город.
+      ...(isLair(s) ? {} : { fate: declared, ...(terms ? { terms: true as const } : {}) }),
       text: gates ? `Осада ${s.name} кончилась: ворота открыли.` : `Осада ${s.name} кончилась: город сдался голоду.`,
       good: true,
     });
@@ -5266,6 +5268,8 @@ export class LocalWorld implements WorldApi {
       lair: burned || undefined,
       // Взятый замок считается отметкой, а не золотом: золото теперь везут и из логова.
       castle: (field.won && target.castle) || undefined,
+      // Участь взятого города — дело правителя (ПН-2); логово — не город.
+      ...(took && !isLair(target) ? { fate: this.fateFor(declared, target.id, at) } : {}),
       prestige: field.won ? 4 : 0,
       morale: field.won ? 4 : -6,
       battle: field.won ? 'won' : 'lost',
@@ -10889,6 +10893,9 @@ export class LocalWorld implements WorldApi {
         castle: true,
         // Город взят из лагеря — осада доведена: опыт осад полководца (этап 2е). Штурм с ходу — не осада.
         ...(f.by !== 'storm' || w.mode === 'siege' ? { siege: true } : {}),
+        // Участь взятого города — дело правителя (ПН-2: «Милостивый», «Жестокий»).
+        fate: f.fate as Fate,
+        ...(f.terms ? { terms: true as const } : {}),
         prestige: 6,
         morale: 6,
         battle: null,

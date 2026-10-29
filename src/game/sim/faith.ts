@@ -23,6 +23,7 @@ import { FAITH_BY_ID, OBSERVANCE_BY_ID, type FeastDef } from '../data/faiths';
 import { faithOf, heresy, population, seasonIndex, seasonOf, strainNow } from '../derived';
 import { log } from './log';
 import { outlay, pay } from './pay';
+import { noteRulerDeed } from './dynasty';
 
 // ---------- Обряд ----------
 
@@ -83,6 +84,8 @@ export function riteClosed(s: GameState): string | null {
 export function beginRite(s: GameState): void {
   s.faith.riteAt = s.time;
   s.faith.riteUntil = s.time + RITE_DAYS * DAY_LENGTH;
+  // Праздник — дело правителя (ПН-2: «Щедрый» — праздник в каждый сезон года).
+  noteRulerDeed(s, 'feasts');
 }
 
 /** Справить обряд. Плата снимается сразу — как за стройку и за пир. */

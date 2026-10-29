@@ -47,6 +47,7 @@ import {
 import { pointsOf, spend } from './points';
 import { callGate } from './gate';
 import { log } from './log';
+import { rulerTraitNumbers } from '../rulertraits';
 
 /** Сколько смен ступени помнит летопись раздела. */
 export const STAB_PAST = 40;
@@ -409,7 +410,8 @@ export function rebelsSettled(s: GameState, won: boolean): void {
   if (won) {
     st[r.group] = 50;
     st.held++;
-    s.morale = Math.max(0, s.morale - MUTINY_SUPPRESS_MORALE);
+    // «Жестокий» (черта правителя, ПН-2) подавляет без платы моралью: город к расправам привык.
+    if (!rulerTraitNumbers(s).calm) s.morale = Math.max(0, s.morale - MUTINY_SUPPRESS_MORALE);
     delete st.revolt;
     log(s, STAB_LOG.calmed, 'info', undefined, 'stab');
     return;

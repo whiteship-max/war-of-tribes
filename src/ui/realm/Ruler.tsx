@@ -21,6 +21,7 @@ import { Lineage } from '@/ui/parts/Lineage';
 import { count } from '@/ui/parts/plural';
 import { Icon } from '@/ui/icons/Icon';
 import { BRANCH_ICON } from './branches';
+import { RULER_TRAIT_BY_ID, rulerTraitsNow } from '@/game/rulertraits';
 
 export function RulerTab() {
   const s = useGame((g) => g.s);
@@ -63,6 +64,23 @@ export function RulerTab() {
             <span className="val pos">{circlesText(r.ruler.skills[b])}</span>
           </div>
         ))}
+
+        {/* Черты правителя (ПН-2): чем прослыл делами правления — одной дверью `rulertraits`, своего счёта здесь нет. */}
+        {rulerTraitsNow(s).map((id) => {
+          const t = RULER_TRAIT_BY_ID[id];
+          return (
+            <div className="mod" key={id}>
+              <span className="ico">
+                <Icon name="ui-medal" />
+              </span>
+              <span className="name">
+                {t.name}
+                <em className="sub">черта</em>
+              </span>
+              <span className={`val ${t.good ? 'pos' : 'neg'}`}>{t.good ? 'добрая' : 'дурная'}</span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Вещи — только на правителе (ДР-7, docs/city_v3.md, «Решения ДР-7»): места у престола, наследник садится в тех же. */}

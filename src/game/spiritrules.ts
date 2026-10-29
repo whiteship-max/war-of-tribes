@@ -87,8 +87,13 @@ export const GLORY_DRILL = 0.5;
 export const gloryAt = (glory: number, elapsedMs: number): number =>
   Number.isFinite(glory) ? Math.max(-GLORY_CAP, Math.min(GLORY_CAP, glory)) * 2 ** (-Math.max(0, elapsedMs) / GLORY_HALF_MS) : 0;
 
-/** Отметка памяти после боя: что было сейчас, плюс победа или минус поражение, в пределах `GLORY_CAP`. */
-export const gloryAfter = (now: number, won: boolean): number => Math.max(-GLORY_CAP, Math.min(GLORY_CAP, now + (won ? GLORY_WIN : -GLORY_LOSS)));
+/**
+ * Отметка памяти после боя: что было сейчас, плюс победа или минус поражение, в пределах `GLORY_CAP`. `edge` — прибавка черты
+ * правителя к этому исходу (ПН-2: «Воитель» после победы, «Трус» после поражения; `rulertraits`): память одна, и потолок у неё
+ * общий — сервер её прибавки не видит и не должен.
+ */
+export const gloryAfter = (now: number, won: boolean, edge = 0): number =>
+  Math.max(-GLORY_CAP, Math.min(GLORY_CAP, now + (won ? GLORY_WIN : -GLORY_LOSS) + edge));
 
 /**
  * Стойкость (обряд, Воевода, рыцари; шкала `FERVOUR_SCALE` — вся стартовая мораль дружины) в очках морали: **вся шкала стойкости
@@ -118,6 +123,7 @@ export type SpiritLineId =
   | 'general'
   | 'barracks'
   | 'statue'
+  | 'ruler'
   | 'cap'
   | 'wage'
   | 'patience';
@@ -151,6 +157,8 @@ export interface SpiritIn {
   statue: number;
   /** Доля восстановления жалованья, 0…1 (`payShareAt`). */
   pay: number;
+  /** Дисциплина от черт правителя (ПН-2: «Щедрый», «Скупой» — `rulertraits.rulerTraitNumbers`); нет — ноль. */
+  ruler?: number;
 }
 
 /** Одна шкала: значение, потолок и строки. Сумма строк — значение. */
@@ -233,6 +241,8 @@ export function spiritOfIn(i: SpiritIn): SpiritView {
       { id: 'marshal', value: marshal },
       { id: 'general', value: general },
       { id: 'barracks', value: BARRACKS_DRILL * Math.max(0, Math.min(MAX_BUILDING_LEVEL, Math.floor(fin(i.barracks))) - 1) },
+      // Черты правителя (ПН-2): щедрость и скупость — в строй; ноль строкой не показывается.
+      { id: 'ruler', value: fin(i.ruler ?? 0) },
     ],
     i,
   );

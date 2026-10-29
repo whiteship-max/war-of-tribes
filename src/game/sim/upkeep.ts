@@ -51,6 +51,7 @@ import { loseRecruits } from './army';
 import { loseMasters } from './masters';
 import type { TroopStack } from '../battle/kinds';
 import { log } from './log';
+import { closeWageMin } from './dynasty';
 import { WAGE_MODES, type WageMode } from '../spiritrules';
 import { payShare, wageMode } from './spirit';
 import { bandPatienceDays, bandUnpaid, bandWagesPerDay, woundedOf } from '../roamrules';
@@ -370,6 +371,8 @@ export function setWageMode(s: GameState, mode: WageMode): string | null {
   const why = wageModeBlock(s, mode);
   if (why) return why;
   const from = payShare(s);
+  // Отрезок минимального жалованья кончился — в счёт дел правителя (ПН-2: «Скупой», «Щедрый»).
+  closeWageMin(s);
   s.pay.wage = { mode, since: s.time, from };
   log(s, UPKEEP_TEXT.wageSet(mode), mode === 'full' ? 'good' : 'bad', 'wage');
   return null;

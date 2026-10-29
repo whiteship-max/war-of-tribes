@@ -17,6 +17,7 @@ import { RESOURCE_META } from '../constants';
 import { SHOP_LOT, gemLine, rushPriceOfWork, rushSeconds } from '../gemrules';
 import { layStock } from './admin';
 import { log } from './log';
+import { noteRulerDeed } from './dynasty';
 
 export {
   GEM_CONFIRM,
@@ -58,11 +59,12 @@ export const rushPrice = (b: Building): number => rushPriceOfWork(rushWork(b));
 /** Настоящие секунды нормативного ожидания, которые снимает ускорение. */
 export const rushLeft = (b: Building): number => rushSeconds(rushWork(b));
 
-/** Достроить стройку: уровень вверх, стройка снята — следующая в очереди становится первой сама. */
-export function finish(b: Building): void {
+/** Достроить стройку: уровень вверх, стройка снята — следующая в очереди становится первой сама. Уровень — дело правителя (ПН-2). */
+export function finish(s: GameState, b: Building): void {
   b.level += 1;
   b.work = 0;
   b.workRequired = 0;
+  noteRulerDeed(s, 'built');
 }
 
 // ------------------------------------------------ дела с сервера ---
@@ -94,7 +96,7 @@ export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number 
       const b = s.buildings.find((x) => x.type === e.building);
       const name = b ? buildingTitle(s, b.type) : (BUILDING_BY_ID as Record<string, { name: string } | undefined>)[e.building]?.name ?? e.building;
       if (b && isSite(b) && b.level + 1 === e.level) {
-        finish(b);
+        finish(s, b);
         log(s, `${name}: ур. ${b.level}, ускорено за ${-e.delta} алмазов.`, 'good', undefined, 'build');
       } else {
         // Номер — серверу описью: он вернёт списанное, если книга стройки подтвердит уровень работой посёлка (FIN-5).

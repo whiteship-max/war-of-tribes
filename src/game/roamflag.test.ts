@@ -99,7 +99,7 @@ describe('выключатель Пути меча закрыт до выпус�
         expect(line, `${relative(ROOT, p)}:${i + 1} — развилка без выключателя`).toMatch(/\bROAM_ON\s*&&/);
       });
     }
-    // Граница области: развилки есть — шаг, отлучка и дух.
-    expect([...new Set(forks)].sort()).toEqual(['game/sim/spirit.ts', 'game/sim/tick.ts']);
+    // Граница области: развилки есть — шаг, отлучка, дух и чей счёт дел (ПН-2: герой пути или правитель).
+    expect([...new Set(forks)].sort()).toEqual(['game/rulertraits.ts', 'game/sim/spirit.ts', 'game/sim/tick.ts']);
   });
 });

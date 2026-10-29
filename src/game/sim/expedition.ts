@@ -29,16 +29,20 @@ import { agentVacancyEvent, noteGone } from './recruit';
 import { raiseEvent } from './mail';
 import { commandBattle, commandVacancyEvent } from './command';
 import { hireWhere } from './hire';
-import type { FigureId, HomeEffect } from '@/world/types';
+import type { Fate, FigureId, HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
 import { addStock, outlay, trimStock } from './stock';
 import { stabAfterBattle } from './stability';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 import { noteBattle } from './spirit';
 import { movePrestige } from './prestige';
+import { noteRulerDeed } from './dynasty';
 import { noteFight } from './scars';
 import type { FightMark } from '../scarrules';
 import { count } from '@/ui/parts/plural';
+
+/** Участи взятого города, которые счёт правителя пишет жестокостью (ПН-2): огонь и неволя. */
+const CRUEL_FATES: readonly Fate[] = ['burn', 'captives'];
 
 /** Что случилось с деревней, пока отряд был в пути. */
 export interface ExpeditionOutcome {
@@ -119,6 +123,12 @@ export interface ExpeditionOutcome {
   deed?: Deed;
   /** Наш лагерь довёл осаду до конца: опыт осад полководца (`sim/agents.recordSiege`). */
   siege?: boolean;
+  /**
+   * Участь взятого нами города (не логова) и сдача на наших условиях — дела правителя (ПН-2: «Милостивый», «Жестокий»).
+   * Огонь и неволя — жестокость; сдача на условиях с участью без них — милость.
+   */
+  fate?: Fate;
+  terms?: boolean;
   /** Бой полководца для командиров флангов (ДР-5): опыт и гибель — `sim/command.commandBattle`. */
   flanks?: HomeEffect['flanks'];
   /** Агент карты погиб: `sim/agents.recordDeath`. Строка прежнего вида (до смертных агентов) не читается. */
@@ -397,6 +407,14 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.battle === 'lost') recordBattle(s, 'lost');
   // Память духа дружины (ДР-1): тот же итог боя, одной минутой со счётом битв.
   if (o.battle === 'won' || o.battle === 'lost') noteBattle(s, o.battle === 'won');
+  // Дела правителя (ПН-2) — после памяти духа: бой, который черту приносит, прибавки к памяти ещё не даёт (как слава
+  // полководца дома, `reputeMorale`).
+  if (o.battle === 'won' || o.battle === 'lost') noteRulerDeed(s, o.battle);
+  if (o.fate) {
+    const cruel = CRUEL_FATES.includes(o.fate);
+    if (cruel) noteRulerDeed(s, 'cruel');
+    else if (o.terms) noteRulerDeed(s, 'mercy');
+  }
   // Журнал боёв армии (ДР-4): метка боя — той же минутой; из журнала выводятся черты (`sim/scars`).
   if (o.scar) noteFight(s, o.scar);
   // Бой и падение двигают стабильность одной дверью (docs/stability.md, 2.2): бой — сдвигом мерой его морали, павший город —

@@ -17,7 +17,7 @@ export function rushFree(s: GameState, buildingId: number): string | null {
   const queued = rushQueued(s, b);
   if (queued) return queued;
   if (rushPrice(b) > 0) return 'Даром ускоряются только последние пять минут.';
-  finish(b);
+  finish(s, b);
   log(s, `${buildingTitle(s, b.type)}: ур. ${b.level}, ускорено даром.`, 'good', undefined, 'build');
   return null;
 }

@@ -433,6 +433,8 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     // Бой полководца для командиров флангов (ДР-5): опыт и гибель пишет племя.
     ...(e.flanks ? { flanks: e.flanks } : {}),
     siege: e.siege ?? false,
+    // Участь взятого нами города — дело правителя (ПН-2); счёт пишет племя.
+    ...(e.fate ? { fate: e.fate, terms: e.terms === true } : {}),
     fell: e.fell,
     retired: e.retired,
     text: e.text,

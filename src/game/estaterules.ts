@@ -116,8 +116,9 @@ export const PRIV_LOYALTY = (LOYAL - LOYALTY_BASE + ENVY + (ESTATES.length - 1) 
 export const greedOf = (infl: number): number => Math.max(0, infl - ESTATE_DOMINANT);
 
 /**
- * Слагаемые лояльности сословия: ровная, свои привилегии, чужие, вести и дары, перевес и командиры флангов (ДР-3: милость и
- * обида рыцарства — `commandrules.leadLoyalty`; у прочих сословий — ноль).
+ * Слагаемые лояльности сословия: ровная, свои привилегии, чужие, вести и дары, перевес, командиры флангов (ДР-3: милость и
+ * обида рыцарства — `commandrules.leadLoyalty`; у прочих сословий — ноль) и черты правителя (ПН-2: `rulertraits`, одно
+ * слагаемое на все черты).
  */
 export interface LoyaltyParts {
   base: number;
@@ -126,12 +127,13 @@ export interface LoyaltyParts {
   mood: number;
   greed: number;
   lead: number;
+  ruler: number;
 }
 
 /** Сословие, которому люди на местах командиров флангов не безразличны (ДР-3, К5): дружина и рыцарство. */
 export const LEAD_ESTATE: EstateId = 'knights';
 
-export function loyaltyParts(e: EstateId, priv: Privileges | undefined, infl: number, mood: number, lead = 0): LoyaltyParts {
+export function loyaltyParts(e: EstateId, priv: Privileges | undefined, infl: number, mood: number, lead = 0, ruler = 0): LoyaltyParts {
   const own = privOf(priv, e);
   return {
     base: LOYALTY_BASE,
@@ -140,11 +142,13 @@ export function loyaltyParts(e: EstateId, priv: Privileges | undefined, infl: nu
     mood: Number.isFinite(mood) ? mood : 0,
     greed: -greedOf(infl),
     lead: e === LEAD_ESTATE && Number.isFinite(lead) ? lead : 0,
+    ruler: Number.isFinite(ruler) ? ruler : 0,
   };
 }
 
 /** Лояльность из слагаемых, 0…100. */
-export const loyaltyFrom = (p: LoyaltyParts): number => Math.max(0, Math.min(100, p.base + p.own + p.envy + p.mood + p.greed + p.lead));
+export const loyaltyFrom = (p: LoyaltyParts): number =>
+  Math.max(0, Math.min(100, p.base + p.own + p.envy + p.mood + p.greed + p.lead + p.ruler));
 
 /** Во сколько раз верное сословие даёт свой плюс: 50 — как есть, 100 — вдвое, 0 — ничего. */
 export const loyaltyFactor = (loyalty: number): number => Math.max(0, Math.min(100, loyalty)) / LOYALTY_BASE;
@@ -201,10 +205,10 @@ export const MOOD_MAX = PRIV_LOYALTY + ENVY;
 
 /**
  * Лояльность сословия не выше этого — при любых дарах и вестях; `lead` — слагаемое командиров флангов подтверждённой книги
- * (ДР-3; у прочих сословий не спрашивается).
+ * (ДР-3; у прочих сословий не спрашивается), `ruler` — слагаемое черт правителя этого сословия (ПН-2, `rulerbook`).
  */
-export const loyaltyCeil = (e: EstateId, priv: Privileges | undefined, infl: number, lead = 0): number =>
-  loyaltyFrom(loyaltyParts(e, priv, infl, MOOD_MAX, lead));
+export const loyaltyCeil = (e: EstateId, priv: Privileges | undefined, infl: number, lead = 0, ruler = 0): number =>
+  loyaltyFrom(loyaltyParts(e, priv, infl, MOOD_MAX, lead, ruler));
 
 /** Наибольший плюс сословия при подтверждённом влиянии и указе: лояльность — сверху, сто. */
 export const plusCeil = (e: EstateId, infl: number, decree: boolean): number => plusOf(e, strengthOf(infl, decree), 100);

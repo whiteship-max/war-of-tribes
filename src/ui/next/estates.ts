@@ -28,6 +28,7 @@ import { DECREE_BY_ID, ESTATE_DECREE } from '@/game/data/policy';
 import { activeBoons, buildingTitle, decreeBlock, estateMurmur, estatesNow, levelsOf, type EstateNow } from '@/game/derived';
 import { signed } from '@/ui/parts/signed';
 import type { IconName } from '@/ui/icons/alias';
+import { RULER_TRAIT_BY_ID, rulerTraitsNow } from '@/game/rulertraits';
 
 /** Ступень лояльности: верны, выжидают, ропщут (пороги EU4). */
 export type LoyaltyState = keyof typeof LOYALTY_WORD;
@@ -140,6 +141,11 @@ export function loyaltyLines(s: GameState, e: EstateId): Line[] {
   if (n.parts.greed < 0) out.push({ label: 'Перевес: требует больше', value: n.parts.greed, icon: 'ui-warning' });
   // Командиры флангов (ДР-3): милость лордам на местах и обида за безродных — слагаемым той же мерки.
   if (n.parts.lead !== 0) out.push({ label: 'Командиры флангов', value: n.parts.lead, icon: 'hud-army' });
+  // Черты правителя (ПН-2): одно слагаемое, подпись — черты, которые его дают.
+  if (n.parts.ruler !== 0) {
+    const names = rulerTraitsNow(s).filter((id) => RULER_TRAIT_BY_ID[id].effect.loyalty?.[e]).map((id) => RULER_TRAIT_BY_ID[id].name);
+    out.push({ label: `Правитель: ${names.join(', ').toLowerCase()}`, value: n.parts.ruler, icon: 'ui-crown' });
+  }
   return out;
 }
 

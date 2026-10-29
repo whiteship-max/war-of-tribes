@@ -40,7 +40,7 @@ import { commandStep, commandVacancyEvent } from './command';
 import { scarsStep } from './scars';
 import { estatesStep } from './estates';
 import { settleHires } from './hire';
-import { dynastyStep } from './dynasty';
+import { dynastyStep, noteRulerDeed } from './dynasty';
 import { siegeHunger } from './siege';
 import { settleWounds } from './infirmary';
 import { log, trimLog } from './log';
@@ -152,6 +152,8 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
       site.level += 1;
       site.work = 0;
       site.workRequired = 0;
+      // Уровень достроен — дело правителя (ПН-2: «Строитель»).
+      noteRulerDeed(s, 'built');
       log(s, `Достроили: ${BUILDING_BY_ID[site.type].name.toLowerCase()}, ур. ${site.level}.`, 'good', undefined, 'build');
     }
   }

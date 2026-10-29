@@ -12,12 +12,13 @@
 //      (`roamrules.bandHunger`, как амбар города);
 //   3. содержание: кошель, долг, терпение, уход (`sim/upkeep.bandUpkeep`).
 // Дух не тикает: он читается из этих полей (`sim/spirit.spiritIn`, входы отряда).
-import type { GameState, RoamOrigin, RoamState, TroopId, WoundGroup } from '../types';
+import type { GameState, RoamOrigin, RoamState, RulerTally, TroopId, WoundGroup } from '../types';
 import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
 import { TROOP_IDS } from '../data/troops';
 import { seasonMods } from '../derived';
 import { ROAM_ON } from '../roamflag';
 import { bandHunger, bandRationPerDay, forageShare } from '../roamrules';
+import { readTally } from '../rulertraits';
 import { troopTotal } from '../battle/kinds';
 // Мир — только данными (`world/data/*`): дверь режима марша (`world/gait`) тянет осаду и землю, и шаг города, который зовёт
 // этот модуль диспетчером, сдвинул бы ими первую загрузку.
@@ -80,7 +81,8 @@ export function beginRoam(s: GameState, start: RoamStart): string | null {
   if (!ROAM_ORIGINS.includes(start.origin)) return 'Такого происхождения нет.';
   const roam: RoamState = {
     origin: start.origin,
-    hero: { name: String(start.hero.name ?? '').slice(0, 40), war: Math.min(5, Math.max(1, count(start.hero.war))) },
+    // Начало пути — начало счёта дел героя (ПН-2, черты правителя): время на минимальном жалованье меряется от него.
+    hero: { name: String(start.hero.name ?? '').slice(0, 40), war: Math.min(5, Math.max(1, count(start.hero.war))), since: s.time },
     band: bandOf(start.band),
     wounded: [],
     purse: amount(start.purse),
@@ -136,7 +138,16 @@ export function mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'> {
     phase,
     roam: {
       origin: r.origin as RoamOrigin,
-      hero: { name: typeof hero.name === 'string' ? hero.name.slice(0, 40) : '', war: Math.min(5, Math.max(1, count(hero.war))) },
+      hero: {
+        name: typeof hero.name === 'string' ? hero.name.slice(0, 40) : '',
+        war: Math.min(5, Math.max(1, count(hero.war))),
+        ...(typeof hero.since === 'number' && Number.isFinite(hero.since) ? { since: hero.since } : {}),
+        // Счёт дел героя (ПН-2): та же проверка, что у правителя.
+        ...((): { deeds?: RulerTally } => {
+          const deeds = readTally(hero.deeds);
+          return deeds ? { deeds } : {};
+        })(),
+      },
       band: bandOf(r.band),
       wounded: woundsOf(r.wounded),
       purse: amount(r.purse),

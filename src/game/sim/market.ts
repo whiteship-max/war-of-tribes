@@ -33,6 +33,7 @@ import { loseBonded } from './population';
 import { rollShift } from './caravan';
 import { log } from './log';
 import { outlay } from './pay';
+import { rulerTraitNumbers } from '../rulertraits';
 
 // ---------- Чтения ----------
 //
@@ -94,9 +95,9 @@ export function marketPress(s: GameState, id: GoodId, now: number): number {
 
 /**
  * Прибавка к выручке рынка: Казначей (РТ-1, `treasurerMult`) и купечество (РТ-2, `merchantsMult`) — те же двери, что у налога;
- * потолок — `marketrules.BOOST_MAX`.
+ * «Торгаш» (черта правителя, ПН-2) — своей долей; потолок — `marketrules.BOOST_MAX`, выше него выручку не поднимает ничто.
  */
-export const marketBoost = (s: GameState): number => Math.min(BOOST_MAX, treasurerMult(s) * merchantsMult(s));
+export const marketBoost = (s: GameState): number => Math.min(BOOST_MAX, treasurerMult(s) * merchantsMult(s) * (1 + rulerTraitNumbers(s).trade));
 
 /** Цена следующей купленной штуки. */
 export const marketPrice = (s: GameState, def: GoodDef, now: number): number =>

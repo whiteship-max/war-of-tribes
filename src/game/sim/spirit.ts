@@ -14,6 +14,7 @@ import { buildingOfType, councilGift, estatesNow, fervour, foodShortfall, season
 import { FERVOUR_SCALE } from '../estaterules';
 import { gloryAfter, gloryAt, payShareAt, spiritNumbers, spiritOfIn, type SpiritIn, type SpiritView, type WageMode } from '../spiritrules';
 import { statueMorale } from '../statuerules';
+import { rulerTraitNumbers } from '../rulertraits';
 import { armyBar, stabLevel } from './stability';
 import { agentLevel, seated } from './agents';
 import { ROAM_ON } from '../roamflag';
@@ -58,6 +59,8 @@ export function spiritIn(s: GameState): SpiritIn {
     barracks: buildingOfType(s, 'barracks')?.level ?? 0,
     statue: statueMorale(buildingOfType(s, 'statue')?.level ?? 0),
     pay: payShare(s),
+    // Черты правителя (ПН-2): дисциплина — единственным чтением черт.
+    ruler: rulerTraitNumbers(s).drill,
   };
 }
 
@@ -81,6 +84,8 @@ function bandSpiritIn(s: GameState, r: NonNullable<GameState['roam']>): SpiritIn
     barracks: 0,
     statue: 0,
     pay: payShare(s),
+    // Черты героя пути (ПН-2) — та же дверь, что у правителя.
+    ruler: rulerTraitNumbers(s).drill,
   };
 }
 
@@ -104,7 +109,10 @@ export function spiritFedOf(s: GameState): Spirit | undefined {
  * пишет счёт битв (`sim/expedition`, рядом с `recordBattle`): бой — одним итогом.
  */
 export function noteBattle(s: GameState, won: boolean): void {
-  s.spirit = { glory: gloryAfter(gloryNow(s), won), at: s.time };
+  // Черта правителя (ПН-2: «Воитель», «Трус») — прибавкой к памяти этого исхода; черты — до этого боя (счёт дел пишет
+  // `sim/expedition` следом).
+  const r = rulerTraitNumbers(s);
+  s.spirit = { glory: gloryAfter(gloryNow(s), won, won ? r.won : r.lost), at: s.time };
 }
 
 /** Память из сохранения: только целая запись с числами; иначе — нет памяти. */
