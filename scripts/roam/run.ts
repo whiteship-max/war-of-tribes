@@ -8,6 +8,10 @@
 //      заменит. Слова «выведено» у такого раздела быть не может.
 //   3. Выведенное одним разделом для другого (`Ctx.share` / `Ctx.take`) несёт входы, на которых оно выведено: взявший обязан
 //      объявить их все, иначе исключение — заглушка не проходит через чужой раздел очищенной.
+// С ПН-3 у заглушки есть второй путь в раздел — дверь пути, которая сама читает заглушку игры (`game/roamstubs.roamStub`: фураж
+// лагеря, место выхода). Его держит сторож чтений (`watchStubs`): раздел, через дверь прочитавший заглушку, которой не объявил, —
+// то же исключение, что и у `Ctx.use`.
+import { watchStubs } from '../../src/game/roamstubs';
 import { INPUTS, TARGETS, type InputId, type InputValue, type TargetId } from './inputs';
 
 /** Размер прогона: малый — облако и дом, полный — ночь на сервере (`ROAM_SIZE=full`, deploy/ci/night-inner.sh). */
@@ -179,7 +183,16 @@ export async function render(sections: readonly Section[], size: Size, out: (lin
         return got.value as T;
       },
     };
-    await s.run(ctx);
+    let stray: string | null = null;
+    watchStubs((id) => {
+      if (!declared.has(id)) stray ??= `раздел «${s.title}» читает заглушку игры ${id} дверью, не объявив её в uses`;
+    });
+    try {
+      await s.run(ctx);
+    } finally {
+      watchStubs(null);
+    }
+    if (stray !== null) throw new Undeclared(stray);
     done.set(s.id, statusOf(s.uses));
   }
   const count = (st: Status): number => [...done.values()].filter((v) => v === st).length;

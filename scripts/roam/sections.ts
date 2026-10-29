@@ -11,7 +11,7 @@ import { GOOD_BY_ID } from '../../src/game/data/market';
 import { TROOP_BY_ID, TROOP_IDS } from '../../src/game/data/troops';
 import { buyUnit, depthOf, shiftOf } from '../../src/game/marketrules';
 import { dayRealSeconds, gameSeconds } from '../../src/game/pace';
-import { bandPatienceDays, bandRationPerDay, bandWage, bandWagesPerDay, fieldForage, forageShare } from '../../src/game/roamrules';
+import { bandPatienceDays, bandRationPerDay, bandWage, bandWagesPerDay, campSpirit, fieldForage, forageShare } from '../../src/game/roamrules';
 import { cargoCap } from '../../src/game/sim/roam';
 import { seasonModsFor } from '../../src/game/derived';
 import { SEASONS, SEASON_META } from '../../src/game/data/seasons';
@@ -23,6 +23,9 @@ import { menOfPower } from '../../src/world/garrison';
 import { BURN_IMMUNE, CASTLE_GOLD_PER_POWER, LAIR_GOLD_PER_POWER, TEST_TRAVEL_SPEED } from '../../src/world/data/tuning';
 import type { Gait } from '../../src/world/data/gait';
 import { standWay } from '../../src/world/roammove';
+import { campWorks, roamWalkMs } from '../../src/world/roam';
+import { nearestRuin } from '../../src/world/ruins';
+import { SICILY } from '../../src/world/spawn';
 import { pilot, player } from '../autopilot';
 import type { InputId } from './inputs';
 import { CAMPS, CAMP_NAME, type Origin } from './kinds';
@@ -90,13 +93,28 @@ export const PILOT: readonly InputId[] = [
   'marks',
   'reach',
   'recruits',
-  'forage',
   'foodMix',
   'defeat',
   'castleTiers',
   'board',
   'contracts',
+  // Мир дороги (`placeAll`): пул замков, место выхода дверью ПН-3 и его заглушки (зазор, руины); фураж лагеря стиля — дверью.
+  'pool',
+  'spawnGap',
+  'ruinBlock',
+  'ruinCap',
+  'forageHidden',
+  'forageRuin',
 ];
+
+/** Мир дороги автопилота: вольные замки пула и места выхода бродяг — дверями (`placeAll`), один на все партии. */
+function roadWorld(ctx: Pick<Ctx, 'use'>): Pick<PathKnobs, 'spawns' | 'castleRoads'> {
+  const rule = ctx.use('pool');
+  const size = Math.max(rule.base, Math.ceil(rule.world.bands * rule.share));
+  const w = placeAll(1, rule.world.lords, size, rule.world.bands);
+  const roads = (g: Gait): number[] => w.toFree.map((t) => t.hours[g]);
+  return { spawns: w.bands, castleRoads: { light: roads('light'), normal: roads('normal'), train: roads('train') } };
+}
 
 export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
   ctx.use('contractRule');
@@ -114,8 +132,8 @@ export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
     etalonUpkeep: ctx.use('etalons').tiers.map((t) => wagesOf(t) + rationOf(t) * food),
     marks: ctx.use('marks'),
     reach: ctx.use('reach'),
+    ...roadWorld(ctx),
     recruits: ctx.use('recruits'),
-    forage: ctx.use('forage'),
     foodMix: ctx.use('foodMix'),
     foodPrice: {
       village: ctx.use('village')('food'),
@@ -227,6 +245,51 @@ const band: Section = {
     const food = rationOf(EXAMPLE) * dayGame();
     ctx.line(`пример 3.3.2 — ${stackWords(EXAMPLE)}: жалованье ${Math.round(wage)} золота в настоящие сутки, паёк ${Math.round(food)} еды без фуража, ${Math.round(food * (1 - year))} с фуражом года`);
     ctx.line(`обоз примера обычным маршем — ${Math.round(cargoCap({ band: EXAMPLE, way: standWay('normal') }))}: паёк на ${fix(cargoCap({ band: EXAMPLE, way: standWay('normal') }) / rationOf(EXAMPLE) / dayGame(), 1)} настоящих сут без фуража`);
+  },
+};
+
+const camp: Section = {
+  id: 'camp',
+  title: 'Лагерь и руины',
+  gdd: '3.5.1, 3.5.3, 3.3.3',
+  doors: [
+    'roamrules.forageShare',
+    'roamrules.campSpirit',
+    'world/roam.campWorks',
+    'world/roam.roamWalkMs',
+    'ruins.nearestRuin',
+    'world/spawn.SICILY',
+    'derived.seasonModsFor',
+  ],
+  uses: ['forageHidden', 'forageRuin', 'campMorale', 'coldCamp', 'healOpen', 'ruinBlock', 'ruinCap'],
+  run(ctx) {
+    // Двери отряда — те же, что исполняет шаг бродяги: фураж по виду лагеря, строка духа «Лагерь», раненые; числа видов — заглушки.
+    ctx.line('фураж (доля пайка с земли) и дух лагеря по сезонам года 2+, двери отряда:');
+    ctx.line(`${padEnd('лагерь', 12)} ${SEASONS.map((x) => pad(SEASON_META[x].name, 16)).join('')}`);
+    for (const c of CAMPS) {
+      const rec = { kind: c, since: 0, builders: 0 };
+      const cells = SEASONS.map((x) => {
+        const mods = seasonModsFor(x, 2);
+        const morale = campSpirit(rec, mods);
+        return pad(`${pct(forageShare(mods, { camp: rec, way: standWay('normal') }))} ${morale >= 0 ? '+' : ''}${fix(morale, 1)}`, 16);
+      });
+      ctx.line(`${padEnd(CAMP_NAME[c], 12)} ${cells.join('')}`);
+    }
+    ctx.line(`раненые в открытом лагере встают в ${ctx.use('healOpen')} раза быстрее; в скрытом и в руинах — как в поле`);
+    // Рогатки — та же лестница, что у осадного лагеря с тыла (`works.sideWorks`), с древесиной лагеря игрока.
+    const at = [1, 3, 6, 12, 24];
+    ctx.line(`рогатки стоящего лагеря: ${at.map((h) => `${h} ч — ${pct(campWorks({ kind: 'open', since: 0, builders: 0 }, h * 3_600_000))}`).join(', ')}`);
+    ctx.line('');
+    const block = ctx.use('ruinBlock');
+    ctx.line(`руины — одни на квадрат ${block} × ${block} клеток, где мог стоять двор; встают в них до ${ctx.use('ruinCap')} человек`);
+    const near = SICILY.map((at) => {
+      const r = nearestRuin(at, 3 * block);
+      return r ? { cells: Math.hypot(r.x - at.x, r.y - at.y), hours: roamWalkMs(at, r, 'normal') / 3_600_000 } : null;
+    });
+    const got = near.filter((x): x is { cells: number; hours: number } => x !== null);
+    ctx.line(
+      `от ${SICILY.length} мест Сицилии до ближайших руин (не дальше ${3 * block} клеток): нашлись у ${got.length}; клеток — медиана ${fix(median(got.map((x) => x.cells)), 1)}, худшее ${fix(Math.max(...got.map((x) => x.cells)), 1)}; путь отряда обычным — медиана ${hrs(median(got.map((x) => x.hours)))}`,
+    );
   },
 };
 
@@ -608,15 +671,14 @@ const pool: Section = {
   gdd: '6.4, 3.11.1, 3.5.6',
   doors: [
     'settle.placeCastle',
-    'geo.travelTime',
-    'geo.terrainFactor',
-    'pvp.generalSpeed',
+    'world/roam.placeBand',
+    'world/roam.roamWalkMs',
     'data/events.GATE_POWER',
     'garrison.menOfPower',
     'tuning.CASTLE_GOLD_PER_POWER',
     'tuning.BURN_IMMUNE',
   ],
-  uses: [...PILOT, 'pool', 'spawnGap'],
+  uses: PILOT,
   run(ctx) {
     const tiers = ctx.use('castleTiers');
     const rule = ctx.use('pool');
@@ -632,14 +694,17 @@ const pool: Section = {
     const p = ctx.take<Pilot>('pilot');
     const share = p.runs.filter((r) => r.castleAt !== null).length / p.runs.length;
     ctx.line('');
-    ctx.line(`пул = max(${rule.base}, ceil(бродяг × ${rule.share})); выход — не ближе ${gap} клеток к замкам игроков; ${ctx.size.pool} расселений на строку`);
+    ctx.line(
+      `пул = max(${rule.base}, ceil(бродяг × ${rule.share})); выход — дверью placeBand: у руин или опушки, не ближе ${gap} клеток к замкам игроков и к новичкам; ${ctx.size.pool} расселений на строку`,
+    );
+    ctx.line(`мир дороги автопилота: ${rule.world.bands} бродяг, ${rule.world.lords} лордов; путь до ближайшего вольного — обычным маршем`);
     ctx.line(`дошли до замка за ${LIMIT_DAYS} сут у автопилота: ${pct(share)} — столько замков нужно на бродягу к сроку`);
     ctx.line(`${pad('бродяг', 7)} ${pad('лордов', 7)} ${pad('пул', 5)} ${pad('нужно к сроку', 14)} ${pad('до ближ. вольного', 18)} ${pad('худший', 8)}`);
     for (const bands of [2, 5, 20, 50]) {
       const size = Math.max(rule.base, Math.ceil(bands * rule.share));
       for (const lords of [0, bands]) {
-        const to = Array.from({ length: ctx.size.pool }, (_, run) => placeAll(run + 1, lords, size, bands, gap).toFree).flat();
-        const hours = to.map((x) => x.hours);
+        const to = Array.from({ length: ctx.size.pool }, (_, run) => placeAll(run + 1, lords, size, bands).toFree).flat();
+        const hours = to.map((x) => x.hours.normal);
         ctx.line(
           `${pad(bands, 7)} ${pad(lords, 7)} ${pad(size, 5)} ${pad(fix(bands * share, 1), 14)} ${pad(hrs(median(hours)), 18)} ${pad(hrs(Math.max(...hours)), 8)}`,
         );
@@ -684,4 +749,4 @@ const sight: Section = {
   },
 };
 
-export const SECTIONS: readonly Section[] = [pay, band, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, sight];
+export const SECTIONS: readonly Section[] = [pay, band, camp, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, sight];

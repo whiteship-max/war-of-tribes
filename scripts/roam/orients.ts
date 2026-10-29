@@ -7,7 +7,7 @@
 // без строки здесь — красный тест.
 
 /** Разделы этого прибора, в которых ориентир — вход или цель. */
-export type RoamSectionId = 'pay' | 'band' | 'rate' | 'upgrade' | 'road' | 'contract' | 'foes' | 'prestige' | 'castle' | 'parity' | 'pool' | 'sight';
+export type RoamSectionId = 'pay' | 'band' | 'camp' | 'rate' | 'upgrade' | 'road' | 'contract' | 'foes' | 'prestige' | 'castle' | 'parity' | 'pool' | 'sight';
 
 export interface Orient {
   gdd: string;
@@ -69,7 +69,8 @@ export const ORIENTS: readonly Orient[] = [
     not: 'кузни в модели нет (ПН-6); войдёт строкой доли обнаружений',
   },
   { gdd: '3.5.1', what: 'руины — заметность ×0.3', in: ['sight'] },
-  { gdd: '3.5.3', what: 'заметность и фураж лагеря трёх видов', in: ['sight', 'castle'] },
+  // С ПН-3 фураж вида лагеря читает дверь (`roamrules.campForage`) заглушкой игры (`game/roamstubs`); заметность — ПН-4у.
+  { gdd: '3.5.3', what: 'заметность и фураж лагеря трёх видов', in: ['camp', 'sight', 'castle'] },
   {
     gdd: '3.5.4',
     what: 'множители заметности и радиусы наблюдателей',
@@ -82,8 +83,8 @@ export const ORIENTS: readonly Orient[] = [
   },
   {
     gdd: '3.5.6',
-    what: 'место выхода — не ближе 25 клеток к замкам игроков',
-    in: ['pool'],
+    what: 'место выхода — не ближе 25 клеток к замкам игроков и к новичкам (дверь ПН-3 `placeBand`, число — заглушка игры)',
+    in: ['pool', 'castle'],
   },
   {
     gdd: '3.5.7',

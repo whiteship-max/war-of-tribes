@@ -7,6 +7,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { TroopStack } from '../../src/game/battle/kinds';
 import { MIX, stackOf } from '../autopilot';
+import { ROAM_STUBS, roamStubIds } from '../../src/game/roamstubs';
+import { campForage } from '../../src/game/roamrules';
 import { INPUTS, type InputId, type InputValue } from './inputs';
 import { ORIENTS, orientSections } from './orients';
 import { STYLES, runPath } from './path';
@@ -34,8 +36,8 @@ describe('разделы — те, что называют ГДД 6.5 и пач�
   it('сразу на дверях кода и на автопилоте, по порядку', () => {
     // ГДД 7.1, ПН-0: содержание эталонов тира, цены повышения, сроки пути, плата договоров, ценность города для паритета;
     // 6.5: темп престижа, медиана до замка, паритет, сила НПС, курс припаса, пул, доля обнаружений по видам лагеря.
-    // ПН-1 добавил раздел дверей отряда (`band`) — содержание, терпение, обоз и фураж бродяги.
-    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'sight']);
+    // ПН-1 добавил раздел дверей отряда (`band`) — содержание, терпение, обоз и фураж бродяги; ПН-3 — лагерь и руины (`camp`).
+    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'sight']);
   });
 
   it('у каждого раздела — раздел ГДД и двери кода или входы', () => {
@@ -64,7 +66,7 @@ describe('заглушка не выдаётся за выведенное', () 
   it('у разделов автопилота, ценности, пула и видимости заглушки есть; у пути и у отряда — нет ни одного входа', () => {
     // Граница: что из разделов стоит на заглушках сейчас, до пачек ПН-1…ПН-17. Пачка, заменившая вход дверью, правит эту строку
     // тем же коммитом — и раздел честно переходит в «выведено».
-    for (const id of ['contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'sight']) {
+    for (const id of ['camp', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'sight']) {
       expect(statusOf((SECTIONS.find((s) => s.id === id) as Section).uses), id).toBe('НЕ ИЗМЕРЕНО');
     }
     expect(statusOf((SECTIONS.find((s) => s.id === 'road') as Section).uses)).toBe('выведено');
@@ -73,7 +75,7 @@ describe('заглушка не выдаётся за выведенное', () 
   });
 
   it('напечатанный статус каждого раздела — тот, что выводится из входов, и слова «выведено» у раздела на заглушках нет', async () => {
-    const out = await lines(SECTIONS, ['pay', 'band', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'pool', 'sight']);
+    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'pool', 'sight']);
     const heads = out.filter((l) => l.startsWith('━━ ') && !l.startsWith('━━ Итог'));
     const statuses = out.filter((l) => l.startsWith('статус: '));
     expect(statuses.length).toBe(heads.length);
@@ -82,7 +84,7 @@ describe('заглушка не выдаётся за выведенное', () 
       expect(heads[i], s.id).toContain(s.title);
       expect(statuses[i], `«${s.title}»: статус из входов`).toBe(`статус: ${statusOf(s.uses)}`);
     });
-    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 11 ━━$/);
+    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 12 ━━$/);
   });
 
   it('вход, не объявленный разделом, — исключение', async () => {
@@ -136,10 +138,38 @@ describe('двери ПН-1 вместо входов', () => {
   it('у прибора нет входа пачки ПН-1: терпение, фураж сезона и содержание отряда — двери', () => {
     // Граница: пачка ПН-1 закрыта — её входы (терпение, фураж сезона) ушли, а вид лагеря остался ориентиром ПН-3.
     expect(Object.entries(INPUTS).filter(([, i]) => i.batch === 'ПН-1').map(([k]) => k)).toEqual([]);
-    expect(INPUTS.forage.batch).toBe('ПН-3');
     const src = readFileSync(path.join(HERE, 'path.ts'), 'utf8');
     for (const door of ['bandUpkeep(', 'forageShare(', 'bandRationPerDay(', 'cargoCap(']) expect(src, `автопилот зовёт ${door}`).toContain(door);
     expect(src, 'своего ухода у модели нет').not.toMatch(/DESERT_SHARE/);
+  });
+});
+
+describe('двери ПН-3 вместо входов', () => {
+  it('у прибора нет входа пачки ПН-3: ход, лагерь и место выхода — двери, а их числа без вывода — заглушки игры', () => {
+    // Граница: пачка ПН-3 закрыта — дорога до замка, фураж вида лагеря и место выхода ушли в двери (`world/roam`, `roamrules`);
+    // чего вывести нечем, лежит заглушкой игры (`game/roamstubs`) и входит в прибор тем же числом, а не вторым.
+    expect(Object.entries(INPUTS).filter(([, i]) => i.batch === 'ПН-3').map(([k]) => k)).toEqual([]);
+    const src = readFileSync(path.join(HERE, 'path.ts'), 'utf8') + readFileSync(path.join(HERE, 'pool.ts'), 'utf8');
+    for (const door of ['placeBand(', 'roamWalkMs(', 'roamCellBlock(']) expect(src, `автопилот зовёт ${door}`).toContain(door);
+  });
+
+  it('каждая заглушка игры — вход-заглушка прибора с тем же числом, разделом ГДД и пачкой', () => {
+    const inputs: Record<string, { kind: string; value: unknown; gdd: string; batch: string; orient?: boolean }> = INPUTS;
+    expect(roamStubIds().length).toBeGreaterThan(0);
+    for (const id of roamStubIds()) {
+      const i = inputs[id];
+      expect(i, `заглушка игры ${id} — вход прибора`).toBeDefined();
+      expect(i.kind, id).toBe('stub');
+      expect([i.value, i.gdd, i.batch, i.orient], id).toEqual([ROAM_STUBS[id].value, ROAM_STUBS[id].gdd, ROAM_STUBS[id].batch, ROAM_STUBS[id].orient]);
+    }
+  });
+
+  it('раздел, прочитавший заглушку игры дверью без объявления, — исключение; объявивший — проходит', async () => {
+    const sly: Section = { id: 'sly', title: 'Хитрый', gdd: '0', doors: ['roamrules.campForage'], uses: [], run: () => void campForage('hidden') };
+    await expect(render([sly], TINY, () => {})).rejects.toThrow(/заглушку игры forageHidden/);
+    await expect(render([{ ...sly, uses: ['forageHidden'] }], TINY, () => {})).resolves.toBeDefined();
+    // Сторож снят после раздела: чтение вне прибора никого не роняет.
+    expect(campForage('hidden')).toBe(ROAM_STUBS.forageHidden.value);
   });
 });
 
@@ -206,7 +236,7 @@ describe('детерминизм по сиду', () => {
   });
 
   it('малый прогон разделов повторяется строка в строку', async () => {
-    const only = ['pay', 'band', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'pool', 'sight'];
+    const only = ['pay', 'band', 'camp', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'pool', 'sight'];
     expect(await lines(SECTIONS, only)).toEqual(await lines(SECTIONS, only));
   });
 });

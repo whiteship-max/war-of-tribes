@@ -14,6 +14,7 @@
 import { GOOD_BY_ID, MIN_MARKUP } from '../../src/game/data/market';
 import { TROOP_BY_ID } from '../../src/game/data/troops';
 import { selfCost } from '../../src/game/selfcost';
+import { ROAM_STUBS, type RoamStubId } from '../../src/game/roamstubs';
 import type { EquipmentId, ResourceId, TroopId } from '../../src/game/types';
 import type { TroopStack } from '../../src/game/battle/kinds';
 import type { Gait } from '../../src/world/data/gait';
@@ -37,6 +38,16 @@ export interface Input<T = unknown> {
 
 const rule = <T>(gdd: string, what: string, batch: string, value: T): Input<T> => ({ kind: 'rule', gdd, what, batch, value });
 const stub = <T>(gdd: string, what: string, batch: string, value: T, orient = true): Input<T> => ({ kind: 'stub', gdd, what, batch, orient, value });
+
+/**
+ * Заглушка игры (`game/roamstubs`, ПН-3): число, которое ходу и лагерю нужно сейчас, а вывести нечем. Число одно — прибор берёт
+ * его оттуда, а не пишет второй раз; двери пути читают его там же (`roamStub`), и раздел, прочитавший заглушку дверью, обязан
+ * объявить её здесь (сторож чтений — `run.ts`).
+ */
+const fromGame = (id: RoamStubId): Input<number> => {
+  const g = ROAM_STUBS[id];
+  return stub(g.gdd, g.what, g.batch, g.value, g.orient);
+};
 
 /** Цена повышения А → Б по правилу ГДД 3.4.2: разница снаряжения и припаса найма по основе цен рынка, без нажима. */
 export function upgradePrice(from: TroopId, to: TroopId): number {
@@ -175,7 +186,9 @@ export const INPUTS = {
     },
     false,
   ),
-  reach: stub('3.5.6', 'клеток до дела и до вольного замка', 'ПН-3', { deed: [5, 25] as const, castle: [15, 40] as const }, false),
+  // До вольного замка — с ПН-3 дверями: место выхода (`world/roam.placeBand`) и путь отряда (`roamWalkMs`) до ближайшего замка пула.
+  // До дела — точки НПС (ПН-5): их на карте ещё нет, и дорога до дела — путь отряда той же дверью на брошенное расстояние.
+  reach: stub('3.6.2', 'клеток до дела — точки НПС на карте придут с ПН-5', 'ПН-5', { deed: [5, 25] as const }, false),
   recruits: stub('3.4.1', 'весть «Просятся в отряд»: сколько по ступени престижа, как часто, множитель лагеря', 'ПН-6', {
     per: [
       [2, 4],
@@ -187,12 +200,6 @@ export const INPUTS = {
     every: [6, 10] as const,
     camp: { open: 1.5, hidden: 0.5, ruin: 0.8 } as Record<Camp, number>,
   }),
-  // Фураж сезона — дверь ПН-1 (`roamrules.forageShare`: поле сезона из `SEASON_MODIFIERS`); вид лагеря — ориентир ПН-3.
-  forage: stub('3.5.3', 'фураж по виду лагеря: открытый — полный, скрытый ×0.5, в руинах ×0.8 (сезон — дверь ПН-1)', 'ПН-3', {
-    open: 1,
-    hidden: 0.5,
-    ruin: 0.8,
-  } as Record<Camp, number>),
   foodMix: stub('3.3.4', 'откуда бродяга берёт еду сверх фуража: доля села, остальное — рынок города', 'ПН-5', 0.7, false),
   defeat: stub('3.6.4', 'поражение: кошель перебитого — 50 % победителю; престиж проигравшего −10 %', 'ПН-5', { purse: 0.5, prestige: 0.1 }),
   castleTiers: stub('3.11.1', 'ступени вольных замков: гарнизон — строка таблицы у ворот уровня 2, 4, 6; население; доступ по престижу', 'ПН-10', [
@@ -204,8 +211,22 @@ export const INPUTS = {
     levels: { palisade: 2, tower: 2 } as const,
   }),
   valuePrices: stub('4.5', 'цены ценности города: работа строителя, мощь войска, очко правителя (золото)', 'ПН-11', { work: 1, power: 10, point: 5 }, false),
-  pool: stub('6.4', 'пул вольных замков: max(базовый, ceil(бродяг × 0.5)); базовый', 'ПН-10', { share: 0.5, base: 4 }),
-  spawnGap: stub('3.5.6', 'место выхода бродяги — не ближе 25 клеток к замкам игроков', 'ПН-17', 25),
+  // `world` — мир, на котором автопилот берёт дорогу до замка: бродяг и лордов на нём, пул — по правилу.
+  pool: stub('6.4', 'пул вольных замков: max(базовый, ceil(бродяг × 0.5)); базовый; мир дороги автопилота — бродяг и лордов', 'ПН-10', {
+    share: 0.5,
+    base: 4,
+    world: { bands: 20, lords: 20 },
+  }),
+
+  // ---------- заглушки игры (ПН-3): числа хода и лагеря, которые двери пути читают сейчас ----------
+  spawnGap: fromGame('spawnGap'),
+  ruinCap: fromGame('ruinCap'),
+  ruinBlock: fromGame('ruinBlock'),
+  forageHidden: fromGame('forageHidden'),
+  forageRuin: fromGame('forageRuin'),
+  campMorale: fromGame('campMorale'),
+  coldCamp: fromGame('coldCamp'),
+  healOpen: fromGame('healOpen'),
   camps: stub('3.5.3', 'заметность лагеря: открытый ×1.3, скрытый ×0.7, в руинах ×0.3', 'ПН-4у', { open: 1.3, hidden: 0.7, ruin: 0.3 } as Record<Camp, number>),
   sight: stub('3.5.4', 'заметность: местность, в пути ×1.5, размер (люди/20)^0.5 не ниже 0.5, ночь 0.7, режим марша; обзор отряда 8, следопыт ×1.5', 'ПН-4у', {
     terrain: {

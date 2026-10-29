@@ -7,8 +7,9 @@
 // героя и уход равной долей (`sim/upkeep.bandUpkeep` на партии-оболочке), вместимость обоза (`sim/roam.cargoCap`); мощь и перевод в бой
 // (`price.troopPower`, `kindsOf`), бой в поле и у стены ядром мира (`world/battle.resolveField`, `fights.wallFight`), отряд и
 // гарнизон НПС (`garrison.raidingParty`, `garrisonOf`), потери долей родов (`price.shareLosses`), престиж и его ступень по
-// порогам-заглушкам (`sim/prestige.prestigeAfter`, `prestigeStage`, ПН-2), путь
-// (`geo.travelTime`, `pvp.generalSpeed`, `pace.realMs`) и случайность (`sim/random.seeded`). Каждая пачка заменяет свою часть
+// порогам-заглушкам (`sim/prestige.prestigeAfter`, `prestigeStage`, ПН-2), место выхода и путь отряда — дверями хода ПН-3
+// (`world/roam.placeBand`, `roamWalkMs`; до вольного замка — по миру дороги, `pool.ts`), лагерь — видом в записи хода (фураж —
+// `forageShare`) и случайность (`sim/random.seeded`). Каждая пачка заменяет свою часть
 // дверью, и тогда этот модуль худеет до вызова настоящего шага.
 //
 // Устройство. Время — настоящие часы от выхода. Игрок заходит 3–5 раз в сутки в часы бодрствования (правило 2.4); на заходе
@@ -28,6 +29,8 @@ import { mixSeed, seeded } from '../../src/game/sim/random';
 import { wallFight } from '../../src/world/fights';
 import { garrisonOf } from '../../src/world/garrison';
 import { travelTime } from '../../src/world/geo';
+import { roamCellBlock, roamWalkMs } from '../../src/world/roam';
+import type { Spot } from '../../src/world/settle';
 import { generalSpeed } from '../../src/world/pvp';
 import { SCALING, wallFront } from '../../src/world/wall';
 import { LAIR_GOLD_PER_POWER } from '../../src/world/data/tuning';
@@ -102,14 +105,17 @@ export interface PathKnobs {
   /** Содержание эталона тира I…III, золота за игровой день. */
   etalonUpkeep: readonly number[];
   marks: { share: Record<Mark, number>; ripe: readonly [number, number] };
-  reach: { deed: readonly [number, number]; castle: readonly [number, number] };
+  /** Клеток до дела: точки НПС на карте придут с ПН-5. */
+  reach: { deed: readonly [number, number] };
+  /** Места выхода бродяг на мире дороги (`world/roam.placeBand`, `pool.ts`): партия выходит из своего. */
+  spawns: readonly Spot[];
+  /** Настоящих часов от места выхода до ближайшего вольного замка пула — путь отряда (`roamWalkMs`) по режиму, по месту выхода. */
+  castleRoads: Record<Gait, readonly number[]>;
   recruits: {
     per: readonly (readonly [number, number])[];
     every: readonly [number, number];
     camp: Record<Camp, number>;
   };
-  /** Фураж по виду лагеря (ориентир ПН-3); сезон — дверь ПН-1. */
-  forage: Record<Camp, number>;
   /** Доля еды из села; остальное — рынок города. */
   foodMix: number;
   /** Золота за единицу еды: село и рынок города. */
@@ -180,6 +186,19 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
   const rng = seeded(root);
   const between = (lo: number, hi: number): number => lo + (hi - lo) * rng();
   const whole = (lo: number, hi: number): number => Math.floor(between(lo, hi + 1));
+  // Место выхода партии и её дорога до ближайшего вольного замка — дверями хода на мире дороги (`knobsOf`).
+  const spot = (seed - 1) % k.spawns.length;
+  const home = k.spawns[spot];
+  /** Дорога до дела — путь отряда (`roamWalkMs`) от места выхода к суше на брошенном расстоянии; вода и край — бросок заново. */
+  const deedRoad = (): number => {
+    const d = between(k.reach.deed[0], k.reach.deed[1]);
+    for (let i = 0; i < 8; i++) {
+      const a = rng() * Math.PI * 2;
+      const to = { x: Math.round(home.x + Math.cos(a) * d), y: Math.round(home.y + Math.sin(a) * d) };
+      if (roamCellBlock(to) === null) return roamWalkMs(home, to, style.gait) / 3_600_000;
+    }
+    return roadHours(d, style.gait);
+  };
   const band: TroopStack = { ...origin.band };
   // Партия-оболочка с отрядом бродяги: двери ПН-1 шагают её так же, как партию игрока. Отряд — тот же объект, что у модели.
   const party = createInitialState(root);
@@ -333,7 +352,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
       if (scout >= style.storm) {
         deed++;
         run.storms++;
-        const road = roadHours(between(k.reach.castle[0], k.reach.castle[1]), style.gait);
+        const road = k.castleRoads[style.gait][spot];
         busyUntil = at + 2 * road;
         live(at + road);
         const r = stormFight(band, k.castle.power, mixSeed(root, 5000 + deed));
@@ -353,7 +372,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
       const mark: Mark = MARKS[whole(0, MARKS.length - 1)];
       const tier = whole(1, k.stageTier[s]);
       const foe = table[s] * k.marks.share[mark] * between(k.marks.ripe[0], k.marks.ripe[1]);
-      const road = roadHours(between(k.reach.deed[0], k.reach.deed[1]), style.gait);
+      const road = deedRoad();
       const roadDays = road * dayPerHour();
       // Договор (3.8.3): содержание эталона тира на срок и доля риска — добыча, у Воина и Уведённого её больше (3.1).
       const pay = k.etalonUpkeep[tier - 1] * (k.term.roads * roadDays + k.term.days) * k.K + foe * LAIR_GOLD_PER_POWER * k.R * origin.loot;
