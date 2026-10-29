@@ -128,7 +128,7 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'agents', 'estates', 'market', 'deeds', 'bonded', 'spirit', 'command', 'scars']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat', 'starve', 'stab', 'crown', 'prod', 'merge', 'council', 'agents', 'estates', 'market', 'deeds', 'bonded', 'spirit', 'command', 'scars', 'ruler']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
@@ -1187,5 +1187,46 @@ describe('ДР-4: черты армии на сервере — честная �
     expect(w).toMatch(/не из таблицы: «dragon»/);
     expect(w).toMatch(/больше 3/);
     expect(w).toMatch(/которых у сервера нет: w9\.0/);
+  });
+});
+
+// Черты правителя (ПН-2, docs/gdd/path_of_sword.md, «Решения ПН-2»): опись несёт счёт дел и черты клиента; сервер выводит черты
+// из счёта той же функцией (`rulertraits.rulerTraitsOf`) и сверяет счёт между описями (`rulerbook.rulerFaults`, `rulerFlags`).
+// Область правила: опись с правителем; «Воитель» — пять побед без поражений (форма «Победоносного»), точка внутри — утверждением.
+describe('ПН-2: черты правителя на сервере — честная опись без флага, подделка — «внимание:»', () => {
+  const deeds = (over: Record<string, number> = {}): Record<string, number> => ({
+    won: 0, lost: 0, fled: 0, built: 0, feasts: 0, mercy: 0, cruel: 0, days: 2, minDays: 0, ...over,
+  });
+  it('пять побед — «Воитель»; дальше счёт растёт с боями описи — без флага', async () => {
+    const honest = player(5711);
+    expect(await honest.push(card({ won: 5, ruler: { n: 0, held: ['warrior'], deeds: deeds({ won: 5 }) } }), NOW)).toBe(200);
+    const later = NOW + HOUR;
+    const t = 1000 + gameSecondsOfMs(HOUR);
+    expect(await honest.push(card({ clock: later, time: t, won: 6, ruler: { n: 0, held: ['warrior'], deeds: deeds({ won: 6, days: 2 + gameDaysOfMs(HOUR) }) } }), later)).toBe(200);
+    expect(kinds(await honest.watch())).not.toContain('ruler');
+  });
+  it('черта не из таблицы и черта без дел — «внимание:»', async () => {
+    const forged = player(5712);
+    expect(await forged.push(card({ won: 2, ruler: { n: 0, held: ['warrior', 'dragon'], deeds: deeds({ won: 2 }) } }), NOW)).toBe(200);
+    const w = warnings(await forged.watch()).join(' ');
+    expect(w).toMatch(/«dragon» — таких нет/);
+    expect(w).toMatch(/«Воитель» — счёт дел их не даёт/);
+  });
+  it('счёт убыл, побед больше, чем в описи, пиров чаще отката, правления быстрее часов — «внимание:»', async () => {
+    const forged = player(5713);
+    expect(await forged.push(card({ won: 5, ruler: { n: 0, held: ['warrior'], deeds: deeds({ won: 5, feasts: 1 }) } }), NOW)).toBe(200);
+    const later = NOW + MIN;
+    const t = 1000 + gameSecondsOfMs(MIN);
+    expect(gameDaysOfMs(MIN), 'граница: минута — меньше игрового дня').toBeLessThan(1);
+    const next = deeds({ won: 9, lost: 0, feasts: 7, days: 40 });
+    expect(await forged.push(card({ clock: later, time: t, won: 6, ruler: { n: 0, held: ['warrior', 'generous'], deeds: { ...next, built: 0, mercy: 0 } } }), later)).toBe(200);
+    const w = warnings(await forged.watch()).join(' ');
+    expect(w).toMatch(/побед прибавилось 4, а в описи — 1/);
+    expect(w).toMatch(/пиров прибавилось 6 за [0-9,]+ игр\. дн\. — откат трактира даёт не больше 1\./);
+    expect(w).toMatch(/правления прибавилось 38 игр\. дн\./);
+    const back = player(5714);
+    expect(await back.push(card({ won: 5, ruler: { n: 0, held: ['warrior'], deeds: deeds({ won: 5 }) } }), NOW)).toBe(200);
+    expect(await back.push(card({ clock: later, time: t, won: 5, ruler: { n: 0, held: [], deeds: deeds({ won: 3 }) } }), later)).toBe(200);
+    expect(warnings(await back.watch()).join(' ')).toMatch(/Счёт дел правителя убыл: won 5 → 3/);
   });
 });

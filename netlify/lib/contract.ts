@@ -2179,6 +2179,40 @@ export interface WatchCard {
    * до ДР-4 или журнал пуст.
    */
   scars?: WatchScars;
+  /**
+   * Правитель (ПН-2, docs/gdd/path_of_sword.md, «Решения ПН-2»): номер человека дома, черты, как назвал их клиент, и счёт дел
+   * в минуту описи — для книги сословий, потолков духа, рынка и стройки и правила «ruler» (`rulerbook`): черты сервер выводит
+   * из счёта той же функцией, что игра. Нет поля — дел у правителя ещё не было.
+   */
+  ruler?: WatchRuler;
+}
+
+/** Правитель в описи (ПН-2): счёт дел — именами `rulertraits.RULER_DEED_KEYS`, числа — как есть (вне шкалы — флаг правила). */
+export interface WatchRuler {
+  /** Номер человека дома (`HousePerson.n`); у героя пути — −1. Новый номер — новый счёт. */
+  n: number;
+  /** Черты, как назвал их клиент (чужое имя — флаг). */
+  held: string[];
+  /** Счёт дел: бои, уровни, праздники, участи, дни правления и дни на минимальном жалованье. */
+  deeds: Record<string, number>;
+  /** Происхождение героя пути (ГДД 3.1). */
+  origin?: string;
+}
+
+/** Правитель описи: номер — целый не ниже −1, черты — строки до 24 знаков, счёт — до 16 имён латиницей, числа ±1e12. */
+function readWatchRuler(v: unknown): Pick<WatchCard, 'ruler'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  if (typeof r.n !== 'number' || !Number.isInteger(r.n) || r.n < -1 || r.n > 1e9) return {};
+  const held = (Array.isArray(r.held) ? r.held : []).filter((t): t is string => typeof t === 'string' && t.length > 0 && t.length <= 24).slice(0, 16);
+  const deeds: Record<string, number> = {};
+  const raw = r.deeds && typeof r.deeds === 'object' ? (r.deeds as Record<string, unknown>) : {};
+  for (const [k, x] of Object.entries(raw).slice(0, 16)) {
+    const n = num(x);
+    if (/^[a-zA-Z]{1,12}$/.test(k) && n !== null) deeds[k] = Math.max(-1e12, Math.min(1e12, n));
+  }
+  const origin = str(r.origin, 16);
+  return { ruler: { n: r.n, held, deeds, ...(origin ? { origin } : {}) } };
 }
 
 /** Черты армии в описи (ДР-4): имена — как назвал клиент (чужое имя — флаг), номера боёв войны — строками. */
@@ -2599,6 +2633,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...readEstates(r.estates),
     ...readWatchSpirit(r.spirit),
     ...readWatchScars(r.scars),
+    ...readWatchRuler(r.ruler),
   };
 }
 

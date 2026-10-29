@@ -71,6 +71,8 @@ export interface SpiritKnown {
   barracks: number;
   /** Уровень Статуи Героя книги стройки (ДР-7, `statuerules.statueMorale`). */
   statue: number;
+  /** Дисциплина черт правителя по счёту описи (ПН-2, `rulerbook.claimedRuler`); нет — ноль. */
+  ruler?: number;
 }
 
 /** Стойкость обряда — наибольшая по правилам (`book.RESOLVE_MAX`): обряда сервер не видит. */
@@ -97,6 +99,7 @@ export function spiritCeil(book: SpiritBook | undefined, known: SpiritKnown, at:
     barracks: Math.max(0, Math.min(MAX_BUILDING_LEVEL, known.barracks)),
     statue: statueMorale(known.statue),
     pay: bookShare(book, at),
+    ruler: known.ruler ?? 0,
   });
   return { morale: v.morale.value, discipline: v.discipline.value };
 }

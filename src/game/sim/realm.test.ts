@@ -372,11 +372,14 @@ describe('замки державы', () => {
   });
 
   /**
-   * Правитель даёт очки и ничего больше: числами, которыми уже владеет здание, он не владеет.
-   * Тот же запрет, что у навыков агентов (`data/agents.owners.test.ts`), только проверяемый с
-   * другой стороны — по тем модулям, куда прибавке правителя пролезть было бы проще всего.
+   * **Переписано вслух (ПН-2, решение владельца П10, docs/gdd/path_of_sword.md, 3.2.3).** Прежде здесь стояло «правитель даёт
+   * очки и ничего больше»: модули, куда прибавке правителя пролезть проще всего, не знали державы вовсе. С П10 у правителя есть
+   * черты — по образцу черт агентов, — и запрет стал тестом другой формы: эти модули **по-прежнему не знают `realm`**, а черты
+   * читают **только** числами `rulertraits.rulerTraitNumbers(s)` — одна дверь, второй правды о том, чем прослыл правитель, нет.
+   * Какое число черты какая дверь читает (ровно одна на число) и что бой ядра, очки, выработка и оборона черт не знают вовсе, —
+   * держит `game/rulertraits.test.ts`.
    */
-  it('ни выработка, ни оборона, ни мораль, ни мир о правителе не знают', () => {
+  it('выработка, оборона, мораль и мир державы не знают; черты читают только числами rulerTraitNumbers', () => {
     const closed = [
       join('src', 'game', 'derived.ts'),
       join('src', 'world', 'bridge.ts'),
@@ -387,8 +390,26 @@ describe('замки державы', () => {
     for (const rel of closed) {
       const file = sources().find((f) => f.endsWith(rel));
       expect(file, `${rel} не найден`).toBeTruthy();
-      expect(bare(file as string), `${rel} читает державу`).not.toMatch(/\brealm\b/);
+      const code = bare(file as string);
+      expect(code, `${rel} читает державу`).not.toMatch(/\brealm\b/);
+      // Из двери черт — только числа (и формула общего потолка Старосты), а не таблица, счёт или черты по именам.
+      const taken = [...code.matchAll(/import\s*\{([^}]*)\}\s*from\s*'[^']*rulertraits'/g)].flatMap((m) => m[1].split(',').map((x) => x.trim()).filter(Boolean));
+      expect(taken.filter((x) => !['rulerTraitNumbers', 'stewardBuild'].includes(x)), `${rel} читает черты мимо чисел`).toEqual([]);
     }
+    // Граница области: derived правда читает черты — дверь есть, а не запрет обходят тем, что черт нет.
+    expect(bare(sources().find((f) => f.endsWith(closed[0])) as string)).toMatch(/rulerTraitNumbers\(s\)/);
+  });
+
+  /** Счёт дел правителя (ПН-2) пишет одна дверь — `sim/dynasty.noteRulerDeed`; читает его только дверь черт и чтение сохранения. */
+  it('в счёт дел правителя пишет одна дверь, читает — дверь черт', () => {
+    // `this.deeds` — сцена города (дела жителей на улице), к счёту правителя отношения не имеет.
+    const writers = sources().filter((f) => /(?<!\bthis)\.deeds\s*(\?\?=|[-+*/]?=(?!=))/.test(bare(f))).map((f) => f.slice(f.indexOf('src')));
+    expect(writers).toEqual([join('src', 'game', 'sim', 'dynasty.ts')]);
+    const defs = sources().filter((f) => /function noteRulerDeed\b/.test(bare(f)));
+    expect(defs.length, 'дверь одна').toBe(1);
+    const readers = sources().filter((f) => /\b(ruler|hero)\??\.deeds\b/.test(bare(f))).map((f) => f.slice(f.indexOf('src'))).sort();
+    // rulertraits — черты; sim/roam — чтение героя из сохранения (`readTally`).
+    expect(readers).toEqual([join('src', 'game', 'rulertraits.ts'), join('src', 'game', 'sim', 'roam.ts')]);
   });
 
   /** Книга родословной одна: кладёт в неё одна дверь, и трогает поле только она. */

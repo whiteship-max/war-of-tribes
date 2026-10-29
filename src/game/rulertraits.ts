@@ -10,10 +10,10 @@
 // 2. **Порог — форма черты агента на той же оси, а не ориентир ГДД.** Условия 3.2.3 помечены `[ориентир]` и до вывода в код не
 //    идут; правитель же стареет той же лестницей лет, что агент (`AGENT_AGE0` → `RETIRE_AGE`), и его бои — бои той же дружины,
 //    что у полководца. Поэтому хорошая черта берёт форму «Победоносного» (не меньше `min` дел, плохих — ноль), дурная — форму
-//    «Битого» (не меньше `min`, плохих — не меньше половины): числа — `TRAIT_BY_ID` [код], а не свои. «Строитель» — уровень
-//    на каждое здание посёлка (`BUILDINGS.length`), «Щедрый» — праздник в каждый сезон года (`SEASONS.length`, праздник —
-//    раз в сезон). Где формы нет («Торгаш» — оборот без числа, «Узурпатор» — розыск ПН-8), условия делами нет: такую черту
-//    дают только происхождение или пачка, которая выведет число.
+//    «Битого» (не меньше `min`, плохих — не меньше половины): числа — `TRAIT_BY_ID` [код], а не свои. У «Щедрого» добрых дел
+//    два рода: пиров — столько же, сколько побед у «Победоносного», и ни дня минимального жалованья. «Строитель» — уровень на
+//    каждое здание посёлка (`BUILDINGS.length`). Где формы нет («Торгаш» — оборот без числа, «Узурпатор» — розыск ПН-8),
+//    условия делами нет: такую черту дают только происхождение или пачка, которая выведет число.
 //
 // 3. **Пары на одной оси не держатся разом.** Воитель и Трус, Милостивый и Жестокий, Щедрый и Скупой: формы делят ось долей
 //    (ноль плохих против половины), и обе разом дела не дают — это тест перебором. Черту, данную происхождением, снимает пара,
@@ -33,7 +33,6 @@
 import type { EstateId, GameState, RoamOrigin, RulerTally } from './types';
 import { TRAIT_BY_ID, type Share } from './data/traits';
 import { BUILDINGS } from './data/buildings';
-import { SEASONS } from './data/seasons';
 import { ESTATES } from './estaterules';
 import { COMMONER_SLIGHT, LORD_FAVOR } from './commandrules';
 import { GENERAL_DRILL } from './spiritrules';
@@ -51,7 +50,7 @@ export interface RulerDeeds {
   fled: number;
   /** Уровней достроено. */
   built: number;
-  /** Праздников справлено (`sim/faith.beginRite`). */
+  /** Пиров в трактире (`sim/actions.throwFeast`). */
   feasts: number;
   /** Сдач на наших условиях (помилования — ПН-8). */
   mercy: number;
@@ -162,7 +161,7 @@ export const RULER_TRAITS: readonly RulerTraitDef[] = [
     id: 'generous',
     name: 'Щедрый',
     good: true,
-    cond: { of: ['days'], part: ['minDays'], ...shapeOf('victor'), also: { of: 'feasts', min: SEASONS.length } },
+    cond: { of: ['days'], part: ['minDays'], ...shapeOf('victor'), also: { of: 'feasts', min: TRAIT_BY_ID.victor.min } },
     effect: { drill: GENERAL_DRILL },
   },
   {
@@ -288,10 +287,13 @@ export function rulerPerson(s: GameState): { deeds?: RulerTally } | null {
   return s.realm?.ruler ?? null;
 }
 
-/** Чей счёт сейчас, с какой игровой секунды он идёт и происхождение (у героя пути). */
-export function rulerSeat(s: GameState): { tally: RulerTally | undefined; since: number; origin?: RoamOrigin } {
-  if (ROAM_ON && s.phase === 'roam' && s.roam) return { tally: s.roam.hero.deeds, since: s.roam.hero.since ?? s.time, origin: s.roam.origin };
-  return { tally: s.realm?.ruler?.deeds, since: s.realm?.ruler?.bornAt ?? s.time };
+/**
+ * Чей счёт сейчас: номер человека дома (у героя пути — −1: в дом он ляжет при переходе, ПН-11), с какой игровой секунды счёт
+ * идёт и происхождение (у героя пути).
+ */
+export function rulerSeat(s: GameState): { n: number; tally: RulerTally | undefined; since: number; origin?: RoamOrigin } {
+  if (ROAM_ON && s.phase === 'roam' && s.roam) return { n: -1, tally: s.roam.hero.deeds, since: s.roam.hero.since ?? s.time, origin: s.roam.origin };
+  return { n: s.realm?.ruler?.n ?? 0, tally: s.realm?.ruler?.deeds, since: s.realm?.ruler?.bornAt ?? s.time };
 }
 
 /**

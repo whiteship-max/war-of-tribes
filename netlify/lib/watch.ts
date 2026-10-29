@@ -67,6 +67,8 @@ import { marketFaults } from './market.js';
 import { agentsAt, agentsStep, gameMsBetween, readAgentBook, recruitOfSeat, type AgentBook, type AgentsAt } from './agentbook.js';
 import { claimedLead, commandAt, commandStep, commanderOfSeat, readCommandBook, type CommandAt, type CommandBook } from './commandbook.js';
 import { readScarBook, scarBookAfter, scarFaults, type ScarBook } from './scarbook.js';
+import { claimedRuler, rulerFaults, rulerFlags } from './rulerbook.js';
+import { stewardBuild } from '../../src/game/rulertraits.js';
 import { NO_GENERAL } from '../../src/game/scarrules.js';
 import { commanderAt } from '../../src/game/commandrules.js';
 import { recruitAdvance, recruitAt, recruitWage } from '../../src/game/agentrules.js';
@@ -150,7 +152,8 @@ export type FlagKind =
   | 'bonded'
   | 'spirit'
   | 'command'
-  | 'scars';
+  | 'scars'
+  | 'ruler';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -187,6 +190,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   spirit: 'дух дружины',
   command: 'командиры флангов',
   scars: 'черты армии',
+  ruler: 'черты правителя',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -194,7 +198,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'agents' | 'estates' | 'market' | 'starve' | 'deeds' | 'bonded' | 'spirit' | 'command' | 'scars';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge' | 'council' | 'agents' | 'estates' | 'market' | 'starve' | 'deeds' | 'bonded' | 'spirit' | 'command' | 'scars' | 'ruler';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -335,6 +339,13 @@ export const CITY_RULES: readonly CityRule[] = [
     formula: 'scarrules.markOf, scarsOf, scarEdge; scarbook.scarBookAfter, scarsAt, scarFaults',
     flag: 'scars',
     act: 'в войну — черты книги, приказ и слепок их не несут; флаг',
+  },
+  {
+    id: 'ruler',
+    rule: 'черты правителя (ПН-2): черты — той же функцией, что в игре, из счёта дел описи; черты описи — те, что даёт счёт; счёт того же правителя не убывает; дни правления — не быстрее часов партии, минимальное жалованье — не дольше правления; побед и поражений — не больше, чем в описи, уровней — не больше сдвига уровней, пиров — не чаще отката трактира; происхождение — только у героя пути; слагаемое лояльности, дисциплина, выручка и стройка — в потолки по счёту описи',
+    formula: 'rulertraits.rulerTraitsOf, rulerNumbersOf, stewardBuild; rulerbook.claimedRuler, rulerFaults, rulerFlags',
+    flag: 'ruler',
+    act: 'в потолки сословий, духа, рынка и стройки — черты по счёту описи; флаг',
   },
 ];
 
@@ -639,6 +650,10 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
   for (const t of councilFaults(card)) out.push({ kind: 'council', text: t });
   // Сословия (правило «estates», РТ-2): привилегии в лестнице, влияние — по уровням описи, указ — открыт лояльностью.
   for (const t of estateFaults(card)) out.push({ kind: 'estates', text: t });
+  // Черты правителя (правило «ruler», ПН-2): черты описи — те, что даёт её счёт дел.
+  // Строкой одной: журнал держит одну строку рода на запись.
+  const ruled = rulerFaults(card);
+  if (ruled.length > 0) out.push({ kind: 'ruler', text: ruled.join(' ') });
   // Ступень стабильности — в шкале −3…+3 у каждой описи, и у первой тоже (правило «stab», docs/stability.md, 2.7).
   if (card.stab && (card.stab.level < STAB_MIN || card.stab.level > STAB_MAX)) {
     out.push({ kind: 'stab', text: `Стабильность ${signed(card.stab.level)} — вне шкалы ${STAB_MIN}…+${STAB_MAX}.` });
@@ -749,6 +764,8 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   out.push(...agentFlags(a, b, days, realMs));
   out.push(...commandFlags(a, b, days, realMs));
   out.push(...estateFlags(a, b, realMs));
+  const ruling = rulerFlags(a, b);
+  if (ruling.length > 0) out.push({ kind: 'ruler', text: ruling.join(' ') });
   // Сделки рынка (правило «market», РН-1): цена каждой новой — по правилу привоза, счёт и кошель — по сделкам.
   for (const text of marketFaults(a, aAt, b, bAt, { boost: Math.max(marketBoost(a), marketBoost(b)), prod: maxCounts(prodOf(a), prodOf(b)), slack: GROWTH_SLACK })) {
     out.push({ kind: 'market', text });
@@ -856,6 +873,8 @@ export function spiritCeilOf(rec: WatchRecord, at: number): { spirit?: WarSpirit
     knights: estateCeilOf(rec.card, levels).resolve,
     barracks: levelIn(levels, 'barracks'),
     statue: levelIn(levels, 'statue'),
+    // Черты правителя (ПН-2): дисциплина по счёту описи — та же дверь, что у сословий.
+    ruler: claimedRuler(rec.card).drill,
   };
   return { spirit: spiritCeil(rec.spirit, known, at, { rite: RESOLVE_MAX }) };
 }
@@ -888,7 +907,7 @@ export function estateCeilOf(card: WatchCard, levels: Counts): EstateCeil {
   const priv = privFromRow(card.estates?.priv);
   const dec = decreeEstate(card);
   const infl = influenceOf(levels, priv);
-  const open = dec !== null && loyaltyCeil(dec, priv, infl[dec], claimedLead(card)) >= LOYAL ? dec : null;
+  const open = dec !== null && loyaltyCeil(dec, priv, infl[dec], claimedLead(card), claimedRuler(card).loyalty[dec]) >= LOYAL ? dec : null;
   return estateCeil(levels, priv, open);
 }
 
@@ -897,7 +916,7 @@ export function estateCeilOf(card: WatchCard, levels: Counts): EstateCeil {
  * двери, что у игры (`derived.marketBoost`), не выше `marketrules.BOOST_MAX`.
  */
 export function marketBoost(card: WatchCard): number {
-  return Math.min(BOOST_MAX, councilMult(card, 'treasurer', levelIn(card.buildings, 'town_hall')) * estateCeilOf(card, card.buildings).trade);
+  return Math.min(BOOST_MAX, councilMult(card, 'treasurer', levelIn(card.buildings, 'town_hall')) * estateCeilOf(card, card.buildings).trade * (1 + claimedRuler(card).trade));
 }
 
 const maxCounts = (x: Counts, y: Counts): Counts => {
@@ -906,9 +925,9 @@ const maxCounts = (x: Counts, y: Counts): Counts => {
   return out;
 };
 
-/** Множитель стройки сверху: Староста подтверждённого совета и цехи в силе. */
+/** Множитель стройки сверху: Староста подтверждённого совета с «Строителем» по счёту описи (ПН-2, потолок Старосты общий) и цехи в силе. */
 export function buildMult(card: WatchCard, levels: Counts): number {
-  return councilMult(card, 'steward', levelIn(levels, 'town_hall')) * estateCeilOf(card, levels).build;
+  return stewardBuild(councilMult(card, 'steward', levelIn(levels, 'town_hall')), claimedRuler(card).build) * estateCeilOf(card, levels).build;
 }
 
 /** Множитель добычи дворов сверху: Староста и крестьяне в силе. */
@@ -937,7 +956,7 @@ export function estateFaults(card: WatchCard): string[] {
   if (x.decree !== undefined && !isEstate(x.decree)) out.push(`Сословия: указ сословия «${x.decree}», а такого сословия нет.`);
   const dec = decreeEstate(card);
   if (dec) {
-    const ceil = loyaltyCeil(dec, priv, infl[dec], claimedLead(card));
+    const ceil = loyaltyCeil(dec, priv, infl[dec], claimedLead(card), claimedRuler(card).loyalty[dec]);
     if (ceil < LOYAL) out.push(`Сословия: указ «${dec}» при лояльности не выше ${Math.floor(ceil)} — открывает его ${LOYAL}.`);
   }
   if (x.infl.length > 0 && ESTATES.some((e, i) => Math.abs((x.infl[i] ?? 0) - infl[e]) > INFL_SLACK)) {

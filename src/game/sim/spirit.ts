@@ -111,8 +111,7 @@ export function spiritFedOf(s: GameState): Spirit | undefined {
 export function noteBattle(s: GameState, won: boolean): void {
   // Черта правителя (ПН-2: «Воитель», «Трус») — прибавкой к памяти этого исхода; черты — до этого боя (счёт дел пишет
   // `sim/expedition` следом).
-  const r = rulerTraitNumbers(s);
-  s.spirit = { glory: gloryAfter(gloryNow(s), won, won ? r.won : r.lost), at: s.time };
+  s.spirit = { glory: gloryAfter(gloryNow(s), won, won ? rulerTraitNumbers(s).won : rulerTraitNumbers(s).lost), at: s.time };
 }
 
 /** Память из сохранения: только целая запись с числами; иначе — нет памяти. */

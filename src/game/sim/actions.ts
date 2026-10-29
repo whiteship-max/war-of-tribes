@@ -17,6 +17,7 @@ import { cancelRefund } from '../labour';
 import { log } from './log';
 import { outlay, pay, refund } from './pay';
 import { daysSpan } from '../span';
+import { noteRulerDeed } from './dynasty';
 
 export { assignBonded, assignWorker, changeFreeJob, unassignBonded, unassignWorker } from './workers';
 export { cancelForge, forgeCheck, startForge } from './smithy';
@@ -108,6 +109,8 @@ export function throwFeast(s: GameState): string | null {
   outlay(s);
   s.feastUntil = s.time + feastSeconds();
   s.feastAt = s.time;
+  // Пир — дело правителя (ПН-2: «Щедрый»).
+  noteRulerDeed(s, 'feasts');
   log(s, `Правитель созвал город на пир, ушло ${info.cost} золота. Мораль +${info.bonus} на ${daysSpan(FEAST_DAYS)}.`, 'good', undefined, 'decree');
   return null;
 }

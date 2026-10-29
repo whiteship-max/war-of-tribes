@@ -156,7 +156,7 @@ export interface RulerTally {
   fled?: number;
   /** Уровней достроено. */
   built?: number;
-  /** Праздников справлено. */
+  /** Пиров в трактире. */
   feasts?: number;
   /** Сдач на наших условиях. */
   mercy?: number;
