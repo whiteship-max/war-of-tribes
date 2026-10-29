@@ -12,6 +12,7 @@ import type { Aim } from './data/shelling';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { ProposalAct } from './proposals';
 import type { CampKind } from './roammove';
+import type { RoamPoint } from './roampoints';
 import type {
   AssaultMode,
   AttackOrder,
@@ -111,6 +112,11 @@ export interface WorldApi {
   roamTo?(to: Coord, gait: Gait, shownUntil?: number, strike?: boolean): Promise<string | null>;
   roamCampView?(): Promise<RoamCampView | string>;
   roamCamp?(kind: CampKind | null): Promise<string | null>;
+  /**
+   * Вольный город или село у стоящего отряда (ПН-6, ГДД 3.4.3, 3.3.4): в его клетке или соседней; первым — в самой клетке. Сёла свои по
+   * сиду мира — поэтому их называет мир бродяги. В пути или пусто — `null`.
+   */
+  roamHere?(): Promise<RoamPoint | null>;
 
   /** Развернуть фигуру домой. Обратный путь считается по уже пройденному. */
   recallFigure(id: FigureId): Promise<string | null>;

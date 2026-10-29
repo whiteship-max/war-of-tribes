@@ -13,7 +13,8 @@
 //   3. содержание: кошель, долг, терпение, уход (`sim/upkeep.bandUpkeep`).
 // Дух не тикает: он читается из этих полей (`sim/spirit.spiritIn`, входы отряда).
 import type { GameState, MarketState, RoamDrill, RoamOrigin, RoamState, RulerTally, TroopId, WoundGroup } from '../types';
-import { isBookOrder, readBandOrder, type BandBookOrder } from '../../../netlify/lib/contract';
+import type { BandBookOrder } from '../../../netlify/lib/contract';
+import { readBookOrder } from '../../../netlify/lib/bandorder';
 import { mergeMarket } from './caravan';
 import { OUTBOX_MAX } from './bandranks';
 import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
@@ -216,7 +217,9 @@ function readTown(r: Record<string, unknown>): Pick<RoamState, 'markets' | 'fed'
   const cap = r.captives as Record<string, unknown> | undefined;
   if (cap && finite(cap.n) && cap.n >= 1 && finite(cap.until) && keyOk(cap.key)) out.captives = { n: Math.floor(cap.n), until: cap.until, key: cap.key };
   if (Array.isArray(r.outbox)) {
-    const box = (r.outbox as unknown[]).map((o) => (o && typeof o === 'object' ? readBandOrder(o) : null)).filter((o): o is BandBookOrder => o !== null && isBookOrder(o));
+    const box = (r.outbox as unknown[])
+      .map((o) => (o && typeof o === 'object' ? readBookOrder(o as Record<string, unknown>) : null))
+      .filter((o): o is BandBookOrder => o !== null);
     if (box.length) out.outbox = box.slice(-OUTBOX_MAX);
   }
   return out;

@@ -23,6 +23,9 @@ import { paintRoam, pointAtTap } from './paint';
 import { pointWords, townAt } from '@/world/roampoints';
 import { RoamSend } from './RoamSend';
 import { RoamCamp } from './RoamCamp';
+import { RoamBand } from './RoamBand';
+import { RoamMail } from './RoamMail';
+import { RoamTown } from './RoamTown';
 import './roam.css';
 
 /** Что сказать, взяв отряд в руку. */
@@ -44,6 +47,9 @@ export default function RoamLayer() {
   const [hand, setHand] = useState(false);
   const [plan, setPlan] = useState<RoamPlanView | null>(null);
   const [campOpen, setCampOpen] = useState(false);
+  // Окна ПН-6: отряд, город или село у отряда, вести.
+  const [pane, setPane] = useState<'band' | 'town' | 'mail' | null>(null);
+  const mail = useGame((g) => g.s.inbox.length);
   // Крючок карты читает последнее — без перевешивания на каждую перемену.
   const live = useRef<{ way: RoamWay | null; camp: RoamCampRec | null; hand: boolean }>({ way, camp, hand });
   live.current = { way, camp, hand };
@@ -91,6 +97,20 @@ export default function RoamLayer() {
   const sight = ownSight(useGame.getState().s, now, seenServer);
   return (
     <>
+      {!hand && (
+        <div className="roam-acts">
+          <button className="nx-mbtn" onClick={() => setPane('band')} aria-label="Отряд">
+            <Icon name="nav-people" />
+          </button>
+          <button className="nx-mbtn" onClick={() => setPane('town')} aria-label="Город и село" disabled={!way || moving}>
+            <Icon name="ui-scales" />
+          </button>
+          <button className={`nx-mbtn${mail > 0 ? ' roam-new' : ''}`} onClick={() => setPane('mail')} aria-label={`Вести: ${mail}`}>
+            <Icon name="ui-mail" />
+            {mail > 0 && <i className="roam-badge">{mail}</i>}
+          </button>
+        </div>
+      )}
       <div className="roam-bar">
         {hand ? (
           <>
@@ -133,6 +153,9 @@ export default function RoamLayer() {
         />
       )}
       {campOpen && <RoamCamp onClose={() => setCampOpen(false)} />}
+      {pane === 'band' && <RoamBand onClose={() => setPane(null)} />}
+      {pane === 'town' && <RoamTown onClose={() => setPane(null)} />}
+      {pane === 'mail' && <RoamMail onClose={() => setPane(null)} />}
     </>
   );
 }

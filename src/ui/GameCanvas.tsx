@@ -13,7 +13,7 @@ import { nextFrame } from '@/render/loop';
 import { gfx, gfxKey, sceneGfx, subscribeGfx } from '@/render/gfx';
 import { awayGameSeconds } from '@/game/sim/tick';
 import { useWorld } from '@/world/store';
-import { homeRegion } from '@/ui/parts/weather';
+import { homeRegion } from '@/ui/parts/region';
 
 /**
  * Как часто сторож спрашивает сцену, идут ли кадры. Две секунды: чаще незачем —

@@ -18,7 +18,7 @@ import type { RoamState } from '@/game/types';
 import type { FightOut } from '@/game/sim/roamfight';
 import type { Coord, FigureView, PlayerProfile, Rect, RegionChunk, RoamAimView, RoamCampView, RoamPlanView, WorldInfo, WorldPulse } from '../types';
 import { HOME_ID, LocalWorld, type LocalWorldOptions } from './LocalWorld';
-import { CAMP_KINDS, CAMP_NAME, campWorks, roamCamp, roamCell, roamGo, roamPlan, roamWhere, type CampKind, type RoamMove } from '../roam';
+import { CAMP_KINDS, CAMP_NAME, campWorks, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamWhere, type CampKind, type RoamMove } from '../roam';
 import { wayGait, type RoamTrip, type RoamWay } from '../roammove';
 import { pointAt, pointsIn, pointWords, type RoamPoint } from '../roampoints';
 import { FOE_WORDS, foePower, foeRipe, type FoeKind } from '../roamfoes';
@@ -295,6 +295,24 @@ export class RoamWorld extends LocalWorld {
         return { kind, name: CAMP_NAME[kind], block: typeof res === 'string' ? res : null, range, ...this.port.campGain(kind) };
       }),
     };
+  }
+
+  async roamHere(): Promise<RoamPoint | null> {
+    const m = this.move();
+    if (!m) return null;
+    const now = this.clock();
+    if (roamMoving(m.way, now)) return null;
+    const c = roamCell(m.way, now);
+    let best: RoamPoint | null = null;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const p = pointAt(this.save.seed, c.x + dx, c.y + dy);
+        if (!p || p.kind === 'vataga') continue;
+        if (dx === 0 && dy === 0) return p;
+        best ??= p;
+      }
+    }
+    return best;
   }
 
   async roamCamp(kind: CampKind | null): Promise<string | null> {

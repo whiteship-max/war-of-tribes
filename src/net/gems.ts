@@ -1,7 +1,7 @@
 /**
  * Алмазы в игре (docs/gems.md): баланс, лавка и журнал — с сервера, трата — приказом. Своего баланса у игры нет и быть не
  * может: число, которое видит игрок, — последнее, что сказал сервер (`/api/gems` или записка с ответом сохранения), и
- * меняет его только `takeGems` из ответа. Начислить отсюда нельзя ничего — у приказа два вида, и оба тратят.
+ * меняет его только `takeGems` из ответа. Начислить отсюда нельзя ничего — приказы (`net/gemorder`) только тратят.
  *
  * Дела, за которые сервер уже списал алмазы (припас лавки, достройка), применяет партия одной дверью
  * (`game/sim/gems.applyGemDeeds`) — сюда их только приносят. Как и указы админа (`net/admin.ts`), модуль про игру не
@@ -16,15 +16,12 @@ import {
   readGemList,
   readGemNote,
   type GemEntry,
-  type GemGood,
-  type GemOrder,
   type GemShop,
   type GemsResponse,
 } from '../../netlify/lib/contract';
 import { tgInitData } from '@/telegram/webapp';
-import { apiGet, apiPost, type ApiFail } from './api';
+import { apiGet, type ApiFail } from './api';
 import { serverNow } from './clock';
-import { tab } from './session';
 
 export interface GemsStore {
   /** Баланс с сервера; `null` — сервер ещё не сказал. */
@@ -119,16 +116,8 @@ export function gemsQuiet(why: ApiFail): void {
   if (why === 'offline' || why === 'server') useGems.setState({ why: OFFLINE });
 }
 
-/** Причина отказа словами — для всплывающей строки. */
-const WHY: Partial<Record<ApiFail, string>> = {
-  offline: OFFLINE,
-  auth: OUTSIDE,
-  busy: 'Слишком часто. Попробуй через пару секунд.',
-  frozen: 'Твой счёт заморожен.',
-  server: 'Сокровищница не ответила. Попробуй ещё раз.',
-};
-
-const fold = (data: GemsResponse): void => {
+/** Ответ `/api/gems` — записка и журнал (на чтение и на приказ, `net/gemorder`). */
+export const foldGems = (data: GemsResponse): void => {
   takeGems(data);
   useGems.setState({ list: readGemList(data.list) });
 };
@@ -137,50 +126,6 @@ const fold = (data: GemsResponse): void => {
 export async function refreshGems(): Promise<void> {
   if (!tgInitData()) return;
   const res = await apiGet<GemsResponse>(`/api/gems${gemSeenQuery()}`);
-  if (res.ok) fold(res.data);
+  if (res.ok) foldGems(res.data);
   else gemsQuiet(res.why);
 }
-
-let seq = 0;
-/** Ключ повтора: признак запуска, серверная минута и счёт — один на нажатие. */
-const freshKey = (): string => `${tab}-${serverNow().toString(36)}-${++seq}`;
-
-/**
- * Приказ серверу. Возвращает отказ словами или `null`. Ответ приносит записку и журнал; дело (припас, достройка) ложится
- * в партию через `takeGems` — так же, как если бы оно приехало с записью партии. Ответ потерялся по дороге — дело и
- * баланс приедут со следующей запиской: сервер списал ровно один раз.
- */
-async function order(what: string, body: GemOrder): Promise<string | null> {
-  if (useGems.getState().busy) return 'Предыдущий приказ ещё в пути.';
-  const off = gemsOffline();
-  if (off) return off;
-  useGems.setState({ busy: what });
-  try {
-    const res = await apiPost<GemsResponse>('/api/gems', body);
-    if (!res.ok) {
-      gemsQuiet(res.why);
-      return WHY[res.why] ?? 'Сокровищница не ответила. Попробуй ещё раз.';
-    }
-    fold(res.data);
-    return typeof res.data.error === 'string' ? res.data.error : null;
-  } finally {
-    useGems.setState({ busy: null });
-  }
-}
-
-/** Номер партии в приказе: ответ привезёт дела после него, и среди них — только что купленное (FIN-4). */
-const seenPart = (): { seen?: number } => {
-  const n = gemSeenNow();
-  return n === null ? {} : { seen: n };
-};
-
-/** Купить в лавке сто единиц припаса. */
-export const orderBuy = (res: GemGood): Promise<string | null> => order(`buy:${res}`, { op: 'buy', key: freshKey(), res, ...seenPart() });
-
-/** Ускорить стройку: постройка, уровень, остаток работы и цена, которую видел игрок. */
-export const orderRush = (id: number, building: string, level: number, work: number, price: number): Promise<string | null> =>
-  order(`rush:${id}`, { op: 'rush', key: freshKey(), building, level, work, price, ...seenPart() });
-
-/** Лечение (ПН-6): раненые со сроком `until` (игровая секунда) и не раньше, остаток `left` настоящих секунд, цена, которую видел игрок. */
-export const orderHeal = (until: number, left: number, price: number): Promise<string | null> =>
-  order(`heal:${until}`, { op: 'heal', key: freshKey(), until, left, price, ...seenPart() });

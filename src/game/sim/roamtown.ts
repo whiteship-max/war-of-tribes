@@ -15,7 +15,8 @@ import { DRILL_AHEAD_MS, drillMs, drillRate, drillWork } from '../askrules';
 import { cargoCap } from '../cargocap';
 import { roamCell, roamMoving } from '@/world/roam';
 import { townAt } from '@/world/roampoints';
-import { marketLeft, marketLot, marketSpend } from './market';
+import { marketLeft, marketLot, marketSpend, provideTownSide } from './market';
+import { TOWN_MARKETS, townMarketLevel } from '../townrules';
 import { addStock } from './stock';
 import { bandOf, bookKey, sendBook } from './bandranks';
 import { log } from './log';
@@ -29,6 +30,17 @@ export interface TownPoint {
   name: string;
   tier: 0 | 1 | 2 | 3;
 }
+
+// Рынок с ключом (`sim/market`) узнаёт вольный город и обоз отсюда — кусок пути отдаёт их при загрузке.
+provideTownSide({
+  level: (key) => {
+    const c = /^town:(-?\d+):(-?\d+)$/.exec(key);
+    const t = c ? townAt(Number(c[1]), Number(c[2])) : null;
+    return t && t.tier > 0 ? townMarketLevel(t.tier as 1 | 2 | 3) : 0;
+  },
+  cap: cargoCap,
+  keep: TOWN_MARKETS,
+});
 
 /** Сёл с покупками партия помнит не больше стольких; старые уходят — их запас давно отошёл. */
 export const FED_MAX = 16;

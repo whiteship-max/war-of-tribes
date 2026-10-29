@@ -25,13 +25,12 @@ import { readArms } from '../../src/heraldry/arms.js';
 import { energyForged, isNewcomer, placeBand, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamSeat, untilForged, ROAM_SLACK_MS, type RoamMove } from '../../src/world/roam.js';
 import { readMove } from '../../src/world/roammove.js';
 import { bookClaim, bookGrants, bookMen, bookMoved, bookOrder, firstBook, startBook } from './roambook.js';
+import { isBookOrder, readRoamBook } from './bandorder.js';
 import { readGait } from '../../src/world/data/gait.js';
 import {
   CASTLE_LIMITS,
   cityName,
   plainText,
-  isBookOrder,
-  readRoamBook,
   type AdminGrant,
   type BandOrder,
   type BandRow,

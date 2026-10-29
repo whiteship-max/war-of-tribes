@@ -34,9 +34,7 @@ import { rollShift } from './caravan';
 import { log } from './log';
 import { outlay } from './pay';
 import { rulerTraitNumbers } from '../rulernow';
-import { TOWN_MARKETS, townMarketLevel, type MarketKey } from '../townrules';
-import { cargoCap } from '../cargocap';
-import { townAt } from '@/world/roampoints';
+import type { RoamState } from '../types';
 
 // ---------- Ключ рынка (ПН-6, ГДД 3.7.1) ----------
 //
@@ -45,15 +43,26 @@ import { townAt } from '@/world/roampoints';
 // (`marketrules`: привоз, нажим, доля продажи, кошель купцов); уровень вольного города — по его ступени (`townrules.townMarketLevel`),
 // стабильности и прибавок выручки у бродяги нет, невольничьего ряда — тоже. Ключ по умолчанию — `home`: у лорда всё как было.
 
-/** Уровень рынка вольного города по ключу: ступень общей точки (`world/roampoints.townAt`); нет такого города — ноль. */
-function townLevel(key: MarketKey): number {
-  const [, x, y] = key.split(':');
-  const t = townAt(Number(x), Number(y));
-  return t && t.tier > 0 ? townMarketLevel(t.tier as 1 | 2 | 3) : 0;
+/** Ключ рынка: свой город лорда или вольный город НПС (`town:x:y`; город игрока-хозяина — ПН-14). */
+export type MarketKey = 'home' | `town:${string}`;
+
+/**
+ * Что рынок знает о вольном городе и обозе отряда — отдаёт кусок пути при загрузке (`sim/roamtown`): уровень рынка по ступени города
+ * (`townrules.townMarketLevel` от `world/roampoints.townAt`), вместимость обоза (`cargocap`) и сколько рынков партия помнит. Рынок
+ * лорда — в первой загрузке (`sim/actions`), и правила вольных городов в неё не едут; пути нет — у вольных городов рынка нет.
+ */
+export interface TownSide {
+  level(key: MarketKey): number;
+  cap(r: RoamState): number;
+  keep: number;
 }
+let townSide: TownSide | null = null;
+export const provideTownSide = (t: TownSide): void => {
+  townSide = t;
+};
 
 /** Уровень рынка по ключу: свой город — уровень здания, вольный — ступень. */
-const levelOf = (s: GameState, key: MarketKey): number => (key === 'home' ? marketLevel(s) : townLevel(key));
+const levelOf = (s: GameState, key: MarketKey): number => (key === 'home' ? marketLevel(s) : (townSide?.level(key) ?? 0));
 
 /** Прилавок рынка по ключу; у вольного города, где не торговали, — нет. */
 const stateOf = (s: GameState, key: MarketKey): MarketState | undefined => (key === 'home' ? s.market : s.roam?.markets?.[key]);
@@ -185,7 +194,7 @@ export function roomFor(s: GameState, def: GoodDef, key: MarketKey = 'home'): nu
     const r = s.roam;
     if (!r) return 0;
     const load = Object.values(r.cargo).reduce((t: number, n) => t + Math.max(0, n ?? 0), 0);
-    return Math.max(0, Math.floor(cargoCap(r) - load));
+    return Math.max(0, Math.floor((townSide?.cap(r) ?? 0) - load));
   }
   return Math.max(0, Math.floor(storageCap(s) - s.resources[def.resource]) - inTransit(s, def.id));
 }
@@ -326,7 +335,7 @@ function townShift(s: GameState, key: MarketKey, now: number): MarketState {
   const was = r.markets?.[key];
   const m: MarketState = was && was.w === w ? was : { ...(was ?? {}), w, bought: {}, sold: {}, got: 0 };
   const rest = Object.entries(r.markets ?? {}).filter(([k]) => k !== key);
-  r.markets = Object.fromEntries([...rest.slice(-(TOWN_MARKETS - 1)), [key, m]]);
+  r.markets = Object.fromEntries([...rest.slice(-((townSide?.keep ?? 1) - 1)), [key, m]]);
   return m;
 }
 

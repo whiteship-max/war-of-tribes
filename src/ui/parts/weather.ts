@@ -5,16 +5,13 @@ import type { GameState } from '@/game/types';
 import { dayFraction, seasonOf, solarPhase } from '@/game/derived';
 import { serverNow } from '@/net/clock';
 import { useWorld } from '@/world/store';
-import { homeTheatre } from '@/world/theatre/theatre';
+import { homeRegion } from './region';
 import { isWaterAt, landShare } from '@/world/land';
 import type { Coord } from '@/world/types';
 import { flashes, forcedFlashes, forcedWeather, lyingSnow, weatherAt, weatherWords, zoneOf, type Flash, type Weather, type Zone } from '@/render/climate';
 
-/** Регион игрока по клетке его города; мира ещё нет — `null` (погода умеренной суши). */
-export function homeRegion(): string | null {
-  const home = useWorld.getState().info?.home;
-  return home ? (homeTheatre(home)?.id ?? null) : null;
-}
+/** Регион игрока — своим модулем (`region.ts`): его читает холст игры в первой загрузке, а погода с климатом едут кусками. */
+export { homeRegion };
 
 /** Сколько клеток в сторону ветра смотрим на море и сколько из них должно быть водой. */
 const SEA_REACH = 6;

@@ -23,7 +23,8 @@ vi.mock('./api', () => ({
   },
 }));
 
-const { GEMS_STALE_MS, OFFLINE, OUTSIDE, gemsOffline, gemsQuiet, orderBuy, provideGemDeeds, provideGemSeen, takeGems, useGems } = await import('./gems');
+const { GEMS_STALE_MS, OFFLINE, OUTSIDE, gemsOffline, gemsQuiet, provideGemDeeds, provideGemSeen, takeGems, useGems } = await import('./gems');
+const { orderBuy } = await import('./gemorder');
 const { serverNow } = await import('./clock');
 
 afterEach(() => {
@@ -63,7 +64,7 @@ describe('записка сервера — единственный источ�
   });
 
   it('приказов у игры три — купить в лавке, ускорить стройку и поднять раненых (ПН-6); все только тратят', () => {
-    const src = readFileSync(join(__dirname, 'gems.ts'), 'utf8');
+    const src = readFileSync(join(__dirname, 'gemorder.ts'), 'utf8') + readFileSync(join(__dirname, 'gems.ts'), 'utf8');
     expect([...src.matchAll(/op: '(\w+)'/g)].map((m) => m[1]).sort()).toEqual(['buy', 'heal', 'rush']);
     expect(src).not.toMatch(/creditGems|purchase|start/);
   });

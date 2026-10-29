@@ -74,3 +74,50 @@
 .roam-bar .roam-what .roam-sight.seen {
   opacity: 1;
 }
+/* Окна ПН-6 (отряд, город, вести): ряд кнопок над полосой отряда; строка товара — имя, кнопки «+N / −N», цены строкой ниже. */
+.roam-acts {
+  position: absolute;
+  right: calc(8px + var(--safe-right));
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 24px + 56px);
+  z-index: 12;
+  display: flex;
+  gap: 8px;
+}
+.roam-acts .nx-mbtn {
+  position: relative;
+  background: var(--m-plate);
+  border: 1px solid var(--m-plate-rim);
+}
+.roam-acts .roam-new {
+  border-color: var(--accent);
+}
+.roam-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--m-ink);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.roam-tabs {
+  flex-direction: row;
+}
+.roam-tabs .roam-leg {
+  flex: 1;
+}
+.roam-row .roam-qty {
+  display: flex;
+  gap: 4px;
+}
+.roam-row .roam-qty .nx-mbtn {
+  min-width: 40px;
+  font-weight: 700;
+}
