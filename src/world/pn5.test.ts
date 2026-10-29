@@ -21,7 +21,7 @@ import { roamGo, roamSeat, type RoamMove } from './roam';
 import { ruinAt } from './ruins';
 import { pointAt, pointsIn, townAt, vatagaAt, villageAt, type RoamPoint } from './roampoints';
 import { foePower, foeStage } from './roamfoes';
-import { ambushChance, ambushOdds, tripOf } from './encounter';
+import { ambushChance, tripOf } from './encounter';
 import type { RoamWay } from './roammove';
 // Кусок пути (ПН-5, хвост а): у админа он докачан до мира бродяги (`game/roamlazy`).
 import '@/game/roamdoor';
