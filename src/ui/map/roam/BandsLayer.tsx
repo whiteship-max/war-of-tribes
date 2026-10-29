@@ -14,8 +14,9 @@ const CAMP_WORDS: Record<NonNullable<BandMark['camp']>, string> = { open: 'от�
 
 /** Чужой отряд словами — для касания. */
 export function bandWords(m: BandMark, now: number): string {
-  const who = `Отряд героя ${m.name || 'без имени'} · ${m.men} чел.`;
-  if (!m.visible) return `След: ${who} — видели ${agoText(now - m.seenAt)}.`;
+  const name = m.name || 'без имени';
+  if (!m.visible) return `След отряда героя ${name} · ${m.men} чел. — видели ${agoText(now - m.seenAt)}.`;
+  const who = `Отряд героя ${name} · ${m.men} чел.`;
   return `${who} — ${m.camp ? `стоит ${CAMP_WORDS[m.camp]}` : m.heading ? 'идёт колонной' : 'стоит в поле'}, виден сейчас.`;
 }
 

@@ -83,16 +83,20 @@ const bandRow = (at: { x: number; y: number }, over: Partial<BandRow> = {}): Ban
   ...over,
 });
 
-/** Клетка суши к востоку от `c`: первая, где отряд правда внутри обнаружения замка, и первая — правда снаружи. */
+/**
+ * Клетки суши у замка `c`: первая, где отряд (скрытый лагерь, 20 человек) правда внутри обнаружения, и первая — правда снаружи,
+ * но **внутри живого круга замка**: там решает заметность, а не радиус, и мерка «только радиус» видела бы отряд.
+ */
 function spots(c: { x: number; y: number }, now: number): { inside: { x: number; y: number }; outside: { x: number; y: number } } {
   let inside: { x: number; y: number } | null = null;
   let outside: { x: number; y: number } | null = null;
+  const live = detectRange({ kind: 'castle', at: c }, 1);
   for (let d = 2; d < 60 && !(inside && outside); d++) {
     for (const at of [{ x: c.x + d, y: c.y }, { x: c.x - d, y: c.y }, { x: c.x, y: c.y + d }, { x: c.x, y: c.y - d }]) {
       if (!settleable(at.x, at.y)) continue;
       const r = detectRange({ kind: 'castle', at: c }, rowConspicuity(bandRow(at), now));
       if (!inside && d <= r - 0.5) inside = at;
-      if (!outside && d >= r + 0.5 && d > 20) outside = at;
+      if (!outside && d >= r + 0.5 && d < live) outside = at;
     }
   }
   if (!inside || !outside) throw new Error('нет клеток у замка');
@@ -130,6 +134,28 @@ describe('сервер считает обнаружение сам', () => {
     expect(both.seen?.count).toBe(2);
     expect(both.seen?.by.map((b) => b.name).sort()).toEqual(['Вождь', 'Сосед']);
     expect(both.bands?.map((b) => b.name)).toEqual(['Сосед']);
+  });
+
+  it('видит нас отряд, которого мы не видим, — глаз числом, без имени', async () => {
+    const lord = await call(108, NOW, 'PUT', { name: 'Вождь', city: 'Энна', power: 1, pop: 1 });
+    const { inside } = spots(lord.mine!, NOW + 1000);
+    // Мы — открытым лагерем, сосед — скрытым одиночкой: он видит нас дальше, чем мы его. Граница — утверждением.
+    const me = bandRow(inside, { camp: { kind: 'open', since: NOW, builders: 20 } });
+    let hid: { x: number; y: number } | null = null;
+    for (let d = 1; d < 12 && !hid; d++) {
+      const at = { x: inside.x, y: inside.y + d };
+      const sly = bandRow(at, { men: 1 });
+      const theySee = d <= detectRange({ kind: 'band', at }, rowConspicuity(me, NOW + 1000));
+      const weSee = d <= detectRange({ kind: 'band', at: inside }, rowConspicuity(sly, NOW + 1000));
+      if (theySee && !weSee) hid = at;
+    }
+    expect(hid, 'клетка, откуда нас видят, а мы — нет').not.toBeNull();
+    await putBand('tg-271', me);
+    await putBand('tg-272', bandRow(hid!, { men: 1, name: 'Тихий' }));
+    const got = await call(271, NOW + 1000, 'GET');
+    expect(got.seen?.count).toBe(2);
+    expect(got.seen?.by.map((b) => b.name)).toEqual(['Вождь']);
+    expect(got.bands ?? []).toEqual([]);
   });
 
   it('идущий отряд не смотрит: в пути наблюдателем он не бывает', async () => {
