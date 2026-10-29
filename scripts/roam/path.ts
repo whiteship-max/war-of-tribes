@@ -20,7 +20,12 @@ import type { TroopStack } from '../../src/game/battle/kinds';
 import { kindsOf, shareLosses, troopPower } from '../../src/game/battle/price';
 import { DAY_LENGTH, dayRealSeconds, realMs } from '../../src/game/pace';
 import { createInitialState } from '../../src/game/state';
-import { seasonMods } from '../../src/game/derived';
+import { seasonMods, seasonOf, seasonProgress } from '../../src/game/derived';
+import { SEASON_DAYS, SEASON_MODIFIERS } from '../../src/game/data/seasons';
+import { askCount, askFeedable } from '../../src/game/askrules';
+import { awayArrival, firstArrival } from '../../src/game/mailgrid';
+import { bandSpiritIn } from '../../src/game/sim/bandspirit';
+import { spiritNumbers, spiritOfIn } from '../../src/game/spiritrules';
 import { bandRationPerDay, bandWage, bandWagesPerDay, forageShare } from '../../src/game/roamrules';
 import { bandUpkeep } from '../../src/game/sim/bandkeep';
 import { cargoCap } from '../../src/game/sim/roam';
@@ -56,6 +61,11 @@ export interface Style {
   takeAll: boolean;
   /** В кого растит дубинщиков и кого нанимает. */
   grow: TroopId;
+  /**
+   * Запас на зиму (ВП3, ПН-6): какую долю зимнего пайка отряда стиль везёт в обозе — осенью на всю зиму, зимой на остаток; хлеб — по
+   * цене села, только сверх запаса кошеля. Ноль — живёт покупкой по дню, как до ПН-6.
+   */
+  winter: number;
 }
 
 export const STYLES: readonly Style[] = [
@@ -69,6 +79,7 @@ export const STYLES: readonly Style[] = [
     margin: 1,
     takeAll: true,
     grow: 'axeman',
+    winter: 0.5,
   },
   {
     id: 'captain',
@@ -80,6 +91,7 @@ export const STYLES: readonly Style[] = [
     margin: 3,
     takeAll: false,
     grow: 'spearman',
+    winter: 0.75,
   },
   {
     id: 'careful',
@@ -91,6 +103,7 @@ export const STYLES: readonly Style[] = [
     margin: 6,
     takeAll: false,
     grow: 'spearman',
+    winter: 1,
   },
 ];
 
@@ -114,11 +127,6 @@ export interface PathKnobs {
   spawns: readonly Spot[];
   /** Настоящих часов от места выхода до ближайшего вольного замка пула — путь отряда (`roamWalkMs`) по режиму, по месту выхода. */
   castleRoads: Record<Gait, readonly number[]>;
-  recruits: {
-    per: readonly (readonly [number, number])[];
-    every: readonly [number, number];
-    camp: Record<Camp, number>;
-  };
   /** Доля еды из села; остальное — рынок города. */
   foodMix: number;
   /** Золота за единицу еды: село и рынок города. */
@@ -247,7 +255,12 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
   let food = Math.min(origin.foodDays * ration(), cargoCap(roam));
   let t = 0;
   let busyUntil = 0;
-  let nextRecruit = between(k.recruits.every[0], k.recruits.every[1]);
+  // Просящиеся (ПН-6) — на сетке почты от сида партии (`mailgrid.awayArrival`), часы — от первого прихода после выхода.
+  const askSeed = seed >>> 0;
+  let askK = firstArrival(0) + 1;
+  const askT0 = awayArrival(askSeed, askK);
+  const askAtHour = (n: number): number => (awayArrival(askSeed, n) - askT0) / 3_600_000;
+  let nextRecruit = askAtHour(askK);
   // Бои взятых договоров — по порядку, в минуту прихода к цели.
   const queue: { at: number; apply: () => void }[] = [];
   const limit = k.limitDays * 24;
@@ -296,23 +309,49 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
       food = Math.min(food, cargoCap(roam));
       t += dt;
       while (nextRecruit <= t) {
-        const [lo, hi] = k.recruits.per[stage()];
-        const came = Math.round(between(lo, hi) * k.recruits.camp[style.camp]);
-        // Сколько прокормит кошель сверх запаса отряда на полсуток — у тех, кто берёт не всех.
+        // Сколько пришло — дверь игры (`askrules.askCount`): ступень престижа, лагерь стиля, зима, мораль отряда.
+        const mods = seasonMods(party);
+        const came = askCount(askSeed, askK, {
+          stage: stage(),
+          camp: t < busyUntil ? 'none' : style.camp,
+          winter: seasonOf(party.time) === 'winter',
+          morale: spiritNumbers(spiritOfIn(bandSpiritIn(party, roam))).morale,
+        });
+        // Кто берёт не всех — больший из двух ответов вести: «Взять, сколько прокормим» (та же дверь, что у вести,
+        // `askrules.askFeedable`: хлеб обоза на `askFeed` игр. дн. всем) или «Принять всех», сколько потянет кошель сверх запаса на
+        // полсуток (решение стиля, как до ПН-6).
+        const per = bandRationPerDay({ band: { clubman: 1 }, wounded: [] }, mods.food);
+        const feed = askFeedable(food, per, per > 0 ? bandRationPerDay(roam, mods.food) / per : 0);
         const head = (bandWage('clubman') + bandRationPerDay({ band: { clubman: 1 }, wounded: [] }, 1) * foodGold) * dayPerHour() * (12 + style.margin);
-        const room = style.takeAll ? came : Math.max(0, Math.floor((run.purse - reserve(12)) / head));
+        const room = style.takeAll ? came : Math.max(feed, Math.floor((run.purse - reserve(12)) / head));
         const n = Math.min(came, room);
         if (n > 0) {
           add(band, 'clubman', n);
           run.recruited += n;
         }
-        nextRecruit += between(k.recruits.every[0], k.recruits.every[1]);
+        askK++;
+        nextRecruit = askAtHour(askK);
       }
     }
   };
 
   // Запас: содержание отряда до следующего захода и поле стиля — ночь без заходов не должна кончаться уходом.
   const reserve = (gap: number): number => (wages() + ration() * foodGold) * dayPerHour() * (gap + style.margin);
+
+  // Запас на зиму (ВП3, ПН-6): осенью — на всю зиму, зимой — на остаток; доля зимнего пайка стиля, хлебом села, не выше обоза и только
+  // сверх запаса кошеля. Зимой паёк ×1.4 и фуража нет — без запаса кошель кончается зимой, и неуплата уводит отряд (ГДД 13.5).
+  const stockWinter = (gap: number): void => {
+    const season = seasonOf(party.time);
+    const left = season === 'winter' ? 1 - seasonProgress(party.time) : season === 'autumn' ? 1 : 0;
+    if (!(left > 0) || !(style.winter > 0)) return;
+    const need = bandRationPerDay(roam, SEASON_MODIFIERS.winter.food) * SEASON_DAYS * left * style.winter;
+    const want = Math.min(need, cargoCap(roam)) - food;
+    const can = (run.purse - reserve(gap)) / k.foodPrice.village;
+    const n = Math.max(0, Math.min(want, can));
+    if (!(n > 0)) return;
+    food += n;
+    run.purse -= n * k.foodPrice.village;
+  };
 
   // Рост на заходе: повышение дубинщиков в вид стиля, потом найм в городе — пока кошель выше запаса.
   const grow = (gap: number): void => {
@@ -352,6 +391,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     if (run.castleAt !== null || at >= limit) break;
     live(at);
     if (at < busyUntil) continue;
+    stockWinter(untilNext(at));
     const s = stage();
     const power = troopPower(band);
     // Штурм с ходу: дорос ли по ступени и по силе — разведкой четырьмя боями у стены (сиды разведки — не сиды штурма).

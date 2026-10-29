@@ -9,7 +9,16 @@ import { DAY_LENGTH, RESOURCE_IDS, TEST_ARMY_FOOD } from '../../src/game/constan
 import { GATE_POWER } from '../../src/game/data/events';
 import { GOOD_BY_ID } from '../../src/game/data/market';
 import { TROOP_BY_ID, TROOP_IDS } from '../../src/game/data/troops';
-import { buyUnit, depthOf, shiftOf } from '../../src/game/marketrules';
+import { SALE_SHARE, buyUnit, depthOf, shiftOf } from '../../src/game/marketrules';
+import { promoteUnit } from '../../src/game/promoterules';
+import { hireBase, villageFoodPrice, villageStock } from '../../src/game/townrules';
+import { askCap, askMult, askRange, captivesOf, drillMs } from '../../src/game/askrules';
+import { awayArrival } from '../../src/game/mailgrid';
+import { boardDue } from '../../src/game/townrules';
+import { earnGold, earnHaul } from '../../src/game/sim/bandearn';
+import { healFullSeconds, healPriceOfLeft } from '../../src/game/gemrules';
+import { MINIGAMES } from '../../src/game/data/minigames';
+import { captivesCapNow } from '../../netlify/lib/roambook';
 import { dayRealSeconds, gameSeconds } from '../../src/game/pace';
 import { bandPatienceDays, bandRationPerDay, bandWage, bandWagesPerDay, campSpirit, fieldForage, forageShare } from '../../src/game/roamrules';
 import { cargoCap } from '../../src/game/sim/roam';
@@ -83,9 +92,6 @@ const LIMIT_DAYS = 14;
 export const PILOT: readonly InputId[] = [
   'sessions',
   'etalons',
-  'upgrade',
-  'hire',
-  'village',
   'contractRule',
   'npcRule',
   'origins',
@@ -95,7 +101,6 @@ export const PILOT: readonly InputId[] = [
   'contractK',
   'contractR',
   'contractTerm',
-  'foodGold',
   // Сила НПС, встречи и поражение (ПН-5) — двери игры `world/roamfoes`, `world/encounter` на заглушках игры тем же числом.
   'foeTable',
   'foeShare',
@@ -103,7 +108,15 @@ export const PILOT: readonly InputId[] = [
   'ambushBase',
   'ambushCap',
   'reach',
-  'recruits',
+  // Просящиеся (ПН-6) — дверь игры `askrules` на заглушках игры тем же числом; сетка прихода — почта (`mailgrid`).
+  'askBase',
+  'askCamp',
+  'askWinter',
+  'askSpirit',
+  'askFeed',
+  // Мораль отряда для просящихся — дверь духа отряда (`sim/bandspirit`): строка лагеря и «холодный лагерь» — заглушки игры ПН-3.
+  'campMorale',
+  'coldCamp',
   'foodMix',
   'defeatPurse',
   'defeatPrestige',
@@ -130,7 +143,9 @@ export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
   ctx.use('contractRule');
   const tiers = ctx.use('castleTiers');
   const stages = ctx.use('stages');
-  const food = ctx.use('foodGold');
+  // Содержание эталона в плате договора — хлебом по цене села (ПН-6: дверь `townrules.villageFoodPrice`), а не ориентиром «еда по 3»:
+  // отряд кормится по этой цене, и плата, считанная по другой, разошлась бы с его расходом (находка прогона ПН-6, ГДД 18).
+  const food = villageFoodPrice();
   return {
     sessions: ctx.use('sessions'),
     stages,
@@ -144,10 +159,10 @@ export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
     foeRipe: ctx.use('foeRipe'),
     reach: ctx.use('reach'),
     ...roadWorld(ctx),
-    recruits: ctx.use('recruits'),
     foodMix: ctx.use('foodMix'),
+    // Хлеб села и рынок города — двери игры (ПН-6): цена села `townrules.villageFoodPrice`, рынок города 1-го уровня — `marketrules`.
     foodPrice: {
-      village: ctx.use('village')('food'),
+      village: villageFoodPrice(),
       town: townPrice('food', 1),
     },
     defeatPurse: ctx.use('defeatPurse'),
@@ -156,8 +171,9 @@ export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
       stage: stageOf(stages, tiers[0].prestige),
       power: GATE_POWER.raiders[tiers[0].level - 1],
     },
-    upgrade: ctx.use('upgrade'),
-    hire: ctx.use('hire'),
+    // Повышение и найм — двери игры (ПН-6): разность полных цен по основе рынка (`promoterules`), найм по основе (`townrules.hireBase`).
+    upgrade: promoteUnit,
+    hire: hireBase,
     board: ctx.use('board'),
     contracts: ctx.use('contracts'),
     limitDays: LIMIT_DAYS,
@@ -310,25 +326,35 @@ const rate: Section = {
   id: 'rate',
   title: 'Курс припаса',
   gdd: '3.3.4, 4.3',
-  doors: ['selfcost.selfCost', 'data/market (основа цен)', 'marketrules.buyUnit', 'price.baseWage', 'build.soldierFoodPerDay'],
-  uses: ['village', 'etalons'],
+  doors: [
+    'selfcost.selfCost',
+    'data/market (основа цен)',
+    'marketrules.buyUnit',
+    'townrules.villageFoodPrice',
+    'townrules.villageStock',
+    'price.baseWage',
+    'build.soldierFoodPerDay',
+  ],
+  uses: ['etalons'],
   run(ctx) {
-    const village = ctx.use('village');
-    ctx.line(
-      'золота за единицу: своим трудом (цена мощи вида и склада), село (selfCost × MIN_MARKUP), основа рынка, рынок города 1-го и 5-го уровня (привоз 12:00 UTC)',
-    );
-    ctx.line(`${padEnd('припас', 10)} ${pad('свой труд', 10)} ${pad('село', 8)} ${pad('основа', 7)} ${pad('город 1', 8)} ${pad('город 5', 8)}`);
+    ctx.line('золота за единицу: своим трудом (цена мощи вида и склада), основа рынка, рынок города 1-го и 5-го уровня (привоз 12:00 UTC)');
+    ctx.line(`${padEnd('припас', 10)} ${pad('свой труд', 10)} ${pad('основа', 7)} ${pad('город 1', 8)} ${pad('город 5', 8)}`);
     for (const r of RESOURCE_IDS) {
       const g = GOOD_BY_ID[r];
-      ctx.line(
-        `${padEnd(g.name, 10)} ${pad(fix(selfCost(g), 4), 10)} ${pad(fix(village(r), 4), 8)} ${pad(g.price, 7)} ${pad(townPrice(r, 1), 8)} ${pad(townPrice(r, 5), 8)}`,
-      );
+      ctx.line(`${padEnd(g.name, 10)} ${pad(fix(selfCost(g), 4), 10)} ${pad(g.price, 7)} ${pad(townPrice(r, 1), 8)} ${pad(townPrice(r, 5), 8)}`);
     }
     ctx.line('');
     const food = GOOD_BY_ID.food;
+    // Хлеб села (ПН-6, находка ПН-0ч: 0.054 — почти даром): цель — «дешевле города, но не почти даром»; вывод — цена, за которую купцы
+    // города берут хлеб (`SALE_SHARE` × основа): крестьянин не продаст дешевле, чем отдал бы купцу. Запас — двор 1-го уровня в день.
+    const village = villageFoodPrice();
+    ctx.line(`хлеб села (ГДД 3.3.4, ПН-6): ${fix(village, 4)} золота — доля продажи рынка ${SALE_SHARE} × основа ${food.price}; запас ${villageStock()} в игр. день, отходит за игр. день`);
+    ctx.line(`  цель «дешевле города»: ${fix(village, 2)} < ${townPrice('food', 1)} (город 1) — ${village < townPrice('food', 1) ? 'держится' : 'НЕ ДЕРЖИТСЯ'}`);
+    ctx.line(`  цель «не почти даром»: ${fix(village, 2)} ≥ своего труда × 10 (${fix(selfCost(food) * 10, 4)}) — ${village >= selfCost(food) * 10 ? 'держится' : 'НЕ ДЕРЖИТСЯ'}`);
+    ctx.line('');
     const rates: [string, number][] = [
       ['свой труд', selfCost(food)],
-      ['село', village('food')],
+      ['село', village],
       ['основа рынка', food.price],
       ['город 1', townPrice('food', 1)],
     ];
@@ -351,20 +377,20 @@ const upgrade: Section = {
   id: 'upgrade',
   title: 'Цены повышения и найма',
   gdd: '3.4.2, 3.4.3, 4.2',
-  doors: ['data/troops (снаряжение и припас найма)', 'data/market (основа цен)', 'price.baseWage'],
-  uses: ['upgrade', 'hire'],
+  doors: ['promoterules.promoteUnit (дерево из снаряжения, разность полных цен)', 'townrules.hireBase', 'askrules.drillMs', 'price.baseWage'],
+  uses: [],
   run(ctx) {
-    const up = ctx.use('upgrade');
-    const hire = ctx.use('hire');
-    ctx.line(`${padEnd('вид', 16)} ${pad('из дубинщика', 13)} ${pad('найм в городе', 14)} ${pad('жалованье было → стало', 24)}`);
+    const up = promoteUnit;
+    const hire = hireBase;
+    ctx.line(`${padEnd('вид', 16)} ${pad('из дубинщика', 13)} ${pad('найм в городе', 14)} ${pad('учения', 9)} ${pad('жалованье было → стало', 24)}`);
     for (const id of TROOP_IDS) {
       if (id === 'clubman') continue;
       ctx.line(
-        `${padEnd(TROOP_BY_ID[id].name, 16)} ${pad(up('clubman', id), 13)} ${pad(hire(id), 14)} ${pad(`${fix(baseWage('clubman'))} → ${fix(baseWage(id))}`, 24)}`,
+        `${padEnd(TROOP_BY_ID[id].name, 16)} ${pad(up('clubman', id), 13)} ${pad(hire(id), 14)} ${pad(hrs(drillMs(id, 1) / 3_600_000), 9)} ${pad(`${fix(baseWage('clubman'))} → ${fix(baseWage(id))}`, 24)}`,
       );
     }
-    // ГДД 3.4.2: «по шагам стоит столько же, сколько сразу». Держится, пока припас найма вдоль цепочки не убывает: max(0, …)
-    // не складывается по шагам, где следующий вид просит меньше припаса, чем предыдущий.
+    // ГДД 3.4.2: «по шагам стоит столько же, сколько сразу» — с ПН-6 цена шага — разность полных цен (`promoterules`), и разности
+    // складываются; прежняя формула шага (`max(0, …)` по припасу) давала 816 против 631.
     const chains: TroopId[][] = [
       ['clubman', 'spearman', 'rider', 'knight'],
       ['clubman', 'swordsman', 'shieldman', 'legionary'],
@@ -405,14 +431,14 @@ const contract: Section = {
   title: 'Плата договоров по эталону',
   gdd: '3.8.3, 4.3, 3.8.2',
   doors: ['price.baseWage', 'build.soldierFoodPerDay', 'tuning.LAIR_GOLD_PER_POWER', 'price.troopPower', 'geo.travelTime'],
-  uses: ['etalons', 'contractRule', 'contractK', 'contractR', 'contractTerm', 'foodGold', 'village'],
+  uses: ['etalons', 'contractRule', 'contractK', 'contractR', 'contractTerm', 'foodGold'],
   run(ctx) {
     ctx.use('contractRule');
     const K = ctx.use('contractK');
     const R = ctx.use('contractR');
     const term = ctx.use('contractTerm');
     const food3 = ctx.use('foodGold');
-    const village = ctx.use('village')('food');
+    const village = villageFoodPrice();
     ctx.line(`K = ${K}, R = ${R}, LAIR_GOLD_PER_POWER = ${LAIR_GOLD_PER_POWER}; срок «сжечь логово» — путь × ${term.roads} + ${term.days} игр. дн.`);
     ctx.line(
       `${padEnd('тир', 4)} ${pad('содерж. (еда 3)', 16)} ${pad('плата 10 дн.', 13)} ${pad('содерж. (село)', 15)} ${pad('плата 10 дн.', 13)}   без риска`,
@@ -874,4 +900,54 @@ const meet: Section = {
 const summerAt = (frac: number): number => SEASON_SECONDS * (SEASONS.length + SEASONS.indexOf('summer')) + DAY_LENGTH * (1 + frac);
 const SUMMER = summerAt(0.25);
 
-export const SECTIONS: readonly Section[] = [pay, band, camp, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, meet, sight];
+const people: Section = {
+  id: 'people',
+  title: 'Люди и город',
+  gdd: '3.3.1, 3.4.1, 3.4.3, 3.4.5, 3.7.7, 4.2',
+  doors: [
+    'askrules.askCount, askCap, askFeedable, captivesOf, drillMs',
+    'mailgrid.awayArrival',
+    'townrules.boardDue, townMarketLevel, townYardLevel',
+    'sim/bandearn.earnHaul, earnGold',
+    'gemrules.healPriceOfLeft, healFullSeconds',
+    'roambook.captivesCapNow',
+  ],
+  uses: ['askBase', 'askCamp', 'askWinter', 'askSpirit', 'askFeed', 'captiveShare', 'boardFee', 'townMarket', 'townYard', 'foeTable', 'foeShare', 'foeRipe', 'etalons'],
+  run(ctx) {
+    // Просящиеся (3.4.1): по ступени престижа — края базы при доле 0 и 1 (у прихода доля — хешем сида), лагерь, зима, дух.
+    ctx.line('«Просятся в отряд» — дубинщиков в приход (края базы × лагерь), лето, мораль 60:');
+    ctx.line(`${padEnd('ступень', 8)} ${(['open', 'hidden', 'ruin', 'none'] as const).map((c) => pad(c === 'none' ? 'без лагеря' : CAMP_NAME[c], 14)).join('')}`);
+    for (let st = 0; st <= 4; st++) {
+      const cell = (camp: 'open' | 'hidden' | 'ruin' | 'none'): string => {
+        const lo = askCountAt(st, camp, 0);
+        const hi = askCountAt(st, camp, 1);
+        return pad(`${lo}…${hi}`, 14);
+      };
+      ctx.line(`${padEnd(st, 8)} ${cell('open')}${cell('hidden')}${cell('ruin')}${cell('none')}`);
+    }
+    ctx.line(`  зимой ×${ctx.use('askWinter')}, мораль ниже ${ctx.use('askSpirit').below} — ×${ctx.use('askSpirit').mult}; «Взять, сколько прокормим» — хлеба на ${ctx.use('askFeed')} игр. дн. всем`);
+    const gaps = Array.from({ length: 30 }, (_, k) => (awayArrival(7, k + 101) - awayArrival(7, k + 100)) / 3_600_000);
+    ctx.line(`  приход — на сетке почты: между приходами ${fix(Math.min(...gaps), 1)}…${fix(Math.max(...gaps), 1)} ч (30 приходов сида 7)`);
+    ctx.line(`  книга отряда: потолок прихода у сервера (высшая ступень, открытый лагерь) — ${askCap(7, 100)}…${askCap(7, 101)} на приходы сида 7; пленных за бой — не больше ${captivesCapNow()}`);
+    ctx.line('');
+    ctx.line(`пленные (3.4.5): доля уцелевших врагов ${ctx.use('captiveShare')} — из 20 уцелевших ${captivesOf(20)}, из 60 — ${captivesOf(60)}`);
+    ctx.line('');
+    const fee = ctx.use('boardFee');
+    ctx.line(`постой (4.2): ${fee} золота за голову и игр. день; эталоны тира I…III за игр. день: ${ctx.use('etalons').tiers.map((t) => fix(boardDue(total(t), DAY_LENGTH), 1)).join(' · ')}`);
+    ctx.line(`вольный город I…III: уровень рынка ${ctx.use('townMarket').join(' · ')}, уровень дворов ${ctx.use('townYard').join(' · ')}`);
+    ctx.line('');
+    ctx.line('заработки (3.7.7): золота за игру при полном счёте, по ступени города (энергия — четыре игры в сутки):');
+    for (const g of MINIGAMES) ctx.line(`  ${padEnd(g.name, 10)} ${([1, 2, 3] as const).map((t) => pad(earnGold(earnHaul(t, g.id, 1)), 6)).join('')}`);
+    ctx.line('');
+    ctx.line(`лечение за алмазы (3.3.1): полный срок раненых ${fix(healFullSeconds() / 60, 0)} мин; цена — ${[15, 30, 45, 60].map((m) => `${m} мин — ${healPriceOfLeft(m * 60)}`).join(', ')} алм.`);
+    ctx.line(`учения найма (казармы 1-го уровня): 20 копейщиков — ${hrs(drillMs('spearman', 20) / 3_600_000)}, 20 всадников — ${hrs(drillMs('rider', 20) / 3_600_000)}`);
+  },
+};
+
+/** Сколько просится в приход при ступени `st`, лагере и доле `share` между краями базы — дверью `askrules` (лето, мораль 60). */
+function askCountAt(st: number, camp: 'open' | 'hidden' | 'ruin' | 'none', share: 0 | 1): number {
+  const [lo, hi] = askRange(st);
+  return Math.max(1, Math.round((share === 0 ? lo : hi) * askMult({ camp, winter: false, morale: 60 })));
+}
+
+export const SECTIONS: readonly Section[] = [pay, band, camp, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, meet, sight, people];

@@ -6,8 +6,9 @@
 // продаст дешевле, чем отдал бы купцу, а отряд не платит розничной цены города. Запас села за игровой день — выработка двора первого
 // уровня с полной дюжиной (`YARDS`, `SLOTS_PER_LEVEL` — та же мерка, что у лавки алмазов, `gemrules.yardHourly`): село — это двор.
 // Чего вывести нечем (уровни рынка и дворов вольных городов, плата постоя) — заглушки игры (`game/roamstubs`) за выключателем.
-import type { ResourceId } from './types';
-import { GOOD_BY_ID } from './data/market';
+import type { EquipmentId, ResourceId, TroopId } from './types';
+import { GOOD_BY_ID, eqGood } from './data/market';
+import { TROOP_BY_ID } from './data/troops';
 import { SALE_SHARE } from './marketrules';
 import { YARDS } from './data/yards';
 import { SLOTS_PER_LEVEL } from './constants';
@@ -61,3 +62,17 @@ export function villageLeft(took: number, at: number, now: number): number {
 
 /** Взятое у села к минуте `now` — после отхода: запись, которую положит покупка. */
 export const villageTaken = (took: number, at: number, now: number): number => villageStock() - villageLeft(took, at, now);
+
+// ---------- найм ----------
+
+/**
+ * Найм вида по основе рынка (ГДД 3.4.3): припас найма и снаряжение, как у лорда в Казармах, золотом без привоза и нажима — мерка прибора
+ * и нижняя граница: у города сверху — цена привоза и нажим (`sim/roamtown.hireBill`), из обоза — даром.
+ */
+export function hireBase(kind: TroopId): number {
+  const t = TROOP_BY_ID[kind];
+  let gold = 0;
+  for (const [e, n] of Object.entries(t.gear) as [EquipmentId, number][]) gold += n * GOOD_BY_ID[eqGood(e)].price;
+  for (const [r, n] of Object.entries(t.cost) as [ResourceId, number][]) gold += n * GOOD_BY_ID[r].price;
+  return gold;
+}

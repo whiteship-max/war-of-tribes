@@ -141,7 +141,7 @@ export const ROAM_STUBS = {
     value: 0.25,
     gdd: '3.3.1',
     what: 'раненые без лазарета — доля павших боя отряда (лежат при отряде)',
-    batch: 'ПН-6',
+    batch: 'ПН-9',
     orient: false,
   },
   ambushBase: {
@@ -162,21 +162,21 @@ export const ROAM_STUBS = {
     value: 28,
     gdd: '3.5.1',
     what: 'густота вольных городов НПС: один на квадрат N × N клеток (общие, постоянной солью)',
-    batch: 'ПН-6',
+    batch: 'ПН-7',
     orient: false,
   },
   townTier: {
     value: [0.55, 0.3, 0.15] as readonly number[],
     gdd: '3.5.1',
     what: 'ступени вольных городов I, II, III — доли',
-    batch: 'ПН-6',
+    batch: 'ПН-7',
     orient: false,
   },
   villageBlock: {
     value: 16,
     gdd: '3.5.1',
     what: 'густота сёл: одно на квадрат N × N клеток (свои, сидом мира)',
-    batch: 'ПН-6',
+    batch: 'ПН-7',
     orient: false,
   },
   vatagaBlock: {

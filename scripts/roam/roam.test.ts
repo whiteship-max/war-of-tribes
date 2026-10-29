@@ -39,7 +39,7 @@ describe('разделы — те, что называют ГДД 6.5 и пач�
     // 6.5: темп престижа, медиана до замка, паритет, сила НПС, курс припаса, пул, доля обнаружений по видам лагеря.
     // ПН-1 добавил раздел дверей отряда (`band`) — содержание, терпение, обоз и фураж бродяги; ПН-3 — лагерь и руины (`camp`).
     // ПН-5 — точки мира и встречи с НПС (`meet`): густота точек, сила НПС по ступеням, шанс засады — двери мира бродяги.
-    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet', 'sight']);
+    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet', 'sight', 'people']);
   });
 
   it('у каждого раздела — раздел ГДД и двери кода или входы', () => {
@@ -80,7 +80,7 @@ describe('заглушка не выдаётся за выведенное', () 
   });
 
   it('напечатанный статус каждого раздела — тот, что выводится из входов, и слова «выведено» у раздела на заглушках нет', async () => {
-    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'pool', 'meet', 'sight']);
+    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'pool', 'meet', 'sight', 'people']);
     const heads = out.filter((l) => l.startsWith('━━ ') && !l.startsWith('━━ Итог'));
     const statuses = out.filter((l) => l.startsWith('статус: '));
     expect(statuses.length).toBe(heads.length);
@@ -89,7 +89,7 @@ describe('заглушка не выдаётся за выведенное', () 
       expect(heads[i], s.id).toContain(s.title);
       expect(statuses[i], `«${s.title}»: статус из входов`).toBe(`статус: ${statusOf(s.uses)}`);
     });
-    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 13 ━━$/);
+    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 14 ━━$/);
   });
 
   it('вход, не объявленный разделом, — исключение', async () => {
@@ -146,6 +146,17 @@ describe('двери ПН-1 вместо входов', () => {
     const src = readFileSync(path.join(HERE, 'path.ts'), 'utf8');
     for (const door of ['bandUpkeep(', 'forageShare(', 'bandRationPerDay(', 'cargoCap(']) expect(src, `автопилот зовёт ${door}`).toContain(door);
     expect(src, 'своего ухода у модели нет').not.toMatch(/DESERT_SHARE/);
+  });
+});
+
+describe('двери ПН-6 вместо входов', () => {
+  it('у прибора нет входа пачки ПН-6: повышение, найм, хлеб села и просящиеся — двери игры', () => {
+    // Граница: пачка ПН-6 закрыта — повышение (`promoterules`), найм (`townrules.hireBase`), хлеб села (`townrules.villageFoodPrice`) и
+    // просящиеся (`askrules` на сетке почты) ушли в двери; чего вывести нечем, лежит заглушкой игры тем же числом.
+    expect(Object.entries(INPUTS).filter(([, i]) => i.batch === 'ПН-6').map(([k]) => k)).toEqual([]);
+    expect(Object.keys(INPUTS)).not.toContain('village');
+    const src = readFileSync(path.join(HERE, 'path.ts'), 'utf8');
+    for (const door of ['askCount(', 'askFeedable(', 'awayArrival(']) expect(src, `автопилот зовёт ${door}`).toContain(door);
   });
 });
 

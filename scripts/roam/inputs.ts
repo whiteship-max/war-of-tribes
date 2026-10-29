@@ -11,13 +11,9 @@
 //
 // Ни одно число отсюда не идёт в код игры (ГДД, «Как читать числа»): `src/` этот модуль не читает, и это тоже тест.
 // Двери кода — то, что уже есть (жалованье, бой, путь, расселение, рынок), — входами не бывают: разделы зовут их прямо.
-import { GOOD_BY_ID, MIN_MARKUP } from '../../src/game/data/market';
-import { TROOP_BY_ID } from '../../src/game/data/troops';
-import { selfCost } from '../../src/game/selfcost';
 import { ROAM_STUBS, type RoamStubId } from '../../src/game/roamstubs';
-import type { EquipmentId, ResourceId, TroopId } from '../../src/game/types';
 import type { TroopStack } from '../../src/game/battle/kinds';
-import type { Camp, Origin } from './kinds';
+import type { Origin } from './kinds';
 
 export type InputKind = 'rule' | 'stub';
 
@@ -47,34 +43,6 @@ const fromGame = <K extends RoamStubId>(id: K): Input<(typeof ROAM_STUBS)[K]['va
   return stub(g.gdd, g.what, g.batch, g.value, g.orient);
 };
 
-/** Цена повышения А → Б по правилу ГДД 3.4.2: разница снаряжения и припаса найма по основе цен рынка, без нажима. */
-export function upgradePrice(from: TroopId, to: TroopId): number {
-  const a = TROOP_BY_ID[from];
-  const b = TROOP_BY_ID[to];
-  let gold = 0;
-  for (const [id, n] of Object.entries(b.gear) as [EquipmentId, number][]) {
-    const more = Math.max(0, n - (a.gear[id] ?? 0));
-    if (more > 0) gold += more * GOOD_BY_ID[`eq:${id}`].price;
-  }
-  for (const [id, n] of Object.entries(b.cost) as [ResourceId, number][]) {
-    const more = Math.max(0, n - (a.cost[id] ?? 0));
-    if (more > 0) gold += more * GOOD_BY_ID[id].price;
-  }
-  return gold;
-}
-
-/** Найм вида в городе по правилу ГДД 3.4.3: припас найма и снаряжение по основе цен рынка (у лорда — из своего склада). */
-export function hirePrice(id: TroopId): number {
-  const t = TROOP_BY_ID[id];
-  let gold = 0;
-  for (const [e, n] of Object.entries(t.gear) as [EquipmentId, number][]) gold += n * GOOD_BY_ID[`eq:${e}`].price;
-  for (const [r, n] of Object.entries(t.cost) as [ResourceId, number][]) gold += n * GOOD_BY_ID[r].price;
-  return gold;
-}
-
-/** Деревенская цена товара по правилу ГДД 3.3.4: своим трудом с наценкой рынка (`selfCost × MIN_MARKUP`), без нажима. */
-export const villagePrice = (r: ResourceId): number => selfCost(GOOD_BY_ID[r]) * MIN_MARKUP;
-
 export const INPUTS = {
   // ---------- правила ГДД (кода ещё нет) ----------
   // Заходы — поведение игрока, а не правило игры: двери у них не будет (ПН-1, «Решения ПН-1»). Между заходами отряд живёт
@@ -96,9 +64,6 @@ export const INPUTS = {
     },
   ),
   contracts: rule('3.8.4', 'договоров разом — до 3', 'ПН-7', 3),
-  upgrade: rule('3.4.2', 'цена повышения — разница снаряжения и припаса по основе цен рынка', 'ПН-6', upgradePrice),
-  hire: rule('3.4.3', 'найм в городе — припас найма и снаряжение по ценам рынка; время учений не считается', 'ПН-6', hirePrice),
-  village: rule('3.3.4', 'еда в селе — своим трудом с наценкой рынка (selfCost × MIN_MARKUP)', 'ПН-5', villagePrice),
   contractRule: rule('3.8.3', 'плата = содержание эталона × дни × K + мощь × LAIR_GOLD_PER_POWER × R; престиж = мощь / S + тир × 10', 'ПН-7', true),
   npcRule: rule(
     '3.6.2',
@@ -173,17 +138,6 @@ export const INPUTS = {
   // До вольного замка — с ПН-3 дверями: место выхода (`world/roam.placeBand`) и путь отряда (`roamWalkMs`) до ближайшего замка пула.
   // До дела — точки НПС (ПН-5): их на карте ещё нет, и дорога до дела — путь отряда той же дверью на брошенное расстояние.
   reach: stub('3.6.2', 'клеток до дела — точки НПС на карте придут с ПН-5', 'ПН-5', { deed: [5, 25] as const }, false),
-  recruits: stub('3.4.1', 'весть «Просятся в отряд»: сколько по ступени престижа, как часто, множитель лагеря', 'ПН-6', {
-    per: [
-      [2, 4],
-      [4, 7],
-      [6, 10],
-      [9, 15],
-      [12, 20],
-    ] as readonly (readonly [number, number])[],
-    every: [6, 10] as const,
-    camp: { open: 1.5, hidden: 0.5, ruin: 0.8 } as Record<Camp, number>,
-  }),
   foodMix: stub('3.3.4', 'откуда бродяга берёт еду сверх фуража: доля села, остальное — рынок города', 'ПН-5', 0.7, false),
   castleTiers: stub('3.11.1', 'ступени вольных замков: гарнизон — строка таблицы у ворот уровня 2, 4, 6; население; доступ по престижу', 'ПН-10', [
     { name: 'Усадьба с башней', level: 2, pop: 30, prestige: 150 },

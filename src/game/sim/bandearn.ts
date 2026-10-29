@@ -2,12 +2,12 @@
 // играет промыслы — золото себе. Разрешения не нужно; нельзя у города в осаде (вольные города НПС в Срезе 1 осад не знают — правило
 // стоит на месте, пока их нет) и у хозяина-«врага» (города игроков — Срез 2).
 //
-// Одна формула, своей таблицы нет: добыча игры — `MINIGAME_SHARE` суточной выработки двора этого дела (`YARD_BY_JOB`, дюжина мест на
-// уровень, `levelOutputMult` — та же мерка места, что у двора лорда) за долю энергии игры, в золото — по цене продажи рынка
+// Одна формула, своей таблицы нет: добыча игры — `MINIGAME_SHARE` суточной выработки одного работника двора этого дела (`YARD_BY_JOB`,
+// `levelOutputMult` — та же мерка места, что у двора лорда) за долю энергии игры, в золото — по цене продажи рынка
 // (`SALE_SHARE` × основа, без нажима). Уровень дворов — по ступени города (`townrules.townYardLevel`, заглушка). Хозяина не касается:
 // склад, места, выработка и казна города не меняются. Энергия — та же дверь промыслов (`sim/minigames`). Своим модулем — кусок пути.
 import type { GameState, ResourceId } from '../types';
-import { RESOURCE_IDS, SLOTS_PER_LEVEL } from '../constants';
+import { RESOURCE_IDS } from '../constants';
 import { GOOD_BY_ID } from '../data/market';
 import { YARD_BY_JOB } from '../data/yards';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_BY_ID, MINIGAME_COST, MINIGAME_SHARE, type MinigameId } from '../data/minigames';
@@ -20,12 +20,16 @@ import { bandOf } from './bandranks';
 import { standsAt, type TownPoint } from './roamtown';
 import { log } from './log';
 
-/** Суточная выработка двора дела игры `id` в вольном городе ступени `tier`: полные места, уровень дворов ступени. */
+/**
+ * Суточная выработка на дворе дела игры `id` в вольном городе ступени `tier` — **одного работника**: бродяга идёт на двор сам, одной
+ * парой рук (решение ПН-6), на место двора уровня ступени (`levelOutputMult` — мерка места, как у двора лорда). Сутки — те же, за
+ * которые копится энергия промыслов.
+ */
 export function earnYardDay(tier: TownTier, id: MinigameId): Record<ResourceId, number> {
   const yard = YARD_BY_JOB.get(MINIGAME_BY_ID[id].deed);
   const level = townYardLevel(tier);
   const out = {} as Record<ResourceId, number>;
-  for (const r of RESOURCE_IDS) out[r] = (yard?.yield[r] ?? 0) * SLOTS_PER_LEVEL * level * levelOutputMult(level) * gameDaysOfMs(ENERGY_REFILL);
+  for (const r of RESOURCE_IDS) out[r] = (yard?.yield[r] ?? 0) * levelOutputMult(level) * gameDaysOfMs(ENERGY_REFILL);
   return out;
 }
 
