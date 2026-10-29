@@ -335,11 +335,14 @@ const bare = (file: string): string =>
 const rel = (f: string): string => f.slice(SRC.length + 1).split('\\').join('/');
 
 describe('одна дверь на каждое число черты (таблица 3.2.3)', () => {
-  /** Число черты → её единственная дверь. */
-  const DOORS: Record<string, string> = {
+  /**
+   * Число черты → её единственная дверь. Дисциплина героя пути читается входом «отряд» двери духа — её половиной в куске пути
+   * (`sim/bandspirit`, ПН-5, хвост а): дверь та же, модуль свой, чтобы в первую загрузку не ехал.
+   */
+  const DOORS: Record<string, string | string[]> = {
     won: 'game/sim/spirit.ts',
     lost: 'game/sim/spirit.ts',
-    drill: 'game/sim/spirit.ts',
+    drill: ['game/sim/bandspirit.ts', 'game/sim/spirit.ts'],
     trade: 'game/sim/market.ts',
     build: 'game/derived.ts',
     calm: 'game/sim/stability.ts',
@@ -353,13 +356,13 @@ describe('одна дверь на каждое число черты (табл�
     for (const f of sources(SRC)) {
       for (const m of bare(f).matchAll(/rulerTraitNumbers\(s\)\.(\w+)/g)) (reads[m[1]] ??= new Set()).add(rel(f));
     }
-    for (const [k, door] of Object.entries(DOORS)) expect([...(reads[k] ?? [])], k).toEqual([door]);
+    for (const [k, door] of Object.entries(DOORS)) expect([...(reads[k] ?? [])].sort(), k).toEqual([door].flat());
     expect(Object.keys(reads).sort(), 'читают только числа таблицы').toEqual(Object.keys(DOORS).sort());
   });
 
   it('числа черт зовут только двери; в derived — только стройка и сословия', () => {
     const callers = sources(SRC).filter((f) => /rulerTraitNumbers\(/.test(bare(f))).map(rel).sort();
-    expect(callers).toEqual(['game/derived.ts', 'game/sim/market.ts', 'game/sim/spirit.ts', 'game/sim/stability.ts']);
+    expect(callers).toEqual(['game/derived.ts', 'game/sim/bandspirit.ts', 'game/sim/market.ts', 'game/sim/spirit.ts', 'game/sim/stability.ts']);
     const derived = bare(join(SRC, 'game', 'derived.ts'));
     const fns = [...derived.matchAll(/export (?:const|function) (\w+)[\s\S]*?(?=\nexport |$)/g)].filter((m) => /rulerTraitNumbers\(/.test(m[0])).map((m) => m[1]);
     expect(fns.sort()).toEqual(['buildBoost', 'estatesWith']);

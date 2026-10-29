@@ -40,7 +40,7 @@ export interface RoamPort {
   campGain(kind: CampKind): { forage: number; morale: number; heal: number };
   /** Часы партии, игровые секунды: ночь и сезон заметности отряда (ПН-4у). */
   partyTime(): number;
-  /** Приказ серверу (реестр, `net/roster.bandOrder`) — в Telegram; нет — мир применяет правило сам. */
+  /** Приказ серверу (реестр, `net/bandroster.bandOrder`) — в Telegram; нет — мир применяет правило сам. */
   order?: (o: BandOrder) => Promise<BandRow | string>;
 }
 

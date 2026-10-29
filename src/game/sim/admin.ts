@@ -12,13 +12,12 @@
 // у них одно — `netlify/lib/gems.creditGems` (docs/gems.md).
 //
 // Партия бродяги (Путь меча, 30.10.2026): посёлка у неё нет, и указ ложится в отряд — золото в кошель, припасы в обоз до его
-// вместимости (`sim/stock.addStock`, ключ `cargo`), бойцы в отряд (не меньше нуля). Так админ на пути пополняет кошель и провиант,
-// пока рынка у бродяги нет (ПН-6). Виды и числа указа те же, на сервере ничего не меняется.
-import type { GameState, ResourceId, RoamState, TroopId } from '../types';
+// вместимости (`sim/stock.addStock`, ключ `cargo`), бойцы в отряд (не меньше нуля) — `sim/bandgrant`, докачкой пути. Так админ на
+// пути пополняет кошель и провиант, пока рынка у бродяги нет (ПН-6). Виды и числа указа те же, на сервере ничего не меняется.
+import type { GameState, ResourceId, TroopId } from '../types';
 import { RESOURCE_IDS, RESOURCE_META } from '../constants';
 import { addStock } from './stock';
-import { cargoCap } from './roam';
-import { roamOn } from '../roamflag';
+import { roamDoor } from '../roamlazy';
 import { TROOP_BY_ID } from '../data/troops';
 import { STOCK_KEYS, TROOP_KEYS, type AdminGrant } from '../../../netlify/lib/contract';
 import { log } from './log';
@@ -41,8 +40,11 @@ export const layStock = (s: GameState, r: ResourceId, want: number): number => a
 export function applyGrants(s: GameState, grants: readonly AdminGrant[]): number {
   const fresh = grants.filter((g) => g.n > adminSeen(s)).sort((a, b) => a.n - b.n);
   for (const g of fresh) {
-    const band = roamOn() && s.phase === 'roam' ? s.roam : undefined;
-    const parts = band ? toBand(s, band, g) : toTown(s, g);
+    // Указ отряду — половиной этой двери в куске пути (`sim/bandgrant`, ПН-5, хвост а): кусок есть только у того, кому путь открыт;
+    // закрыт — как прежде, указ посёлку.
+    const door = s.phase === 'roam' ? roamDoor() : null;
+    const band = door ? s.roam : undefined;
+    const parts = door && band ? door.toBand(s, band, g) : toTown(s, g);
     s.adminSeen = g.n;
     log(s, `Указ админа №${g.n}${band ? ' отряду' : ''}: ${parts.length ? parts.join(', ') : 'ничего не изменилось'}.`, 'info');
   }
@@ -79,34 +81,3 @@ function toTown(s: GameState, g: AdminGrant): string[] {
   return parts;
 }
 
-/** Указ отряду бродяги: золото в кошель, припасы в обоз до вместимости, бойцы в отряд. Возвращает, что легло, словами. */
-function toBand(s: GameState, band: RoamState, g: AdminGrant): string[] {
-  const parts: string[] = [];
-  for (const k of STOCK_KEYS) {
-    const want = g.stock[k];
-    if (!want) continue;
-    if (k === 'gold') {
-      const before = band.purse;
-      band.purse = Math.max(0, before + want);
-      if (band.purse !== before) parts.push(`кошель ${signedWhole(Math.round(band.purse - before))}`);
-      continue;
-    }
-    const r = k as ResourceId;
-    if (!RESOURCE_IDS.includes(r)) continue;
-    // Вместимость — до прибавки бойцов этого же указа: обоз считает ношу тех, кто уже в строю.
-    const moved = Math.round(addStock(s, r, want, cargoCap(band), 'cargo'));
-    parts.push(`${RESOURCE_META[r].name.toLowerCase()} в обоз ${moved === 0 ? '0 (обоз полон)' : signedWhole(moved)}`);
-  }
-  for (const k of TROOP_KEYS) {
-    const want = g.troops[k];
-    if (!want) continue;
-    const t = k as TroopId;
-    if (!TROOP_BY_ID[t]) continue;
-    const before = band.band[t] ?? 0;
-    const after = Math.max(0, before + want);
-    if (after > 0) band.band[t] = after;
-    else delete band.band[t];
-    if (after !== before) parts.push(`${TROOP_BY_ID[t].name.toLowerCase()} ${signedWhole(after - before)}`);
-  }
-  return parts;
-}

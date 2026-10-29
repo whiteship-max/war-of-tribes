@@ -50,7 +50,10 @@ describe('видимость на карте — только за выключ�
 
   it('мир подключает видимость за выключателем, реестр отдаёт ответ сервера туда же', () => {
     expect(gated(read('src/world/store.ts'), /import\('\.\/bandsight'\)/)).toBe(1);
-    expect(gated(read('src/net/roster.ts'), /keepSight\(res\)/)).toBe(1);
+    // Ответ сервера о видимости — половине реестра в куске пути (ПН-5, хвост а): реестр отдаёт его только куску, а кусок есть только
+    // у того, кому путь открыт (`roamlazy.roamDoor` спрашивает `roamOn`).
+    expect(read('src/net/roster.ts').match(/roamDoor\(\)\?\.keepRoster\(res\)/g)?.length).toBe(1);
+    expect(read('src/net/bandroster.ts')).toMatch(/sightSink\?\.\(sight\)/);
   });
 });
 

@@ -46,7 +46,7 @@ import {
   wagesDue,
 } from '../derived';
 import { addPop } from './population';
-import { loseBandWounded, loseWounded } from './infirmary';
+import { loseWounded } from './infirmary';
 import { loseRecruits } from './army';
 import { loseMasters } from './masters';
 import type { TroopStack } from '../battle/kinds';
@@ -54,13 +54,12 @@ import { log } from './log';
 import { closeWageMin } from './dynasty';
 import { WAGE_MODES, type WageMode } from '../spiritrules';
 import { payShare, wageMode } from './spirit';
-import { bandPatienceDays, bandUnpaid, bandWagesPerDay, woundedOf } from '../roamrules';
 
 /**
  * Голодом уходит доля `rate` каждого вида из `stack`, дробь копится в `carry` до целого человека.
  * Один счёт на раненых и новобранцев: у строя свой — у него два повода.
  */
-function starve(
+export function starve(
   stack: TroopStack,
   carry: Partial<Record<TroopId, number>>,
   rate: number,
@@ -83,20 +82,20 @@ function starve(
 }
 
 /** Доля войска, уходящая за игровой день при доле повода `part`, — на шаг длиной `dt` игровых секунд. */
-const desertRate = (part: number, dt: number): number => (DESERT_SHARE * part * dt) / DAY_LENGTH;
+export const desertRate = (part: number, dt: number): number => (DESERT_SHARE * part * dt) / DAY_LENGTH;
 
 /**
  * **Поводы не спорят за одного человека, а делят уходящих.** Уходит доля — больший из двух недостатков (`unpaid`, `unfed`);
  * голодная её часть — это `unfed`, остальное недодано жалованьем. Одна раскладка на город и на отряд бродяги.
  */
-function splitShare(unpaid: number, unfed: number): { share: number; hungry: number; owed: number } {
+export function splitShare(unpaid: number, unfed: number): { share: number; hungry: number; owed: number } {
   const share = Math.max(unpaid, unfed);
   const hungry = Math.min(share, unfed);
   return { share, hungry, owed: Math.max(0, share - hungry) };
 }
 
 /** Сколько целых бойцов уходит этой долей: дробь копится в своём остатке, а `cap` держит сумму обоих поводов. */
-function draw<K extends string>(carry: Partial<Record<K, number>>, id: K, have: number, cap: number, rate: number): number {
+export function draw<K extends string>(carry: Partial<Record<K, number>>, id: K, have: number, cap: number, rate: number): number {
   const due = (carry[id] ?? 0) + have * rate;
   const whole = Math.min(cap, Math.floor(due));
   carry[id] = due - whole;
@@ -211,87 +210,8 @@ export function upkeepTick(s: GameState, dt: number, unfed: number): void {
   }
 }
 
-// ---------- Отряд бродяги (ПН-1, docs/gdd/path_of_sword.md, 3.3.2) ----------
-
-/** Слова отряда: уходят из отряда, а не из дружины города, и жителем не остаются — крыши нет. */
-const BAND_TEXT = {
-  left: (one: string, why: string): string => `Ушёл из отряда ${one}: ${why}.`,
-  woundedStarved: (one: string): string => `Ушёл из отряда раненый ${one}: нет еды.`,
-} as const;
-
-/**
- * Шаг содержания отряда бродяги — та же дверь, вход «отряд» (ГДД 3.3.2, «Решения ПН-1»). Правила — городские, двери — те же:
- *   — жалованье вида — формула 3.3.2 (`roamrules.bandWage`), полное или минимальное (ДР-1, `PayState.wage`); платит кошель
- *     (`RoamState.purse`), не хватило — долг в той же ведомости (`s.pay`: она одна на войско партии);
- *   — паёк ест зовущий (`sim/roam.roamStep`: фураж, потом обоз) и передаёт сюда, какая доля отряда голодна (`unfed`);
- *   — долг или голод — идёт терпение (`PayState.late`): две игр. дн. и по полдня за кружок Военного дела героя
- *     (`roamrules.bandPatienceDays`); кончилось — за игровой день уходит `DESERT_SHARE` от неоплаченной или некормленной части,
- *     **равной долей каждого вида**, голод первым (`splitShare`, `draw` — те же, что у города);
- *   — ушедший неуплатой у бродяги уходит совсем: крыши нет (у города он остаётся жителем); раненые при голоде — голодом и
- *     совсем (`sim/infirmary.loseBandWounded`);
- *   — ушедшие уносят свою долю долга: дохода у отряда нет, и долг убывает вместе с жалованьем.
- */
-export function bandUpkeep(s: GameState, dt: number, unfed: number): void {
-  const r = s.roam;
-  if (!r) return;
-  const pay = s.pay;
-  const mode = wageMode(s);
-  const due = bandWagesPerDay(r.band, mode);
-  if (due > 0) {
-    const need = (due * dt) / DAY_LENGTH;
-    const paid = Math.min(r.purse, need);
-    r.purse -= paid;
-    pay.debt += need - paid;
-    // Счёт уплаченного (ДР-1) — для книги духа: у отряда это ровно то, что ушло из кошеля на жалованье.
-    pay.paid = (pay.paid ?? 0) + paid;
-  }
-  // Долг гасится из того, что осталось в кошеле: жалованье первым, долг вторым.
-  if (pay.debt > 0 && r.purse > 0) {
-    const back = Math.min(r.purse, pay.debt);
-    r.purse -= back;
-    pay.debt -= back;
-  }
-  if (pay.debt < 1e-6) pay.debt = 0;
-
-  const { share, hungry, owed } = splitShare(bandUnpaid(pay.debt, due), unfed);
-  if (pay.debt === 0 && unfed <= 0) {
-    pay.late = 0;
-    return;
-  }
-  pay.late += dt;
-  if (share <= 0 || pay.late < bandPatienceDays(r.hero.war) * DAY_LENGTH) return;
-
-  pay.starved ??= {};
-  for (const id of TROOP_IDS) {
-    const have = Math.max(0, r.band[id] ?? 0);
-    if (have <= 0) {
-      delete pay.gone[id];
-      delete pay.starved[id];
-      continue;
-    }
-    const byFood = draw(pay.starved, id, have, have, desertRate(hungry, dt));
-    const byPay = draw(pay.gone, id, have, have - byFood, desertRate(owed, dt));
-    const whole = byFood + byPay;
-    if (whole <= 0) continue;
-    if (have - whole > 0) r.band[id] = have - whole;
-    else delete r.band[id];
-    const one = TROOP_BY_ID[id].one;
-    for (let i = 0; i < byPay; i++) log(s, BAND_TEXT.left(one, UPKEEP_TEXT.why.pay), 'bad', `band:desert:${id}`);
-    for (let i = 0; i < byFood; i++) log(s, BAND_TEXT.left(one, UPKEEP_TEXT.why.food), 'bad', `band:desert:${id}:food`);
-  }
-  // Раненые едят тот же паёк и при голоде уходят той же долей — всегда голодом и совсем.
-  if (unfed > 0) {
-    pay.hurt ??= {};
-    starve(woundedOf(r), pay.hurt, desertRate(unfed, dt), (id, n) => loseBandWounded(s, id, n), (id) => {
-      log(s, BAND_TEXT.woundedStarved(TROOP_BY_ID[id].one), 'bad', `band:starve:${id}`);
-    });
-  }
-  // Ушедшие уносят свою долю долга: дохода нет, и долг убывает той же долей, что жалованье.
-  if (pay.debt > 0 && due > 0) {
-    pay.debt *= bandWagesPerDay(r.band, mode) / due;
-    if (pay.debt < 1e-6) pay.debt = 0;
-  }
-}
+// Отряд бродяги (ПН-1, ГДД 3.3.2) — вход «отряд» этой двери: `sim/bandkeep.bandUpkeep` (ПН-5, хвост а — своим модулем, едет
+// докачкой пути, `game/roamlazy`); правила ухода у него те же — `starve`, `desertRate`, `splitShare`, `draw` отсюда.
 
 export interface DismissCheck {
   /** Сколько бойцов этого вида можно распустить сейчас. */

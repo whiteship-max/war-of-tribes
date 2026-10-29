@@ -151,8 +151,9 @@ function openWorld(opts: LocalWorldOptions): LocalWorld {
  * мира лорда (реестр, война, эпоха), — без клетки замка: место выхода называет реестр отряда.
  */
 async function openRoam(): Promise<LocalWorld> {
+  // Опции мира лорда (реестр, война, эпоха) собирает сам кусок (`roamboot.roamOpts`, ПН-5, хвост а): здесь — только замки реестра.
   const { bootRoamWorld } = await import('./local/roamboot');
-  return bootRoamWorld({ reveal: revealWorld(), castles: worldCastles, era: knownEra(), wars, warsKnown, warOrder, warPace, spies, spyLook, pacts, proposals });
+  return bootRoamWorld(worldCastles);
 }
 
 /**

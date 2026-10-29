@@ -66,11 +66,11 @@ describe('новая партия бродягой со стартового э�
     const flag = await import('@/game/roamflag');
     const { warriorStart, WARRIOR } = await import('@/game/roamorigin');
     expect(useGame.getState().fresh, 'граница: на устройстве нет партии').toBe(true);
-    expect(useGame.getState().beginRoamParty()).toBe('Путь меча ещё не открыт.');
+    expect(await useGame.getState().beginRoamParty()).toBe('Путь меча ещё не открыт.');
     expect(useGame.getState().s.phase).toBeUndefined();
     useGame.setState({ s: { ...useGame.getState().s, gemSeen: 9, adminSeen: 4 } });
     flag.setRoamOpen(true);
-    expect(useGame.getState().beginRoamParty()).toBeNull();
+    expect(await useGame.getState().beginRoamParty()).toBeNull();
     const s = useGame.getState().s;
     expect(s.phase).toBe('roam');
     expect(s.roam?.origin).toBe('warrior');
@@ -87,7 +87,7 @@ describe('новая партия бродягой со стартового э�
     const flag = await import('@/game/roamflag');
     flag.setRoamOpen(true);
     useGame.setState({ fresh: false });
-    expect(useGame.getState().beginRoamParty()).toBe('Путь меча начинают с новой партии.');
+    expect(await useGame.getState().beginRoamParty()).toBe('Путь меча начинают с новой партии.');
     expect(useGame.getState().s.phase).toBeUndefined();
   });
 });
@@ -98,7 +98,11 @@ describe('указ админа на Пути меча', () => {
     const { createInitialState } = await import('@/game/state');
     const { beginRoam } = await import('@/game/sim/roam');
     const { applyGrants } = await import('@/game/sim/admin');
+    // Кусок пути тянет стор, а стор — записку админа с памятью устройства: сперва они, потом слово «админ».
+    await import('@/game/store');
     flag.setRoamOpen(true);
+    // Указ отряду — половиной двери указа в куске пути (ПН-5, хвост а): у админа кусок докачан.
+    await (await import('@/game/roamlazy')).loadRoamDoor();
     const s = createInitialState(3);
     expect(beginRoam(s, { origin: 'warrior', hero: { name: 'Ратко', war: 2 }, band: { spearman: 4, clubman: 2 }, purse: 120, food: 5 })).toBeNull();
     const town = JSON.stringify({ r: s.resources, g: s.gold, a: s.army });

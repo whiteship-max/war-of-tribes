@@ -16,7 +16,7 @@ import { useAdmin } from '@/net/admin';
 import { PROLOGUE_LABEL, ROAM_LABEL, ROAM_NOTE, START_LABEL, roamShown } from './start';
 
 const screen = (): string =>
-  renderToStaticMarkup(createElement(StartScreen, { onEnter: () => {}, onPrologue: () => {}, onRoam: () => null, naming: () => null, settings: null }));
+  renderToStaticMarkup(createElement(StartScreen, { onEnter: () => {}, onPrologue: () => {}, onRoam: async () => null, naming: () => null, settings: null }));
 
 afterEach(() => {
   setRoamOpen(false);
@@ -47,7 +47,7 @@ describe('кнопка «Путь меча» на стартовом экран�
 
   it('нажатие входит в путь дверью стора и уводит в игру', () => {
     const app = readFileSync(join(__dirname, '..', 'App.tsx'), 'utf8');
-    expect(app).toMatch(/onRoam=\{\(\) => \{\s*const why = useGame\.getState\(\)\.beginRoamParty\(\);\s*if \(why\) return why;\s*setStarted\(true\);/);
+    expect(app).toMatch(/onRoam=\{async \(\) => \{\s*const why = await useGame\.getState\(\)\.beginRoamParty\(\);\s*if \(why\) return why;\s*setStarted\(true\);/);
   });
 });
 

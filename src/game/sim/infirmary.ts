@@ -153,7 +153,7 @@ export function woundsHome(s: GameState): number {
  * бойца (`line`, склеивается счётчиком за сутки по `key`). Одна раскладка на лазарет города и на раненых отряда бродяги.
  * Возвращает оставшиеся группы и сколько встало.
  */
-function rise(
+export function rise(
   s: GameState,
   groups: WoundGroup[],
   into: Partial<Record<TroopId, number>>,
@@ -190,7 +190,7 @@ export function settleWounds(s: GameState): number {
  * Снять `n` раненых вида `id` из `groups` — голодом, совсем. Первыми уходят те, кто лёг последним: при полководце, потом свежие;
  * лежавшим дольше до строя ближе всего. Одна очередь на лазарет и на раненых отряда.
  */
-function takeWounded(groups: WoundGroup[], id: TroopId, n: number): { keep: WoundGroup[]; gone: number } {
+export function takeWounded(groups: WoundGroup[], id: TroopId, n: number): { keep: WoundGroup[]; gone: number } {
   let left = Math.max(0, Math.floor(n));
   let gone = 0;
   const order = [...groups].sort((a, b) => (b.until ?? Infinity) - (a.until ?? Infinity));
@@ -216,50 +216,5 @@ export function loseWounded(s: GameState, id: TroopId, n: number): number {
   return gone;
 }
 
-// ---------- Раненые отряда бродяги (ПН-1) ----------
-//
-// Лазарета у бродяги нет (ГДД 3.3.1): раненые лежат при отряде — мест не занимают и не ограничены местами, встают через тот же
-// срок `WOUND_DAYS`, едят тот же паёк и при голоде уходят той же дверью содержания (`sim/upkeep.bandUpkeep`) — всегда голодом и
-// совсем. Сколько павших ранено без лазарета, решает бой отряда (ПН-5) — сюда он кладёт уже раненых.
-
-/** Уложить раненых при отряде: срок `WOUND_DAYS` с этой минуты, мест не нужно. Возвращает, сколько легло. */
-export function layBandWounds(s: GameState, wounded: Partial<Record<TroopId, number>>): number {
-  const r = s.roam;
-  if (!r) return 0;
-  const troops: Partial<Record<TroopId, number>> = {};
-  for (const id of TROOP_IDS) {
-    const n = Math.max(0, Math.floor(wounded[id] ?? 0));
-    if (n > 0) troops[id] = n;
-  }
-  const n = troopTotal(troops);
-  if (n > 0) r.wounded.push({ troops, until: s.time + WOUND_DAYS * DAY_LENGTH });
-  return n;
-}
-
-/**
- * Раненые отряда поправляются быстрее часов (ПН-3, открытый лагерь — ГДД 3.5.3): срок каждой группы, ещё не наступивший,
- * подходит на `ahead` игровых секунд. Встают они потом тем же шагом (`settleBandWounds`), а не здесь.
- */
-export function hastenBandWounds(s: GameState, ahead: number): void {
-  const r = s.roam;
-  if (!r || !(ahead > 0)) return;
-  for (const g of r.wounded) if (g.until !== null && g.until > s.time) g.until = Math.max(s.time, g.until - ahead);
-}
-
-/** Шаг отряда: чей срок прошёл — встают в строй отряда. Возвращает, сколько встало. */
-export function settleBandWounds(s: GameState): number {
-  const r = s.roam;
-  if (!r || r.wounded.length === 0) return 0;
-  const { keep, back } = rise(s, r.wounded, r.band, (one) => `Раненый встал в строй отряда: ${one}.`, (id) => `wound:band:${id}`);
-  r.wounded = keep;
-  return back;
-}
-
-/** Снять `n` раненых отряда вида `id` — голодом, совсем. Возвращает, сколько снято. */
-export function loseBandWounded(s: GameState, id: TroopId, n: number): number {
-  const r = s.roam;
-  if (!r) return 0;
-  const { keep, gone } = takeWounded(r.wounded, id, n);
-  r.wounded = keep;
-  return gone;
-}
+// Раненые отряда бродяги (ПН-1) — половина этой двери без лазарета: `sim/bandwounds` (ПН-5, хвост а — едет докачкой пути,
+// `game/roamlazy`); раскладка «встать в строй» и «снять голодом» у них общая — `rise`, `takeWounded` выше по файлу.

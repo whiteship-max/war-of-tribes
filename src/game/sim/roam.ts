@@ -26,10 +26,11 @@ import { GAIT_HAUL, type Gait } from '@/world/data/gait';
 import { UNIT_BY_ID } from '@/world/data/units';
 import { readMove, standWay, wayGait, type CampKind, type RoamMove } from '@/world/roammove';
 import { gameDaysOfMs } from '../pace';
-import { addStock, trimCargo } from './stock';
-import { hastenBandWounds, settleBandWounds } from './infirmary';
+import { addStock } from './stock';
+import { trimCargo } from './cargo';
+import { hastenBandWounds, settleBandWounds } from './bandwounds';
 import { roamStub } from '../roamstubs';
-import { bandUpkeep } from './upkeep';
+import { bandUpkeep } from './bandkeep';
 import { trimLog } from './log';
 
 /** Происхождения бродяги (ГДД 3.1): что даёт каждое — ПН-17. */

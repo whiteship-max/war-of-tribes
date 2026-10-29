@@ -15,6 +15,8 @@ import { liveStep } from './sim/tick';
 import { beginRoam } from './sim/roam';
 import { addStock } from './sim/stock';
 import { spiritView } from './sim/spirit';
+// Кусок пути (ПН-5, хвост а): у админа он докачан до чтения партии — тест держит его так же; у игрока реестр его не отдаёт.
+import './roamdoor';
 
 const BAND: RoamState = {
   origin: 'warrior',
@@ -122,7 +124,9 @@ describe('выключатель Пути меча закрыт игрокам �
         // Развилка — по фазе партии (`s.phase`); чтение фазы из записи (`sim/roam.mergeRoam`) стоит за выключателем у чтения сохранения.
         if (!/\bs\.phase\s*===\s*'roam'/.test(line) || /^\s*(\/\/|\*)/.test(line)) return;
         forks.push(relative(ROOT, p).split(sep).join('/'));
-        expect(line, `${relative(ROOT, p)}:${i + 1} — развилка без выключателя`).toMatch(/\broamOn\(\)\s*&&/);
+        // За выключателем — `roamOn() && …` или кусок пути `roamDoor()` (ПН-5, хвост а): реестр отдаёт его только тому, кому путь
+        // открыт (`roamlazy.roamDoor` спрашивает `roamOn`, держит тест ниже).
+        expect(line, `${relative(ROOT, p)}:${i + 1} — развилка без выключателя`).toMatch(/\broamOn\(\)\s*&&|\?\s*roamDoor\(\)/);
       });
     }
     // Граница области: развилки есть — шаг, отлучка, дух, чей счёт дел (ПН-2: герой пути или правитель), какой мир открыть и

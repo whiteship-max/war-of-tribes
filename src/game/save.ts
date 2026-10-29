@@ -36,7 +36,7 @@ import { rescueFromCloud } from '@/telegram/cloud-rescue';
 import { enterLead, leadAt, partyNow } from '@/net/clock';
 import { CHEATS_ON } from '@/cheats';
 import { roamOn } from './roamflag';
-import { mergeRoam } from './sim/roam';
+import { loadRoamDoor, roamDoor } from './roamlazy';
 import { loadRulerTraits } from './rulernow';
 
 const KEY = 'tribe.save.v1';
@@ -277,6 +277,8 @@ export async function readyToRead(json: string): Promise<void> {
   if (versionOf(json) < 24) await loadFold();
   // Черты правителя (ПН-2): в записи есть счёт дел или минимальное жалованье — правила черт подгружаются до чтения (`rulernow`).
   if (/"deeds":\{|"mode":"min"/.test(json)) await loadRulerTraits();
+  // Партия бродяги (ПН-5, хвост а): её читает кусок пути — докачать до чтения, если путь открыт этому игроку.
+  if (roamOn() && /"phase":"roam"/.test(json)) await loadRoamDoor();
 }
 
 /**
@@ -527,7 +529,9 @@ export function deserialize(json: string): GameState | null {
     // пускают.
     delete s.phase;
     delete s.roam;
-    if (roamOn()) Object.assign(s, mergeRoam(data));
+    // Читает фазу и отряд кусок пути (ПН-5, хвост а): путь закрыт игроку — куска нет, и партия читается лордом, как прежде.
+    const roamDoorNow = roamDoor();
+    if (roamDoorNow) Object.assign(s, roamDoorNow.mergeRoam(data));
     // Здание, добавленное в BUILDINGS после того, как сохранение записали,
     // должно появиться в посёлке само — так же, как оно появляется в новой партии
     // (CLAUDE.md, «Правила»). Иначе игрок с сохранением остался бы без него

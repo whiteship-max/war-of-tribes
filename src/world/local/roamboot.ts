@@ -10,7 +10,8 @@ import { useGame } from '@/game/store';
 import { setMove, foodAfter, campGain } from '@/game/sim/roam';
 import { roamOn } from '@/game/roamflag';
 import { partyNow } from '@/net/clock';
-import { bandOrder, castles, rosterReady } from '@/net/roster';
+import { castles, rosterReady } from '@/net/roster';
+import { bandOrder } from '@/net/bandroster';
 import { tgInitData } from '@/telegram/webapp';
 import { leaseHolder } from '@/net/session';
 import { settleRandom } from '../settle';
@@ -18,6 +19,10 @@ import { placeBand, roamCell, roamSeat } from '../roam';
 import { browserStorage, parseWorldSave } from './state';
 import type { LocalWorldOptions } from './LocalWorld';
 import { RoamWorld, type RoamPort } from './RoamWorld';
+import { pacts, proposals, spies, spyLook, warOrder, warPace, wars, warsKnown } from '@/net/war';
+import { knownEra } from '@/net/era';
+import { revealWorld } from '@/debug';
+import type { PlayerCastle } from '../types';
 
 /** Дверь мира бродяги к партии и серверу. */
 export function roamPort(): RoamPort {
@@ -34,8 +39,24 @@ export function roamPort(): RoamPort {
   };
 }
 
-/** Построить мир бродяги поверх опций мира лорда (`openOpts` — те же реестр, война, эпоха). */
-export async function bootRoamWorld(base: LocalWorldOptions): Promise<RoamWorld> {
+/** Опции мира лорда (`world/store.openOpts` — те же реестр, война, эпоха) без клетки замка: место выхода называет реестр отряда. */
+const roamOpts = (castles: () => PlayerCastle[]): LocalWorldOptions => ({
+  reveal: revealWorld(),
+  castles,
+  era: knownEra(),
+  wars,
+  warsKnown,
+  warOrder,
+  warPace,
+  spies,
+  spyLook,
+  pacts,
+  proposals,
+});
+
+/** Построить мир бродяги поверх опций мира лорда; `castles` — замки реестра глазами мира (`world/store.worldCastles`). */
+export async function bootRoamWorld(castlesOf: () => PlayerCastle[]): Promise<RoamWorld> {
+  const base = roamOpts(castlesOf);
   // В Telegram ожидание кончается только строкой отряда (`net/roster.seat`): сервер не отвечает — игра ждёт, а не ставит отряд сама.
   await rosterReady();
   const g = useGame.getState();

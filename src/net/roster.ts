@@ -24,8 +24,9 @@
  * карта. Пульс мира (`PULSE_MS` в `world/store.ts`) реестра не касается вовсе.
  */
 import { create } from 'zustand';
-import type { BandOrder, BandRow, BandView, CastleClaim, CastleView, RosterResponse, SeenView } from '../../netlify/lib/contract';
+import type { BandOrder, CastleClaim, CastleView, RosterResponse } from '../../netlify/lib/contract';
 import { roamOn } from '@/game/roamflag';
+import { roamDoor } from '@/game/roamlazy';
 import { tgInitData } from '@/telegram/webapp';
 import { realSpan } from '@/game/span';
 import { apiGet, apiPost, apiPut, type ApiFail } from './api';
@@ -139,102 +140,31 @@ function keep(res: RosterResponse, at: number): void {
   cache = next;
   write(JSON.stringify(next));
   useRoster.setState({ state: 'ok', why: '', at, count: res.castles.length });
-  // Строка отряда бродяги (ПН-3) и видимость отрядов (ПН-4у) — только за выключателем: путь закрыт игроку — сервер их и не шлёт.
-  if (roamOn()) {
-    keepBand(res.band ?? null);
-    keepSight(res);
-  }
+  // Строка отряда бродяги (ПН-3) и видимость отрядов (ПН-4у) — половиной реестра в куске пути (`net/bandroster`, ПН-5, хвост а):
+  // путь закрыт игроку — куска нет, и сервер их не шлёт.
+  roamDoor()?.keepRoster(res);
 }
+
+/** Положить ответ реестра (`keep`) — кусок пути кладёт так ответ на приказ отряда (`net/bandroster.bandOrder`). */
+export const keepRosterResponse = (res: RosterResponse): void => keep(res, serverNow());
+
+/** Слова отказа сети для приказа отряда — те же, что у реестра. */
+export const rosterFailWords = (why: ApiFail): string => WORDS[why];
 
 /** Своя клетка: её назвал сервер. null — не называл ещё ни разу. */
 export const castleCell = (): Cell | null => (cache ? cache.mine : null);
 
 // ---------- Отряд бродяги (ПН-3) ----------
 //
-// У бродяги замка нет — в реестре он стоит строкой отряда, и место выхода называет сервер (`roster.placeBandNew`). Здесь —
-// разговор: встать в реестр (`seat`, им же и отмечаться вместо строки замка), приказы хода и лагеря (`bandOrder`) и куда класть
-// строку, которую вывел сервер (`provideBandSink` — партия кладёт её одной дверью `sim/roam.setMove`). Всё — за `roamOn`.
-
-const BAND_KEY = 'tribe.band.v1';
-
-/** Свой отряд: строка, которую вывел сервер, — память и кэш на устройстве (той же эпохи, что реестр). */
-let band: BandRow | null = null;
-// Память читается всегда: слово сервера об админе (`roamOn`) приходит позже импорта, а без строки в памяти её нет и подавно.
-band = loadBand();
-
-function loadBand(): BandRow | null {
-  try {
-    const v = JSON.parse(localStorage.getItem(BAND_KEY) ?? 'null') as { era?: number; row?: BandRow } | null;
-    return v && (v.era ?? 0) === knownEra() && v.row ? v.row : null;
-  } catch {
-    return null;
-  }
-}
-
-function keepBand(row: BandRow | null): void {
-  if (!row) return;
-  band = row;
-  try {
-    localStorage.setItem(BAND_KEY, JSON.stringify({ era: knownEra(), row }));
-  } catch {
-    /* хранилища может не быть — тогда памяти нет */
-  }
-  bandSink?.(row);
-}
-
-/** Свой отряд: строка, которую вывел сервер. null — не было. */
-export const bandRow = (): BandRow | null => band;
-
-// ---------- Видимость отрядов (ПН-4у) ----------
-//
-// Обнаружение считает сервер (`netlify/lib/bandsight.ts`, дверью `world/sight`): чужие отряды, которых игрок видит, и кто видит свой.
-// Здесь — только доставка ответа тому, кто его ждёт (`provideSightSink`): что с ним делать — следы, шапка, весть «Нас видели» —
-// решает свой кусок (`world/bandsight`), и в первую загрузку он не едет.
-
-/** Последний ответ сервера о видимости: чужие отряды, кто видит свой отряд, минута сервера. */
-export interface SightNews {
-  bands: BandView[];
-  seen: SeenView | null;
-  at: number;
-}
-
-let sight: SightNews | null = null;
-let sightSink: ((v: SightNews) => void) | null = null;
-
-function keepSight(res: RosterResponse): void {
-  sight = { bands: res.bands ?? [], seen: res.seen ?? null, at: res.now };
-  sightSink?.(sight);
-}
-
-/** Куда отдавать ответ о видимости; пришедший раньше отдаётся сразу. */
-export const provideSightSink = (fn: ((v: SightNews) => void) | null): void => {
-  sightSink = fn;
-  if (fn && sight) fn(sight);
-};
+// У бродяги замка нет — в реестре он стоит строкой отряда, и место выхода называет сервер (`roster.placeBandNew`). Строка, которую
+// вывел сервер, видимость отрядов и приказы отряда — кусок пути (`net/bandroster`, ПН-5, хвост а: докачкой, `game/roamlazy`); здесь —
+// только то, без чего реестр не встанет: чем отряд отмечается (`bandSeat`) и встал ли он.
 
 /** Что отряд сообщает о себе, когда встаёт и отмечается: `null` — партия не в фазе бродяги (тогда — строка замка). */
 let bandSeat: (() => Extract<BandOrder, { op: 'seat' }> | null) | null = null;
 export const provideBand = (fn: () => Extract<BandOrder, { op: 'seat' }> | null): void => {
   bandSeat = fn;
 };
-
-/** Куда отдавать строку отряда, которую прислал сервер. */
-let bandSink: ((row: BandRow) => void) | null = null;
-export const provideBandSink = (fn: (row: BandRow) => void): void => {
-  bandSink = fn;
-};
-
-/**
- * Приказ отряда серверу: принят — строка отряда (она же ляжет в партию через `provideBandSink`), отказ — слова сервера или сети.
- */
-export async function bandOrder(o: BandOrder): Promise<BandRow | string> {
-  if (!roamOn()) return 'Путь меча ещё не открыт.';
-  const res = await apiPost<RosterResponse>('/api/castles', o);
-  if (!res.ok) return WORDS[res.why];
-  if (res.data.error) return res.data.error;
-  keep(res.data, serverNow());
-  return res.data.band ?? 'Приказ не дошёл до отряда. Попробуй ещё раз.';
-}
 
 /** Свой ход в реестр: в фазе бродяги — строка отряда (`seat`), иначе — замка. */
 const seatOrClaim = async (): Promise<boolean> => {
@@ -251,7 +181,7 @@ const seatOrClaim = async (): Promise<boolean> => {
  * замка, оставшаяся в памяти от партии лорда (админ вошёл в путь с новой партией, 30.10.2026), местом отряда не считается.
  */
 const seated = (): boolean => {
-  if (roamOn() && bandSeat?.()) return Boolean(band);
+  if (roamOn() && bandSeat?.()) return Boolean(roamDoor()?.bandRow());
   return Boolean(cache?.mine);
 };
 

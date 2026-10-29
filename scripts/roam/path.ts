@@ -22,7 +22,7 @@ import { DAY_LENGTH, dayRealSeconds, realMs } from '../../src/game/pace';
 import { createInitialState } from '../../src/game/state';
 import { seasonMods } from '../../src/game/derived';
 import { bandRationPerDay, bandWage, bandWagesPerDay, forageShare } from '../../src/game/roamrules';
-import { bandUpkeep } from '../../src/game/sim/upkeep';
+import { bandUpkeep } from '../../src/game/sim/bandkeep';
 import { cargoCap } from '../../src/game/sim/roam';
 import { prestigeAfter, prestigeStage } from '../../src/game/sim/prestige';
 import { mixSeed, seeded } from '../../src/game/sim/random';

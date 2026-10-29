@@ -1,6 +1,7 @@
 // Реестр со стороны игры в фазе бродяги (ПН-3, docs/gdd/path_of_sword.md, 3.5.6): отряд встаёт строкой отряда, а не замка;
 // **мир бродяги не строится, пока сервер не назвал клетку** — ожидание кончается только строкой отряда; строку сервера партия
-// берёт через сток (`provideBandSink`). Путь включён подменой модуля; выключенный реестр — прежний (`roster.test.ts`).
+// берёт через сток (`provideBandSink`). Путь включён подменой модуля; выключенный реестр — прежний (`roster.test.ts`). Половина реестра
+// «отряд» — кусок пути (`net/bandroster`, ПН-5, хвост а): реестр зовёт её через `game/roamlazy`, и тест отдаёт её реестру так же.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BandRow, RosterResponse } from '../../netlify/lib/contract';
 
@@ -50,19 +51,28 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** Реестр и его половина «отряд» — как у админа, у которого кусок пути докачан. */
+async function both(): Promise<{ r: typeof import('./roster'); b: typeof import('./bandroster') }> {
+  const r = await import('./roster');
+  const b = await import('./bandroster');
+  const lazy = await import('@/game/roamlazy');
+  lazy.provideRoamDoor({ keepRoster: b.keepRoster, bandRow: b.bandRow } as unknown as Parameters<typeof lazy.provideRoamDoor>[0]);
+  return { r, b };
+}
+
 describe('отряд бродяги в реестре со стороны игры', () => {
   it('встаёт строкой отряда, строки замка не шлёт; строка сервера уходит в партию', async () => {
     H.apiPost.mockResolvedValue(ok(answer(ROW)));
-    const r = await import('./roster');
+    const { r, b } = await both();
     const sunk: BandRow[] = [];
     r.provideClaim(() => ({ name: 'Вождь', city: '', power: 1, pop: 1 }));
     r.provideBand(() => ({ op: 'seat', name: 'Ратко', prestige: 5, men: 6 }));
-    r.provideBandSink((row) => sunk.push(row));
+    (await import('@/game/roamlazy')).provideBandSink((row) => sunk.push(row));
     await r.rosterBoot();
     expect(H.apiPut, 'строки замка нет').not.toHaveBeenCalled();
     expect(H.apiPost).toHaveBeenCalledWith('/api/castles', { op: 'seat', name: 'Ратко', prestige: 5, men: 6 });
     expect(sunk).toEqual([ROW]);
-    expect(r.bandRow()).toEqual(ROW);
+    expect(b.bandRow()).toEqual(ROW);
     expect(r.castleCell()).toBeNull();
     await r.rosterReady();
   });
@@ -75,7 +85,7 @@ describe('отряд бродяги в реестре со стороны игр
       .mockResolvedValueOnce(fail('server'))
       .mockResolvedValueOnce(fail('offline'))
       .mockResolvedValue(ok(answer(ROW)));
-    const r = await import('./roster');
+    const { r, b } = await both();
     r.provideClaim(() => ({ name: 'Вождь', city: '', power: 1, pop: 1 }));
     r.provideBand(() => ({ op: 'seat', name: 'Ратко', prestige: 5, men: 6 }));
     let ready = false;
@@ -85,19 +95,19 @@ describe('отряд бродяги в реестре со стороны игр
     await r.rosterBoot();
     // Граница: срок ожидания без разговора давно прошёл бы — в Telegram он не действует.
     await vi.advanceTimersByTimeAsync(r.ROSTER_WAIT_MS + 1000);
-    expect(r.bandRow()).toBeNull();
+    expect(b.bandRow()).toBeNull();
     expect(ready, 'мир не строится без клетки').toBe(false);
     expect(H.apiPost.mock.calls.length).toBeGreaterThanOrEqual(3);
     await vi.advanceTimersByTimeAsync(r.SEAT_RETRY_MAX_MS * 3);
-    expect(r.bandRow()).toEqual(ROW);
+    expect(b.bandRow()).toEqual(ROW);
     expect(ready).toBe(true);
   });
 
   it('приказ отряда: отказ сервера — его словами; принят — строка', async () => {
-    const r = await import('./roster');
+    const { b } = await both();
     H.apiPost.mockResolvedValueOnce(ok({ ...answer(ROW), error: 'Туда не пройти: там вода. Идут в клетку суши.' }));
-    expect(await r.bandOrder({ op: 'go', to: { x: 1, y: 1 } })).toBe('Туда не пройти: там вода. Идут в клетку суши.');
+    expect(await b.bandOrder({ op: 'go', to: { x: 1, y: 1 } })).toBe('Туда не пройти: там вода. Идут в клетку суши.');
     H.apiPost.mockResolvedValueOnce(ok(answer(ROW)));
-    expect(await r.bandOrder({ op: 'camp', kind: 'open', men: 6 })).toEqual(ROW);
+    expect(await b.bandOrder({ op: 'camp', kind: 'open', men: 6 })).toEqual(ROW);
   });
 });

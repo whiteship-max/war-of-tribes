@@ -24,10 +24,12 @@ import { beginRoam, cargoCap, mergeRoam, roamFor, setMove } from './roam';
 import { standWay } from '@/world/roammove';
 import { freshMark } from '@/world/energy';
 import { addStock } from './stock';
-import { layBandWounds } from './infirmary';
+import { layBandWounds } from './bandwounds';
 import { spiritView } from './spirit';
 import { setWageMode } from './upkeep';
 import { gameSeconds } from '../pace';
+// Кусок пути (ПН-5, хвост а): у админа он докачан до первой партии бродяги — тест держит его так же (`game/roamlazy`).
+import '../roamdoor';
 
 vi.mock('../roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
 

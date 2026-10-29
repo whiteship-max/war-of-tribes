@@ -10,15 +10,14 @@
 import type { GameState, SpiritState } from '../types';
 import type { Spirit } from '@/battle';
 import { realMs } from '../pace';
-import { buildingOfType, councilGift, estatesNow, fervour, foodShortfall, seasonMods, troopsEat } from '../derived';
+import { buildingOfType, councilGift, estatesNow, fervour, foodShortfall, troopsEat } from '../derived';
 import { FERVOUR_SCALE } from '../estaterules';
 import { gloryAfter, gloryAt, payShareAt, spiritNumbers, spiritOfIn, type SpiritIn, type SpiritView, type WageMode } from '../spiritrules';
 import { statueMorale } from '../statuerules';
 import { rulerTraitNumbers } from '../rulernow';
 import { armyBar, stabLevel } from './stability';
 import { agentLevel, seated } from './agents';
-import { roamOn } from '../roamflag';
-import { bandBar, bandHunger, campSpirit } from '../roamrules';
+import { roamDoor } from '../roamlazy';
 
 /** Жалованье дружине: режим, минута смены и доля восстановления в неё. Нет поля — полное и давно (доля 1). */
 export function wageTrack(s: GameState): { mode: WageMode; since: number; from: number } {
@@ -43,7 +42,9 @@ export function gloryNow(s: GameState): number {
 
 /** Готовые числа духа из партии — одной функцией на раздел «Дружины», мост и опись. */
 export function spiritIn(s: GameState): SpiritIn {
-  if (roamOn() && s.phase === 'roam' && s.roam) return bandSpiritIn(s, s.roam);
+  // Дух отряда бродяги (ПН-1) — та же дверь, входы отряда: `sim/bandspirit` докачкой пути (ПН-5, хвост а, `game/roamlazy`).
+  const door = s.phase === 'roam' && s.roam ? roamDoor() : null;
+  if (door && s.roam) return door.bandSpiritIn(s, s.roam);
   const n = estatesNow(s);
   return {
     stab: stabLevel(s),
@@ -61,33 +62,6 @@ export function spiritIn(s: GameState): SpiritIn {
     pay: payShare(s),
     // Черты правителя (ПН-2): дисциплина — единственным чтением черт.
     ruler: rulerTraitNumbers(s).drill,
-  };
-}
-
-/**
- * Дух отряда бродяги (ПН-1, ГДД 3.3.3) — тот же расчёт, входы отряда. Державы, храма, сословий, Казарм и Статуи у бродяги нет —
- * их строк нет; отряд ведёт герой — дисциплина от его Военного дела, как от уровня полководца; терпение — полоса отряда
- * (`roamrules.bandBar`: долг или голод против терпения героя), голод — доля, которую не закрывают обоз и фураж
- * (`roamrules.bandHunger`); память боёв и жалованье — общие поля партии (`s.spirit`, `PayState.wage`).
- */
-function bandSpiritIn(s: GameState, r: NonNullable<GameState['roam']>): SpiritIn {
-  return {
-    stab: 0,
-    patience: bandBar(s.pay?.late ?? 0, r.hero.war),
-    unfed: bandHunger(r, seasonMods(s)),
-    glory: gloryNow(s),
-    rite: 0,
-    marshal: 0,
-    knights: 0,
-    merchants: 0,
-    general: r.hero.war,
-    barracks: 0,
-    statue: 0,
-    pay: payShare(s),
-    // Черты героя пути (ПН-2) — та же дверь, что у правителя.
-    ruler: rulerTraitNumbers(s).drill,
-    // Лагерь (ПН-3): открытый — костры, скрытый зимой — холод (`roamrules.campSpirit`).
-    camp: campSpirit(r.camp, seasonMods(s)),
   };
 }
 

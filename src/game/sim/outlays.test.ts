@@ -31,6 +31,7 @@ const DOORS: Record<string, { why: Why[]; what: string }> = {
   'sim/upkeep.ts': { why: ['drain'], what: 'жалованье войска и мастеров' },
   'sim/gate.ts': { why: ['deed'], what: 'бой у ворот по вести' },
   'sim/admin.ts': { why: ['deed'], what: 'указ админа (номер указа — в описи)' },
+  'sim/bandgrant.ts': { why: ['deed'], what: 'указ админа отряду бродяги — обоз (`cargo`), склад города не трогает (ПН-5, хвост а: половина двери указа)' },
   'data/events.ts': { why: ['deed'], what: 'цена ответа на весть' },
   'data/eventKit.ts': { why: ['deed'], what: 'весть отнимает добро' },
   'sim/crown.ts': { why: ['deed'], what: 'ответ на весть державы отнимает золото (СБ-2)' },

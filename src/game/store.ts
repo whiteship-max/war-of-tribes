@@ -23,17 +23,14 @@ import { provideGrants } from '@/net/admin';
 import { applyGrants } from './sim/admin';
 import { provideGemDeeds, provideGemSeen, provideGemSettled } from '@/net/gems';
 import { applyGemDeeds, gemSeen, settleUnneeded } from './sim/gems';
-import { provideBand, provideBandSink, provideClaim, rosterBoot, rosterReseat } from '@/net/roster';
+import { provideBand, provideClaim, rosterBoot, rosterReseat } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyBoot } from '@/net/notify';
-import { bandSeatOf, claimOf } from '@/net/snapshot';
+import { claimOf } from '@/net/snapshot';
 import { CHEATS_ON, CHEAT_NO, cheatOf } from '@/cheats';
 import { applyCheat } from './sim/cheat';
 import { roamOn } from './roamflag';
-import { beginRoam, setMove } from './sim/roam';
-import { warriorStart } from './roamorigin';
-import { profileName } from '@/profile/identity';
-import { readMove } from '@/world/roammove';
+import { loadRoamDoor, provideBandSink, roamDoor } from './roamlazy';
 
 /**
  * Разделы, не привязанные к месту: всё остальное живёт в панелях зданий.
@@ -184,7 +181,7 @@ export interface GameStore {
    * (`roamorigin`), место выхода назначает сервер (`net/roster.rosterReseat`). Зовётся только у партии без сохранения на устройстве
    * (`fresh`): прежней партии у игрока нет, отнимать нечего. Отказ — словами, вошёл — `null`.
    */
-  beginRoamParty: () => string | null;
+  beginRoamParty: () => Promise<string | null>;
 }
 
 /**
@@ -364,14 +361,15 @@ export const useGame = create<GameStore>((set, get) => ({
     // карту ни разу, всё равно на ней есть.
     provideClaim(() => claimOf(get().s));
     // Бродяга (ПН-3) встаёт в реестр строкой отряда, а строку, которую вывел сервер, партия кладёт одной дверью хода. Двери отдаются
-    // всегда: слово сервера об админе (`roamOn`) может прийти после запуска, а спрашивают выключатель они сами (`bandSeatOf`,
-    // `roster.keep`).
-    provideBand(() => bandSeatOf(get().s));
+    // всегда: слово сервера об админе (`roamOn`) может прийти после запуска. Обе — из куска пути (`game/roamlazy`, ПН-5, хвост а):
+    // не докачан — партия не бродяга, и строки нет.
+    provideBand(() => roamDoor()?.bandSeatOf(get().s) ?? null);
     provideBandSink((row) => {
+      const door = roamDoor();
       const st = get().s;
-      const m = readMove(row);
-      if (!m) return;
-      setMove(st, m);
+      const m = door?.readMove(row);
+      if (!door || !m) return;
+      door.setMove(st, m);
       set({ s: { ...st } });
     });
     void rosterBoot();
@@ -518,14 +516,16 @@ export const useGame = create<GameStore>((set, get) => ({
     get().save();
   },
 
-  beginRoamParty: () => {
+  beginRoamParty: async () => {
     if (!roamOn()) return 'Путь меча ещё не открыт.';
+    if (!get().fresh) return 'Путь меча начинают с новой партии.';
+    // Кусок пути (ПН-5, хвост а) — докачкой: игроку он не грузится вовсе, админу — к этой минуте обычно уже есть.
+    const door = await loadRoamDoor();
+    if (!door) return 'Путь меча ещё не открыт.';
     if (!get().fresh) return 'Путь меча начинают с новой партии.';
     const was = get().s;
     const s = freshParty(was);
-    // Имя и лицо из Telegram — те же, что у прежней партии; герой носит имя игрока.
-    s.profile = { ...s.profile, ...was.profile };
-    const why = beginRoam(s, warriorStart(s, profileName(s.profile)));
+    const why = door.startRoam(s, was);
     if (why) return why;
     set({ s, sheet: null, offlineSeconds: 0 });
     get().save();

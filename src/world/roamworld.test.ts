@@ -21,6 +21,8 @@ import { ruinAt, ruinsIn } from './ruins';
 import { distance } from './geo';
 import { GAIT_HAUL } from './data/gait';
 import { UNIT_BY_ID } from './data/units';
+// Кусок пути (ПН-5, хвост а): у админа он докачан до мира бродяги (`game/roamlazy`).
+import '@/game/roamdoor';
 
 vi.mock('@/game/roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
 

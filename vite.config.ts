@@ -359,6 +359,20 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     door: /\/src\/ui\/map\/(Rating|Feed)\.tsx$/,
     owns: [/\/src\/ui\/map\/(Rating|Feed|feedWords)\.tsx?$/],
   },
+  {
+    // Путь меча (ПН-5, хвост а; docs/gdd/path_of_sword.md, 0.4): с 30.10.2026 выключатель — правило по игроку, и сборщик не выбрасывает
+    // ветки пути по константе. Шаг, чтение, обоз, дух, указ и строка отряда — кусок `game/roamdoor`, его докачивает реестр
+    // `game/roamlazy` только тому, кому путь открыт; мир, карта, видимость и встречи бродяги — свои куски дальше (`roamboot`).
+    name: 'Путь меча',
+    door: /\/src\/game\/roamdoor\.ts$/,
+    owns: [
+      /\/src\/game\/roamdoor\.ts$/,
+      /\/src\/game\/sim\/(roam|cargo|bandkeep|bandwounds|bandspirit|bandgrant|roamfight)\.ts$/,
+      /\/src\/game\/(roamorigin|roamrules|roamstubs)\.ts$/,
+      /\/src\/net\/(bandseat|bandroster)\.ts$/,
+      /\/src\/world\/(roam|roammove|roampoints|roamfoes|encounter|sight|ruins)\.ts$/,
+    ],
+  },
 ];
 
 function lazyDoorsPlugin(): Plugin {

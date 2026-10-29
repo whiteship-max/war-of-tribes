@@ -466,8 +466,8 @@ export function App() {
             setVeil(true);
           }}
           onPrologue={() => setPrologue(true)}
-          onRoam={() => {
-            const why = useGame.getState().beginRoamParty();
+          onRoam={async () => {
+            const why = await useGame.getState().beginRoamParty();
             if (why) return why;
             setStarted(true);
             setVeil(true);

@@ -45,7 +45,7 @@ export function StartScreen({
   onEnter: () => void;
   onPrologue: () => void;
   /** Путь меча (30.10.2026): новая партия бродягой. Отказ — словами под кнопкой, вошёл — `null`. */
-  onRoam: () => string | null;
+  onRoam: () => Promise<string | null>;
   /**
    * Шаг «Как назовёшь город?» (`next/CityNaming`, свой кусок: его отдаёт `App`, сам экран ничего не грузит). Встаёт
    * после главной кнопки, пока у города нет имени.
@@ -121,7 +121,8 @@ export function StartScreen({
                   className="start-alt"
                   onClick={() => {
                     haptic('medium');
-                    setRoamWhy(onRoam());
+                    // Кусок пути докачивается (`game/roamlazy`): ответ — когда вход сделан или отказан.
+                    void onRoam().then(setRoamWhy);
                   }}
                 >
                   {ROAM_LABEL}

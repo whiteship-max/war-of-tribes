@@ -8,6 +8,7 @@
 import { create } from 'zustand';
 import { readAdminNote, type AdminGrant } from '../../netlify/lib/contract';
 import { roamOn, setRoamOpen } from '@/game/roamflag';
+import { loadRoamDoor, provideRoamLoader } from '@/game/roamlazy';
 
 export interface AdminStore {
   /** Аккаунт заморожен: игру видно, ходить нельзя — плашка (`ui/parts/Frozen.tsx`). */
@@ -43,8 +44,11 @@ function keepDeviceAdmin(admin: boolean): void {
   }
 }
 
-// Раньше чтения партии: модуль импортирует синхронизация, а её — стор игры, задолго до `loadGame`.
+// Раньше чтения партии: модуль импортирует синхронизация, а её — стор игры, задолго до `loadGame`. Путь открыт — кусок пути
+// докачивается сразу (ПН-5, хвост а, `game/roamlazy`): партию бродяги читает он.
+provideRoamLoader(() => import('@/game/roamdoor'));
 setRoamOpen(readDeviceAdmin());
+if (roamOn()) void loadRoamDoor();
 
 export const useAdmin = create<AdminStore>(() => ({ frozen: false, roam: roamOn() }));
 
@@ -67,6 +71,7 @@ export function takeNote(raw: unknown): void {
   const admin = note.admin === true;
   if (admin !== readDeviceAdmin()) keepDeviceAdmin(admin);
   setRoamOpen(admin);
+  if (roamOn()) void loadRoamDoor();
   if (useAdmin.getState().roam !== roamOn()) useAdmin.setState({ roam: roamOn() });
   if (note.grants.length && apply) apply(note.grants);
 }

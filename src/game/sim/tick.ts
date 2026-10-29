@@ -46,9 +46,8 @@ import { settleWounds } from './infirmary';
 import { log, trimLog } from './log';
 import { addStock, stockWords, trimStock, type Gains } from './stock';
 import { recordProduced, refreshCard } from '@/profile/stats';
-import { roamOn } from '../roamflag';
+import { roamDoor } from '../roamlazy';
 import { movePrestige } from './prestige';
-import { roamFor } from './roam';
 
 export interface TickOptions {
   /** Офлайн-догон: события не запускаются. */
@@ -310,8 +309,11 @@ export const awayGameSeconds = (since: number, now: number): number =>
  */
 export function absence(s: GameState, since: number, now: number): void {
   // Бродяга (ПН-1): отряд догоняет отлучку своим шагом — тем же порогом и тем же потолком; вестей посёлка у него нет.
-  if (roamOn() && s.phase === 'roam') {
-    if (awaySeconds(since, now) > AWAY_AFTER) roamFor(s, awayGameSeconds(since, now), CATCHUP_STEP);
+  // Шаг отряда — из куска пути (`game/roamlazy`, ПН-5, хвост а): кусок есть только у того, кому путь открыт; закрыт — как прежде,
+  // всё как у лорда.
+  const door = s.phase === 'roam' ? roamDoor() : null;
+  if (door) {
+    if (awaySeconds(since, now) > AWAY_AFTER) door.roamFor(s, awayGameSeconds(since, now), CATCHUP_STEP);
     return;
   }
   if (awaySeconds(since, now) > AWAY_AFTER) catchUp(s, awayGameSeconds(since, now), CATCHUP_STEP);
@@ -330,8 +332,9 @@ export function absence(s: GameState, since: number, now: number): void {
 export function liveStep(s: GameState, real: number, now: number, lived: number = real): void {
   if (!(real > 0)) return;
   // Бродяга (ПН-1): шаг отряда вместо шага посёлка — по тем же часам; длинный промежуток — отлучка тем же правилом.
-  if (roamOn() && s.phase === 'roam') {
-    if (real <= AWAY_AFTER) roamFor(s, gameSeconds(lived), CATCHUP_STEP);
+  const door = s.phase === 'roam' ? roamDoor() : null;
+  if (door) {
+    if (real <= AWAY_AFTER) door.roamFor(s, gameSeconds(lived), CATCHUP_STEP);
     else absence(s, now - lived * 1000, now);
     return;
   }

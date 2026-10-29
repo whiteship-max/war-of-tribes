@@ -2,7 +2,7 @@
 // отряд, весть «Нас видели». Своим куском: подключает его мир только за `roamOn` (`world/store`), в первую загрузку он не едет.
 //
 // Кто кого видит, решает сервер (`netlify/lib/bandsight.ts`) той же дверью `world/sight`, что знает игра; сюда приходит его ответ
-// (`net/roster.provideSightSink`). Обнаружен — отряд живьём: клетка, люди, колонна или лагерь. Не обнаружен — его нет вовсе. Видели и
+// (`net/bandroster.provideSightSink`). Обнаружен — отряд живьём: клетка, люди, колонна или лагерь. Не обнаружен — его нет вовсе. Видели и
 // потеряли — **след**: место и давность, тем же правилом, что снимок поселения (`SettlementView.visible`, `seenAt`, `stale`): вне
 // обзора показывается последнее увиденное с отметкой давности. След живёт на устройстве своим ключом и эпохой (как строка отряда в
 // реестре клиента), не в сохранении мира: мир и карта лорда не меняются ни байтом.
@@ -11,7 +11,8 @@
 // замкам, которые помнит реестр (`ownSight`).
 import { create } from 'zustand';
 import { cityName, type BandView, type CastleView, type SeenBy, type SeenView } from '../../netlify/lib/contract';
-import { provideSightSink, castles, type SightNews } from '@/net/roster';
+import { castles } from '@/net/roster';
+import { provideSightSink, type SightNews } from '@/net/bandroster';
 import { knownEra } from '@/net/era';
 import { useGame } from '@/game/store';
 import { log } from '@/game/sim/log';
