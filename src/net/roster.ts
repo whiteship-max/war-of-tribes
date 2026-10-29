@@ -202,7 +202,7 @@ export async function bandOrder(o: BandOrder): Promise<BandRow | string> {
   if (!res.ok) return WORDS[res.why];
   if (res.data.error) return res.data.error;
   keep(res.data, serverNow());
-  return res.data.band ?? 'Сервер не вернул отряд.';
+  return res.data.band ?? 'Приказ не дошёл до отряда. Попробуй ещё раз.';
 }
 
 /** Свой ход в реестр: в фазе бродяги — строка отряда (`seat`), иначе — замка. */

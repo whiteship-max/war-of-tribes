@@ -330,7 +330,7 @@ export function bandOrder(file: RosterFile, key: string, o: BandOrder, now: numb
     const at = placeBandNew(file, key, now, mode);
     return { file: put({ ...rowOfMove(roamSeat(at, now)), born: now, ...banner }), error: null, forged: null };
   }
-  if (!had) return no('Отряда в реестре нет: место выхода ещё не названо.');
+  if (!had) return no('Отряд ещё не вышел на карту: место выхода не названо.');
   const m = moveOfRow(had);
   // Отряд стоял и минуту назад: клетка у клиента и у сервера одна — отказ клетки честный клиент не получает.
   const still = !roamMoving(m.way, now) && !roamMoving(m.way, now - ROAM_SLACK_MS);
