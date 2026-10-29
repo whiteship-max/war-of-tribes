@@ -17,7 +17,7 @@ import { statueMorale } from '../statuerules';
 import { rulerTraitNumbers } from '../rulernow';
 import { armyBar, stabLevel } from './stability';
 import { agentLevel, seated } from './agents';
-import { ROAM_ON } from '../roamflag';
+import { roamOn } from '../roamflag';
 import { bandBar, bandHunger, campSpirit } from '../roamrules';
 
 /** Жалованье дружине: режим, минута смены и доля восстановления в неё. Нет поля — полное и давно (доля 1). */
@@ -43,7 +43,7 @@ export function gloryNow(s: GameState): number {
 
 /** Готовые числа духа из партии — одной функцией на раздел «Дружины», мост и опись. */
 export function spiritIn(s: GameState): SpiritIn {
-  if (ROAM_ON && s.phase === 'roam' && s.roam) return bandSpiritIn(s, s.roam);
+  if (roamOn() && s.phase === 'roam' && s.roam) return bandSpiritIn(s, s.roam);
   const n = estatesNow(s);
   return {
     stab: stabLevel(s),

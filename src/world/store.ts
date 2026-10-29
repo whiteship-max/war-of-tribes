@@ -19,7 +19,7 @@ import type { ProposalAct } from './proposals';
 import { pacts, proposals, provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
-import { ROAM_ON } from '@/game/roamflag';
+import { roamOn } from '@/game/roamflag';
 import { haptic } from '@/telegram/webapp';
 import { probe, revealWorld, takeBakes, takeCosts, takeGaps } from '@/debug';
 import { hasWorldApi, setWorldApi, worldApi, type WorldApi } from './api';
@@ -518,7 +518,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     if (booting) return booting;
     booting = (async () => {
       // Видимость отрядов бродяг (ПН-4у): чужие отряды, следы и «кто видит свой» — своим куском, у лорда и у бродяги.
-      if (ROAM_ON) void import('./bandsight').then((m) => m.attach());
+      if (roamOn()) void import('./bandsight').then((m) => m.attach());
       if (!hasWorldApi()) {
         // Клетку замка называет общий реестр, и знать её надо **до** постройки
         // мира: собранный не на том месте, он потом переписывался бы под ногами
@@ -526,7 +526,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
         // неудача возвращается значением, — и первого кадра игры оно не касается:
         // деревня к этому времени давно на экране.
         // Бродяга (ПН-3): мир без своего города, с ходом отряда — своим куском; строится, когда сервер назвал клетку выхода.
-        if (ROAM_ON && useGame.getState().s.phase === 'roam') swapWorld(await openRoam());
+        if (roamOn() && useGame.getState().s.phase === 'roam') swapWorld(await openRoam());
         else {
           await rosterReady();
           const world = openWorld({ reveal: revealWorld(), home: castleCell() ?? undefined, castles: worldCastles, era: knownEra() });

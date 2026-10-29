@@ -22,7 +22,7 @@ import { distance } from './geo';
 import { GAIT_HAUL } from './data/gait';
 import { UNIT_BY_ID } from './data/units';
 
-vi.mock('@/game/roamflag', () => ({ ROAM_ON: true }));
+vi.mock('@/game/roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
 
 const T0 = Date.UTC(2026, 9, 29, 12);
 const HOME: Spot = SICILY[0];

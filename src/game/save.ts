@@ -35,7 +35,7 @@ import { refreshCard } from '@/profile/stats';
 import { rescueFromCloud } from '@/telegram/cloud-rescue';
 import { enterLead, leadAt, partyNow } from '@/net/clock';
 import { CHEATS_ON } from '@/cheats';
-import { ROAM_ON } from './roamflag';
+import { roamOn } from './roamflag';
 import { mergeRoam } from './sim/roam';
 import { loadRulerTraits } from './rulernow';
 
@@ -527,7 +527,7 @@ export function deserialize(json: string): GameState | null {
     // пускают.
     delete s.phase;
     delete s.roam;
-    if (ROAM_ON) Object.assign(s, mergeRoam(data));
+    if (roamOn()) Object.assign(s, mergeRoam(data));
     // Здание, добавленное в BUILDINGS после того, как сохранение записали,
     // должно появиться в посёлке само — так же, как оно появляется в новой партии
     // (CLAUDE.md, «Правила»). Иначе игрок с сохранением остался бы без него

@@ -115,14 +115,19 @@ export async function grantsOf(stores: Stores, player: string): Promise<GrantsFi
   return readGrants(found ? parseJson(String(found.data)) : null);
 }
 
-/** Записка для клиента: заморожен ли и какие указы младше номера, который партия уже применила. */
-export const noteOf = (frozen: boolean, grants: GrantsFile, seen: number): AdminNote => ({
+/**
+ * Записка для клиента: заморожен ли, какие указы младше номера, который партия уже применила, админ ли игрок (Путь меча, 30.10.2026)
+ * и когда его партию обнулили (`partyreset`). `who` — что знает о нём обработчик; нет — полей нет.
+ */
+export const noteOf = (frozen: boolean, grants: GrantsFile, seen: number, who: { admin?: boolean; reset?: number } = {}): AdminNote => ({
   frozen,
   // Самые старые неприменённые, порцией (AC-3): следующая запись партии отдаёт следующую.
   grants: grants.list
     .filter((g) => g.n > seen)
     .slice(0, GRANTS_PAGE)
     .map(({ n, at, stock, troops }) => ({ n, at, stock, troops })),
+  ...(who.admin ? { admin: true as const } : {}),
+  ...(who.reset ? { reset: who.reset } : {}),
 });
 
 /** Указы без применённых партией (номер не выше `seen`, AC-3): их сбрасывает запись нового указа. */

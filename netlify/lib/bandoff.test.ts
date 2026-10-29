@@ -1,10 +1,11 @@
-// Путь меча закрыт (ПН-3, docs/gdd/path_of_sword.md, 7.5, У1): сервер отклоняет приказы и записи бродяги — без флага (неоткрытое
-// не подделка), реестр строк отряда не читает, не пишет и не отдаёт. Выключатель здесь настоящий (`game/roamflag`); открытый путь
-// держит `band.test.ts`.
+// Путь меча закрыт игроку (ПН-3, docs/gdd/path_of_sword.md, 7.5, У1; с 30.10.2026 — по игроку, открыт только админам): сервер
+// отклоняет приказы бродяги — без флага (неоткрытое не подделка) — и строк отряда игроку не отдаёт; лежащие строки реестр несёт
+// дальше (их пишут админы). Выключатель здесь настоящий (`game/roamflag`), админов нет; открытый путь держит `band.test.ts`,
+// путь админа — `roamadmin.test.ts`.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROUTES } from './routes/index.js';
 import { STORES } from './kv.js';
-import { ROSTER_KEY, bandOrder, emptyRoster, readRoster } from './roster.js';
+import { ROSTER_KEY, emptyRoster, readRoster } from './roster.js';
 import { readWatchRecord } from './watch.js';
 import type { RosterResponse } from './contract.js';
 import { TEST_TOKEN, signInit, sqliteHome, type Home } from '../vps/testkit.js';
@@ -42,13 +43,12 @@ describe('Путь меча закрыт — на сервере тоже', () =
     expect(found).toBeNull();
     const w = await home.stores(STORES.watch, 'strong').getWithMetadata('tg-301');
     expect(readWatchRecord(w ? JSON.parse(String(w.data)) : null).flags).toEqual([]);
-    expect(bandOrder(emptyRoster(), 'k', { op: 'seat', name: 'x', prestige: 0, men: 1 }, NOW, null)).toEqual({ file: emptyRoster(), error: 'Путь меча ещё не открыт.', forged: null });
   });
 
-  it('строка отряда, лежащая в хранилище, не читается и не отдаётся: замок — прежним правилом', async () => {
+  it('строка отряда, лежащая в хранилище, игроку не отдаётся, а запись реестра несёт её дальше: замок — прежним правилом', async () => {
     const band = { ...roamSeat(SPAWNS[0], NOW), born: NOW, name: 'Чужой', prestige: 1, men: 1, seenAt: NOW };
-    const raw = { ...emptyRoster(), bands: { 'tg-302': band } };
-    expect(readRoster(raw).bands).toBeUndefined();
+    const raw = { ...emptyRoster(), bands: { 'tg-303': band } };
+    expect(readRoster(raw).bands?.['tg-303'], 'граница: строка отряда читается').toBeDefined();
     await home.stores(STORES.world, 'strong').setJSON(ROSTER_KEY, raw);
     const put = new Request('https://x/api/castles', { method: 'PUT', headers: signed(302, NOW), body: JSON.stringify({ name: 'Вождь', city: 'Энна', power: 1, pop: 1 }) });
     const res = await ROUTES['/api/castles'](put, io(NOW));
@@ -64,6 +64,6 @@ describe('Путь меча закрыт — на сервере тоже', () =
     const read = (await get.json()) as RosterResponse;
     expect([read.bands, read.seen]).toEqual([undefined, undefined]);
     const after = await home.stores(STORES.world).getWithMetadata(ROSTER_KEY);
-    expect(JSON.parse(String(after!.data)).bands, 'запись реестра строк отряда не несёт').toBeUndefined();
+    expect(JSON.parse(String(after!.data)).bands?.['tg-303'], 'запись реестра игроком не роняет строку отряда админа').toBeDefined();
   });
 });

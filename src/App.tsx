@@ -466,6 +466,13 @@ export function App() {
             setVeil(true);
           }}
           onPrologue={() => setPrologue(true)}
+          onRoam={() => {
+            const why = useGame.getState().beginRoamParty();
+            if (why) return why;
+            setStarted(true);
+            setVeil(true);
+            return null;
+          }}
           naming={(done) => (
             <Suspense fallback={null}>
               <CityNaming onDone={done} />

@@ -1,5 +1,5 @@
 // Открыть мир бродяги (ПН-3, docs/gdd/path_of_sword.md, 3.5.6; «Решения ПН-3») — своим куском: `world/store` зовёт его только за
-// `ROAM_ON` и только в фазе бродяги.
+// `roamOn` и только в фазе бродяги.
 //
 // **Мир бродяги не строится, пока сервер не назвал клетку выхода.** В Telegram реестр садит отряд (`net/roster`, `seat`) и ждёт,
 // пока сервер не вернёт строку отряда; строку партия кладёт одной дверью хода (`sim/roam.setMove`), и только тогда мир строится —
@@ -8,7 +8,7 @@
 // отряд ходит, а земля вокруг места выхода — та же (иначе каждый вход рассыпал бы разведанное).
 import { useGame } from '@/game/store';
 import { setMove, foodAfter, campGain } from '@/game/sim/roam';
-import { ROAM_ON } from '@/game/roamflag';
+import { roamOn } from '@/game/roamflag';
 import { partyNow } from '@/net/clock';
 import { bandOrder, castles, rosterReady } from '@/net/roster';
 import { tgInitData } from '@/telegram/webapp';
@@ -25,7 +25,7 @@ export function roamPort(): RoamPort {
   // Сервер принимает приказы отряда в Telegram и только у ведущей вкладки — как и строку реестра.
   const online = Boolean(tgInitData()) && leaseHolder() !== 'other';
   return {
-    band: () => (ROAM_ON && s().phase === 'roam' ? (s().roam ?? null) : null),
+    band: () => (roamOn() && s().phase === 'roam' ? (s().roam ?? null) : null),
     apply: (m) => useGame.getState().world((st) => void setMove(st, m)),
     foodAfter: (ms, g) => foodAfter(s(), ms, g),
     campGain: (k) => campGain(s(), k),

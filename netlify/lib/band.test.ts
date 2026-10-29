@@ -19,7 +19,7 @@ import { isWaterAt, settleable } from '../../src/world/land.js';
 import { SPAWNS, inSicilyTheatre } from '../../src/world/spawn.js';
 import { ruinAt } from '../../src/world/ruins.js';
 
-vi.mock('../../src/game/roamflag.js', () => ({ ROAM_ON: true }));
+vi.mock('../../src/game/roamflag.js', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
 
 const NOW = 1_900_000_000_000;
 let home: Home;

@@ -18,19 +18,21 @@ import {
 import { haptic, tgDisplayName, tgInitData, tgUser } from '@/telegram/webapp';
 import { setTelegramIdentity } from '@/profile/stats';
 import { bootPaint, bootStage } from '@/boot/stage';
-import { mayWrite, provideGame, syncBoot } from '@/net/sync';
+import { mayWrite, provideGame, resetCarry, syncBoot } from '@/net/sync';
 import { provideGrants } from '@/net/admin';
 import { applyGrants } from './sim/admin';
 import { provideGemDeeds, provideGemSeen, provideGemSettled } from '@/net/gems';
 import { applyGemDeeds, gemSeen, settleUnneeded } from './sim/gems';
-import { provideBand, provideBandSink, provideClaim, rosterBoot } from '@/net/roster';
+import { provideBand, provideBandSink, provideClaim, rosterBoot, rosterReseat } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyBoot } from '@/net/notify';
 import { bandSeatOf, claimOf } from '@/net/snapshot';
 import { CHEATS_ON, CHEAT_NO, cheatOf } from '@/cheats';
 import { applyCheat } from './sim/cheat';
-import { ROAM_ON } from './roamflag';
-import { setMove } from './sim/roam';
+import { roamOn } from './roamflag';
+import { beginRoam, setMove } from './sim/roam';
+import { warriorStart } from './roamorigin';
+import { profileName } from '@/profile/identity';
 import { readMove } from '@/world/roammove';
 
 /**
@@ -177,6 +179,28 @@ export interface GameStore {
   cheat: (code: string) => string;
   save: () => void;
   reset: () => void;
+  /**
+   * Путь меча со стартового экрана (30.10.2026, только тем, кому путь открыт — `roamflag.roamOn`): новая партия бродягой — Воином
+   * (`roamorigin`), место выхода назначает сервер (`net/roster.rosterReseat`). Зовётся только у партии без сохранения на устройстве
+   * (`fresh`): прежней партии у игрока нет, отнимать нечего. Отказ — словами, вошёл — `null`.
+   */
+  beginRoamParty: () => string | null;
+}
+
+/**
+ * Новая партия на месте прежней: эпоха устройства, без опережения часов, а номера дел алмазов и указов — от прежней (они за игроком,
+ * а не за партией: сервер отдаёт их все, и новая партия с отметками с нуля положила бы покупки лавки и указы второй раз — docs/bughunt.md,
+ * «Начать заново»). Одна на «Начать заново» и на вход в путь.
+ */
+function freshParty(was: Pick<GameState, 'gemSeen' | 'gemUnneeded' | 'adminSeen'>): GameState {
+  // Новая партия начинается с правды: без опережения и на ×1 — раньше, чем её часы впервые прочтут.
+  if (CHEATS_ON) enterLead(0);
+  const s = createInitialState();
+  s.era = knownEra();
+  if (was.gemSeen !== undefined) s.gemSeen = was.gemSeen;
+  if (was.gemUnneeded !== undefined) s.gemUnneeded = was.gemUnneeded;
+  if (was.adminSeen !== undefined) s.adminSeen = was.adminSeen;
+  return s;
 }
 
 let loopStarted = false;
@@ -287,7 +311,11 @@ export const useGame = create<GameStore>((set, get) => ({
     // Имя и лицо из Telegram кладёт сюда оболочка: симуляция про Telegram не
     // знает, а визитке нужны готовые значения. Свой выбор игрока это не трогает —
     // он лежит рядом и приоритетнее (см. profile/identity).
-    if (fresh) state.era = era;
+    if (fresh) {
+      state.era = era;
+      // Партию обнулил админ (`net/sync.takeReset`): номера дел алмазов и указов новая партия берёт у обнулённой.
+      Object.assign(state, resetCarry());
+    }
     setTelegramIdentity(state, tgDisplayName(), tgUser()?.photo_url ?? null);
     set({ s: state, ready: true, offlineSeconds, legacyReset: legacy, fresh });
     // Старое сохранение к новой партии не подходит: его место сразу занимает новая.
@@ -333,17 +361,17 @@ export const useGame = create<GameStore>((set, get) => ({
     // соседей расселяют относительно тех, кто уже стоит, и игрок, не открывший
     // карту ни разу, всё равно на ней есть.
     provideClaim(() => claimOf(get().s));
-    // Бродяга (ПН-3) встаёт в реестр строкой отряда, а строку, которую вывел сервер, партия кладёт одной дверью хода.
-    if (ROAM_ON) {
-      provideBand(() => bandSeatOf(get().s));
-      provideBandSink((row) => {
-        const st = get().s;
-        const m = readMove(row);
-        if (!m) return;
-        setMove(st, m);
-        set({ s: { ...st } });
-      });
-    }
+    // Бродяга (ПН-3) встаёт в реестр строкой отряда, а строку, которую вывел сервер, партия кладёт одной дверью хода. Двери отдаются
+    // всегда: слово сервера об админе (`roamOn`) может прийти после запуска, а спрашивают выключатель они сами (`bandSeatOf`,
+    // `roster.keep`).
+    provideBand(() => bandSeatOf(get().s));
+    provideBandSink((row) => {
+      const st = get().s;
+      const m = readMove(row);
+      if (!m) return;
+      setMove(st, m);
+      set({ s: { ...st } });
+    });
     void rosterBoot();
     if (loopStarted) return;
     loopStarted = true;
@@ -484,16 +512,22 @@ export const useGame = create<GameStore>((set, get) => ({
   reset: () => {
     const was = get().s;
     clearSave();
-    // Новая партия начинается с правды: без опережения и на ×1 — раньше, чем её часы впервые прочтут.
-    if (CHEATS_ON) enterLead(0);
-    const s = createInitialState();
-    s.era = knownEra();
-    // Дела алмазов и указы админа — за игроком, а не за партией: сервер отдаёт их все, и новая партия с отметками с
-    // нуля положила бы покупки лавки и указы второй раз (docs/bughunt.md, «Начать заново»).
-    if (was.gemSeen !== undefined) s.gemSeen = was.gemSeen;
-    if (was.gemUnneeded !== undefined) s.gemUnneeded = was.gemUnneeded;
-    if (was.adminSeen !== undefined) s.adminSeen = was.adminSeen;
+    set({ s: freshParty(was), sheet: null, offlineSeconds: 0 });
+    get().save();
+  },
+
+  beginRoamParty: () => {
+    if (!roamOn()) return 'Путь меча ещё не открыт.';
+    if (!get().fresh) return 'Путь меча начинают с новой партии.';
+    const was = get().s;
+    const s = freshParty(was);
+    // Имя и лицо из Telegram — те же, что у прежней партии; герой носит имя игрока.
+    s.profile = { ...s.profile, ...was.profile };
+    const why = beginRoam(s, warriorStart(s, profileName(s.profile)));
+    if (why) return why;
     set({ s, sheet: null, offlineSeconds: 0 });
     get().save();
+    rosterReseat();
+    return null;
   },
 }));

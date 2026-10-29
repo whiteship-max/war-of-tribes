@@ -66,7 +66,7 @@ import { levelNow, subscribeGfx } from '@/render/gfx';
 import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
-import { ROAM_ON } from '@/game/roamflag';
+import { roamOn } from '@/game/roamflag';
 import { roamHook, setMapWake, sightHook } from './roamhook';
 
 // Тревоги войны значками (П-7) — куском нового интерфейса, как в городе (`App.tsx`): карта стоит в первой загрузке.
@@ -80,14 +80,14 @@ const Legend = lazy(() => import('./Legend').then((m) => ({ default: m.Legend })
 // Их код подтягивается в фоне вместе с картой (`chunks.MAP_CHUNKS`, РТ-2б), а рисует их только кнопка.
 const Rating = lazy(() => ratingUi().then((m) => ({ default: m.Rating })));
 const Feed = lazy(() => feedUi().then((m) => ({ default: m.Feed })));
-// Карта бродяги (ПН-3) — своим куском, только за `ROAM_ON`: знаки отряда, лагеря и руин и окно хода вешаются на крючок карты.
-// Выключен путь — ни куска, ни строки в первой загрузке: сборщик выбрасывает ветку целиком.
-const RoamLayer = ROAM_ON ? lazy(() => import('./roam/RoamLayer')) : null;
-// Чужие отряды бродяг и их следы (ПН-4у) — у лорда и у бродяги, своим куском и тоже только за `ROAM_ON`.
-const BandsLayer = ROAM_ON ? lazy(() => import('./roam/BandsLayer')) : null;
+// Карта бродяги (ПН-3) — своим куском, только за выключателем (`roamOn`): знаки отряда, лагеря и руин и окно хода вешаются на
+// крючок карты. Путь закрыт игроку — кусок не качается: `lazy` тянет его только при первом рисовании.
+const RoamLayer = lazy(() => import('./roam/RoamLayer'));
+// Чужие отряды бродяг и их следы (ПН-4у) — у лорда и у бродяги, своим куском и тоже только за выключателем.
+const BandsLayer = lazy(() => import('./roam/BandsLayer'));
 
-/** Карта — бродяги (ПН-3): фаза партии. Зовут её только за `ROAM_ON` — выключателем-постоянной, порядок крючков не меняется. */
-const useRoamMode = (): boolean => useGame((g) => ROAM_ON && g.s.phase === 'roam');
+/** Карта — бродяги (ПН-3): фаза партии за выключателем. Крючок зовётся всегда: выключатель с 30.10.2026 — правило по игроку. */
+const useRoamMode = (): boolean => useGame((g) => roamOn() && g.s.phase === 'roam');
 
 /**
  * Отладочный обзор читается один раз: адрес по ходу партии не меняется. Камера свободна у всех (ПН-00) — флаг даёт стенду
@@ -206,7 +206,7 @@ export function WorldMap() {
   const openMarches = useGame((g) => g.openMarches);
   const showToast = useGame((g) => g.showToast);
   // Фаза бродяги (ПН-3): карта — его, с отрядом посредине; у лорда ветки нет.
-  const roamMode = ROAM_ON && useRoamMode();
+  const roamMode = useRoamMode();
   // Верх и низ карты — табличка «регион · координата» и низ на пять мест (прежние удалены, docs/ui_audit.md, 16).
   const portal = (node: ReactNode): ReactNode => {
     const host = document.querySelector('.app');
@@ -334,7 +334,7 @@ export function WorldMap() {
     const wake = (): void => loop.wake();
     cam.onMove = wake;
     // Чужие отряды и следы (ПН-4у) меняются ответом сервера, а не кадром: их слой будит карту сам.
-    if (ROAM_ON) setMapWake(wake);
+    if (roamOn()) setMapWake(wake);
 
     // Уровень кадра карты: уровень игры, опущенный сторожем карты (`tw/quality.mapLevel`, К-1); пока вида нет — уровень игры.
     const level = (): Quality => twSlot()?.level() ?? levelNow(location.search);
@@ -433,7 +433,7 @@ export function WorldMap() {
       const t0 = PROBE ? performance.now() : 0;
       let motion = drawFrame(ctx, cam.current, { w, h }, dpr, ++frameNo.current);
       // Карта бродяги (ПН-3) дорисовывает свои знаки; отряд в пути — кадр по часам. Чужие отряды и следы (ПН-4у) — поверх.
-      if (ROAM_ON) {
+      if (roamOn()) {
         if (roamHook()?.paint(ctx, cam.current, { w, h }, dpr, worldNow())) motion = { ...motion, clock: true };
         sightHook()?.paint(ctx, cam.current, { w, h }, dpr, worldNow());
       }
@@ -464,7 +464,7 @@ export function WorldMap() {
       offGame();
       offGfx();
       fonts?.removeEventListener('loadingdone', wake);
-      if (ROAM_ON) setMapWake(null);
+      if (roamOn()) setMapWake(null);
       // Отряды и силуэты агентов от сида не зависят, поэтому в уборку по новому
       // миру они не входят; а вот держать их между заходами на карту незачем —
       // печутся они за доли миллисекунды.
@@ -666,7 +666,7 @@ export function WorldMap() {
    */
   const openAt = (c: Coord): void => {
     // Чужой отряд или его след (ПН-4у) — строкой; карта бродяги (ПН-3) берёт касание сама: отряд в руке, окно хода, карточка клетки.
-    if (ROAM_ON) {
+    if (roamOn()) {
       if (sightHook()?.tap(c)) return;
       if (roamHook()?.tap(c)) return;
     }
@@ -850,12 +850,12 @@ export function WorldMap() {
           <RingLayer at={ringAt} vp={vp()} />
         </Suspense>
       )}
-      {RoamLayer && roamMode && (
+      {roamMode && (
         <Suspense fallback={null}>
           <RoamLayer />
         </Suspense>
       )}
-      {BandsLayer && (
+      {roamOn() && (
         <Suspense fallback={null}>
           <BandsLayer />
         </Suspense>

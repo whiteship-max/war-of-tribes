@@ -30,8 +30,8 @@
  * записка — баланс и дела, которые партия применяет сама (`net/gems.takeGems`).
  */
 import { create } from 'zustand';
-import { SAVE_HURRY_MS, SAVE_PUSH_MS, type ConflictResponse, type PullResponse, type PushResponse, type SaveCard, type SaveRecord } from '../../netlify/lib/contract';
-import { adoptSave, readyToRead } from '@/game/save';
+import { SAVE_HURRY_MS, SAVE_PUSH_MS, readAdminNote, type ConflictResponse, type PullResponse, type PushResponse, type SaveCard, type SaveRecord } from '../../netlify/lib/contract';
+import { adoptSave, clearSave, readyToRead } from '@/game/save';
 import type { GameState } from '@/game/types';
 import { browserStorage } from '@/world/local/state';
 import { tgInitData } from '@/telegram/webapp';
@@ -193,6 +193,66 @@ let leaving = false;
 
 const say = (state: SyncState, why: string): void => useSync.setState({ state, why });
 
+// ---------- Обнуление партии админом (30.10.2026) ----------
+//
+// Админ обнулил партию игрока на сервере (`netlify/lib/partyreset.ts`): запись стёрта, в записке админки — минута обнуления
+// (`AdminNote.reset`). Устройство, которое этой минуты ещё не видело и на котором лежит партия, стирает её — партию, отметку
+// синхронизации, отложенную копию и мир — и перезапускается: новая партия начнётся с нуля и ляжет на сервер первой записью. Без
+// этого старая партия с телефона легла бы на пустой сервер сама. Номера указов и дел алмазов — за игроком, а не за партией: их
+// новая партия наследует (`resetCarry`), как «Начать заново» (`store.reset`), иначе покупки лавки и указы легли бы второй раз.
+
+const RESET_KEY = 'tribe.reset.v1';
+
+/** Что новая партия наследует от обнулённой. */
+export type ResetCarry = Partial<Pick<GameState, 'gemSeen' | 'gemUnneeded' | 'adminSeen'>>;
+
+function readResetMark(): { at: number; carry?: ResetCarry } {
+  try {
+    const v = JSON.parse(read(RESET_KEY) ?? 'null') as { at?: unknown; carry?: ResetCarry } | null;
+    const at = typeof v?.at === 'number' && Number.isFinite(v.at) ? v.at : 0;
+    return { at, ...(v?.carry && typeof v.carry === 'object' ? { carry: v.carry } : {}) };
+  } catch {
+    return { at: 0 };
+  }
+}
+
+/** Наследство обнулённой партии — его кладёт новая партия на этом устройстве (`store.init`, только у партии без сохранения). */
+export const resetCarry = (): ResetCarry => readResetMark().carry ?? {};
+
+/**
+ * Записка админки назвала обнуление новее того, что видело устройство. `hadParty` — на устройстве лежит партия (была при
+ * запуске или идёт сейчас). Возвращает `true`, если вкладка уходит на перезапуск: тогда дальше не делается ничего.
+ */
+export function takeReset(raw: unknown, hadParty: boolean): boolean {
+  if (raw === undefined || raw === null || leaving) return false;
+  const at = readAdminNote(raw).reset ?? 0;
+  if (!at || at <= readResetMark().at) return false;
+  const was = hadParty ? source?.() : undefined;
+  const carry: ResetCarry = {};
+  if (was?.gemSeen !== undefined) carry.gemSeen = was.gemSeen;
+  if (was?.gemUnneeded !== undefined) carry.gemUnneeded = was.gemUnneeded;
+  if (was?.adminSeen !== undefined) carry.adminSeen = was.adminSeen;
+  write(RESET_KEY, JSON.stringify({ at, ...(Object.keys(carry).length ? { carry } : {}) }));
+  // Партии на устройстве нет — стирать нечего: минута запомнена, новая партия идёт своим ходом.
+  if (!hadParty) return false;
+  leaving = true;
+  clearSave();
+  write(META_KEY, null);
+  write(SPARE_KEY, null);
+  browserStorage.clear?.();
+  restartForReset();
+  return true;
+}
+
+/** Как перезапустить игру после обнуления. Подменяется тестом: в Node перезапускать нечего. */
+let restartForReset = (): void => {
+  if (typeof location !== 'undefined') location.reload();
+};
+
+export const setResetRestart = (fn: () => void): void => {
+  restartForReset = fn;
+};
+
 /**
  * Взять серверную партию: положить обе строки на диск и перезапустить игру.
  *
@@ -233,6 +293,7 @@ async function push(baseEtag: string | null): Promise<void> {
       useSync.setState({ state: 'ok', why: '', lastOk: serverNow() });
       // Записка админки: разморозка и указы приезжают с ответом записи (docs/admin.md).
       takeNote(res.data.admin);
+      if (takeReset(res.data.admin, true)) return;
       // Записка алмазов: баланс, лавка и неприменённые дела (docs/gems.md).
       takeGems(res.data.gems);
       return;
@@ -240,6 +301,7 @@ async function push(baseEtag: string | null): Promise<void> {
     if (res.why === 'frozen') {
       // Замороженному запись не принимается; попытки идут своим чередом — так приезжает и разморозка.
       takeNote((res.body as { admin?: unknown } | null)?.admin);
+      if (takeReset((res.body as { admin?: unknown } | null)?.admin, true)) return;
       say('offline', WORDS.frozen);
       return;
     }
@@ -248,6 +310,8 @@ async function push(baseEtag: string | null): Promise<void> {
       // с другого устройства. Правда лежит на сервере: берём её, а свою кладём
       // рядом отвергнутой. Спрашивать здесь нечего, но и терять нечего тоже.
       const body = res.body as ConflictResponse | null;
+      // Запись стёрта обнулением партии (её поверх и не нашлось): устройство стирает свою и начинает новую.
+      if (takeReset(body?.admin, true)) return;
       if (body?.record) {
         await adopt(body.record, body.etag, record);
         return;
@@ -400,6 +464,7 @@ export async function syncBoot(hadLocal: boolean): Promise<void> {
   }
   const { record, etag } = res.data;
   takeNote(res.data.admin);
+  if (takeReset(res.data.admin, hadLocal)) return;
   takeGems(res.data.gems);
   const here = mine();
   if (!here) return;

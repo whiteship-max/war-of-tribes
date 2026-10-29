@@ -463,6 +463,8 @@ describe('сервер разбирает ровно названные запи
       'readPerfDay',
       // оплата алмазов: очередь возвратов — перевод, который не начислен (FIN-7)
       'readRefund',
+      // обнуление партии одного игрока (30.10.2026, docs/admin.md): метка обнуления
+      'readReset',
       'readRoster',
       'readStoredReport',
       'readStoredSheet',
@@ -471,7 +473,8 @@ describe('сервер разбирает ровно названные запи
       'reader',
     ]);
     expect(bare).toEqual(['lib/routes/save.ts']);
-    expect(movers.sort()).toEqual(['lib/blobs.ts', 'vps/import.ts', 'vps/sqlite.ts']);
+    // `partyreset.ts` кладёт в архив партию и наблюдение как есть, строкой, — не читая их (30.10.2026, docs/admin.md).
+    expect(movers.sort()).toEqual(['lib/blobs.ts', 'lib/partyreset.ts', 'vps/import.ts', 'vps/sqlite.ts']);
   });
 });
 
@@ -503,7 +506,8 @@ describe('админка: только ADMIN_IDS, партии не пишет, 
       .filter((f) => /STORES\.admin\b/.test(strip(readFileSync(f, 'utf8'))))
       .map(rel)
       .sort();
-    expect(uses).toEqual(['lib/admin.ts', 'lib/commands.ts', 'lib/deliver.ts', 'lib/era.ts']);
+    // `partyreset.ts` — обнуление партии одного игрока командой обслуживания сервера (30.10.2026): архив и метка обнуления.
+    expect(uses).toEqual(['lib/admin.ts', 'lib/commands.ts', 'lib/deliver.ts', 'lib/era.ts', 'lib/partyreset.ts']);
     expect(read('lib/deliver.ts')).not.toMatch(/admin\??\.(?:setJSON|set|delete)\(/);
     // Чистый старт стирает в хранилище админки только указы: заморозка и журнал админа остаются (`era.ADMIN_KEEP`).
     expect([...read('lib/era.ts').matchAll(/STORES\.admin\b[^\n]*/g)].map((m) => m[0])).toEqual([
@@ -514,7 +518,7 @@ describe('админка: только ADMIN_IDS, партии не пишет, 
   it('перезапись — только известными читателями', () => {
     const calls = files().flatMap((f) => [...strip(readFileSync(f, 'utf8')).matchAll(/\brewrite\([^;]*?\b(read\w+)\b/g)].map((m) => m[1]));
     expect(calls.length).toBeGreaterThan(3);
-    expect([...new Set(calls)].sort()).toEqual(['readAdminLog', 'readFrozen', 'readGrants', 'readWatchRecord']);
+    expect([...new Set(calls)].sort()).toEqual(['readAdminLog', 'readFrozen', 'readGrants', 'readReset', 'readWatchRecord']);
   });
 });
 

@@ -1,13 +1,14 @@
-// Выключатель Пути меча (ПН-1, docs/gdd/path_of_sword.md, 7.5, У1; «Решения ПН-1»): до выпуска Среза 1 фаза бродяги закрыта
-// игрокам целиком. Здесь `ROAM_ON` — настоящий, без подмены: что путь работает, когда он включён, держит `sim/roam.test.ts`.
+// Выключатель Пути меча (ПН-1, docs/gdd/path_of_sword.md, 7.5, У1; «Решения ПН-1»; с 30.10.2026 — по игроку): до выпуска Среза 1
+// фаза бродяги закрыта игрокам целиком, админам — открыта. Выключатель здесь настоящий, без подмены; слово сервера об админе —
+// `setRoamOpen` (его зовёт записка админки, `net/admin`). Что путь работает, когда открыт, держит `sim/roam.test.ts`.
 //
 // Граница области — партия, у которой правда есть фаза и отряд бродяги (записанные рукой или пришедшие чужим сохранением):
-// выключатель обязан не пустить именно их, а партия без фазы и так лорд.
+// выключатель обязан не пустить именно их у игрока и пустить у админа, а партия без фазы и так лорд.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { GameState, RoamState } from './types';
-import { ROAM_ON } from './roamflag';
+import { ROAM_ON, roamOn, roamOpenFor, setRoamOpen } from './roamflag';
 import { createInitialState, SAVE_VERSION } from './state';
 import { MIN_SAVE_VERSION, deserialize } from './save';
 import { liveStep } from './sim/tick';
@@ -35,9 +36,34 @@ function forced(): GameState {
   return s;
 }
 
-describe('выключатель Пути меча закрыт до выпуска', () => {
+afterEach(() => setRoamOpen(false));
+
+describe('выключатель Пути меча — по игроку: админу открыт, остальным закрыт', () => {
+  it('правило одно: до выпуска путь открыт только админу', () => {
+    expect(ROAM_ON, 'граница: путь не выпущен').toBe(false);
+    expect(roamOpenFor(false)).toBe(false);
+    expect(roamOpenFor(true)).toBe(true);
+    expect(roamOn(), 'устройство без слова сервера — не админ').toBe(false);
+    setRoamOpen(true);
+    expect(roamOn()).toBe(true);
+  });
+
+  it('админ входит в путь, его партия бродяги читается бродягой, обоз пишется', () => {
+    setRoamOpen(true);
+    const s = createInitialState(1);
+    expect(beginRoam(s, { origin: 'warrior', hero: { name: 'x', war: 1 }, band: { spearman: 4 }, purse: 120, food: 40 })).toBeNull();
+    expect(s.phase).toBe('roam');
+    const back = deserialize(JSON.stringify(forced())) as GameState;
+    expect(back.phase).toBe('roam');
+    expect(back.roam?.band).toEqual(BAND.band);
+    expect(addStock(forced(), 'food', 10, 1e6, 'cargo')).toBe(10);
+  });
+});
+
+describe('выключатель Пути меча закрыт игрокам до выпуска', () => {
   it('ROAM_ON выключен, и версия сохранения не растёт (её поднимает выпуск Среза 1)', () => {
     expect(ROAM_ON).toBe(false);
+    expect(roamOn(), 'граница: игрок не админ').toBe(false);
     expect(SAVE_VERSION).toBe(24);
     expect(MIN_SAVE_VERSION).toBe(8);
   });
@@ -96,11 +122,11 @@ describe('выключатель Пути меча закрыт до выпус�
         // Развилка — по фазе партии (`s.phase`); чтение фазы из записи (`sim/roam.mergeRoam`) стоит за выключателем у чтения сохранения.
         if (!/\bs\.phase\s*===\s*'roam'/.test(line) || /^\s*(\/\/|\*)/.test(line)) return;
         forks.push(relative(ROOT, p).split(sep).join('/'));
-        expect(line, `${relative(ROOT, p)}:${i + 1} — развилка без выключателя`).toMatch(/\bROAM_ON\s*&&/);
+        expect(line, `${relative(ROOT, p)}:${i + 1} — развилка без выключателя`).toMatch(/\broamOn\(\)\s*&&/);
       });
     }
     // Граница области: развилки есть — шаг, отлучка, дух, чей счёт дел (ПН-2: герой пути или правитель), какой мир открыть и
-    // чья карта (ПН-3: мир и карта бродяги своими кусками или лорда).
-    expect([...new Set(forks)].sort()).toEqual(['game/rulernow.ts', 'game/sim/spirit.ts', 'game/sim/tick.ts', 'ui/map/WorldMap.tsx', 'world/store.ts']);
+    // чья карта (ПН-3: мир и карта бродяги своими кусками или лорда), куда ложится указ админа (30.10.2026: посёлку или отряду).
+    expect([...new Set(forks)].sort()).toEqual(['game/rulernow.ts', 'game/sim/admin.ts', 'game/sim/spirit.ts', 'game/sim/tick.ts', 'ui/map/WorldMap.tsx', 'world/store.ts']);
   });
 });

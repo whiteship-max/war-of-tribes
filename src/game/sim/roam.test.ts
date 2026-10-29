@@ -29,7 +29,7 @@ import { spiritView } from './spirit';
 import { setWageMode } from './upkeep';
 import { gameSeconds } from '../pace';
 
-vi.mock('../roamflag', () => ({ ROAM_ON: true }));
+vi.mock('../roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
 
 /** Отряд бродяги на новой партии: в лагере, весной первого года. */
 function roamParty(band: Partial<Record<TroopId, number>>, o: { war?: number; purse?: number; food?: number } = {}): GameState {

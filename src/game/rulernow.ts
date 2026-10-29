@@ -9,7 +9,7 @@
 // Импорты — без `@/`: множитель Старосты с «Строителем» (`stewardBuild`) читает и сервер (`watch.buildMult`).
 import type { GameState, RoamOrigin, RulerTally } from './types';
 import { giftCeil } from './councilrules';
-import { ROAM_ON } from './roamflag';
+import { roamOn } from './roamflag';
 import type { RulerNumbers, RulerRules } from './rulertraits';
 
 let rules: RulerRules | null = null;
@@ -32,7 +32,7 @@ export const loadRulerTraits = (): Promise<unknown> => (loading ??= rules ? Prom
 
 /** Чей счёт сейчас: героя на пути или правителя в замке. Пишет в него одна дверь — `sim/dynasty.noteRulerDeed`. */
 export function rulerPerson(s: GameState): { deeds?: RulerTally } | null {
-  if (ROAM_ON && s.phase === 'roam' && s.roam) return s.roam.hero;
+  if (roamOn() && s.phase === 'roam' && s.roam) return s.roam.hero;
   return s.realm?.ruler ?? null;
 }
 
@@ -41,7 +41,7 @@ export function rulerPerson(s: GameState): { deeds?: RulerTally } | null {
  * идёт и происхождение (у героя пути).
  */
 export function rulerSeat(s: GameState): { n: number; tally: RulerTally | undefined; since: number; origin?: RoamOrigin } {
-  if (ROAM_ON && s.phase === 'roam' && s.roam) return { n: -1, tally: s.roam.hero.deeds, since: s.roam.hero.since ?? s.time, origin: s.roam.origin };
+  if (roamOn() && s.phase === 'roam' && s.roam) return { n: -1, tally: s.roam.hero.deeds, since: s.roam.hero.since ?? s.time, origin: s.roam.origin };
   return { n: s.realm?.ruler?.n ?? 0, tally: s.realm?.ruler?.deeds, since: s.realm?.ruler?.bornAt ?? s.time };
 }
 

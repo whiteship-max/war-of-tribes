@@ -35,7 +35,8 @@ import { ROSTER_KEY, bandOrder, prune, readRoster, rosterEpoch, upsert, viewOf, 
 import { STORES } from '../kv.js';
 import { addFlags, confirmedOf, observe, readWatchRecord } from '../watch.js';
 import { bandsSeen, clockAt, seenOf } from '../bandsight.js';
-import { ROAM_ON } from '../../../src/game/roamflag.js';
+import { roamOpenFor } from '../../../src/game/roamflag.js';
+import { isAdmin } from '../admin.js';
 import { seedTown } from '../town.js';
 import { powerOfCounts } from '../../../src/profile/power.js';
 import { START_POP } from '../../../src/game/constants.js';
@@ -69,19 +70,19 @@ const QUIET_MS = 4 * 60_000;
 const PER_MINUTE = 40;
 
 /**
- * Ответ реестра: своя клетка и соседи в пределах досягаемости. Свой отряд бродяги (ПН-3) — полем `band`, только пока Путь меча
- * открыт; чужих отрядов в ответе нет вовсе (до ПН-4у), и замки соседей отряд видит от своей клетки.
+ * Ответ реестра: своя клетка и соседи в пределах досягаемости. Свой отряд бродяги (ПН-3) и видимость отрядов (ПН-4у) — только тому,
+ * кому Путь меча открыт (`roamOpen`: правило `roamflag.roamOpenFor`, с 30.10.2026 — админам); замки соседей отряд видит от своей клетки.
  */
-function answer(file: RosterFile, key: string, now: number): RosterResponse {
+function answer(file: RosterFile, key: string, now: number, roamOpen: boolean): RosterResponse {
   const own = file.rows[key];
-  const band = ROAM_ON ? file.bands?.[key] : undefined;
+  const band = roamOpen ? file.bands?.[key] : undefined;
   const mine = own ? { x: own.x, y: own.y } : null;
   const from = own ?? band?.way.to ?? null;
   const castles = from ? viewOf(file).filter((c) => Math.hypot(c.x - from.x, c.y - from.y) <= NEAR) : [];
   const res: RosterResponse = { now, epoch: rosterEpoch(), mine, castles, ...(band ? { band } : {}) };
   // Видимость отрядов бродяг (ПН-4у) — считает сервер сам, дверью `world/sight` (`bandsight.ts`): чужие отряды, которых игрок видит,
-  // и кто видит его отряд. Чтение ничего не пишет — это функция строк реестра и минуты. Путь закрыт — полей нет.
-  if (ROAM_ON) {
+  // и кто видит его отряд. Чтение ничего не пишет — это функция строк реестра и минуты. Путь закрыт игроку — полей нет.
+  if (roamOpen) {
     const seenBands = bandsSeen(file, key, now);
     if (seenBands.length > 0) res.bands = seenBands;
     const seen = seenOf(file, key, now);
@@ -98,6 +99,9 @@ export const castles: Route = async (req, io) => {
 
   const key = saveKeyOf(auth.user);
   if (!allow(`castles:${key}`, PER_MINUTE, now)) return deny(429, 'slow-down', { 'retry-after': '5' });
+  // Путь меча — по игроку (30.10.2026): правило одно с клиентом, админ — тот же список, что у команд бота и указов.
+  const admin = isAdmin(auth.user.id);
+  const open = roamOpenFor(admin);
   // Эпоха мира (docs/test_world.md): партия другой эпохи не пишется и не читается — после чистого старта она не воскресает.
   const gone = await eraGate(req, io);
   if (gone) return gone;
@@ -115,10 +119,10 @@ export const castles: Route = async (req, io) => {
   if (req.method === 'GET') {
     const found = await cool.getWithMetadata(KEY);
     const file = readRoster(found ? parseJson(String(found.data)) : null);
-    return json(answer(file, key, now));
+    return json(answer(file, key, now, open));
   }
 
-  if (req.method === 'POST') return bandRoute(req, io, key, now);
+  if (req.method === 'POST') return bandRoute(req, io, key, now, admin);
   if (req.method !== 'PUT') return deny(405, 'method');
 
   const text = await readBody(req);
@@ -144,14 +148,14 @@ export const castles: Route = async (req, io) => {
     // У игрока либо замок, либо отряд (ПН-3): отряд бродяги замок не просит — честный клиент в фазе бродяги строку замка не шлёт.
     if (file.bands?.[key]) {
       await observe(io.stores, key, (rec) => addFlags(rec, now, [{ kind: 'forged', text: 'Строка замка от отряда бродяги: у бродяги замка нет.' }]));
-      return json({ ...answer(file, key, now), error: 'Ты бродяга: замка у тебя нет.' });
+      return json({ ...answer(file, key, now, open), error: 'Ты бродяга: замка у тебя нет.' });
     }
     const had = file.rows[key];
     // Ничего не изменилось и писать не за чем — отвечаем тем, что есть. Отказом
     // это не является: реестр общий, и каждая лишняя запись — ещё одна гонка за
     // право его переписать.
     if (had && (now - had.seenAt < MIN_WRITE_MS || !worthWriting(file, key, claim, now, QUIET_MS))) {
-      return json(answer(file, key, now));
+      return json(answer(file, key, now, open));
     }
 
     const next = prune(upsert(file, key, claim, now, mode), now, key);
@@ -159,7 +163,7 @@ export const castles: Route = async (req, io) => {
     const late = await eraGate(req, io);
     if (late) return late;
     const written = await hot.setJSON(KEY, next, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
-    if (written.modified) return json(answer(next, key, now));
+    if (written.modified) return json(answer(next, key, now, open));
   }
 
   // Не смогли пробиться за `WRITE_TRIES` попыток. Это не ошибка: реестр общий, кто-то
@@ -168,13 +172,17 @@ export const castles: Route = async (req, io) => {
 };
 
 /**
- * Приказ отряда бродяги (ПН-3, `POST`): встать в реестр, «Идти сюда», «Встать лагерем». Пока Путь меча закрыт — отказ без
- * флага (честный клиент такого не шлёт, а неоткрытое не подделка). Ход и лагерь выводит сервер дверью `world/roam`
- * (`roster.bandOrder`); невозможное — отказ словами и флаг в наблюдении игрока. Место выхода выбирается внутри цикла записи, как
- * клетка замка: двое, вошедших разом, не встанут у одних руин.
+ * Приказ отряда бродяги (ПН-3, `POST`): встать в реестр, «Идти сюда», «Встать лагерем». Путь закрыт игроку (`roamOpenFor`: до
+ * выпуска — не админ) — отказ 403 без флага (честный клиент такого не шлёт, а неоткрытое не подделка). Ход и лагерь выводит сервер
+ * дверью `world/roam` (`roster.bandOrder`); невозможное — отказ словами и флаг в наблюдении игрока. Место выхода выбирается внутри
+ * цикла записи, как клетка замка: двое, вошедших разом, не встанут у одних руин.
+ *
+ * Админ входит в путь новой партией (стартовый экран, 30.10.2026), а новая партия до кнопки уже встала в реестр строкой замка: его
+ * первое «встать» отрядом снимает свою строку замка — у игрока либо замок, либо отряд. Только у админа: игроку с замком приказ
+ * отряда по-прежнему подделка. Выпуск Среза 1 решит, как входят в путь все (чистый старт эпохи, 6.7).
  */
-async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, now: number): Promise<Response> {
-  if (!ROAM_ON) return deny(403, 'roam-off');
+async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, now: number, admin: boolean): Promise<Response> {
+  if (!roamOpenFor(admin)) return deny(403, 'roam-off');
   const text = await readBody(req);
   if (text === null) return deny(413, 'too-big');
   const order = readBandOrder(parseJson<unknown>(text));
@@ -192,8 +200,10 @@ async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, no
   }
   for (let tries = 0; tries < WRITE_TRIES; tries++) {
     const found = await hot.getWithMetadata(KEY);
-    const file = readRoster(found ? parseJson(String(found.data)) : null);
+    const read = readRoster(found ? parseJson(String(found.data)) : null);
     const etag = found?.etag ?? null;
+    // Вход админа в путь новой партией: своя строка замка уходит с первым «встать» отрядом (см. выше).
+    const file = admin && order.op === 'seat' && read.rows[key] && !read.bands?.[key] ? dropCastle(read, key) : read;
     const time = clockAt(file.bands?.[key]?.clock, card.card, card.at);
     const done = bandOrder(file, key, order, now, mode, time.clock);
     const flag = async (): Promise<void> => {
@@ -202,7 +212,7 @@ async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, no
     };
     if (done.error) {
       await flag();
-      return json({ ...answer(file, key, now), error: done.error });
+      return json({ ...answer(read, key, now, true), error: done.error });
     }
     const next = done.file;
     // Эпоха — ещё раз, перед самой записью (OPS-3): стирание после проверки на входе не воскрешает строку старой эпохи.
@@ -211,10 +221,16 @@ async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, no
     const written = await hot.setJSON(KEY, next, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
     if (written.modified) {
       await flag();
-      return json(answer(next, key, now));
+      return json(answer(next, key, now, true));
     }
   }
   return deny(429, 'slow-down', { 'retry-after': '10' });
+}
+
+/** Реестр без строки замка игрока `key` (вход админа в путь): прочие строки — те же. */
+function dropCastle(file: RosterFile, key: string): RosterFile {
+  const { [key]: _gone, ...rows } = file.rows;
+  return { ...file, rows };
 }
 
 /**

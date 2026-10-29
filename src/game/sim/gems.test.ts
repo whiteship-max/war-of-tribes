@@ -323,7 +323,8 @@ describe('клиент не умеет начислять алмазы', () => {
     // Её тест кладёт записки руками — на то он и тест двери; тесты в сборку не едут.
     const door = new Set([join(root, 'net', 'gems.ts'), join(root, 'net', 'gems.test.ts'), join(root, 'game', 'sim', 'gems.test.ts')]);
     // Ключ сейва знает save.ts — и два теста: этот и подъём партии из облака Telegram (`telegram/cloud.test.ts`).
-    const saveKnows = new Set([join(root, 'game', 'save.ts'), join(root, 'game', 'sim', 'gems.test.ts'), join(root, 'telegram', 'cloud.test.ts')]);
+    // И тест обнуления партии на устройстве (`net/roamstart.test.ts`): он кладёт партию под этим ключом и проверяет, что она стёрта.
+    const saveKnows = new Set([join(root, 'game', 'save.ts'), join(root, 'game', 'sim', 'gems.test.ts'), join(root, 'telegram', 'cloud.test.ts'), join(root, 'net', 'roamstart.test.ts')]);
     // Ключ `gems:` — только в образцах этого теста и в старой партии, которую читает тест профиля (ступень 21 → 22 его снимает).
     const keyKnows = new Set([join(root, 'game', 'sim', 'gems.test.ts'), join(root, 'profile', 'profile.test.ts')]);
     // У викторины ежедневки своё слово `balance` — доля расхождения ответов (`daily/quiz.ts`), к алмазам не относится.

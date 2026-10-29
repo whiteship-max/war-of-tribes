@@ -3,7 +3,7 @@
 // Партия одна: фаза (`GameState.phase`) решает, чем живёт шаг. Лорд — посёлком (`sim/tick.tick`), бродяга — отрядом
 // (`roamStep`): посёлка у бродяги ещё нет (его даст взятый замок, ПН-11), и поля посёлка в фазе бродяги спят. Выбирает дверь
 // диспетчер — живой шаг и отлучка (`sim/tick.liveStep`, `absence`), с теми же часами, тем же порогом отлучки и тем же потолком
-// догона, что у лорда. За выключателем (`roamflag.ROAM_ON`) диспетчер, вход и чтение фазы бродяги не пускают.
+// догона, что у лорда. За выключателем (`roamflag.roamOn`) диспетчер, вход и чтение фазы бродяги не пускают.
 //
 // Своих правил у шага нет — он зовёт двери ПН-1 по порядку:
 //   1. раненые, чей срок прошёл, встают в строй (`sim/infirmary.settleBandWounds`);
@@ -16,7 +16,7 @@ import type { GameState, RoamOrigin, RoamState, RulerTally, TroopId, WoundGroup 
 import { DAY_LENGTH, RESOURCE_IDS } from '../constants';
 import { TROOP_IDS } from '../data/troops';
 import { seasonMods } from '../derived';
-import { ROAM_ON } from '../roamflag';
+import { roamOn } from '../roamflag';
 import { bandHunger, bandRationPerDay, campSpirit, forageShare } from '../roamrules';
 import { readTally } from '../rulernow';
 import { troopTotal } from '../battle/kinds';
@@ -55,7 +55,7 @@ export const cargoCap = (r: Pick<RoamState, 'band' | 'way'>): number => troopTot
 
 /** Отказ войти в путь — словами; можно — `null`. */
 export function roamBlock(s: GameState): string | null {
-  if (!ROAM_ON) return 'Путь меча ещё не открыт.';
+  if (!roamOn()) return 'Путь меча ещё не открыт.';
   if (s.phase !== undefined) return 'Партия уже идёт своим путём.';
   if (s.time > 0) return 'Путь меча начинают с новой партии.';
   return null;
@@ -201,7 +201,7 @@ export const moveOf = (r: Pick<RoamState, 'way' | 'camp' | 'energy'>): RoamMove 
  */
 export function setMove(s: GameState, m: RoamMove): string | null {
   const r = s.roam;
-  if (!ROAM_ON || s.phase !== 'roam' || !r) return null;
+  if (!roamOn() || s.phase !== 'roam' || !r) return null;
   r.way = m.way;
   r.camp = m.camp;
   if (m.energy) r.energy = m.energy;

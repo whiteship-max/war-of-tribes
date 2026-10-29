@@ -16,7 +16,7 @@ import type { GameState, ResourceId } from '../types';
 import { RESOURCE_IDS, RESOURCE_META } from '../constants';
 import { storageCap } from '../derived';
 import { fitStock } from '../stockrules';
-import { ROAM_ON } from '../roamflag';
+import { roamOn } from '../roamflag';
 import { log } from './log';
 
 export type Gains = Partial<Record<ResourceId, number>>;
@@ -48,12 +48,12 @@ export type StockKey = 'resources' | 'cargo';
  * (`trimStock`): срезать его молча прибавка не вправе.
  *
  * Ключ `cargo` — обоз отряда (ГДД 3.3.5): `cap` — вместимость всего обоза (её считает зовущий, `sim/roam.cargoCap`), и вид
- * ложится не выше того, что осталось свободным от прочего добра. За выключателем Пути меча (`ROAM_ON`) обоз не пишется вовсе.
+ * ложится не выше того, что осталось свободным от прочего добра. За выключателем Пути меча (`roamOn`) обоз не пишется вовсе.
  */
 export function addStock(s: GameState, r: ResourceId, n: number, cap?: number): number;
 export function addStock(s: GameState, r: ResourceId, n: number, cap: number, key: StockKey): number;
 export function addStock(s: GameState, r: ResourceId, n: number, cap: number = storageCap(s), key: StockKey = 'resources'): number {
-  if (key === 'cargo') return ROAM_ON ? addCargo(s, r, n, cap) : 0;
+  if (key === 'cargo') return roamOn() ? addCargo(s, r, n, cap) : 0;
   if ((s.resources[r] ?? 0) > cap) trimStock(s, cap);
   const before = s.resources[r] ?? 0;
   const after = fitStock(before, n, cap);

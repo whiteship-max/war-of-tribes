@@ -33,7 +33,8 @@ import { eraGate } from '../era.js';
 import { allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
 import { GEM_SEEN_PARAM, readGemSeen, readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
 import { STORES } from '../kv.js';
-import { frozenNow, grantsOf, isFrozen, noteOf } from '../admin.js';
+import { frozenNow, grantsOf, isAdmin, isFrozen, noteOf } from '../admin.js';
+import { resetOf } from '../partyreset.js';
 import { booked, invitedBy, noted, observe, readWatchRecord, tooFast, touched, windfallKnown, wrote } from '../watch.js';
 import { readWars, WARS_KEY, type WarFile } from '../war.js';
 import { gemNoteOf, rushesOf, settleGems, settleRefunds } from '../gems.js';
@@ -74,6 +75,8 @@ export const save: Route = async (req, io) => {
   const store = io.stores(STORES.saves);
   const frozen = isFrozen(await frozenNow(io.stores), key);
   const grants = await grantsOf(io.stores, key);
+  // Админ ли игрок (Путь меча открыт ему, 30.10.2026) и когда его партию обнулили — в записке админки каждого ответа.
+  const who = { admin: isAdmin(auth.user.id), reset: await resetOf(io.stores, key) };
   const user = auth.user.username;
   // Кто привёл (docs/feed.md, раздел 3): метка ляжет только на первом заходе — в `touched`.
   const ref = invitedBy(auth.user.start, key);
@@ -89,7 +92,7 @@ export const save: Route = async (req, io) => {
       now,
       etag: found?.etag ?? null,
       record: found ? parseJson(String(found.data)) : null,
-      admin: noteOf(frozen, grants, 0),
+      admin: noteOf(frozen, grants, 0, who),
       ...(ledger ? { gems: gemNoteOf(ledger.ledger, seen, now) } : {}),
     };
     await observe(io.stores, key, (rec) => touched(rec, now, user, ref));
@@ -105,7 +108,7 @@ export const save: Route = async (req, io) => {
   const record = readRecord(sent.record, LIMITS);
   if (!record) return deny(400, 'bad-body');
   const baseEtag = typeof sent.baseEtag === 'string' ? sent.baseEtag : null;
-  const admin = noteOf(frozen, grants, record.watch?.seen ?? 0);
+  const admin = noteOf(frozen, grants, record.watch?.seen ?? 0, who);
 
   // Замороженный видит игру, но записи его не принимаются: ответ скажет почему, и игра покажет плашку.
   if (frozen) {

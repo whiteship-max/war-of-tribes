@@ -4,7 +4,9 @@ import { cityName } from '@/profile/identity';
 import { bootSaying } from '@/boot/stage';
 import { haptic } from '@/telegram/webapp';
 import { probe } from '@/debug';
-import { PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, prologueShown, startAction, startStep } from './start';
+import { roamOn } from '@/game/roamflag';
+import { useAdmin } from '@/net/admin';
+import { PROLOGUE_LABEL, PROLOGUE_NOTE, ROAM_LABEL, ROAM_NOTE, START_LABEL, prologueShown, roamShown, startAction, startStep } from './start';
 
 /**
  * Стартовый экран.
@@ -36,11 +38,14 @@ import { PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, prologueShown, startAction,
 export function StartScreen({
   onEnter,
   onPrologue,
+  onRoam,
   naming,
   settings: settingsBody,
 }: {
   onEnter: () => void;
   onPrologue: () => void;
+  /** Путь меча (30.10.2026): новая партия бродягой. Отказ — словами под кнопкой, вошёл — `null`. */
+  onRoam: () => string | null;
   /**
    * Шаг «Как назовёшь город?» (`next/CityNaming`, свой кусок: его отдаёт `App`, сам экран ничего не грузит). Встаёт
    * после главной кнопки, пока у города нет имени.
@@ -59,6 +64,9 @@ export function StartScreen({
   const named = useGame((g) => cityName(g.s.profile.city) !== null);
   const [settings, setSettings] = useState(false);
   const [ask, setAsk] = useState(false);
+  // Путь меча: слово сервера об админе может прийти, пока экран стоит, — подписка перерисует его; правило — `roamOn`.
+  useAdmin((a) => a.roam);
+  const [roamWhy, setRoamWhy] = useState<string | null>(null);
   const action = startAction(!fresh);
 
   const enter = (): void => {
@@ -105,6 +113,20 @@ export function StartScreen({
                   {PROLOGUE_LABEL}
                 </button>
                 <p className="start-note">{PROLOGUE_NOTE}</p>
+              </>
+            )}
+            {roamShown(roamOn(), fresh) && (
+              <>
+                <button
+                  className="start-alt"
+                  onClick={() => {
+                    haptic('medium');
+                    setRoamWhy(onRoam());
+                  }}
+                >
+                  {ROAM_LABEL}
+                </button>
+                <p className="start-note">{roamWhy ?? ROAM_NOTE}</p>
               </>
             )}
             <button className="start-more" onClick={() => setSettings(true)}>

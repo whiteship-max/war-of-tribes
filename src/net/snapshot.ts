@@ -55,7 +55,7 @@ import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
 import { readArms } from '@/heraldry/arms';
 import { browserStorage } from '@/world/local/state';
-import { ROAM_ON } from '@/game/roamflag';
+import { roamOn } from '@/game/roamflag';
 import { device } from './session';
 import { warSheet } from './war';
 
@@ -302,7 +302,7 @@ export function snapshotOf(s: GameState): SaveRecord {
  * фазе бродяги — `null`, и реестр получает строку замка (`claimOf`). Престиж и люди — слово клиента до книги отряда (ПН-13).
  */
 export function bandSeatOf(s: GameState): Extract<BandOrder, { op: 'seat' }> | null {
-  if (!ROAM_ON || s.phase !== 'roam' || !s.roam) return null;
+  if (!roamOn() || s.phase !== 'roam' || !s.roam) return null;
   const arms = readArms(s.profile.arms) ? (s.profile.arms as string) : null;
   return { op: 'seat', name: s.roam.hero.name, ...(arms ? { arms } : {}), prestige: Math.floor(s.prestige), men: troopTotal(s.roam.band) };
 }

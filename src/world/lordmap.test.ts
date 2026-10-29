@@ -65,7 +65,7 @@ describe('карта лорда живёт как до ПН-3', () => {
 
   it('и при включённом пути — мир лорда двери пути не спрашивает', async () => {
     vi.resetModules();
-    vi.doMock('@/game/roamflag', () => ({ ROAM_ON: true }));
+    vi.doMock('@/game/roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
     const m = await lordMap();
     vi.doUnmock('@/game/roamflag');
     expect(m.ruinsNear, 'руины вокруг правда есть').toBeGreaterThan(0);

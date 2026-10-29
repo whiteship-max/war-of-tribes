@@ -25,7 +25,7 @@
  */
 import { create } from 'zustand';
 import type { BandOrder, BandRow, BandView, CastleClaim, CastleView, RosterResponse, SeenView } from '../../netlify/lib/contract';
-import { ROAM_ON } from '@/game/roamflag';
+import { roamOn } from '@/game/roamflag';
 import { tgInitData } from '@/telegram/webapp';
 import { realSpan } from '@/game/span';
 import { apiGet, apiPost, apiPut, type ApiFail } from './api';
@@ -139,8 +139,8 @@ function keep(res: RosterResponse, at: number): void {
   cache = next;
   write(JSON.stringify(next));
   useRoster.setState({ state: 'ok', why: '', at, count: res.castles.length });
-  // Строка отряда бродяги (ПН-3) и видимость отрядов (ПН-4у) — своим оператором: выключен путь — сборщик выбрасывает его целиком.
-  if (ROAM_ON) {
+  // Строка отряда бродяги (ПН-3) и видимость отрядов (ПН-4у) — только за выключателем: путь закрыт игроку — сервер их и не шлёт.
+  if (roamOn()) {
     keepBand(res.band ?? null);
     keepSight(res);
   }
@@ -153,13 +153,14 @@ export const castleCell = (): Cell | null => (cache ? cache.mine : null);
 //
 // У бродяги замка нет — в реестре он стоит строкой отряда, и место выхода называет сервер (`roster.placeBandNew`). Здесь —
 // разговор: встать в реестр (`seat`, им же и отмечаться вместо строки замка), приказы хода и лагеря (`bandOrder`) и куда класть
-// строку, которую вывел сервер (`provideBandSink` — партия кладёт её одной дверью `sim/roam.setMove`). Всё — за `ROAM_ON`.
+// строку, которую вывел сервер (`provideBandSink` — партия кладёт её одной дверью `sim/roam.setMove`). Всё — за `roamOn`.
 
 const BAND_KEY = 'tribe.band.v1';
 
 /** Свой отряд: строка, которую вывел сервер, — память и кэш на устройстве (той же эпохи, что реестр). */
 let band: BandRow | null = null;
-if (ROAM_ON) band = loadBand();
+// Память читается всегда: слово сервера об админе (`roamOn`) приходит позже импорта, а без строки в памяти её нет и подавно.
+band = loadBand();
 
 function loadBand(): BandRow | null {
   try {
@@ -227,7 +228,7 @@ export const provideBandSink = (fn: (row: BandRow) => void): void => {
  * Приказ отряда серверу: принят — строка отряда (она же ляжет в партию через `provideBandSink`), отказ — слова сервера или сети.
  */
 export async function bandOrder(o: BandOrder): Promise<BandRow | string> {
-  if (!ROAM_ON) return 'Путь меча ещё не открыт.';
+  if (!roamOn()) return 'Путь меча ещё не открыт.';
   const res = await apiPost<RosterResponse>('/api/castles', o);
   if (!res.ok) return WORDS[res.why];
   if (res.data.error) return res.data.error;
@@ -237,7 +238,7 @@ export async function bandOrder(o: BandOrder): Promise<BandRow | string> {
 
 /** Свой ход в реестр: в фазе бродяги — строка отряда (`seat`), иначе — замка. */
 const seatOrClaim = async (): Promise<boolean> => {
-  const seat = ROAM_ON ? bandSeat?.() : null;
+  const seat = roamOn() ? bandSeat?.() : null;
   if (!seat) return false;
   const res = await apiPost<RosterResponse>('/api/castles', seat);
   if (res.ok && !res.data.error) keep(res.data, serverNow());
@@ -245,11 +246,29 @@ const seatOrClaim = async (): Promise<boolean> => {
   return true;
 };
 
-/** Место уже названо: у замка — клетка, у отряда (ПН-3) — строка отряда. */
+/**
+ * Место уже названо: у замка — клетка, у отряда (ПН-3) — строка отряда. Партия в фазе бродяги — только строкой отряда: клетка
+ * замка, оставшаяся в памяти от партии лорда (админ вошёл в путь с новой партией, 30.10.2026), местом отряда не считается.
+ */
 const seated = (): boolean => {
-  if (ROAM_ON && band) return true;
+  if (roamOn() && bandSeat?.()) return Boolean(band);
   return Boolean(cache?.mine);
 };
+
+/**
+ * Партия только что стала бродягой (вход в путь со стартового экрана): встать в реестр строкой отряда заново, и мир бродяги ждёт
+ * клетку выхода от сервера, а не берёт клетку прежнего замка. Вне Telegram и у второй вкладки — как при запуске: без сервера.
+ */
+export function rosterReseat(): void {
+  if (!roamOn() || !tgInitData() || leaseHolder() === 'other') return;
+  over = false;
+  ready = null;
+  holding = true;
+  void push().then(() => {
+    if (seated()) done();
+    else void seat();
+  });
+}
 
 /** Чужие замки: что приехало в последний раз. Пусто — реестра не было вовсе. */
 export const castles = (): CastleView[] => cache?.castles ?? [];
@@ -336,7 +355,7 @@ async function push(): Promise<boolean> {
   talking = true;
   try {
     // Бродяга (ПН-3) встаёт и отмечается строкой отряда: замка у него нет, и строки замка он не шлёт.
-    if (ROAM_ON) {
+    if (roamOn()) {
       if (await seatOrClaim()) return true;
     }
     const res = await apiPut<RosterResponse>('/api/castles', claim());

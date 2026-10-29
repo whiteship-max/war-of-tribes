@@ -12,7 +12,7 @@ const H = vi.hoisted(() => ({
 
 vi.mock('@/telegram/webapp', () => ({ tgInitData: () => 'подпись' }));
 vi.mock('./api', () => ({ apiGet: H.apiGet, apiPut: H.apiPut, apiPost: H.apiPost }));
-vi.mock('@/game/roamflag', () => ({ ROAM_ON: true }));
+vi.mock('@/game/roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
 
 const shelf = new Map<string, string>();
 const ok = <T,>(data: T) => ({ ok: true as const, data });

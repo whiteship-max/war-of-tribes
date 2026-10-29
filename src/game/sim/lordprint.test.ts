@@ -131,7 +131,7 @@ describe('партия лорда живёт как до ПН-1', () => {
 
   it('и при включённом пути — диспетчер партии лорда не касается', async () => {
     vi.resetModules();
-    vi.doMock('../roamflag', () => ({ ROAM_ON: true }));
+    vi.doMock('../roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
     try {
       const flag = await import('../roamflag');
       expect(flag.ROAM_ON, 'граница области: путь включён').toBe(true);

@@ -279,7 +279,7 @@ describe('каждое число черты доходит до своей дв
 
   it('Торгаш и Лесной по крови — от происхождения героя пути (путь включён подменой выключателя)', async () => {
     vi.resetModules();
-    vi.doMock('./roamflag', () => ({ ROAM_ON: true }));
+    vi.doMock('./roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
     try {
       const flag = await import('./roamflag');
       expect(flag.ROAM_ON, 'граница: путь включён').toBe(true);

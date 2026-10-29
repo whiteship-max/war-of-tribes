@@ -19,7 +19,7 @@ import { settleable } from '../../src/world/land.js';
 import { gameSecondsOfMs, realMs } from '../../src/game/pace.js';
 import { DAY_LENGTH, MAX_OFFLINE_DAYS } from '../../src/game/constants.js';
 
-vi.mock('../../src/game/roamflag.js', () => ({ ROAM_ON: true }));
+vi.mock('../../src/game/roamflag.js', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
 
 const NOW = 1_900_000_000_000;
 let home: Home;

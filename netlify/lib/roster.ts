@@ -22,7 +22,6 @@ import { placeCastle, settleRandom, type Spot } from '../../src/world/settle.js'
 import { SPAWNS, inSicilyTheatre, type SpawnMode } from '../../src/world/spawn.js';
 import { ATLAS_HASH } from '../../src/world/atlas/data.js';
 import { readArms } from '../../src/heraldry/arms.js';
-import { ROAM_ON } from '../../src/game/roamflag.js';
 import { energyForged, isNewcomer, placeBand, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamSeat, untilForged, ROAM_SLACK_MS, type RoamMove } from '../../src/world/roam.js';
 import { readMove } from '../../src/world/roammove.js';
 import { readGait } from '../../src/world/data/gait.js';
@@ -93,9 +92,10 @@ export function readRoster(raw: unknown): RosterFile {
       ...(Number(c.since) > 0 ? { since: Math.floor(Number(c.since)) } : {}),
     };
   }
-  // Отряды бродяг (ПН-3) — только пока Путь меча открыт: закрыт — реестр их не читает, и запись реестра их не несёт.
+  // Отряды бродяг (ПН-3) читаются всегда: с 30.10.2026 путь открыт по игроку (админам, `roamflag.roamOpenFor`), и запись реестра
+  // любым игроком обязана нести строки отряда дальше, а не ронять их. Отдаёт их игроку только ответ того, кому путь открыт (`routes/castles`).
   const bands: Record<string, BandRow> = {};
-  if (ROAM_ON && r.bands && typeof r.bands === 'object') {
+  if (r.bands && typeof r.bands === 'object') {
     for (const [key, row] of Object.entries(r.bands)) {
       const b = readBandRow(row);
       if (b) bands[key] = b;
@@ -293,7 +293,7 @@ export function worthWriting(file: RosterFile, key: string, claim: CastleClaim, 
 // что прочитанном реестре (двое, вошедших разом, не встанут у одних руин). Ход и лагерь сервер выводит сам дверью `world/roam` —
 // той же, что показала окно клиенту; из приказа он берёт только клетку, режим и вид лагеря, а срок, который видел игрок, —
 // для сверки. Невозможное (вода, чужой регион, руин нет, срок короче пути, сил не было и минутой раньше) — отказ и флаг; отказ,
-// который объясняет запаздывание приказа, — без флага. Пока Путь меча закрыт (`ROAM_ON`), сюда не доходит ни один приказ.
+// который объясняет запаздывание приказа, — без флага. Игроку, которому путь закрыт (`roamflag.roamOpenFor`), сюда не доходит ни один приказ: дверь — `routes/castles`.
 
 /** Клетки новичков — отрядов моложе 48 настоящих часов (решение С5), кроме своего: от них держится место выхода следующего. */
 export function newcomersOf(file: RosterFile, now: number, except: string): Spot[] {
@@ -329,7 +329,6 @@ export function bandOrder(file: RosterFile, key: string, o: BandOrder, now: numb
   // сервера из описи, ставится каждым принятым приказом: событие и есть то, по чему сервер обновляет видимость.
   const put = (row: BandRow): RosterFile => prune({ ...file, bands: { ...(file.bands ?? {}), [key]: clock ? { ...row, clock } : row } }, now, key);
   const no = (error: string, forged: BandAnswer['forged'] = null): BandAnswer => ({ file, error, forged });
-  if (!ROAM_ON) return no('Путь меча ещё не открыт.');
   // У игрока либо замок, либо отряд: игрок с замком приказов отряда не шлёт — честный клиент в фазе лорда их не знает.
   if (file.rows[key]) return no('У тебя замок: отряда бродяги нет.', { kind: 'forged', text: 'Приказ отряда бродяги от игрока с замком в реестре.' });
   if (o.op === 'seat') {

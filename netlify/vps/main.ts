@@ -7,6 +7,8 @@
  *     restore <имя>         восстановить базу из копии (сервер остановлен)
  *     import-blobs [--dry-run] [--replace]
  *                           перенести данные с Netlify Blobs (сервер остановлен)
+ *     reset-party <tg-номер> ДА
+ *                           обнулить партию одного игрока: архив, стирание, метка (lib/partyreset.ts; сервер может работать)
  *
  * В контейнере это `docker compose run --rm app <команда>`; пошагово — docs/SERVER.md.
  *
@@ -23,6 +25,7 @@ import { adminIds } from '../lib/admin.js';
 import { payConfig } from '../lib/ton.js';
 import { ALL_STORES, type Stores } from '../lib/kv.js';
 import { ROUTES } from '../lib/routes/index.js';
+import { resetParty } from '../lib/partyreset.js';
 import { listBackups, makeBackup, restore, rotate, serverAlive } from './backup.js';
 import { ENV, launchNotes, pathsOf, readConfig, type VpsConfig } from './config.js';
 import { importBlobs } from './import.js';
@@ -31,7 +34,7 @@ import { say, sayFail } from './log.js';
 import { startSchedule } from './schedule.js';
 import { countRows, openDb, sqliteStores } from './sqlite.js';
 
-const USAGE = `Команды: serve | backup | backups | restore <имя копии> | import-blobs [--dry-run] [--replace]`;
+const USAGE = `Команды: serve | backup | backups | restore <имя копии> | import-blobs [--dry-run] [--replace] | reset-party <tg-номер> ДА`;
 
 function fail(message: string): never {
   sayFail('остановка', new Error(message));
@@ -140,6 +143,25 @@ async function importFromBlobs(args: string[]): Promise<void> {
   }
 }
 
+/**
+ * Обнулить партию одного игрока (30.10.2026). Работающему серверу не мешает: SQLite в WAL, запись — той же дверью хранилища, что
+ * у обработчиков. Слово «ДА» вторым доводом — чтобы опечатка в номере не стёрла чужую партию без второго взгляда.
+ */
+async function resetOne(args: string[]): Promise<void> {
+  const [player, yes] = args;
+  if (!player || yes !== 'ДА') fail(`кого и подтверждение: reset-party tg-<номер> ДА`);
+  const cfg = config();
+  if (cfg.store !== 'sqlite') fail('обнуление — только на своём сервере (SQLite)');
+  const { db } = openData(cfg);
+  try {
+    const done = await resetParty(sqliteStores(db), player, 0, Date.now());
+    if (typeof done === 'string') fail(done);
+    say(`партия ${player} обнулена: архив ${done.archive}; партия ${done.save ? 'стёрта' : 'не лежала'}, наблюдение ${done.watch ? 'стёрто' : 'не лежало'}; метка ${done.at}`);
+  } finally {
+    db.close();
+  }
+}
+
 const [cmd = 'serve', ...rest] = process.argv.slice(2);
 try {
   if (cmd === 'serve') await serve();
@@ -147,6 +169,7 @@ try {
   else if (cmd === 'backups') showBackups();
   else if (cmd === 'restore') restoreFrom(rest[0]);
   else if (cmd === 'import-blobs') await importFromBlobs(rest);
+  else if (cmd === 'reset-party') await resetOne(rest);
   else fail(`не знаю команды «${cmd}». ${USAGE}`);
 } catch (e) {
   sayFail(cmd, e);
