@@ -99,7 +99,7 @@ export default function RoamLayer() {
               энергия {energyShown(energy, now)} · хлеба {food}
               {sight && (
                 <em className={`roam-sight${sight.seen.count > 0 ? ' seen' : ''}`} style={sight.seen.count > 0 ? { color: sideColor(false) } : undefined}>
-                  {seenWords(sight.seen)} · круг замка видит нас за {num(sight.range, 0)} кл.
+                  {sight.seen.count > 0 ? seenWords(sight.seen) : `Скрыт · замок видит нас за ${num(sight.range, 0)} кл.`}
                 </em>
               )}
             </span>

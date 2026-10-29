@@ -6,7 +6,7 @@ import { useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { serverNow } from '@/net/clock';
 import { useBandSight, type BandMark } from '@/world/bandsight';
-import { setSightHook } from '../roamhook';
+import { setSightHook, wakeMap } from '../roamhook';
 import { agoText } from '../feedWords';
 import { bandAt, paintBands } from './paint';
 
@@ -32,7 +32,13 @@ export default function BandsLayer() {
         return true;
       },
     });
-    return () => setSightHook(null);
+    // Ответ сервера пришёл — отряды и следы другие, стоящая карта просыпается на кадр.
+    const off = useBandSight.subscribe(() => wakeMap());
+    wakeMap();
+    return () => {
+      off();
+      setSightHook(null);
+    };
   }, [showToast]);
   return null;
 }

@@ -80,8 +80,8 @@ export function mergeMarks(prev: readonly BandMark[], news: Pick<SightNews, 'ban
   return [...live, ...trail];
 }
 
-/** Кто видит словами: «город Катания (вождь Андрей)», «отряд героя Ратко». */
-const whoWords = (b: SeenBy): string => (b.kind === 'castle' ? `${b.city ? `город ${b.city}` : 'замок'} (вождь ${b.name || 'без имени'})` : `отряд героя ${b.name || 'без имени'}`);
+/** Кто видит словами: «город Катания (Андрей)», «отряд Ратко». */
+const whoWords = (b: SeenBy): string => (b.kind === 'castle' ? `${b.city ? `город ${b.city}` : 'замок'} (${b.name || 'без имени'})` : `отряд ${b.name || 'без имени'}`);
 
 /** Строка шапки: «Скрыт» или «Виден: …» — кем, если мы его видим, и сколько ещё глаз без имени. */
 export function seenWords(seen: SeenView): string {

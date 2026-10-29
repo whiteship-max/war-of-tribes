@@ -67,7 +67,7 @@ import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 import { ROAM_ON } from '@/game/roamflag';
-import { roamHook, sightHook } from './roamhook';
+import { roamHook, setMapWake, sightHook } from './roamhook';
 
 // Тревоги войны значками (П-7) — куском нового интерфейса, как в городе (`App.tsx`): карта стоит в первой загрузке.
 const WarSigns = lazy(() => import('@/ui/next').then((m) => ({ default: m.WarSigns })));
@@ -333,6 +333,8 @@ export function WorldMap() {
     loop.place = 'map';
     const wake = (): void => loop.wake();
     cam.onMove = wake;
+    // Чужие отряды и следы (ПН-4у) меняются ответом сервера, а не кадром: их слой будит карту сам.
+    if (ROAM_ON) setMapWake(wake);
 
     // Уровень кадра карты: уровень игры, опущенный сторожем карты (`tw/quality.mapLevel`, К-1); пока вида нет — уровень игры.
     const level = (): Quality => twSlot()?.level() ?? levelNow(location.search);
@@ -462,6 +464,7 @@ export function WorldMap() {
       offGame();
       offGfx();
       fonts?.removeEventListener('loadingdone', wake);
+      if (ROAM_ON) setMapWake(null);
       // Отряды и силуэты агентов от сида не зависят, поэтому в уборку по новому
       // миру они не входят; а вот держать их между заходами на карту незачем —
       // печутся они за доли миллисекунды.

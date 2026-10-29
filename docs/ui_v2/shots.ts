@@ -45,6 +45,11 @@
 //                                                    лагерь на карте, подтверждение хода, окно лагеря, отряд в пути. Путь меча
 //                                                    включён только в сервере стенда (подмена `game/roamflag` плагином, у
 //                                                    игроков и в сборке он выключен); партия — новая, бродягой
+//   GROUP=pn4 WEATHER=clear NIGHT=0 …              — ПН-4у (docs/gdd/path_of_sword.md, 16): шапка отряда «скрыт / виден» —
+//                                                    скрытый лагерь, никто не видит; весть «Нас видели» и шапка «виден» с
+//                                                    чужим отрядом у лагеря живьём (ответ сервера кладётся той же дверью, что
+//                                                    у реестра, `world/bandsight.takeNews`); след чужого отряда с давностью;
+//                                                    окно лагеря — «замок видит за N кл.». Путь — как у ПН-3
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -454,7 +459,36 @@ const ROAM_TAP = `(async () => {
   return JSON.stringify('ход в ' + to.x + '|' + to.y);
 })()`;
 
+/**
+ * ПН-4у: ответ сервера о видимости — той же дверью, что кладёт его реестр (`world/bandsight.takeNews`): чужой отряд у лагеря (живьём)
+ * и кто видит наш; `ago` — сколько часов назад сервер это сказал (след покажет давность); `seen` — кто видит.
+ */
+const SIGHT_NEWS = (ago: number, live: boolean, seen: boolean): string => `(async () => {
+  const B = await import('/src/world/bandsight.ts');
+  const C = await import('/src/net/clock.ts');
+  const way = window.__game.getState().s.roam.way;
+  const at = C.serverNow() - ${ago} * 3600000;
+  const bands = ${live} ? [{ id: 'b1', name: 'Тихомир', prestige: 40, men: 23, at: { x: way.to.x + 3, y: way.to.y - 2 }, camp: 'open' }] : [];
+  const by = ${seen} ? [{ kind: 'castle', id: 'c1', name: 'Андрей', city: 'Катания' }] : [];
+  B.takeNews({ bands, seen: { count: by.length, by }, at });
+  window.__mapCam(way.to.x + 1.5, way.to.y - 1, 34);
+  return JSON.stringify(B.useBandSight.getState().marks.map((m) => m.name + (m.visible ? ' живьём' : ' след')));
+})()`;
+
 const GROUPS: Record<string, Step[]> = {
+  // ПН-4у (docs/gdd/path_of_sword.md, 16): видимость отряда бродяги.
+  pn4: [
+    { name: 'pn4-start', run: ROAM_START, wait: 4000, shot: false },
+    {
+      name: 'pn4-hidden',
+      run: `(async () => { ['tribe.seennote.v1', 'tribe.bandtrail.v1'].forEach((k) => localStorage.removeItem(k)); const e = await (await import('/src/world/api.ts')).worldApi().roamCamp('hidden'); const w = window.__game.getState().s.roam.way; window.__mapCam(w.to.x, w.to.y, 34); return JSON.stringify(e ?? 'ok'); })()`,
+      wait: 2000,
+    },
+    { name: 'pn4-seen-note', run: SIGHT_NEWS(3, true, true), wait: 900 },
+    { name: 'pn4-seen', wait: 4500 },
+    { name: 'pn4-trail', run: SIGHT_NEWS(0, false, false), wait: 1500 },
+    { name: 'pn4-camp', run: ui(`click('Встать лагерем', '.roam-bar')`), wait: 1500 },
+  ],
   // ПН-3 (docs/gdd/path_of_sword.md, 15): карта бродяги.
   pn3: [
     { name: 'pn3-ruins', run: ROAM_START, wait: 5000 },
@@ -1715,7 +1749,7 @@ async function group(name: string, steps: Step[]): Promise<void> {
   }
 }
 
-/** Путь меча открыт — только в сервере стенда захода ПН-3: модуль выключателя отдаётся с `ROAM_ON = true`. */
+/** Путь меча открыт — только в сервере стенда заходов ПН-3 и ПН-4у: модуль выключателя отдаётся с `ROAM_ON = true`. */
 const ROAM_PLUGIN = {
   name: 'stand-roam-on',
   enforce: 'pre' as const,
@@ -1737,8 +1771,8 @@ async function main(): Promise<void> {
     root: ROOT,
     server: { port: PORT, strictPort: true, host: '127.0.0.1' },
     logLevel: 'warn',
-    // Заход ПН-3 — с открытым Путём меча: выключатель подменяется только в этом сервере стенда.
-    ...(name === 'pn3' ? { plugins: [ROAM_PLUGIN] } : {}),
+    // Заходы ПН-3 и ПН-4у — с открытым Путём меча: выключатель подменяется только в этом сервере стенда.
+    ...(name === 'pn3' || name === 'pn4' ? { plugins: [ROAM_PLUGIN] } : {}),
   });
   await vite.listen();
   try {

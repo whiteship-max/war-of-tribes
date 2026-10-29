@@ -36,3 +36,12 @@ export const setSightHook = (h: SightHook | null): void => {
 };
 
 export const sightHook = (): SightHook | null => sightHookNow;
+
+/** Разбудить стоящую карту (ПН-4у): чужие отряды и следы меняются ответом сервера, а не кадром. Будильник ставит карта. */
+let wakeNow: (() => void) | null = null;
+
+export const setMapWake = (fn: (() => void) | null): void => {
+  wakeNow = fn;
+};
+
+export const wakeMap = (): void => wakeNow?.();

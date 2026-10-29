@@ -51,8 +51,8 @@ describe('живые и следы — правилом снимка', () => {
 describe('строка шапки «скрыт / виден»', () => {
   it('никто не видит — «Скрыт»; видят — кем, если мы их видим, и сколько ещё без имени', () => {
     expect(seenWords({ count: 0, by: [] })).toBe('Скрыт');
-    expect(seenWords({ count: 1, by: [{ kind: 'castle', id: 'c1', name: 'Андрей', city: 'Катания' }] })).toBe('Виден: город Катания (вождь Андрей)');
-    expect(seenWords({ count: 3, by: [{ kind: 'band', id: 'b1', name: 'Ратко' }] })).toBe('Виден: отряд героя Ратко и ещё 2');
+    expect(seenWords({ count: 1, by: [{ kind: 'castle', id: 'c1', name: 'Андрей', city: 'Катания' }] })).toBe('Виден: город Катания (Андрей)');
+    expect(seenWords({ count: 3, by: [{ kind: 'band', id: 'b1', name: 'Ратко' }] })).toBe('Виден: отряд Ратко и ещё 2');
     expect(seenWords({ count: 1, by: [] })).toBe('Виден: кто — не разглядеть');
   });
 });
@@ -63,12 +63,12 @@ describe('весть «Нас видели» — без спама', () => {
 
   it('новые глаза — весть; тот же ответ — тишина; новый глаз внутри тишины — тишина, за ней — весть', () => {
     const mem = { last: 0, by: {} as Record<string, number> };
-    expect(noteSeen(lord, null, T, mem)).toBe('Нас видели: город Катания (вождь Андрей).');
+    expect(noteSeen(lord, null, T, mem)).toBe('Нас видели: город Катания (Андрей).');
     expect(noteSeen(lord, lord, T + 60_000, mem)).toBeNull();
     // Новый глаз, но минута внутри общей тишины — весть не идёт (граница: правда внутри).
     expect(60_000).toBeLessThan(NOTE_GAP_MS);
     expect(noteSeen(both, lord, T + 60_000, mem)).toBeNull();
-    expect(noteSeen(both, lord, T + NOTE_GAP_MS, mem)).toBe('Нас видели: отряд героя Ратко.');
+    expect(noteSeen(both, lord, T + NOTE_GAP_MS, mem)).toBe('Нас видели: отряд Ратко.');
   });
 
   it('тот же глаз после перезагрузки (прежнего ответа нет) — тишина до своего срока, потом снова весть', () => {
@@ -76,7 +76,7 @@ describe('весть «Нас видели» — без спама', () => {
     expect(noteSeen(lord, null, T, mem)).not.toBeNull();
     expect(NOTE_SAME_MS).toBeGreaterThan(NOTE_GAP_MS);
     expect(noteSeen(lord, null, T + NOTE_GAP_MS, mem), 'внутри срока того же глаза').toBeNull();
-    expect(noteSeen(lord, null, T + NOTE_SAME_MS, mem)).toBe('Нас видели: город Катания (вождь Андрей).');
+    expect(noteSeen(lord, null, T + NOTE_SAME_MS, mem)).toBe('Нас видели: город Катания (Андрей).');
   });
 
   it('глаз без имени — «кто, не разглядели»; никто не видит — тишина', () => {
@@ -101,11 +101,12 @@ describe('свой отряд без сервера — той же дверью
       way: roamSeat(at, T).way,
       camp: { kind: 'hidden', since: T, builders: 12 },
     };
+    const way = s.roam.way!;
     const mine = ownSight(s, T, null);
     expect(mine).not.toBeNull();
     const range = (mine as { range: number }).range;
     // Мерка шапки — круг замка дверью по виду отряда: местность, скрытый лагерь, 12 человек, часы партии.
-    expect(range).toBeCloseTo(detectRange(CASTLE_EYE, conspicuity(bandLook({ way: s.roam.way, camp: s.roam.camp }, 12, s.time, T))), 10);
+    expect(range).toBeCloseTo(detectRange(CASTLE_EYE, conspicuity(bandLook({ way, camp: s.roam.camp }, 12, s.time, T))), 10);
     for (const d of [Math.floor(range) - 1, Math.ceil(range) + 1]) {
       CASTLES.length = 0;
       CASTLES.push({ id: 'c1', x: at.x + d, y: at.y, name: 'Андрей', city: 'Катания', power: 1, pop: 1, seenAt: T });
@@ -114,7 +115,7 @@ describe('свой отряд без сервера — той же дверью
         v: 1,
         epoch: 0,
         rows: { k1: { x: at.x + d, y: at.y, name: 'Андрей', city: 'Катания', power: 1, pop: 1, seenAt: T } },
-        bands: { me: { way: s.roam.way, camp: s.roam.camp ?? undefined, born: T, name: 'Ратко', prestige: 0, men: 12, seenAt: T, clock: { time: s.time, at: T } } },
+        bands: { me: { way, camp: s.roam.camp ?? undefined, born: T, name: 'Ратко', prestige: 0, men: 12, seenAt: T, clock: { time: s.time, at: T } } },
       };
       const server = seenOf(file, 'me', T) as SeenView;
       expect(local.count, `замок в ${d} кл. при дальности ${range.toFixed(2)}`).toBe(server.count);
