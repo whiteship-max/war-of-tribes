@@ -375,6 +375,13 @@ HEAD один на всех, см. правило 8). Значит развес�
   цена, нажим и его отход, доля продажи и кошель купцов — `marketrules`, одни на игру и на книгу рынка сервера
   (`netlify/lib/market.ts`, правило «market»). Разойдись они у двоих — сервер счёл бы подделкой честную сделку или пропустил
   бы продажу дороже правила;
+- `src/game/sim/roam.ts`, `src/game/roamrules.ts` и `src/game/roamflag.ts` — Путь меча, фаза партии и отряд бродяги (ПН-1,
+  docs/gdd/path_of_sword.md, 13): `GameState.phase` и `GameState.roam` — необязательные поля (нет — лорд), вход `beginRoam` и чтение
+  `mergeRoam` — одной дверью `sim/roam`; шаг по фазе выбирает диспетчер (`sim/tick.liveStep`, `absence` → `roamStep`); содержание
+  отряда — `sim/upkeep.bandUpkeep`, раненые — `sim/infirmary` (без лазарета), обоз — `sim/stock.addStock` с ключом `cargo`, дух —
+  `sim/spirit` со входами отряда; числа и формулы — `roamrules` (одни на игру и будущую книгу отряда сервера). До выпуска Среза 1 всё
+  закрыто выключателем `ROAM_ON`. Разойдись правило у двоих — отряд терял бы людей у одного и жил у другого, или чужое сохранение
+  открыло бы путь игроку;
 - `src/profile/types.ts` — профиль игрока лежит в сохранении племени целиком: имя, лицо и
   имя города (`ProfileState.city`) — его поля;
 - `src/world/local/state.ts` — `WORLD_SAVE_VERSION` и миграции мира;
@@ -755,6 +762,11 @@ HEAD один на всех, см. правило 8). Значит развес�
   (`startUpgrade`, `cancelUpgrade`, `moveUpgrade`), длина `BUILD_QUEUE_MAX`, возврат `labour.cancelRefund`; ускоряется только
   строящееся (`sim/rush.rushQueued`, сервер — `town.rushFloor`); сервер держит порядок и возврат (`town.queueFaults`,
   `watch.cancelledRefund`) (`sim/queue.test.ts`, `security.test.ts`; village, docs/ui_v2.md, 5.13).
+- **Путь меча** (ПН-1) — фаза партии `GameState.phase` (нет — лорд) и отряд `GameState.roam`; шаг бродяги — `sim/roam.roamStep` из
+  диспетчера `liveStep`/`absence`; содержание, раненые, обоз и дух отряда — двери города входом «отряд» (`bandUpkeep`,
+  `settleBandWounds`, `addStock` с ключом `cargo`, `spiritIn`), числа — `roamrules`; фураж — поле сезона из `SEASON_MODIFIERS`; до выпуска
+  — за `ROAM_ON` (`roamflag.test.ts`: развилка без выключателя — красный тест), партия лорда — байт в байт (`sim/lordprint.test.ts`)
+  (`sim/roam.test.ts`; docs/gdd/path_of_sword.md, 13).
 - **Держава** — очки `sim/points` (`bank`, `spend`), гейт `sim/tech` (поля `requiresTech` нет — тест),
   дом правителя `sim/dynasty` (realm). Вещи — только на правителе (`sim/gear.wear`, ДР-7); с агентов надетое снято при чтении
   (`sim/agents.gearOff`, строка летописи), вещь на агенте в описи — флаг правила «agents».
