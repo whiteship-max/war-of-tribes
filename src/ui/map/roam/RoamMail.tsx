@@ -39,7 +39,12 @@ export function RoamMail({ onClose }: { onClose: () => void }) {
               <div key={eventId(ev)}>
                 <p className="nx-tnote">
                   <b>{def.title}.</b> {eventText(def, s)}
-                  {left !== null && <span className="muted"> {def.waits ?? 'Ждёт ответа'}: {realSpan(Math.ceil(left))}.</span>}
+                  {left !== null && (
+                    <span className="muted">
+                      {' '}
+                      {def.waits ?? 'Ждёт ответа ещё'} {realSpan(Math.ceil(left))}.
+                    </span>
+                  )}
                 </p>
                 <div className="roam-legs">
                   {def.options.map((o, i) => {

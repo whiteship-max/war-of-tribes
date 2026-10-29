@@ -72,7 +72,7 @@ export const BAND_ASK_DEF: EventDef = {
   },
   named: true,
   weight: () => 0,
-  waits: 'Без ответа уйдут сами.',
+  waits: 'Уйдут сами через',
   silence: 2,
   options: [
     {

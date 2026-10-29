@@ -54,6 +54,10 @@
 //                                                    города, сёла, ватаги), касание города словами, окно хода к ватаге —
 //                                                    засада и «Напасть», итог боя строкой (победа, наследник пути) той же
 //                                                    дверью партии. Путь — как у ПН-3
+//   GROUP=pn6 WEATHER=clear NIGHT=0 …              — ПН-6 (docs/gdd/path_of_sword.md, 18): окно «Отряд» (пленные, раненые за
+//                                                    алмазы, карточка вида — повысить, разжаловать, распустить), весть «Просятся
+//                                                    в отряд», вольный город — рынок и найм, лазарет лорда с «Поднять сейчас».
+//                                                    Путь — как у ПН-3
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -515,7 +519,91 @@ const ROAM_FIGHT = (won: boolean, wiped: boolean): string => `(async () => {
   return JSON.stringify(line);
 })()`;
 
+/** ПН-6: отряд у ближайшей точки вида `kind` (поставить ход на её клетку — той же дверью хода, что сервер) и открыть окно кнопкой полосы. */
+const ROAM_AT = (kind: 'town' | 'village'): string => `(async () => {
+  const way = window.__game.getState().s.roam.way;
+  const A = await import('/src/world/api.ts');
+  const R = await import('/src/game/sim/roam.ts');
+  const Mv = await import('/src/world/roammove.ts');
+  const Ck = await import('/src/world/store.ts');
+  const c = await A.worldApi().region({ x: way.to.x - 20, y: way.to.y - 20, w: 41, h: 41 });
+  const pts = (c.points || []).filter((p) => p.kind === '${kind}').sort((a, b) => Math.hypot(a.x - way.to.x, a.y - way.to.y) - Math.hypot(b.x - way.to.x, b.y - way.to.y));
+  if (!pts.length) return JSON.stringify('нет точки ${kind}');
+  const p = pts[0];
+  window.__game.getState().world((s) => void R.setMove(s, { way: Mv.standWay('normal', { x: p.x, y: p.y }, Ck.worldNow() - 60000), camp: null }));
+  window.__mapCam(p.x, p.y, 26);
+  await new Promise((r) => setTimeout(r, 500));
+  document.querySelector('.roam-acts [aria-label="Город и село"]')?.click();
+  return JSON.stringify(p.name);
+})()`;
+
+/** ПН-6: окно «Отряд» — пленные, раненые и снаряжение в обозе, карточка вида «Дубинщики» (повысить, разжаловать, распустить). */
+const ROAM_BAND = `(async () => {
+  const Ck = await import('/src/world/store.ts');
+  const G = await import('/src/net/gems.ts');
+  const C = await import('/src/net/clock.ts');
+  G.useGems.setState({ balance: 120, at: C.serverNow(), why: null });
+  window.__game.getState().world((s) => {
+    s.roam.captives = { n: 3, until: Ck.worldNow() + 3600000, key: 'cap-stand-1' };
+    s.roam.gear = { spear: 2 };
+    s.roam.purse = 900;
+    s.roam.wounded = [{ troops: { spearman: 2 }, until: s.time + 70 }, { troops: { clubman: 1 }, until: s.time + 110 }];
+  });
+  document.querySelector('.roam-acts [aria-label="Отряд"]')?.click();
+  await new Promise((r) => setTimeout(r, 500));
+  [...document.querySelectorAll('.roam-leg')].find((b) => b.textContent.startsWith('Дубинщики'))?.click();
+  return JSON.stringify('ok');
+})()`;
+
+/** ПН-6: весть «Просятся в отряд» на столе — той же дверью прихода (`sim/bandasks.bandMailArrive`) — и окно вестей. */
+const ROAM_ASK = `(async () => {
+  const B = await import('/src/game/sim/bandasks.ts');
+  const M = await import('/src/game/mailgrid.ts');
+  const C = await import('/src/net/clock.ts');
+  document.querySelector('.am-wrap .nx-bclose')?.click();
+  let n = 0;
+  window.__game.getState().world((s) => {
+    // Приход рядом с настоящей минутой: почта (\`mailStep\`) закрыла бы молчанием весть, чей срок уже вышел.
+    const t = M.awayArrival(s.seed, M.firstArrival(C.partyNow()) + 1);
+    n = B.bandMailArrive(s, t - 1, t + 1);
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  document.querySelector('.roam-acts [aria-label^="Вести"]')?.click();
+  return JSON.stringify('вестей ' + n);
+})()`;
+
+/** ПН-6: лазарет лорда — раненые со сроком и «Поднять сейчас» за алмазы (та же кнопка, что у отряда). */
+const LORD_HEAL = `(async () => {
+  const St = await import('/src/game/state.ts');
+  const G = await import('/src/net/gems.ts');
+  const C = await import('/src/net/clock.ts');
+  window.__ui.reset();
+  const s = St.createInitialState(20261030);
+  s.tutorialDone = true;
+  s.winterWarning = false;
+  s.time = 600;
+  s.wounded = [{ troops: { spearman: 3 }, until: 650 }, { troops: { archer: 2, clubman: 2 }, until: 700 }];
+  window.__game.setState({ s });
+  G.useGems.setState({ balance: 120, at: C.serverNow(), why: null });
+  window.__game.getState().closeMap?.();
+  await new Promise((r) => setTimeout(r, 600));
+  window.__ui.building('infirmary');
+  await new Promise((r) => setTimeout(r, 600));
+  const e = window.__ui.scroller();
+  if (e) e.scrollTop = e.scrollHeight;
+  return JSON.stringify('ok');
+})()`;
+
 const GROUPS: Record<string, Step[]> = {
+  // ПН-6 (docs/gdd/path_of_sword.md, 18): люди и город — окно «Отряд», весть «Просятся в отряд», вольный город (рынок, найм), лазарет лорда.
+  pn6: [
+    { name: 'pn6-start', run: ROAM_START, wait: 4000, shot: false },
+    { name: 'pn6-band', run: ROAM_BAND, wait: 1200 },
+    { name: 'pn6-ask', run: ROAM_ASK, wait: 1000 },
+    { name: 'pn6-town', run: then(`(() => { document.querySelector('.am-wrap .nx-bclose')?.click(); return 'ok'; })()`, ROAM_AT('town')), wait: 1500 },
+    { name: 'pn6-hire', run: `(() => { [...document.querySelectorAll('.roam-tabs .roam-leg')].find((b) => b.textContent.includes('Найм'))?.click(); return JSON.stringify('ok'); })()`, wait: 800 },
+    { name: 'pn6-heal', run: LORD_HEAL, wait: 1500 },
+  ],
   // ПН-5 (docs/gdd/path_of_sword.md, 17): точки мира и встречи с НПС.
   pn5: [
     { name: 'pn5-start', run: ROAM_START, wait: 4000, shot: false },
@@ -1824,7 +1912,7 @@ async function main(): Promise<void> {
     server: { port: PORT, strictPort: true, host: '127.0.0.1' },
     logLevel: 'warn',
     // Заходы ПН-3, ПН-4у и ПН-5 — с открытым Путём меча: выключатель подменяется только в этом сервере стенда.
-    ...(name === 'pn3' || name === 'pn4' || name === 'pn5' ? { plugins: [ROAM_PLUGIN] } : {}),
+    ...(name === 'pn3' || name === 'pn4' || name === 'pn5' || name === 'pn6' ? { plugins: [ROAM_PLUGIN] } : {}),
   });
   await vite.listen();
   try {
