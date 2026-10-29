@@ -3,7 +3,7 @@
 // потом карта (пул) и видимость. Входы разделы берут только `ctx.use` (см. `run.ts`); отсюда — одни типы входов.
 import type { TroopId } from '../../src/game/types';
 import type { TroopStack } from '../../src/game/battle/kinds';
-import { baseWage, mouthsOf, powerOf, troopPower } from '../../src/game/battle/price';
+import { baseWage, powerOf, troopPower } from '../../src/game/battle/price';
 import { soldierFoodPerDay } from '../../src/game/build';
 import { RESOURCE_IDS, TEST_ARMY_FOOD } from '../../src/game/constants';
 import { GATE_POWER } from '../../src/game/data/events';
@@ -11,6 +11,12 @@ import { GOOD_BY_ID } from '../../src/game/data/market';
 import { TROOP_BY_ID, TROOP_IDS } from '../../src/game/data/troops';
 import { buyUnit, depthOf, shiftOf } from '../../src/game/marketrules';
 import { dayRealSeconds, gameSeconds } from '../../src/game/pace';
+import { bandPatienceDays, bandRationPerDay, bandWage, bandWagesPerDay, fieldForage, forageShare } from '../../src/game/roamrules';
+import { cargoCap } from '../../src/game/sim/roam';
+import { seasonModsFor } from '../../src/game/derived';
+import { SEASONS, SEASON_META } from '../../src/game/data/seasons';
+import { GAIT_META, GAITS } from '../../src/world/data/gait';
+import { UNIT_BY_ID } from '../../src/world/data/units';
 import { selfCost } from '../../src/game/selfcost';
 import { createInitialState } from '../../src/game/state';
 import { menOfPower } from '../../src/world/garrison';
@@ -34,8 +40,9 @@ const hrs = (h: number): string => (Number.isFinite(h) ? `${h.toFixed(1)} ч` : 
 const days = (h: number): string => (Number.isFinite(h) ? `${(h / 24).toFixed(2)} сут` : '> срока');
 
 const total = (t: TroopStack): number => Object.values(t).reduce((n: number, v) => n + Math.max(0, v ?? 0), 0);
-const wagesOf = (t: TroopStack): number => (Object.entries(t) as [TroopId, number][]).reduce((n, [id, c]) => n + baseWage(id) * c, 0);
-const rationOf = (t: TroopStack): number => soldierFoodPerDay(1, 1) * mouthsOf(t);
+// Содержание отряда — двери отряда ПН-1 (`roamrules`): жалованье — формула 3.3.2, паёк — паёк бойца на рты, вне сезона.
+const wagesOf = (t: TroopStack): number => bandWagesPerDay(t);
+const rationOf = (t: TroopStack): number => bandRationPerDay({ band: t, wounded: [] }, 1);
 const stackWords = (t: TroopStack): string =>
   (Object.entries(t) as [TroopId, number][])
     .filter(([, n]) => n > 0)
@@ -65,7 +72,6 @@ const LIMIT_DAYS = 14;
 /** Входы автопилота пути: все, что читают `knobsOf` и происхождения, — раздел, берущий его партии, объявляет их все. */
 export const PILOT: readonly InputId[] = [
   'sessions',
-  'patience',
   'etalons',
   'upgrade',
   'hire',
@@ -98,7 +104,6 @@ export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
   const food = ctx.use('foodGold');
   return {
     sessions: ctx.use('sessions'),
-    patience: ctx.use('patience'),
     stages,
     stageTier: ctx.use('stageTier'),
     S: ctx.use('prestigeS'),
@@ -154,7 +159,7 @@ const pay: Section = {
   id: 'pay',
   title: 'Содержание эталонов тира',
   gdd: '4.3, 3.3.2',
-  doors: ['price.baseWage', 'price.mouthsOf', 'price.powerOf', 'build.soldierFoodPerDay', 'pace.dayRealSeconds'],
+  doors: ['roamrules.bandWagesPerDay', 'roamrules.bandRationPerDay', 'price.powerOf', 'build.soldierFoodPerDay', 'pace.dayRealSeconds'],
   uses: ['etalons'],
   run(ctx) {
     ctx.line(`игровых дней в настоящих сутках — ${dayGame()}; паёк бойца — ${soldierFoodPerDay(1, 1)} еды за игр. день (TEST_ARMY_FOOD = ${TEST_ARMY_FOOD})`);
@@ -173,6 +178,54 @@ const pay: Section = {
         `${padEnd(['I', 'II', 'III'][i], 4)} ${pad(total(t), 6)} ${pad(fix(troopPower(t), 1), 7)} ${pad(fix(w), 17)} ${pad(fix(f, 1), 11)} ${pad(Math.round(w * dayGame()), 14)} ${pad(Math.round(f * dayGame()), 9)}`,
       );
     });
+  },
+};
+
+/** Двадцать копейщиков — пример ГДД 3.3.2 («≈ 1 520 золота и 1 150 еды в настоящие сутки» без фуража). */
+const EXAMPLE: TroopStack = { spearman: 20 };
+
+const band: Section = {
+  id: 'band',
+  title: 'Отряд бродяги: содержание, терпение, обоз, фураж',
+  gdd: '3.3.2, 3.3.4, 3.3.5',
+  doors: [
+    'roamrules.bandWage',
+    'roamrules.bandRationPerDay',
+    'roamrules.bandPatienceDays',
+    'sim/roam.cargoCap',
+    'roamrules.fieldForage',
+    'roamrules.forageShare',
+    'derived.seasonModsFor',
+  ],
+  uses: [],
+  run(ctx) {
+    ctx.line('содержание за игровой день на голову — двери отряда (ГДД 3.3.2; доли веры и рыцарства у бродяги нет):');
+    ctx.line(`${padEnd('вид', 16)} ${pad('жалованье', 10)} ${pad('минимальное', 12)} ${pad('паёк', 6)}`);
+    for (const id of TROOP_IDS) {
+      ctx.line(
+        `${padEnd(TROOP_BY_ID[id].name, 16)} ${pad(fix(bandWage(id)), 10)} ${pad(fix(bandWage(id, 'min')), 12)} ${pad(fix(bandRationPerDay({ band: { [id]: 1 }, wounded: [] }, 1), 1), 6)}`,
+      );
+    }
+    ctx.line('');
+    ctx.line(`терпение отряда без жалованья и еды, игр. дн. (лестница Статуи по кружкам Военного дела героя): ${[1, 2, 3, 4, 5].map((w) => `${w} — ${fix(bandPatienceDays(w), 1)}`).join(', ')}`);
+    ctx.line(`обоз на голову строя (ноша бойца мира ${UNIT_BY_ID.warrior.carry}): ${GAITS.map((g) => `${GAIT_META[g].short} ${fix(cargoCap({ band: { spearman: 1 }, gait: g }), 1)}`).join(', ')}`);
+    ctx.line('');
+    ctx.line('фураж — доля пайка с земли (поле сезона против лучшего, вольный сбор вполсилы), в лагере и обычным маршем:');
+    ctx.line(`${padEnd('сезон', 8)} ${pad('год 1', 7)} ${pad('год 2+', 7)} ${pad('паёк ×', 7)}`);
+    let year = 0;
+    for (const s of SEASONS) {
+      const later = seasonModsFor(s, 2);
+      year += fieldForage(later) / SEASONS.length;
+      ctx.line(`${padEnd(SEASON_META[s].name, 8)} ${pad(pct(fieldForage(seasonModsFor(s, 1))), 7)} ${pad(pct(fieldForage(later)), 7)} ${pad(fix(later.food), 7)}`);
+    }
+    ctx.line(`в среднем за год (год 2+) — ${pct(year)}; налегке и с обозом в пути — ${pct(forageShare(seasonModsFor('autumn', 2), { camp: null, gait: 'light' }))}`);
+    ctx.line('ориентир ГДД 3.3.4 (в код не пошёл): весна 30 %, лето 50 %, осень 60 %, зима 0 % — в среднем 35.0 %');
+    ctx.line('');
+    // Пример 3.3.2 на дверях: за настоящие сутки, без фуража и со средним фуражом года.
+    const wage = wagesOf(EXAMPLE) * dayGame();
+    const food = rationOf(EXAMPLE) * dayGame();
+    ctx.line(`пример 3.3.2 — ${stackWords(EXAMPLE)}: жалованье ${Math.round(wage)} золота в настоящие сутки, паёк ${Math.round(food)} еды без фуража, ${Math.round(food * (1 - year))} с фуражом года`);
+    ctx.line(`обоз примера обычным маршем — ${Math.round(cargoCap({ band: EXAMPLE, gait: 'normal' }))}: паёк на ${fix(cargoCap({ band: EXAMPLE, gait: 'normal' }) / rationOf(EXAMPLE) / dayGame(), 1)} настоящих сут без фуража`);
   },
 };
 
@@ -630,4 +683,4 @@ const sight: Section = {
   },
 };
 
-export const SECTIONS: readonly Section[] = [pay, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, sight];
+export const SECTIONS: readonly Section[] = [pay, band, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, sight];

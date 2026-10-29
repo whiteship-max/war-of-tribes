@@ -7,7 +7,7 @@
 // без строки здесь — красный тест.
 
 /** Разделы этого прибора, в которых ориентир — вход или цель. */
-export type RoamSectionId = 'pay' | 'rate' | 'upgrade' | 'road' | 'contract' | 'foes' | 'prestige' | 'castle' | 'parity' | 'pool' | 'sight';
+export type RoamSectionId = 'pay' | 'band' | 'rate' | 'upgrade' | 'road' | 'contract' | 'foes' | 'prestige' | 'castle' | 'parity' | 'pool' | 'sight';
 
 export interface Orient {
   gdd: string;
@@ -51,11 +51,12 @@ export const ORIENTS: readonly Orient[] = [
     what: 'условия черт правителя',
     not: 'черты правителя — тест rulertraits (ПН-2)',
   },
-  { gdd: '3.3.4', what: 'фураж по сезонам', in: ['castle'] },
+  // С ПН-1 фураж сезона — дверь (`roamrules.fieldForage`, поле сезона): ориентир — строкой сравнения раздела «Отряд».
+  { gdd: '3.3.4', what: 'фураж по сезонам — выведен дверью ПН-1, ориентир — строкой сравнения', in: ['band'] },
   {
     gdd: '3.3.5',
     what: 'телега — +400 к вместимости обоза',
-    not: 'обоз в модели пути не ограничен; войдёт с обозом ПН-1',
+    not: 'обоз с ПН-1 — дверь (`sim/roam.cargoCap`) без телег; телега — с происхождениями (ПН-17)',
   },
   {
     gdd: '3.4.1',
@@ -68,7 +69,7 @@ export const ORIENTS: readonly Orient[] = [
     not: 'кузни в модели нет (ПН-6); войдёт строкой доли обнаружений',
   },
   { gdd: '3.5.1', what: 'руины — заметность ×0.3', in: ['sight'] },
-  { gdd: '3.5.3', what: 'заметность лагеря трёх видов', in: ['sight'] },
+  { gdd: '3.5.3', what: 'заметность и фураж лагеря трёх видов', in: ['sight', 'castle'] },
   {
     gdd: '3.5.4',
     what: 'множители заметности и радиусы наблюдателей',

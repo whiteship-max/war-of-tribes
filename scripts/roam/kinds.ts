@@ -31,4 +31,6 @@ export interface Origin {
   gear: number;
   /** Множитель цены еды на рынке города. */
   food: number;
+  /** Военное дело героя, кружков (ГДД 3.1, «Навык героя»): от него терпение отряда — дверь `roamrules.bandPatienceDays`. */
+  war: number;
 }

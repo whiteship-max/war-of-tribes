@@ -1,23 +1,27 @@
 // Путь бродяги до первого замка — автопилот трёх стилей на заглушках (ГДД 2.4, 3.6.2, 3.9.1; ПН-0ч).
 //
-// **Это заглушка, а не игра.** Режима в коде нет (ГДД 7.1): ни шага `sim/roam.roamStep` (ПН-1), ни престижа одной дверью
-// (ПН-2), ни дел, встреч и договоров (ПН-5, ПН-7), ни вольных замков (ПН-10). Поэтому путь здесь — схема ГДД, где каждое
-// число, которого нет в коде, приходит входом (`PathKnobs` — только из `Ctx.use` раздела, см. `run.ts`), а всё, что в коде
-// уже есть, — дверью: жалованье и паёк вида (`price.baseWage`, `build.soldierFoodPerDay`), мощь и перевод в бой
+// **Это заглушка, а не игра.** Режима в коде почти нет (ГДД 7.1): ни престижа одной дверью (ПН-2), ни дел, встреч и договоров
+// (ПН-5, ПН-7), ни вольных замков (ПН-10). Поэтому путь здесь — схема ГДД, где каждое число, которого нет в коде, приходит
+// входом (`PathKnobs` — только из `Ctx.use` раздела, см. `run.ts`), а всё, что в коде уже есть, — дверью. С ПН-1 отряд между
+// делами живёт дверями партии бродяги: паёк и фураж сезона (`roamrules.bandRationPerDay`, `forageShare`), жалованье, терпение
+// героя и уход равной долей (`sim/upkeep.bandUpkeep` на партии-оболочке), вместимость обоза (`sim/roam.cargoCap`); мощь и перевод в бой
 // (`price.troopPower`, `kindsOf`), бой в поле и у стены ядром мира (`world/battle.resolveField`, `fights.wallFight`), отряд и
-// гарнизон НПС (`garrison.raidingParty`, `garrisonOf`), потери долей родов (`price.shareLosses`), уход (`DESERT_SHARE`), путь
+// гарнизон НПС (`garrison.raidingParty`, `garrisonOf`), потери долей родов (`price.shareLosses`), путь
 // (`geo.travelTime`, `pvp.generalSpeed`, `pace.realMs`) и случайность (`sim/random.seeded`). Каждая пачка заменяет свою часть
 // дверью, и тогда этот модуль худеет до вызова настоящего шага.
 //
 // Устройство. Время — настоящие часы от выхода. Игрок заходит 3–5 раз в сутки в часы бодрствования (правило 2.4); на заходе
 // он либо идёт на штурм вольного замка, если дорос, либо берёт договор из трёх предложений, либо растит отряд. Разбоя в
 // Срезе 1 нет (Р10), поэтому все три стиля живут договорами; разнятся они риском, лагерем, маршем, запасом и наймом. Между заходами отряд живёт сам: ест, платит, принимает просящихся, уходит неуплатой.
-import type { TroopId } from '../../src/game/types';
+import type { RoamState, TroopId } from '../../src/game/types';
 import type { TroopStack } from '../../src/game/battle/kinds';
-import { baseWage, kindsOf, mouthsOf, shareLosses, troopPower } from '../../src/game/battle/price';
-import { soldierFoodPerDay } from '../../src/game/build';
-import { DESERT_SHARE } from '../../src/game/data/upkeep';
-import { dayRealSeconds, realMs } from '../../src/game/pace';
+import { kindsOf, shareLosses, troopPower } from '../../src/game/battle/price';
+import { DAY_LENGTH, dayRealSeconds, realMs } from '../../src/game/pace';
+import { createInitialState } from '../../src/game/state';
+import { seasonMods } from '../../src/game/derived';
+import { bandRationPerDay, bandWage, bandWagesPerDay, forageShare } from '../../src/game/roamrules';
+import { bandUpkeep } from '../../src/game/sim/upkeep';
+import { cargoCap } from '../../src/game/sim/roam';
 import { mixSeed, seeded } from '../../src/game/sim/random';
 import { wallFight } from '../../src/world/fights';
 import { garrisonOf } from '../../src/world/garrison';
@@ -86,7 +90,6 @@ export const STYLES: readonly Style[] = [
 /** Всё, чего у пути нет в коде, — из входов раздела. */
 export interface PathKnobs {
   sessions: { per: readonly [number, number]; wake: readonly [number, number] };
-  patience: number;
   stages: readonly number[];
   stageTier: readonly number[];
   S: number;
@@ -102,7 +105,8 @@ export interface PathKnobs {
     every: readonly [number, number];
     camp: Record<Camp, number>;
   };
-  forage: { season: number; camp: Record<Camp, number> };
+  /** Фураж по виду лагеря (ориентир ПН-3); сезон — дверь ПН-1. */
+  forage: Record<Camp, number>;
   /** Доля еды из села; остальное — рынок города. */
   foodMix: number;
   /** Золота за единицу еды: село и рынок города. */
@@ -159,6 +163,9 @@ export const roadHours = (dist: number, gait: Gait): number => realMs(travelTime
 /** Игровых дней в настоящем часе — дверь времени. */
 const dayPerHour = (): number => 3600 / dayRealSeconds();
 
+/** Шаг дверей отряда в модели — четверть игрового дня (см. `live`). */
+const PIECE = DAY_LENGTH / 4;
+
 const styleSalt = (style: Style, origin: Origin): number => {
   let h = 0x811c9dc5;
   for (const c of `${style.id}/${origin.id}`) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0;
@@ -175,8 +182,24 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
   const between = (lo: number, hi: number): number => lo + (hi - lo) * rng();
   const whole = (lo: number, hi: number): number => Math.floor(between(lo, hi + 1));
   const band: TroopStack = { ...origin.band };
-  const ration = (): number => soldierFoodPerDay(1, 1) * mouthsOf(band);
-  const wages = (): number => (Object.entries(band) as [TroopId, number][]).reduce((n, [id, c]) => n + baseWage(id) * Math.max(0, c), 0);
+  // Партия-оболочка с отрядом бродяги: двери ПН-1 шагают её так же, как партию игрока. Отряд — тот же объект, что у модели.
+  const party = createInitialState(root);
+  party.phase = 'roam';
+  const roam: RoamState = {
+    origin: origin.id,
+    hero: { name: '', war: origin.war },
+    band,
+    wounded: [],
+    purse: origin.gold,
+    cargo: {},
+    gear: {},
+    gait: style.gait,
+    camp: { since: 0 },
+  };
+  party.roam = roam;
+  // Паёк и жалованье для расчётов вперёд (запас, найм) — среднего сезона; сам шаг ест сезонным пайком.
+  const ration = (): number => bandRationPerDay({ band, wounded: [] }, 1);
+  const wages = (): number => bandWagesPerDay(band);
   const foodGold = k.foodMix * k.foodPrice.village + (1 - k.foodMix) * k.foodPrice.town * origin.food;
   const run: PathRun = {
     style: style.id,
@@ -194,9 +217,8 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     purse: origin.gold,
     band,
   };
-  let food = origin.foodDays * ration();
+  let food = Math.min(origin.foodDays * ration(), cargoCap(roam));
   let t = 0;
-  let owed = 0;
   let busyUntil = 0;
   let nextRecruit = between(k.recruits.every[0], k.recruits.every[1]);
   // Бои взятых договоров — по порядку, в минуту прихода к цели.
@@ -213,41 +235,44 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     }
   };
 
-  // Отряд живёт сам от `t` до `to`: ест (фураж, запас, покупка), платит, ждёт неуплаты и уходит, принимает просящихся.
+  // Отряд живёт сам от `t` до `to`: ест (фураж, запас, покупка), платит, ждёт неуплаты и уходит, принимает просящихся. Шаг дверей —
+  // четверть игрового дня: правило ухода — доля в день, и мельче шага игры (`CATCHUP_STEP`) итог не меняется дальше доли человека,
+  // а шагов в восемь раз меньше.
   const live = (to: number): void => {
     while (t < to) {
       while (queue.length > 0 && queue[0].at <= t) (queue.shift() as { apply: () => void }).apply();
       const dt = Math.min(1, to - t, queue.length > 0 ? Math.max(1e-6, queue[0].at - t) : 1);
-      const gd = dt * dayPerHour();
       // В пути — пока идёт дело; дошёл — снова лагерем своего стиля.
       const camp: Camp | 'road' = t < busyUntil ? 'road' : style.camp;
-      const need = ration() * gd;
-      const forage = camp === 'road' ? (style.gait === 'normal' ? k.forage.season : 0) : k.forage.season * k.forage.camp[camp];
-      let left = need * (1 - forage);
-      const eat = Math.min(food, left);
-      food -= eat;
-      left -= eat;
-      const buy = foodGold > 0 ? Math.min(left, run.purse / foodGold) : left;
-      run.purse -= buy * foodGold;
-      left -= buy;
-      const unfed = need > 0 ? left / need : 0;
-      const wage = wages() * gd;
-      const paid = Math.min(run.purse, wage);
-      run.purse -= paid;
-      const unpaid = wage > 0 ? (wage - paid) / wage : 0;
-      const short = Math.max(unfed, unpaid);
-      owed = short > 0 ? owed + gd : 0;
-      if (short > 0 && owed > k.patience && total(band) > 0) {
-        const lost = shareLosses(band, Math.min(1, DESERT_SHARE * gd * short));
-        run.deserted += total(lost);
-        minus(band, lost);
+      roam.camp = camp === 'road' ? null : { since: 0 };
+      roam.purse = run.purse;
+      const before = total(band);
+      for (let left = dt * dayPerHour() * DAY_LENGTH; left > 1e-9; left -= PIECE) {
+        const piece = Math.min(PIECE, left);
+        party.time += piece;
+        const mods = seasonMods(party);
+        const need = (bandRationPerDay(roam, mods.food) * piece) / DAY_LENGTH;
+        // Фураж: сезон — дверь (`forageShare`), вид лагеря — вход ПН-3.
+        const land = forageShare(mods, roam) * (camp === 'road' ? 1 : k.forage[camp]);
+        let rest = need * (1 - land);
+        const eat = Math.min(food, rest);
+        food -= eat;
+        rest -= eat;
+        const buy = foodGold > 0 ? Math.min(rest, roam.purse / foodGold) : rest;
+        roam.purse -= buy * foodGold;
+        rest -= buy;
+        // Жалованье, долг, терпение героя и уход равной долей — дверь содержания отряда.
+        bandUpkeep(party, piece, need > 0 ? rest / need : 0);
       }
+      run.purse = roam.purse;
+      run.deserted += Math.max(0, before - total(band));
+      food = Math.min(food, cargoCap(roam));
       t += dt;
       while (nextRecruit <= t) {
         const [lo, hi] = k.recruits.per[stage()];
         const came = Math.round(between(lo, hi) * k.recruits.camp[style.camp]);
         // Сколько прокормит кошель сверх запаса отряда на полсуток — у тех, кто берёт не всех.
-        const head = (baseWage('clubman') + soldierFoodPerDay(1, 1) * foodGold) * dayPerHour() * (12 + style.margin);
+        const head = (bandWage('clubman') + bandRationPerDay({ band: { clubman: 1 }, wounded: [] }, 1) * foodGold) * dayPerHour() * (12 + style.margin);
         const room = style.takeAll ? came : Math.max(0, Math.floor((run.purse - reserve(12)) / head));
         const n = Math.min(came, room);
         if (n > 0) {
