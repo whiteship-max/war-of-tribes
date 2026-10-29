@@ -130,9 +130,6 @@ async function withStab(items: NoticeItem[], now: number): Promise<NoticeItem[]>
   return out;
 }
 
-/** Опции мира с войной и тайными делами — одни на мир лорда и мир бродяги (ПН-3). */
-const worldOpts = (opts: LocalWorldOptions): LocalWorldOptions => ({ ...opts, wars, warsKnown, warOrder, warPace, spies, spyLook, pacts, proposals });
-
 /**
  * Завести мир. С открытым замком — тот, что умеет составлять черновики уведомлений; с
  * закрытым сборщик выбрасывает эту ветку вместе с классом (`world/local/NotifyingWorld.ts`).
@@ -140,7 +137,7 @@ const worldOpts = (opts: LocalWorldOptions): LocalWorldOptions => ({ ...opts, wa
 function openWorld(opts: LocalWorldOptions): LocalWorld {
   // Война между игроками (docs/pvp.md): мир получает свои войны и дверь приказа, как реестр замков, а
   // запись партии — слепок обороны от этого мира.
-  const full = worldOpts(opts);
+  const full: LocalWorldOptions = { ...opts, wars, warsKnown, warOrder, warPace, spies, spyLook, pacts, proposals };
   let world: LocalWorld;
   if (NOTIFY_ON) world = notifying = new NotifyingWorld(full);
   else world = new LocalWorld(full);
@@ -149,24 +146,13 @@ function openWorld(opts: LocalWorldOptions): LocalWorld {
   return world;
 }
 
-/** Мир лорда: клетку замка называет реестр — до постройки. */
-async function openLord(): Promise<LocalWorld> {
-  await rosterReady();
-  const world = openWorld({ reveal: revealWorld(), home: castleCell() ?? undefined, castles: worldCastles, era: knownEra() });
-  // Реестр назвал другую клетку, чем та, на которой партия шла без него.
-  // Молча такое не делается: карта пропала, и игрок узнаёт об этом строкой.
-  if (world.movedByRoster) {
-    useGame.getState().world((s) => {
-      log(s, 'Город встал на своё место на карте. Разведанное вокруг прежнего забыто.', 'bad');
-    });
-  }
-  return world;
-}
-
-/** Мир бродяги (ПН-3) — своим куском (`local/roamboot`): строится, когда сервер назвал клетку выхода отряда. */
+/**
+ * Мир бродяги (ПН-3) — своим куском (`local/roamboot`): строится, когда сервер назвал клетку выхода отряда. Те же опции, что у
+ * мира лорда (реестр, война, эпоха), — без клетки замка: место выхода называет реестр отряда.
+ */
 async function openRoam(): Promise<LocalWorld> {
   const { bootRoamWorld } = await import('./local/roamboot');
-  return bootRoamWorld(worldOpts({ reveal: revealWorld(), castles: worldCastles, era: knownEra() }));
+  return bootRoamWorld({ reveal: revealWorld(), castles: worldCastles, era: knownEra(), wars, warsKnown, warOrder, warPace, spies, spyLook, pacts, proposals });
 }
 
 /**
@@ -538,7 +524,19 @@ export const useWorld = create<WorldStore>((set, get) => ({
         // неудача возвращается значением, — и первого кадра игры оно не касается:
         // деревня к этому времени давно на экране.
         // Бродяга (ПН-3): мир без своего города, с ходом отряда — своим куском; строится, когда сервер назвал клетку выхода.
-        swapWorld(ROAM_ON && useGame.getState().s.phase === 'roam' ? await openRoam() : await openLord());
+        if (ROAM_ON && useGame.getState().s.phase === 'roam') swapWorld(await openRoam());
+        else {
+          await rosterReady();
+          const world = openWorld({ reveal: revealWorld(), home: castleCell() ?? undefined, castles: worldCastles, era: knownEra() });
+          // Реестр назвал другую клетку, чем та, на которой партия шла без него.
+          // Молча такое не делается: карта пропала, и игрок узнаёт об этом строкой.
+          if (world.movedByRoster) {
+            useGame.getState().world((s) => {
+              log(s, 'Город встал на своё место на карте. Разведанное вокруг прежнего забыто.', 'bad');
+            });
+          }
+          swapWorld(world);
+        }
       }
       const g = generation;
       const info = await worldApi().info();

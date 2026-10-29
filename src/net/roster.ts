@@ -65,8 +65,6 @@ interface Cached {
   castles: CastleView[];
   /** Эпоха мира (docs/test_world.md). Другая — кэша нет: клетка стёртого мира новой партии не принадлежит. */
   era?: number;
-  /** Свой отряд бродяги (ПН-3): строка, которую вывел сервер. Нет — замок или Путь меча закрыт. */
-  band?: BandRow;
 }
 
 export type RosterState =
@@ -125,7 +123,7 @@ function load(): Cached | null {
     if (typeof v.at !== 'number' || typeof v.epoch !== 'number' || !Array.isArray(v.castles)) return null;
     if ((v.era ?? 0) !== knownEra()) return null;
     const mine = v.mine && typeof v.mine.x === 'number' ? { x: v.mine.x, y: v.mine.y } : null;
-    return { at: v.at, epoch: v.epoch, mine, castles: v.castles, ...(ROAM_ON && v.band ? { band: v.band } : {}) };
+    return { at: v.at, epoch: v.epoch, mine, castles: v.castles };
   } catch {
     return null;
   }
@@ -137,12 +135,12 @@ let cache: Cached | null = load();
 function keep(res: RosterResponse, at: number): void {
   // Земля сменилась — всё, что помнили, относится к другой карте. Приводить
   // тут нечего: клетка 541|822 на новой земле — другое место.
-  const band = ROAM_ON ? res.band : undefined;
-  const next: Cached = { at, epoch: res.epoch, mine: res.mine, castles: res.castles, era: knownEra(), ...(band ? { band } : {}) };
+  const next: Cached = { at, epoch: res.epoch, mine: res.mine, castles: res.castles, era: knownEra() };
   cache = next;
   write(JSON.stringify(next));
   useRoster.setState({ state: 'ok', why: '', at, count: res.castles.length });
-  if (ROAM_ON && band) bandSink?.(band);
+  // Строка отряда бродяги (ПН-3) — своим ключом и своим оператором: выключен путь — сборщик выбрасывает его целиком.
+  if (ROAM_ON) keepBand(res.band ?? null);
 }
 
 /** Своя клетка: её назвал сервер. null — не называл ещё ни разу. */
@@ -154,8 +152,34 @@ export const castleCell = (): Cell | null => (cache ? cache.mine : null);
 // разговор: встать в реестр (`seat`, им же и отмечаться вместо строки замка), приказы хода и лагеря (`bandOrder`) и куда класть
 // строку, которую вывел сервер (`provideBandSink` — партия кладёт её одной дверью `sim/roam.setMove`). Всё — за `ROAM_ON`.
 
+const BAND_KEY = 'tribe.band.v1';
+
+/** Свой отряд: строка, которую вывел сервер, — память и кэш на устройстве (той же эпохи, что реестр). */
+let band: BandRow | null = null;
+if (ROAM_ON) band = loadBand();
+
+function loadBand(): BandRow | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(BAND_KEY) ?? 'null') as { era?: number; row?: BandRow } | null;
+    return v && (v.era ?? 0) === knownEra() && v.row ? v.row : null;
+  } catch {
+    return null;
+  }
+}
+
+function keepBand(row: BandRow | null): void {
+  if (!row) return;
+  band = row;
+  try {
+    localStorage.setItem(BAND_KEY, JSON.stringify({ era: knownEra(), row }));
+  } catch {
+    /* хранилища может не быть — тогда памяти нет */
+  }
+  bandSink?.(row);
+}
+
 /** Свой отряд: строка, которую вывел сервер. null — не было. */
-export const bandRow = (): BandRow | null => (ROAM_ON ? (cache?.band ?? null) : null);
+export const bandRow = (): BandRow | null => band;
 
 /** Что отряд сообщает о себе, когда встаёт и отмечается: `null` — партия не в фазе бродяги (тогда — строка замка). */
 let bandSeat: (() => Extract<BandOrder, { op: 'seat' }> | null) | null = null;
@@ -191,8 +215,11 @@ const seatOrClaim = async (): Promise<boolean> => {
   return true;
 };
 
-/** Место уже названо: у замка — клетка, у отряда — строка отряда. */
-const seated = (): boolean => Boolean(cache?.mine || (ROAM_ON && cache?.band));
+/** Место уже названо: у замка — клетка, у отряда (ПН-3) — строка отряда. */
+const seated = (): boolean => {
+  if (ROAM_ON && band) return true;
+  return Boolean(cache?.mine);
+};
 
 /** Чужие замки: что приехало в последний раз. Пусто — реестра не было вовсе. */
 export const castles = (): CastleView[] => cache?.castles ?? [];
@@ -279,7 +306,9 @@ async function push(): Promise<boolean> {
   talking = true;
   try {
     // Бродяга (ПН-3) встаёт и отмечается строкой отряда: замка у него нет, и строки замка он не шлёт.
-    if (ROAM_ON && (await seatOrClaim())) return true;
+    if (ROAM_ON) {
+      if (await seatOrClaim()) return true;
+    }
     const res = await apiPut<RosterResponse>('/api/castles', claim());
     if (res.ok) {
       keep(res.data, serverNow());

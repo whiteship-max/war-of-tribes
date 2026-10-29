@@ -132,6 +132,7 @@ export class RoamWorld extends LocalWorld {
         start: l.start,
         until: l.until,
         price: l.price,
+        halt: l.start - now,
         energy: { now: have, road: l.road, left: l.left },
         food: this.port.foodAfter(l.until - now, l.gait),
         block: l.block,

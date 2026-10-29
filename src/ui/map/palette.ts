@@ -257,3 +257,19 @@ export const FELL_MARK = {
   flameCore: '#f6d27a',
   text: '#f3e3cc',
 };
+
+/**
+ * Знаки карты бродяги (ПН-3, docs/gdd/path_of_sword.md, 5.2): руины — серым камнем, лагерь — шатром, отряд — знаменем стороны
+ * (`side.sideColor`), путь — пунктиром стороны. Простые знаки до 3D лагеря и руин (ПН-12).
+ */
+export const ROAM_MARK = {
+  plate: 'rgba(24, 16, 12, 0.78)',
+  stone: '#a59b88',
+  stoneDark: '#6d6555',
+  tent: '#d8c7a4',
+  tentDark: '#8f7c5a',
+  tentCold: '#6f7a86',
+  fire: FELL_MARK.flame,
+  fireCore: FELL_MARK.flameCore,
+  pole: '#3b2c1f',
+};

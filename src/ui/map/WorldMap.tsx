@@ -66,6 +66,8 @@ import { levelNow, subscribeGfx } from '@/render/gfx';
 import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
+import { ROAM_ON } from '@/game/roamflag';
+import { roamHook } from './roamhook';
 
 // Тревоги войны значками (П-7) — куском нового интерфейса, как в городе (`App.tsx`): карта стоит в первой загрузке.
 const WarSigns = lazy(() => import('@/ui/next').then((m) => ({ default: m.WarSigns })));
@@ -78,6 +80,12 @@ const Legend = lazy(() => import('./Legend').then((m) => ({ default: m.Legend })
 // Их код подтягивается в фоне вместе с картой (`chunks.MAP_CHUNKS`, РТ-2б), а рисует их только кнопка.
 const Rating = lazy(() => ratingUi().then((m) => ({ default: m.Rating })));
 const Feed = lazy(() => feedUi().then((m) => ({ default: m.Feed })));
+// Карта бродяги (ПН-3) — своим куском, только за `ROAM_ON`: знаки отряда, лагеря и руин и окно хода вешаются на крючок карты.
+// Выключен путь — ни куска, ни строки в первой загрузке: сборщик выбрасывает ветку целиком.
+const RoamLayer = ROAM_ON ? lazy(() => import('./roam/RoamLayer')) : null;
+
+/** Карта — бродяги (ПН-3): фаза партии. Зовут её только за `ROAM_ON` — выключателем-постоянной, порядок крючков не меняется. */
+const useRoamMode = (): boolean => useGame((g) => ROAM_ON && g.s.phase === 'roam');
 
 /**
  * Отладочный обзор читается один раз: адрес по ходу партии не меняется. Камера свободна у всех (ПН-00) — флаг даёт стенду
@@ -195,6 +203,8 @@ export function WorldMap() {
   const closeMap = useGame((g) => g.closeMap);
   const openMarches = useGame((g) => g.openMarches);
   const showToast = useGame((g) => g.showToast);
+  // Фаза бродяги (ПН-3): карта — его, с отрядом посредине; у лорда ветки нет.
+  const roamMode = ROAM_ON && useRoamMode();
   // Верх и низ карты — табличка «регион · координата» и низ на пять мест (прежние удалены, docs/ui_audit.md, 16).
   const portal = (node: ReactNode): ReactNode => {
     const host = document.querySelector('.app');
@@ -417,7 +427,9 @@ export function WorldMap() {
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const t0 = PROBE ? performance.now() : 0;
-      const motion = drawFrame(ctx, cam.current, { w, h }, dpr, ++frameNo.current);
+      let motion = drawFrame(ctx, cam.current, { w, h }, dpr, ++frameNo.current);
+      // Карта бродяги (ПН-3) дорисовывает свои знаки; отряд в пути — кадр по часам.
+      if (ROAM_ON && roamHook()?.paint(ctx, cam.current, { w, h }, dpr, worldNow())) motion = { ...motion, clock: true };
       if (PROBE) frameCost(performance.now() - t0);
       // Сторож плавности карты судит промежуток этого кадра (К-1); опустил уровень — буфер встанет под новую плотность
       // в начале следующего кадра.
@@ -645,6 +657,8 @@ export function WorldMap() {
    *   своя фигура в поле берётся в руку, пустая земля открывает карточку клетки.
    */
   const openAt = (c: Coord): void => {
+    // Карта бродяги (ПН-3) берёт касание сама: отряд в руке, окно хода, карточка клетки.
+    if (ROAM_ON && roamHook()?.tap(c)) return;
     const g = useWorld.getState();
     const hand = g.picked;
     const target = settlementAt(c.x, c.y);
@@ -823,6 +837,11 @@ export function WorldMap() {
       {ringOpen && (
         <Suspense fallback={null}>
           <RingLayer at={ringAt} vp={vp()} />
+        </Suspense>
+      )}
+      {RoamLayer && roamMode && (
+        <Suspense fallback={null}>
+          <RoamLayer />
         </Suspense>
       )}
 

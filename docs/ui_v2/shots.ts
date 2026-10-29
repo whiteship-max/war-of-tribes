@@ -41,6 +41,10 @@
 //   GROUP=pn1 WEATHER=clear NIGHT=0 …              — ПН-00 (docs/gdd/path_of_sword.md, 3.5.7): карта — вид открытия, весь
 //                                                    регион (дальний вид ограничителя), кромка знания и пергамент;
 //                                                    `NIGHT` — ночь карты адресом (`?night=`), 0 — день
+//   GROUP=pn3 WEATHER=clear NIGHT=0 …              — ПН-3 (docs/gdd/path_of_sword.md, 15): карта бродяги — руины у места выхода,
+//                                                    лагерь на карте, подтверждение хода, окно лагеря, отряд в пути. Путь меча
+//                                                    включён только в сервере стенда (подмена `game/roamflag` плагином, у
+//                                                    игроков и в сборке он выключен); партия — новая, бродягой
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -399,7 +403,74 @@ function mapAt(scale: number | null): string {
   })()`;
 }
 
+/**
+ * ПН-3: партия — бродягой (Путь меча включён только в сервере стенда, `ROAM_PLUGIN`), мир — заново, вокруг места выхода (без
+ * сервера место ищет то же правило, `world/roam.placeBand`); карта открыта, камера — на отряде.
+ */
+const ROAM_START = `(async () => {
+  // Окно «Игра открыта дважды» (прошлый шаг стенда): «Оставить там» прячет его без перезагрузки, как у захода ПН-00.
+  [...document.querySelectorAll('.modal button')].find((b) => b.textContent.includes('Оставить там'))?.click();
+  window.__ui.reset();
+  const R = await import('/src/game/sim/roam.ts');
+  const St = await import('/src/game/state.ts');
+  const A = await import('/src/world/api.ts');
+  const C = await import('/src/world/cache.ts');
+  const W = (await import('/src/world/store.ts')).useWorld;
+  const s = St.createInitialState(20261029);
+  const why = R.beginRoam(s, { origin: 'warrior', hero: { name: 'Ратко', war: 2 }, band: { spearman: 8, clubman: 4, archer: 2 }, purse: 120, food: 300 });
+  if (why) return JSON.stringify(why);
+  s.tutorialDone = true;
+  s.winterWarning = false;
+  window.__game.setState({ s });
+  localStorage.removeItem('tribe.world.v1');
+  A.setWorldApi(null);
+  C.clearCache();
+  W.setState({ ready: false, info: null, figures: [], marches: [] });
+  await W.getState().boot();
+  window.__game.getState().openMap();
+  await new Promise((r) => setTimeout(r, 2500));
+  const way = window.__game.getState().s.roam.way;
+  if (!way) return JSON.stringify('места выхода нет');
+  window.__mapCam(way.to.x, way.to.y, 30);
+  return JSON.stringify('отряд ' + way.to.x + '|' + way.to.y);
+})()`;
+
+/** Клетка суши в 5–9 клетках от отряда, куда ход возможен, — касанием отрядом в руке открыть окно хода. */
+const ROAM_TAP = `(async () => {
+  const way = window.__game.getState().s.roam.way;
+  const L = await import('/src/world/land.ts');
+  const Rm = await import('/src/world/roam.ts');
+  const m = { way, camp: window.__game.getState().s.roam.camp, energy: window.__game.getState().s.roam.energy };
+  const now = (await import('/src/world/store.ts')).worldNow();
+  let to = null;
+  for (let d = 5; d < 10 && !to; d++) for (const [dx, dy] of [[d, 0], [0, -d], [-d, 0], [0, d], [d, -d]]) {
+    const c = { x: way.to.x + dx, y: way.to.y + dy };
+    if (!to && L.settleable(c.x, c.y) && typeof Rm.roamGo(m, c, 'normal', now) !== 'string') to = c;
+  }
+  if (!to) return JSON.stringify('нет клетки');
+  window.__mapTap(way.to.x, way.to.y);
+  await new Promise((r) => setTimeout(r, 300));
+  window.__mapTap(to.x, to.y);
+  return JSON.stringify('ход в ' + to.x + '|' + to.y);
+})()`;
+
 const GROUPS: Record<string, Step[]> = {
+  // ПН-3 (docs/gdd/path_of_sword.md, 15): карта бродяги.
+  pn3: [
+    { name: 'pn3-ruins', run: ROAM_START, wait: 5000 },
+    {
+      name: 'pn3-camp-map',
+      run: `(async () => { const e = await (await import('/src/world/api.ts')).worldApi().roamCamp('open'); const w = window.__game.getState().s.roam.way; window.__mapCam(w.to.x, w.to.y, 56); return JSON.stringify(e ?? 'ok'); })()`,
+      wait: 3000,
+    },
+    { name: 'pn3-camp-window', run: ui(`click('Встать лагерем', '.roam-bar')`), wait: 1500 },
+    { name: 'pn3-send', run: then(ui(`click('Назад', '.nx-am')`), ROAM_TAP), wait: 2000 },
+    {
+      name: 'pn3-march',
+      run: `(async () => { window.__ui.click('Отправить', '.nx-am'); await new Promise((r) => setTimeout(r, 1500)); const w = window.__game.getState().s.roam.way; window.__mapCam((w.from.x + w.to.x) / 2, (w.from.y + w.to.y) / 2, 44); return JSON.stringify('идёт в ' + w.to.x + '|' + w.to.y); })()`,
+      wait: 3000,
+    },
+  ],
   // ПН-00 (docs/gdd/path_of_sword.md, 3.5.7): камера без поводка — вид открытия, карта, отдалённая до всего региона (дальний
   // вид ограничителя `tw/far.ts`), и терра инкогнита — пергамент без рельефа за кромкой круга обзора дома.
   pn1: [
@@ -1644,6 +1715,15 @@ async function group(name: string, steps: Step[]): Promise<void> {
   }
 }
 
+/** Путь меча открыт — только в сервере стенда захода ПН-3: модуль выключателя отдаётся с `ROAM_ON = true`. */
+const ROAM_PLUGIN = {
+  name: 'stand-roam-on',
+  enforce: 'pre' as const,
+  load(id: string): string | null {
+    return id.split('?')[0].replace(/\\/g, '/').endsWith('/src/game/roamflag.ts') ? 'export const ROAM_ON = true;\n' : null;
+  },
+};
+
 async function main(): Promise<void> {
   const name = process.env.GROUP;
   if (!name || !GROUPS[name]) {
@@ -1657,6 +1737,8 @@ async function main(): Promise<void> {
     root: ROOT,
     server: { port: PORT, strictPort: true, host: '127.0.0.1' },
     logLevel: 'warn',
+    // Заход ПН-3 — с открытым Путём меча: выключатель подменяется только в этом сервере стенда.
+    ...(name === 'pn3' ? { plugins: [ROAM_PLUGIN] } : {}),
   });
   await vite.listen();
   try {
