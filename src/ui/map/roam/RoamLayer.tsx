@@ -19,13 +19,17 @@ import { num } from '@/game/num';
 import { ownSight, seenWords, useBandSight } from '@/world/bandsight';
 import { sideColor } from '@/side';
 import { setRoamHook } from '../roamhook';
-import { paintRoam } from './paint';
+import { paintRoam, pointAtTap } from './paint';
+import { pointWords, townAt } from '@/world/roampoints';
 import { RoamSend } from './RoamSend';
 import { RoamCamp } from './RoamCamp';
 import './roam.css';
 
 /** Что сказать, взяв отряд в руку. */
 export const HAND_WORDS = 'Отряд в руке: нажми клетку — куда идти.';
+
+/** Подсказка у точки: войти и напасть — отрядом в руке. */
+export const POINT_HINT = 'Взять отряд и нажать сюда — войти или напасть.';
 
 export default function RoamLayer() {
   const way = useGame((g) => g.s.roam?.way ?? null);
@@ -64,6 +68,12 @@ export default function RoamLayer() {
           showToast(HAND_WORDS);
           return true;
         }
+        // Точка бродяги (ПН-5) — словами: что даёт и как войти; войти или напасть — отрядом в руке.
+        const pt = pointAtTap({ x: c.x, y: c.y, w: 1, h: 1 }, c);
+        if (pt) {
+          showToast(`${pointWords(pt)} ${POINT_HINT}`);
+          return true;
+        }
         // Без отряда в руке — карточка клетки, как у всех: колец дел четырёх людей у бродяги нет (агенты — ПН-9).
         void useWorld.getState().select(c);
         return true;
@@ -74,7 +84,10 @@ export default function RoamLayer() {
 
   const now = worldNow();
   const moving = way ? roamMoving(way, now) : false;
-  const state = camp && !moving ? CAMP_NAME[camp.kind] : moving ? 'в пути' : 'стоит в поле';
+  // Стоит в вольном городе (ПН-5) — «на постое»: город общий, и найти его можно без мира (`world/roampoints.townAt`).
+  const cell = way ? roamCell(way, now) : null;
+  const town = cell && !moving ? townAt(cell.x, cell.y) : null;
+  const state = town ? `на постое: ${town.name}` : camp && !moving ? CAMP_NAME[camp.kind] : moving ? 'в пути' : 'стоит в поле';
   const sight = ownSight(useGame.getState().s, now, seenServer);
   return (
     <>

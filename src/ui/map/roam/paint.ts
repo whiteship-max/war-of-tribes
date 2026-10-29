@@ -1,10 +1,11 @@
 // Знаки карты бродяги (ПН-3, docs/gdd/path_of_sword.md, 5.2): руины — меткой карты, отряд — знаменем стороны, лагерь — шатром
-// (открытый — с огнём, скрытый — холодный, в руинах — на камнях), путь — пунктиром до цели. Простые знаки до 3D (ПН-12).
+// (открытый — с огнём, скрытый — холодный, в руинах — на камнях), путь — пунктиром до цели; точки ПН-5 — вольный город (стена и
+// башня, ступень — точками), село (срубы), ватага НПС (чёрный стан с огнём). Простые знаки до 3D (ПН-12).
 //
 // Рисует поверх кадра карты (`WorldMap` → `roamhook`), только пока открыт кусок карты бродяги. Положение отряда — функцией
 // записи хода (`world/roam.roamWhere`), руины — из кусков карты (`RegionChunk.ruins`, их отдаёт только мир бродяги, и только на
 // разведанной земле). Мерка экранная: знак не мельче пальца на дальнем виде и не крупнее клетки на ближнем.
-import type { RuinMark } from '@/world/types';
+import type { RoamPointMark, RuinMark } from '@/world/types';
 import type { BandMark } from '@/world/bandsight';
 import { agoText } from '../feedWords';
 import type { RoamCampRec, RoamWay } from '@/world/roammove';
@@ -36,6 +37,62 @@ function ruinGlyph(ctx: C, x: number, y: number, u: number): void {
     ctx.fillStyle = ROAM_MARK.stoneDark;
     ctx.fillRect(x + dx * u + u * 0.17, y + u * 0.3 - h * u, u * 0.07, h * u);
   }
+}
+
+/** Вольный город (ПН-5): стена с башней под красной кровлей, ступень — точками над башней. */
+function townGlyph(ctx: C, x: number, y: number, u: number, tier: number): void {
+  ctx.fillStyle = ROAM_MARK.plate;
+  ctx.beginPath();
+  ctx.ellipse(x, y + u * 0.34, u * 0.7, u * 0.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = ROAM_MARK.townWall;
+  ctx.fillRect(x - u * 0.6, y - u * 0.05, u * 1.2, u * 0.38);
+  ctx.fillRect(x - u * 0.16, y - u * 0.5, u * 0.32, u * 0.5);
+  ctx.fillStyle = ROAM_MARK.townRoof;
+  ctx.beginPath();
+  ctx.moveTo(x - u * 0.24, y - u * 0.5);
+  ctx.lineTo(x, y - u * 0.8);
+  ctx.lineTo(x + u * 0.24, y - u * 0.5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = ROAM_MARK.townTier;
+  for (let i = 0; i < tier; i++) {
+    ctx.beginPath();
+    ctx.arc(x + (i - (tier - 1) / 2) * u * 0.22, y - u * 0.98, u * 0.07, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** Село (ПН-5): два сруба под тёмной кровлей. */
+function villageGlyph(ctx: C, x: number, y: number, u: number): void {
+  for (const dx of [-0.28, 0.24]) {
+    ctx.fillStyle = ROAM_MARK.hut;
+    ctx.fillRect(x + dx * u - u * 0.2, y - u * 0.05, u * 0.4, u * 0.32);
+    ctx.fillStyle = ROAM_MARK.hutRoof;
+    ctx.beginPath();
+    ctx.moveTo(x + dx * u - u * 0.26, y - u * 0.05);
+    ctx.lineTo(x + dx * u, y - u * 0.34);
+    ctx.lineTo(x + dx * u + u * 0.26, y - u * 0.05);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+/** Ватага НПС (ПН-5): чёрный шатёр с огнём и красной лентой — чужая сторона. */
+function vatagaGlyph(ctx: C, x: number, y: number, u: number): void {
+  ctx.fillStyle = ROAM_MARK.vataga;
+  ctx.beginPath();
+  ctx.moveTo(x - u * 0.45, y + u * 0.3);
+  ctx.lineTo(x, y - u * 0.38);
+  ctx.lineTo(x + u * 0.45, y + u * 0.3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = sideColor(false);
+  ctx.fillRect(x - u * 0.04, y - u * 0.62, u * 0.34, u * 0.14);
+  ctx.fillStyle = ROAM_MARK.fire;
+  ctx.beginPath();
+  ctx.arc(x + u * 0.58, y + u * 0.22, u * 0.12, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function tentGlyph(ctx: C, x: number, y: number, u: number, camp: RoamCampRec): void {
@@ -95,6 +152,18 @@ export function paintRoam(ctx: C, cam: Camera, vp: Viewport, dpr: number, now: n
     const [x, y] = toScreen(cam, vp, r.x + 0.5, r.y + 0.5);
     if (x < -u || y < -u || x > vp.w + u || y > vp.h + u) continue;
     ruinGlyph(ctx, x, y, u);
+  }
+  // Точки бродяги (ПН-5): вольные города, сёла, ватаги — на разведанной земле; имя — на ближнем виде.
+  const points: RoamPointMark[] = loadedIn(rect).flatMap((c) => c.points ?? []);
+  ctx.textAlign = 'center';
+  ctx.font = `600 ${Math.round(Math.max(10, u * 0.42))}px system-ui, sans-serif`;
+  for (const p of points) {
+    const [x, y] = toScreen(cam, vp, p.x + 0.5, p.y + 0.5);
+    if (x < -u * 2 || y < -u * 2 || x > vp.w + u * 2 || y > vp.h + u * 2) continue;
+    if (p.kind === 'town') townGlyph(ctx, x, y, u, p.tier);
+    else if (p.kind === 'village') villageGlyph(ctx, x, y, u);
+    else vatagaGlyph(ctx, x, y, u);
+    if (cam.scale >= 20) label(ctx, p.name, x, y + u * 0.95);
   }
   let moving = false;
   if (way) {
@@ -174,6 +243,12 @@ export function paintBands(ctx: C, cam: Camera, vp: Viewport, dpr: number, now: 
   }
   ctx.restore();
 }
+
+/** Точка бродяги в клетке касания (ПН-5) — из кусков карты. */
+export const pointAtTap = (rect: { x: number; y: number; w: number; h: number }, c: { x: number; y: number }): RoamPointMark | null =>
+  loadedIn(rect)
+    .flatMap((k) => k.points ?? [])
+    .find((p) => p.x === c.x && p.y === c.y) ?? null;
 
 /** Чужой отряд в клетке касания: живой — первым, следы — свежим первым. */
 export const bandAt = (marks: readonly BandMark[], c: { x: number; y: number }): BandMark | null =>

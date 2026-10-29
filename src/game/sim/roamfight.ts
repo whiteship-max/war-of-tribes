@@ -64,7 +64,7 @@ const minus = (band: Partial<Record<TroopId, number>>, lost: TroopStack): number
 };
 
 /** Кость гибели героя — из сида боя, 0..1. */
-const fallRoll = (seed: number): number => {
+export const fallRoll = (seed: number): number => {
   let h = (seed ^ 0x6b43a9b5) >>> 0;
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
