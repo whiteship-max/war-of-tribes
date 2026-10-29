@@ -50,6 +50,10 @@
 //                                                    чужим отрядом у лагеря живьём (ответ сервера кладётся той же дверью, что
 //                                                    у реестра, `world/bandsight.takeNews`); след чужого отряда с давностью;
 //                                                    окно лагеря — «замок видит за N кл.». Путь — как у ПН-3
+//   GROUP=pn5 WEATHER=clear NIGHT=0 …              — ПН-5 (docs/gdd/path_of_sword.md, 17): точки мира у отряда (вольные
+//                                                    города, сёла, ватаги), касание города словами, окно хода к ватаге —
+//                                                    засада и «Напасть», итог боя строкой (победа, наследник пути) той же
+//                                                    дверью партии. Путь — как у ПН-3
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -475,7 +479,52 @@ const SIGHT_NEWS = (ago: number, live: boolean, seen: boolean): string => `(asyn
   return JSON.stringify(B.useBandSight.getState().marks.map((m) => m.name + (m.visible ? ' живьём' : ' след')));
 })()`;
 
+/**
+ * ПН-5: ближайшая к отряду разведанная точка вида `kind` (из куска карты мира бродяги — `RegionChunk.points`): камера к ней, касание
+ * знака отряда (в руку) и точки — окно хода с засадой и целью; без руки — касание точки словами.
+ */
+const ROAM_POINT = (kind: 'town' | 'village' | 'vataga', hand: boolean): string => `(async () => {
+  const way = window.__game.getState().s.roam.way;
+  const A = await import('/src/world/api.ts');
+  const c = await A.worldApi().region({ x: way.to.x - 20, y: way.to.y - 20, w: 41, h: 41 });
+  const pts = (c.points || []).filter((p) => p.kind === '${kind}').sort((a, b) => Math.hypot(a.x - way.to.x, a.y - way.to.y) - Math.hypot(b.x - way.to.x, b.y - way.to.y));
+  if (!pts.length) return JSON.stringify('нет точки ${kind}');
+  const p = pts[0];
+  window.__mapCam((p.x + way.to.x) / 2, (p.y + way.to.y) / 2, 26);
+  await new Promise((r) => setTimeout(r, 400));
+  if (${hand}) {
+    window.__mapTap(way.to.x, way.to.y);
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  window.__mapTap(p.x, p.y);
+  return JSON.stringify(p.name + ' ' + p.x + '|' + p.y);
+})()`;
+
+/** ПН-5: итог боя той же дверью партии, что у мира (`sim/roamfight.takeFight`), — строкой летописи и всплывающей строкой. */
+const ROAM_FIGHT = (won: boolean, wiped: boolean): string => `(async () => {
+  const F = await import('/src/game/sim/roamfight.ts');
+  const g = window.__game.getState();
+  let seed = 1;
+  if (${wiped}) for (let i = 1; i < 5000; i++) if (F.fallRoll(i) < 0.25) { seed = i; break; }
+  let line = '';
+  g.world((s) => {
+    const lost = ${wiped} ? { ...s.roam.band } : { clubman: 2 };
+    line = F.takeFight(s, { how: 'strike', id: 'vataga:0:0', name: 'Ватага Кривого', power: 9, foeMen: 5, foeLoss: ${won} ? 0.8 : 0.2, won: ${won}, lost, seed, at: Date.now() });
+  });
+  g.showToast(line);
+  return JSON.stringify(line);
+})()`;
+
 const GROUPS: Record<string, Step[]> = {
+  // ПН-5 (docs/gdd/path_of_sword.md, 17): точки мира и встречи с НПС.
+  pn5: [
+    { name: 'pn5-start', run: ROAM_START, wait: 4000, shot: false },
+    { name: 'pn5-points', run: `(async () => { const w = window.__game.getState().s.roam.way; window.__mapCam(w.to.x, w.to.y, 22); return JSON.stringify('ok'); })()`, wait: 2500 },
+    { name: 'pn5-town', run: ROAM_POINT('town', false), wait: 1200 },
+    { name: 'pn5-strike', run: ROAM_POINT('vataga', true), wait: 1800 },
+    { name: 'pn5-fight', run: then(ui(`click('Назад', '.nx-am')`), ROAM_FIGHT(true, false)), wait: 900 },
+    { name: 'pn5-heir', run: ROAM_FIGHT(false, true), wait: 900 },
+  ],
   // ПН-4у (docs/gdd/path_of_sword.md, 16): видимость отряда бродяги.
   pn4: [
     { name: 'pn4-start', run: ROAM_START, wait: 4000, shot: false },
@@ -1754,7 +1803,10 @@ const ROAM_PLUGIN = {
   name: 'stand-roam-on',
   enforce: 'pre' as const,
   load(id: string): string | null {
-    return id.split('?')[0].replace(/\\/g, '/').endsWith('/src/game/roamflag.ts') ? 'export const ROAM_ON = true;\n' : null;
+    // С 30.10.2026 выключатель — правило по игроку (`roamOn`, `roamOpenFor`, `setRoamOpen`): стенд открывает его всем.
+    return id.split('?')[0].replace(/\\/g, '/').endsWith('/src/game/roamflag.ts')
+      ? 'export const ROAM_ON = true;\nexport const roamOpenFor = () => true;\nexport const setRoamOpen = () => {};\nexport const roamOn = () => true;\n'
+      : null;
   },
 };
 
@@ -1771,8 +1823,8 @@ async function main(): Promise<void> {
     root: ROOT,
     server: { port: PORT, strictPort: true, host: '127.0.0.1' },
     logLevel: 'warn',
-    // Заходы ПН-3 и ПН-4у — с открытым Путём меча: выключатель подменяется только в этом сервере стенда.
-    ...(name === 'pn3' || name === 'pn4' ? { plugins: [ROAM_PLUGIN] } : {}),
+    // Заходы ПН-3, ПН-4у и ПН-5 — с открытым Путём меча: выключатель подменяется только в этом сервере стенда.
+    ...(name === 'pn3' || name === 'pn4' || name === 'pn5' ? { plugins: [ROAM_PLUGIN] } : {}),
   });
   await vite.listen();
   try {

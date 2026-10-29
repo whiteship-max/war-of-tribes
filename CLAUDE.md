@@ -378,10 +378,20 @@ HEAD один на всех, см. правило 8). Значит развес�
 - `src/game/sim/roam.ts`, `src/game/roamrules.ts` и `src/game/roamflag.ts` — Путь меча, фаза партии и отряд бродяги (ПН-1,
   docs/gdd/path_of_sword.md, 13): `GameState.phase` и `GameState.roam` — необязательные поля (нет — лорд), вход `beginRoam` и чтение
   `mergeRoam` — одной дверью `sim/roam`; шаг по фазе выбирает диспетчер (`sim/tick.liveStep`, `absence` → `roamStep`); содержание
-  отряда — `sim/upkeep.bandUpkeep`, раненые — `sim/infirmary` (без лазарета), обоз — `sim/stock.addStock` с ключом `cargo`, дух —
-  `sim/spirit` со входами отряда; числа и формулы — `roamrules` (одни на игру и будущую книгу отряда сервера). До выпуска Среза 1 всё
-  закрыто выключателем `ROAM_ON`. Разойдись правило у двоих — отряд терял бы людей у одного и жил у другого, или чужое сохранение
-  открыло бы путь игроку;
+  отряда — вход «отряд» двери `sim/upkeep` (`sim/bandkeep.bandUpkeep`), раненые — `sim/infirmary` без лазарета (`sim/bandwounds`), обоз —
+  `sim/stock.addStock` с ключом `cargo` (`sim/cargo`), дух — `sim/spirit` со входами отряда (`sim/bandspirit`), указ админа отряду —
+  `sim/admin` (`sim/bandgrant`); числа и формулы — `roamrules` (одни на игру и будущую книгу отряда сервера). Половины «отряд» — своими
+  модулями в куске пути: главный кусок зовёт их только через реестр `game/roamlazy` (кусок `game/roamdoor` докачивается тому, кому путь
+  открыт; ПН-5, хвост а — сборка сторожит кусок, `LAZY_DOORS` «Путь меча»). До выпуска Среза 1 всё закрыто выключателем `ROAM_ON`.
+  Разойдись правило у двоих — отряд терял бы людей у одного и жил у другого, или чужое сохранение открыло бы путь игроку;
+- `src/world/roampoints.ts`, `src/world/roamfoes.ts`, `src/world/encounter.ts` и `src/game/sim/roamfight.ts` — точки мира и встречи с НПС
+  (ПН-5, docs/gdd/path_of_sword.md, 17): вольные города общие (постоянная соль), сёла и ватаги свои (сид мира), логова — мира; сила НПС —
+  от ступени престижа (`foePower`: таблица — заглушка `foeTable` тем же числом, что выводит `roam:report`); засада — шанс дверью
+  `world/sight`, кость из сида пути и минуты прихода, **заморожена при отправке** в `RoamState.trip` (необязательное поле, пишет одна дверь
+  `sim/roam.setTrip`, ход сменился — снимается), встреча — `pursuit.intercept`, бой — `world/battle.resolveField`; итог — одна дверь
+  `sim/roamfight.takeFight` (поражение 3.6.4, наследник пути 3.6.5, `RoamState.beaten`, `RoamHero.hurt` — необязательные поля). Встречи с
+  НПС считает клиент (точки НПС свои), сервер их не знает. Разойдись правило у двоих — окно хода показало бы одну засаду, а сыграла бы
+  другая, или наследник пути взял бы не ту долю престижа;
 - `src/game/sim/prestige.ts` — престиж одной дверью (ПН-2, docs/gdd/path_of_sword.md, 14): `GameState.prestige` пишет только
   `movePrestige` (итог похода, награда задания, ответ вести), ступень — `prestigeStage` по порогам, которых в коде нет до вывода.
   Разойдись запись у двоих — престиж падал бы ниже нуля у одного и не падал у другого;
@@ -603,7 +613,8 @@ HEAD один на всех, см. правило 8). Значит развес�
   записью войн и применяются обеими сторонами по номеру боя (`WarSheet.seen`, `WorldSave.warSeen`);
   расхождение здесь — бой, который у одного был, а у другого нет, или добыча, увезённая дважды (docs/pvp.md);
 - `src/telegram/cloud-rescue.ts` — последняя дверь к чужим данным;
-- `netlify/lib/partyreset.ts` — обнуление партии одного игрока (30.10.2026, docs/admin.md): архив, стирание и метка `AdminNote.reset`,
+- `netlify/lib/partyreset.ts` — обнуление партии одного игрока (30.10.2026, docs/admin.md): архив, стирание и метка `AdminNote.reset`
+  (войны и тайные дела, начатые раньше метки, новой партии не отдаются — `war.warsOf`, `spiesOf` с `since`, ПН-5),
   по которой устройство стирает свою партию (`net/sync.takeReset`). Расхождение здесь — обнулённая партия, воскресшая с телефона,
   или стёртая чужая.
 
@@ -787,7 +798,8 @@ HEAD один на всех, см. правило 8). Значит развес�
   `watch.cancelledRefund`) (`sim/queue.test.ts`, `security.test.ts`; village, docs/ui_v2.md, 5.13).
 - **Путь меча** (ПН-1) — фаза партии `GameState.phase` (нет — лорд) и отряд `GameState.roam`; шаг бродяги — `sim/roam.roamStep` из
   диспетчера `liveStep`/`absence`; содержание, раненые, обоз и дух отряда — двери города входом «отряд» (`bandUpkeep`,
-  `settleBandWounds`, `addStock` с ключом `cargo`, `spiritIn`), числа — `roamrules`; фураж — поле сезона из `SEASON_MODIFIERS`; до выпуска
+  `settleBandWounds`, `addStock` с ключом `cargo`, `spiritIn`; половины «отряд» — кусок пути докачкой через `game/roamlazy`, ПН-5),
+  числа — `roamrules`; фураж — поле сезона из `SEASON_MODIFIERS`; до выпуска
   — за выключателем по игроку `roamOn()` (правило `roamflag.roamOpenFor`: до выпуска — только админам `ADMIN_IDS`, одно на клиент и
   сервер; `roamflag.test.ts`: развилка без выключателя — красный тест; `roamadmin.test.ts`), партия лорда — байт в байт (`sim/lordprint.test.ts`)
   (`sim/roam.test.ts`; docs/gdd/path_of_sword.md, 13).
@@ -804,6 +816,11 @@ HEAD один на всех, см. правило 8). Значит развес�
   приказу, чтение ничего не пишет); клиент — следы и весть «Нас видели» своим куском (`world/bandsight`), карта — `ui/map/roam/BandsLayer`;
   круги живого обзора лорда — `world/lookout` (`sight.test.ts`, `bandsight.test.ts` сервера и клиента, `bands.test.ts`;
   docs/gdd/path_of_sword.md, 16).
+- **Встречи с НПС** (ПН-5) — точки `world/roampoints` (без `@/`), сила `world/roamfoes.foePower` (от престижа, не от отряда), засада и
+  удар — `world/encounter` (шанс — дверью `world/sight`, заморожен при отправке `tripOf` → `sim/roam.setTrip`, показан до приказа окном
+  хода «засада N % · если засада — бой с ~M»; встреча — `pursuit.intercept`; бой — `resolveField`), разбор — мир бродяги на пульсе один
+  раз (`RoamWorld.settleTrip`), итог — `sim/roamfight.takeFight`; числа без вывода — `game/roamstubs` (`pn5.test.ts`, `roamfight.test.ts`;
+  docs/gdd/path_of_sword.md, 17).
 - **Престиж** — одна дверь `sim/prestige.movePrestige` (по исходникам — `sim/prestige.test.ts`); слово игрока — «Престиж»; ступень —
   `prestigeStage` по порогам вывода (до вывода — заглушка прибора `roam:report`) (docs/gdd/path_of_sword.md, 14).
 - **Черты правителя** (ПН-2) — счёт дел пишет `sim/dynasty.noteRulerDeed` (бои, уровни, пиры, участь взятого города, минимальное
