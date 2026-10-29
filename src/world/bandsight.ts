@@ -10,7 +10,7 @@
 // Без сервера (стенд, вторая вкладка) о чужих отрядах не знает никто, а кто видит свой отряд, отряд считает сам — той же дверью по
 // замкам, которые помнит реестр (`ownSight`).
 import { create } from 'zustand';
-import type { BandView, CastleView, SeenBy, SeenView } from '../../netlify/lib/contract';
+import { cityName, type BandView, type CastleView, type SeenBy, type SeenView } from '../../netlify/lib/contract';
 import { provideSightSink, castles, type SightNews } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { useGame } from '@/game/store';
@@ -81,7 +81,11 @@ export function mergeMarks(prev: readonly BandMark[], news: Pick<SightNews, 'ban
 }
 
 /** Кто видит словами: «город Катания (Андрей)», «отряд Ратко». */
-const whoWords = (b: SeenBy): string => (b.kind === 'castle' ? `${b.city ? `город ${b.city}` : 'замок'} (${b.name || 'без имени'})` : `отряд ${b.name || 'без имени'}`);
+function whoWords(b: SeenBy): string {
+  if (b.kind !== 'castle') return `отряд ${b.name || 'без имени'}`;
+  const city = cityName(b.city);
+  return `${city ? `город ${city}` : 'замок'} (${b.name || 'без имени'})`;
+}
 
 /** Строка шапки: «Скрыт» или «Виден: …» — кем, если мы его видим, и сколько ещё глаз без имени. */
 export function seenWords(seen: SeenView): string {
@@ -166,5 +170,9 @@ export function ownSight(s: GameState, now: number, server: SeenView | null): { 
   if (server) return { range, seen: server };
   const at = roamCell(r.way, now);
   const by = castles().filter((k: CastleView) => sees({ kind: 'castle', at: { x: k.x, y: k.y } }, at, c));
-  return { range, seen: { count: by.length, by: by.map((k) => ({ kind: 'castle' as const, id: k.id, name: k.name, ...(k.city ? { city: k.city } : {}) })) } };
+  const named = by.map((k): SeenBy => {
+    const city = cityName(k.city);
+    return { kind: 'castle', id: k.id, name: k.name, ...(city ? { city } : {}) };
+  });
+  return { range, seen: { count: by.length, by: named } };
 }

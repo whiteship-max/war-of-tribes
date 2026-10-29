@@ -12,7 +12,7 @@
  * и дружина в поле — тоже наблюдатели двери, но их места живут в мире игрока, и слову клиента о них сервер не верит; в Срезе 1
  * отряды игроков они не обнаруживают (решение ПН-4у; вернутся с охотой игроков, Срез 2).
  */
-import type { BandRow, BandView, RosterFile, SeenBy, SeenView, WatchCard } from './contract.js';
+import { cityName, type BandRow, type BandView, type RosterFile, type SeenBy, type SeenView, type WatchCard } from './contract.js';
 import { bandLook, conspicuity, partyTimeAt, sees, type Look, type Watcher } from '../../src/world/sight.js';
 import { roamCell, roamMoving } from '../../src/world/roam.js';
 import { DAY_LENGTH, gameSecondsOfMs, realMs } from '../../src/game/pace.js';
@@ -99,7 +99,8 @@ export function seenOf(file: RosterFile, key: string, now: number): SeenView | n
   for (const [k, row] of Object.entries(file.rows)) {
     if (k === key || !sees({ kind: 'castle', at: { x: row.x, y: row.y } }, at, c)) continue;
     count++;
-    by.push({ kind: 'castle', id: castleIdOf(k), name: row.name, ...(row.city ? { city: row.city } : {}) });
+    const city = cityName(row.city);
+    by.push({ kind: 'castle', id: castleIdOf(k), name: row.name, ...(city ? { city } : {}) });
   }
   for (const [k, b] of Object.entries(file.bands ?? {})) {
     if (k === key) continue;
