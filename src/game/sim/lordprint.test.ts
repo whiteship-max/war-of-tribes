@@ -143,3 +143,57 @@ describe('партия лорда живёт как до ПН-1', () => {
     }
   });
 });
+
+// ПН-2 (docs/gdd/path_of_sword.md, «Решения ПН-2»): у лорда появились черты правителя, а с ними — счёт дел (`Ruler.deeds`). Обещание
+// задания — «без черт — байт в байт как сейчас». Держит его второй отпечаток: та же партия, но с делами правителя ниже каждого
+// порога — бои (три победы и поражение), пир, сожжённый и сдавшийся на условиях города, неделя минимального жалованья. Отпечаток
+// снят на нетронутой `game/pn1` (d85d226, второй worktree) без поля счёта — нового поля партии; сдвинется хоть одно прежнее поле —
+// тест упадёт.
+const PN1 = { deeds: '9b122108' };
+
+/** Запись партии без отметки сохранения и без счёта дел правителя (поля ПН-2). */
+const printOld = (s: GameState): string => {
+  const ruler = { ...s.realm.ruler } as Record<string, unknown>;
+  delete ruler.deeds;
+  return fnv(JSON.stringify({ ...s, lastSaved: 0, realm: { ...s.realm, ruler } }));
+};
+
+describe('партия лорда с делами ниже порогов черт живёт как до ПН-2', () => {
+  it('бои, пиры, участи и минимальное жалованье без черты — прежняя запись', async () => {
+    const { applyEffects } = await import('@/world/bridge');
+    const { throwFeast } = await import('./actions');
+    const { setWageMode } = await import('./upkeep');
+    const d = { ...stateMod, ...saveMod, ...tickMod };
+    const s = lordParty(d);
+    s.gold = 5000;
+    const eff = (id: string, over: Record<string, unknown>) =>
+      ({ id, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text: '', good: true, ...over }) as Parameters<typeof applyEffects>[1][number];
+    let now = T0;
+    for (let round = 0; round < 12; round++) {
+      for (let i = 0; i < 90; i++) {
+        now += 1000;
+        d.liveStep(s, 1, now);
+      }
+      if (round < 3) applyEffects(s, [eff(`w${round}`, { battle: 'won', prestige: 2 })]);
+      if (round === 3) applyEffects(s, [eff('l', { battle: 'lost', good: false, morale: -3 })]);
+      if (round === 4 || round === 9) throwFeast(s);
+      if (round === 5) applyEffects(s, [eff('f1', { fate: 'burn' }), eff('f2', { fate: 'plunder', terms: true })]);
+      if (round === 6) setWageMode(s, 'min');
+      if (round === 7) setWageMode(s, 'full');
+      d.absence(s, now, now + 30 * 60 * 1000);
+      now += 30 * 60 * 1000;
+    }
+    const ruler = s.realm.ruler as { deeds?: Record<string, number> };
+    // Граница области: дела правда были (на новом коде — счётом), а черт нет.
+    if (ruler.deeds) {
+      expect(ruler.deeds.won, 'победы ниже порога «Воителя»').toBe(3);
+      expect(ruler.deeds.feasts, 'пир был, ниже порога «Щедрого» (второй не пустил откат)').toBe(1);
+      expect(ruler.deeds.cruel, 'город сожжён').toBe(1);
+      expect(ruler.deeds.mercy, 'город сдался на условиях').toBe(1);
+      expect(ruler.deeds.wageMin, 'минимальное было').toBeGreaterThan(0);
+      const { rulerTraitsNow } = await import('../rulertraits');
+      expect(rulerTraitsNow(s), 'черт нет').toEqual([]);
+    }
+    expect(printOld(s), `отпечаток: game/pn1 ${PN1.deeds}`).toBe(PN1.deeds);
+  });
+});
