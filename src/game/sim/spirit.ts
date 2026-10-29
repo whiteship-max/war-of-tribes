@@ -14,7 +14,7 @@ import { buildingOfType, councilGift, estatesNow, fervour, foodShortfall, season
 import { FERVOUR_SCALE } from '../estaterules';
 import { gloryAfter, gloryAt, payShareAt, spiritNumbers, spiritOfIn, type SpiritIn, type SpiritView, type WageMode } from '../spiritrules';
 import { statueMorale } from '../statuerules';
-import { rulerTraitNumbers } from '../rulertraits';
+import { rulerTraitNumbers } from '../rulernow';
 import { armyBar, stabLevel } from './stability';
 import { agentLevel, seated } from './agents';
 import { ROAM_ON } from '../roamflag';

@@ -37,6 +37,7 @@ import { enterLead, leadAt, partyNow } from '@/net/clock';
 import { CHEATS_ON } from '@/cheats';
 import { ROAM_ON } from './roamflag';
 import { mergeRoam } from './sim/roam';
+import { loadRulerTraits } from './rulernow';
 
 const KEY = 'tribe.save.v1';
 
@@ -271,9 +272,11 @@ export async function loadFold(): Promise<void> {
 /** Версия записи без разбора всей строки: поле `version` пишет `serialize` первым. */
 const versionOf = (json: string): number => Number(/"version":\s*(\d+)/.exec(json)?.[1] ?? SAVE_VERSION);
 
-/** Готовность прочесть запись: партии младше 24-й нужна дверь перехода — подгрузить её до чтения. */
+/** Готовность прочесть запись: партии младше 24-й нужна дверь перехода, партии с делами правителя — правила черт; подгрузить их до чтения. */
 export async function readyToRead(json: string): Promise<void> {
   if (versionOf(json) < 24) await loadFold();
+  // Черты правителя (ПН-2): в записи есть счёт дел или минимальное жалованье — правила черт подгружаются до чтения (`rulernow`).
+  if (/"deeds":\{|"mode":"min"/.test(json)) await loadRulerTraits();
 }
 
 /**

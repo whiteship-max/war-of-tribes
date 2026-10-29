@@ -14,18 +14,8 @@ import { TRAIT_BY_ID } from './data/traits';
 import { COMMONER_SLIGHT, LORD_FAVOR } from './commandrules';
 import { GENERAL_DRILL, GLORY_LOSS, GLORY_WIN } from './spiritrules';
 import { giftCeil } from './councilrules';
-import {
-  RULER_AXES,
-  RULER_BUILD,
-  RULER_TRAITS,
-  rulerDeedsOf,
-  rulerNumbersOf,
-  rulerTraitNumbers,
-  rulerTraitsNow,
-  rulerTraitsOf,
-  type RulerDeeds,
-  type RulerTraitId,
-} from './rulertraits';
+import { RULER_AXES, RULER_BUILD, RULER_TRAITS, rulerDeedsOf, rulerNumbersOf, rulerTraitsNow, rulerTraitsOf, type RulerDeeds, type RulerTraitId } from './rulertraits';
+import { rulerTraitNumbers } from './rulernow';
 import { noteRulerDeed, succeed } from './sim/dynasty';
 import { setWageMode } from './sim/upkeep';
 import { rebelsSettled } from './sim/stability';
@@ -114,6 +104,26 @@ describe('черты по перебору счёта', () => {
     expect(rulerTraitsOf({ ...zero(), built: BUILDINGS.length })).toContain('builder');
     const big: RulerDeeds = { won: 99, lost: 99, fled: 99, built: 999, feasts: 99, mercy: 99, cruel: 99, days: 999, minDays: 999 };
     for (const id of ['trader', 'usurper', 'forest'] as RulerTraitId[]) expect(rulerTraitsOf(big), id).not.toContain(id);
+  });
+});
+
+describe('правила черт — докачкой: до первого дела черт не бывает', () => {
+  // Дверь чтения (`rulernow`) отдаёт нули, пока нет ни счёта, ни минимального жалованья, ни происхождения, — и правила при этом
+  // не нужны. Это верно только если черт так правда не бывает: перебор по дням правления.
+  it('без дел, минимального и происхождения — ни одной черты ни при каком сроке правления', () => {
+    for (const days of [0, 0.5, 3, 5, 40, 400, 4000]) expect(rulerTraitsOf({ ...zero(), days }), `${days} дн.`).toEqual([]);
+  });
+  it('первое дело подгружает правила, а самая скорая черта ждёт ещё двух дел', () => {
+    const keys = ['won', 'lost', 'fled', 'built', 'feasts', 'mercy', 'cruel'] as const;
+    for (const k of keys) {
+      for (const k2 of keys) {
+        const got = rulerTraitsOf({ ...zero(), [k]: 1, [k2]: (k === k2 ? 2 : 1), days: 40 });
+        expect(got, `два дела (${k}, ${k2}) черты не дают`).toEqual([]);
+      }
+    }
+    // Минимальное жалованье: черта — не раньше трёх игровых дней правления, из них полутора на минимальном.
+    expect(rulerTraitsOf({ ...zero(), days: 2.99, minDays: 2.99 })).toEqual([]);
+    expect(rulerTraitsOf({ ...zero(), days: 3, minDays: 1.5 }), 'граница: черта приходит').toEqual(['miser']);
   });
 });
 
@@ -271,16 +281,17 @@ describe('каждое число черты доходит до своей дв
       const st = await import('./state');
       const roam = await import('./sim/roam');
       const traits = await import('./rulertraits');
+      const now = await import('./rulernow');
       const market = await import('./sim/market');
       const merchant = st.createInitialState(7);
       const base = market.marketBoost(merchant);
       expect(roam.beginRoam(merchant, { origin: 'merchant', hero: { name: 'Ян', war: 1 }, band: { clubman: 4 }, purse: 50, food: 10 })).toBeNull();
       expect(traits.rulerTraitsNow(merchant)).toEqual(['trader']);
-      expect(traits.rulerSeat(merchant).n, 'счёт героя — не правителя').toBe(-1);
+      expect(now.rulerSeat(merchant).n, 'счёт героя — не правителя').toBe(-1);
       expect(market.marketBoost(merchant)).toBeCloseTo(Math.min(base * (1 + traits.RULER_TRADE), 99), 12);
       const taken = st.createInitialState(8);
       roam.beginRoam(taken, { origin: 'taken', hero: { name: 'Олег', war: 2 }, band: { clubman: 4 }, purse: 50, food: 10 });
-      expect(traits.rulerTraitNumbers(taken).loyalty).toMatchObject({ peasants: LORD_FAVOR, knights: -COMMONER_SLIGHT });
+      expect(now.rulerTraitNumbers(taken).loyalty).toMatchObject({ peasants: LORD_FAVOR, knights: -COMMONER_SLIGHT });
     } finally {
       vi.doUnmock('./roamflag');
       vi.resetModules();
@@ -360,6 +371,6 @@ describe('одна дверь на каждое число черты (табл�
       'world/fights.ts',
     ];
     expect(closed.length, 'граница: файлы найдены').toBeGreaterThan(10);
-    for (const r of closed) expect(bare(join(SRC, r)), r).not.toMatch(/rulertraits|rulerTrait/);
+    for (const r of closed) expect(bare(join(SRC, r)), r).not.toMatch(/ruler(?:traits|now)|rulerTrait/);
   });
 });

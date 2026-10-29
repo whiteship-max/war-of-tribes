@@ -111,7 +111,7 @@ import { ADVISOR_POSTS, advisorWage, giftOf } from './councilrules';
 import { WAGE_MIN_SHARE } from './spiritrules';
 import { AGENT_ROLES, recruitWage, recruitAt } from './agentrules';
 import { FLANKS, commanderSeated, leadLoyalty, type Birth, type Commander } from './commandrules';
-import { rulerTraitNumbers, stewardBuild } from './rulertraits';
+import { rulerTraitNumbers, stewardBuild } from './rulernow';
 import {
   ESTATES,
   FERVOUR_SCALE,
@@ -882,7 +882,7 @@ export const estatesNow = (s: GameState): Record<EstateId, EstateNow> => estates
 export function estatesWith(s: GameState, priv: Partial<Record<EstateId, number>> | undefined): Record<EstateId, EstateNow> {
   const infl = influenceOf(levelsOf(s), priv);
   const dec = estateDecree(s);
-  // Черты правителя (ПН-2) — одно слагаемое на сословие, единственным чтением черт (`rulertraits.rulerTraitNumbers`).
+  // Черты правителя (ПН-2) — одно слагаемое на сословие, единственным чтением черт (`rulernow.rulerTraitNumbers`).
   const ruler = rulerTraitNumbers(s).loyalty;
   const out = {} as Record<EstateId, EstateNow>;
   for (const e of ESTATES) {
@@ -1417,7 +1417,7 @@ export function crafterHeadShare(s: GameState, mods: SeasonModifiers = seasonMod
 /**
  * Рука стройки сверх ратуши: Староста совета (РТ-1) и цехи в силе (РТ-2) — тем же множителем, что у `buildRate`
  * (`build.buildRateOf`, не ниже единицы): доля Мастерской и мастеров в панели — ровно та, что они прибавляют к стройке.
- * «Строитель» (черта правителя, ПН-2) — прибавкой к Старосте под его потолком (`rulertraits.stewardBuild`); выработку дворов
+ * «Строитель» (черта правителя, ПН-2) — прибавкой к Старосте под его потолком (`rulernow.stewardBuild`); выработку дворов
  * черта не трогает: множитель дворов — `stewardMult` без неё.
  */
 export const buildBoost = (s: GameState): number => Math.max(1, stewardBuild(stewardMult(s), rulerTraitNumbers(s).build) * guildsMult(s));

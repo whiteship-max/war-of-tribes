@@ -49,7 +49,7 @@ import { scarsWatch } from '@/game/sim/scars';
 import { ADVISOR_POSTS } from '@/game/councilrules';
 import { estatesOf, privList } from '@/game/sim/estates';
 import { ESTATES } from '@/game/estaterules';
-import { RULER_DEED_KEYS, rulerDeedsOf, rulerSeat, rulerTraitsNow } from '@/game/rulertraits';
+import { rulerRules, traitsPossible } from '@/game/rulernow';
 import { deviceNow, leadAt } from './clock';
 import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
@@ -194,18 +194,12 @@ export function watchOf(s: GameState): WatchCard {
   };
 }
 
-/** Правитель для описи: номер человека дома (герой пути — −1), черты и счёт дел одной дверью `rulertraits`. Дел нет — пусто. */
+/**
+ * Правитель для описи — правилами черт (`rulertraits`, докачкой): номер человека дома, черты и счёт дел. Черт быть не может
+ * (`rulernow.traitsPossible`) — поля нет; правила ещё не подгружены — черт ещё нет, поле придёт следующей описью.
+ */
 function rulerWatch(s: GameState): WatchRuler | null {
-  const seat = rulerSeat(s);
-  const deeds = rulerDeedsOf(s);
-  const any = RULER_DEED_KEYS.some((k) => k !== 'days' && deeds[k] > 0);
-  if (!any && seat.origin === undefined) return null;
-  return {
-    n: seat.n,
-    held: rulerTraitsNow(s),
-    deeds: { ...deeds },
-    ...(seat.origin ? { origin: seat.origin } : {}),
-  };
+  return traitsPossible(s) ? (rulerRules()?.cardOf(s) ?? null) : null;
 }
 
 /** Дух дружины для описи: режим жалованья, мораль и дисциплина той же двери, что везёт их в бой, и счёт уплаченного. */

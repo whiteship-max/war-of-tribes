@@ -26,7 +26,7 @@ import { ageAt, keepInBook, mergeSkills, yearsWord } from './agents';
 import { GEAR_SLOTS, slotName } from '../data/items';
 import { bank } from './points';
 import { log } from './log';
-import { readTally, rulerPerson, wageMinClosing } from '../rulertraits';
+import { loadRulerTraits, readTally, rulerPerson, wageMinClosing } from '../rulernow';
 
 /**
  * Соль кости дома. Навыки — **не бросок общего потока партии**: `roll(s)` двигает
@@ -168,6 +168,8 @@ export function noteRulerDeed(s: GameState, deed: keyof RulerTally, n = 1): void
   if (!who) return;
   const t = (who.deeds ??= {});
   t[deed] = (t[deed] ?? 0) + n;
+  // Первое дело — правила черт докачкой (`rulernow`): самая скорая черта ждёт ещё двух дел.
+  void loadRulerTraits();
 }
 
 /** Жалованье меняют: идущий отрезок минимального — в счёт дел. Зовёт дверь жалованья (`sim/upkeep.setWageMode`) до смены. */
@@ -224,11 +226,8 @@ export function mergeRealm(base: RealmState, saved: unknown): RealmState {
       ...ruler,
       bornAt: num(raw.bornAt, base.ruler.bornAt),
       age0: Math.max(0, num(raw.age0, base.ruler.age0)),
-      // Счёт дел правления (ПН-2): только известные поля, не ниже нуля; пустого нет.
-      ...((): { deeds?: RulerTally } => {
-        const deeds = readTally(raw.deeds);
-        return deeds ? { deeds } : {};
-      })(),
+      // Счёт дел правления (ПН-2): только известные поля, не ниже нуля; пустого нет (`deeds` — `undefined`, в запись не идёт).
+      deeds: readTally(raw.deeds),
     },
     heir: person(r.heir, base.heir),
     points: levels(r.points, base.points, 0, POINTS_CAP),

@@ -47,7 +47,7 @@ import {
 import { pointsOf, spend } from './points';
 import { callGate } from './gate';
 import { log } from './log';
-import { rulerTraitNumbers } from '../rulertraits';
+import { rulerTraitNumbers } from '../rulernow';
 
 /** Сколько смен ступени помнит летопись раздела. */
 export const STAB_PAST = 40;

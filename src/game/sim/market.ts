@@ -33,7 +33,7 @@ import { loseBonded } from './population';
 import { rollShift } from './caravan';
 import { log } from './log';
 import { outlay } from './pay';
-import { rulerTraitNumbers } from '../rulertraits';
+import { rulerTraitNumbers } from '../rulernow';
 
 // ---------- Чтения ----------
 //

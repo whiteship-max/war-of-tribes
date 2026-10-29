@@ -18,7 +18,7 @@ import { TROOP_IDS } from '../data/troops';
 import { seasonMods } from '../derived';
 import { ROAM_ON } from '../roamflag';
 import { bandHunger, bandRationPerDay, forageShare } from '../roamrules';
-import { readTally } from '../rulertraits';
+import { readTally } from '../rulernow';
 import { troopTotal } from '../battle/kinds';
 // Мир — только данными (`world/data/*`): дверь режима марша (`world/gait`) тянет осаду и землю, и шаг города, который зовёт
 // этот модуль диспетчером, сдвинул бы ими первую загрузку.

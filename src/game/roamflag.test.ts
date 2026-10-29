@@ -100,6 +100,6 @@ describe('выключатель Пути меча закрыт до выпус�
       });
     }
     // Граница области: развилки есть — шаг, отлучка, дух и чей счёт дел (ПН-2: герой пути или правитель).
-    expect([...new Set(forks)].sort()).toEqual(['game/rulertraits.ts', 'game/sim/spirit.ts', 'game/sim/tick.ts']);
+    expect([...new Set(forks)].sort()).toEqual(['game/rulernow.ts', 'game/sim/spirit.ts', 'game/sim/tick.ts']);
   });
 });

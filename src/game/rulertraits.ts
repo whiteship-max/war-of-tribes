@@ -22,23 +22,27 @@
 // 4. **Каждое число черты действует ровно в одной двери** (таблица 3.2.3, тест по исходникам `rulertraits.test.ts`): память
 //    боёв и дисциплина — `sim/spirit`, выручка — `sim/market.marketBoost`, стройка — `derived.buildBoost` (потолок Старосты общий),
 //    подавление мятежа — `sim/stability`, лояльность — слагаемое `ruler` в `estaterules.loyaltyParts`. Двери читают черты только
-//    через `rulerTraitNumbers(s)`, а державы (`realm`) не знают (`sim/realm.test.ts`). Бой ядра (кроме морали через дух), очки,
-//    выработку и оборону черты не трогают.
+//    через `rulernow.rulerTraitNumbers(s)`, а державы (`realm`) не знают (`sim/realm.test.ts`). Бой ядра (кроме морали через дух),
+//    очки, выработку и оборону черты не трогают.
+//
+// Этот модуль — правила, и в первую загрузку он не едет: игра подгружает его докачкой (`rulernow.loadRulerTraits` — вход с
+// делами в записи и первое дело), а до первого дела черт не бывает вовсе (`rulernow.traitsPossible`). Дверь чтения и счёт
+// партии — `game/rulernow.ts`.
 //
 // Числа «что даёт»: +2 и −3 к памяти боёв — те же, что у «Победоносного» и «Битого» дома (`TRAIT_BY_ID`); +5 % выручки и стройки —
 // числа ГДД (без пометки); лояльность — мерка «один человек у власти»: милость и обида рыцарства к командиру фланга
 // (`LORD_FAVOR`, `COMMONER_SLIGHT` — выведены из порогов EU4), дисциплина — ступень полководца (`GENERAL_DRILL`).
 //
 // Одни на игру и на сервер (книга сословий, потолки духа, рынка и стройки — `netlify/lib/rulerbook.ts`): импорты — без `@/`.
-import type { EstateId, GameState, RoamOrigin, RulerTally } from './types';
+import type { EstateId, GameState, RoamOrigin } from './types';
+import type { WatchRuler } from '../../netlify/lib/contract';
 import { TRAIT_BY_ID, type Share } from './data/traits';
 import { BUILDINGS } from './data/buildings';
 import { ESTATES } from './estaterules';
 import { COMMONER_SLIGHT, LORD_FAVOR } from './commandrules';
 import { GENERAL_DRILL } from './spiritrules';
-import { giftCeil } from './councilrules';
 import { DAY_LENGTH } from './pace';
-import { ROAM_ON } from './roamflag';
+import { rulerSeat, useRulerRules, wageMinClosing } from './rulernow';
 
 export type RulerTraitId = 'warrior' | 'coward' | 'trader' | 'builder' | 'merciful' | 'cruel' | 'generous' | 'miser' | 'usurper' | 'forest';
 
@@ -256,54 +260,7 @@ export function rulerNumbersOf(traits: readonly RulerTraitId[]): RulerNumbers {
   return out;
 }
 
-/**
- * Множитель Старосты на стройке с прибавкой «Строителя»: черта ложится под тот же потолок, что Староста высшего уровня
- * (`councilrules.giftCeil`, ГДД 3.2.3: «общая дверь с советом, потолок общий»). Прибавки нет — множитель как есть.
- * Одна формула на игру (`derived.buildBoost`) и сервер (`watch.buildMult`).
- */
-export const stewardBuild = (steward: number, build: number): number => (build > 0 ? Math.min(1 + giftCeil('steward'), steward + build) : steward);
-
 // ---------- Счёт партии ----------
-
-const count = (v: unknown, max = 1e9): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(max, v)) : 0);
-
-/** Счёт дел из сохранения или описи: только известные поля, числа — не ниже нуля; пустой счёт — `undefined`. */
-export function readTally(v: unknown): RulerTally | undefined {
-  if (!v || typeof v !== 'object') return undefined;
-  const r = v as Record<string, unknown>;
-  const out: RulerTally = {};
-  for (const k of ['won', 'lost', 'fled', 'built', 'feasts', 'mercy', 'cruel'] as const) {
-    const n = Math.floor(count(r[k]));
-    if (n > 0) out[k] = n;
-  }
-  const min = count(r.wageMin, 1e15);
-  if (min > 0) out.wageMin = min;
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
-/** Чей счёт сейчас: героя на пути или правителя в замке. Пишет в него одна дверь — `sim/dynasty.noteRulerDeed`. */
-export function rulerPerson(s: GameState): { deeds?: RulerTally } | null {
-  if (ROAM_ON && s.phase === 'roam' && s.roam) return s.roam.hero;
-  return s.realm?.ruler ?? null;
-}
-
-/**
- * Чей счёт сейчас: номер человека дома (у героя пути — −1: в дом он ляжет при переходе, ПН-11), с какой игровой секунды счёт
- * идёт и происхождение (у героя пути).
- */
-export function rulerSeat(s: GameState): { n: number; tally: RulerTally | undefined; since: number; origin?: RoamOrigin } {
-  if (ROAM_ON && s.phase === 'roam' && s.roam) return { n: -1, tally: s.roam.hero.deeds, since: s.roam.hero.since ?? s.time, origin: s.roam.origin };
-  return { n: s.realm?.ruler?.n ?? 0, tally: s.realm?.ruler?.deeds, since: s.realm?.ruler?.bornAt ?? s.time };
-}
-
-/**
- * Сколько игровых секунд закрывает смена жалованья с минимального: идущий отрезок, срезанный началом правления (у прежнего
- * правителя отрезок остался с ним). Жалованье не минимальное — ноль.
- */
-export function wageMinClosing(s: GameState): number {
-  const w = s.pay?.wage;
-  return w && w.mode === 'min' ? Math.max(0, s.time - Math.max(w.since, rulerSeat(s).since)) : 0;
-}
 
 /** Счёт дел правителя (героя) в минуту партии — то, что меряют черты и что едет в опись. */
 export function rulerDeedsOf(s: GameState): RulerDeeds {
@@ -323,8 +280,23 @@ export function rulerDeedsOf(s: GameState): RulerDeeds {
   };
 }
 
-/** Черты правителя (героя) сейчас. */
+/** Черты правителя (героя) сейчас — для окон (они подгружают правила сами) и описи. */
 export const rulerTraitsNow = (s: GameState): RulerTraitId[] => rulerTraitsOf(rulerDeedsOf(s), rulerSeat(s).origin);
+const traitsNow = rulerTraitsNow;
 
-/** Числа черт правителя — **единственное** чтение черт для дверей игры (правило 4). */
-export const rulerTraitNumbers = (s: GameState): RulerNumbers => rulerNumbersOf(rulerTraitsNow(s));
+/** Правитель для описи (`net/snapshot`): номер человека дома (герой пути — −1), черты и счёт дел. */
+function cardOf(s: GameState): WatchRuler {
+  const seat = rulerSeat(s);
+  return { n: seat.n, held: traitsNow(s), deeds: { ...rulerDeedsOf(s) }, ...(seat.origin ? { origin: seat.origin } : {}) };
+}
+
+/** Что дверь чтения (`rulernow`) берёт у правил, когда они подгружены. */
+export interface RulerRules {
+  traitsNow(s: GameState): RulerTraitId[];
+  numbersNow(s: GameState): RulerNumbers;
+  cardOf(s: GameState): WatchRuler;
+}
+
+// Правила подгружены — дверь чтения узнаёт о них сама: игра подгружает их докачкой (`rulernow.loadRulerTraits`), тесты и
+// сервер — прямым импортом.
+useRulerRules({ traitsNow, numbersNow: (s) => rulerNumbersOf(traitsNow(s)), cardOf });

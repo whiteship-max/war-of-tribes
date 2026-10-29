@@ -68,7 +68,7 @@ import { agentsAt, agentsStep, gameMsBetween, readAgentBook, recruitOfSeat, type
 import { claimedLead, commandAt, commandStep, commanderOfSeat, readCommandBook, type CommandAt, type CommandBook } from './commandbook.js';
 import { readScarBook, scarBookAfter, scarFaults, type ScarBook } from './scarbook.js';
 import { claimedRuler, rulerFaults, rulerFlags } from './rulerbook.js';
-import { stewardBuild } from '../../src/game/rulertraits.js';
+import { stewardBuild } from '../../src/game/rulernow.js';
 import { NO_GENERAL } from '../../src/game/scarrules.js';
 import { commanderAt } from '../../src/game/commandrules.js';
 import { recruitAdvance, recruitAt, recruitWage } from '../../src/game/agentrules.js';

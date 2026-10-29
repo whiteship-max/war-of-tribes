@@ -41,9 +41,6 @@ import { noteFight } from './scars';
 import type { FightMark } from '../scarrules';
 import { count } from '@/ui/parts/plural';
 
-/** Участи взятого города, которые счёт правителя пишет жестокостью (ПН-2): огонь и неволя. */
-const CRUEL_FATES: readonly Fate[] = ['burn', 'captives'];
-
 /** Что случилось с деревней, пока отряд был в пути. */
 export interface ExpeditionOutcome {
   /** Погибшие воины и разведчики. */
@@ -410,11 +407,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // Дела правителя (ПН-2) — после памяти духа: бой, который черту приносит, прибавки к памяти ещё не даёт (как слава
   // полководца дома, `reputeMorale`).
   if (o.battle === 'won' || o.battle === 'lost') noteRulerDeed(s, o.battle);
-  if (o.fate) {
-    const cruel = CRUEL_FATES.includes(o.fate);
-    if (cruel) noteRulerDeed(s, 'cruel');
-    else if (o.terms) noteRulerDeed(s, 'mercy');
-  }
+  // Огонь и неволя — жестокость; сдача на наших условиях без них — милость.
+  if (o.fate && o.fate !== 'plunder') noteRulerDeed(s, 'cruel');
+  else if (o.fate && o.terms) noteRulerDeed(s, 'mercy');
   // Журнал боёв армии (ДР-4): метка боя — той же минутой; из журнала выводятся черты (`sim/scars`).
   if (o.scar) noteFight(s, o.scar);
   // Бой и падение двигают стабильность одной дверью (docs/stability.md, 2.2): бой — сдвигом мерой его морали, павший город —
