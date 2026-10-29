@@ -5,19 +5,19 @@
 //
 // Области (правило 11): у каждой черты точка внутри — черта правда держится в игре (утверждением), а рядом опись без черт.
 import { describe, expect, it } from 'vitest';
-import { createInitialState } from '../../src/game/state.js';
-import { DAY_LENGTH } from '../../src/game/pace.js';
-import { BUILDINGS } from '../../src/game/data/buildings.js';
-import { GENERAL_DRILL } from '../../src/game/spiritrules.js';
-import { COMMONER_SLIGHT } from '../../src/game/commandrules.js';
-import { noteRulerDeed } from '../../src/game/sim/dynasty.js';
-import { setWageMode } from '../../src/game/sim/upkeep.js';
-import { RULER_BUILD, rulerNumbersOf, rulerTraitNumbers, rulerTraitsNow, type RulerTraitId } from '../../src/game/rulertraits.js';
-import type { GameState, RulerTally } from '../../src/game/types.js';
-import { watchOf } from '../../src/net/snapshot.js';
-import { claimedRuler, rulerFaults, rulerFlags } from './rulerbook.js';
-import { buildMult, estateFaults, readWatchRecord, spiritCeilOf } from './watch.js';
-import type { WatchCard } from './contract.js';
+import { createInitialState } from '@/game/state';
+import { DAY_LENGTH } from '@/game/pace';
+import { BUILDINGS } from '@/game/data/buildings';
+import { GENERAL_DRILL } from '@/game/spiritrules';
+import { COMMONER_SLIGHT } from '@/game/commandrules';
+import { noteRulerDeed } from '@/game/sim/dynasty';
+import { setWageMode } from '@/game/sim/upkeep';
+import { RULER_BUILD, rulerNumbersOf, rulerTraitNumbers, rulerTraitsNow, type RulerTraitId } from '@/game/rulertraits';
+import type { GameState, RulerTally } from '@/game/types';
+import { watchOf } from './snapshot';
+import { claimedRuler, rulerFaults, rulerFlags } from '../../netlify/lib/rulerbook';
+import { buildMult, estateFaults, readWatchRecord, spiritCeilOf } from '../../netlify/lib/watch';
+import type { WatchCard } from '../../netlify/lib/contract';
 
 /** Партия лорда с днями правления и счётом дел — через дверь записи. */
 function lord(tally: RulerTally = {}, minWage = false): GameState {
