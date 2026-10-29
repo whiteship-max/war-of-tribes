@@ -486,9 +486,16 @@ function allyOf(file: WarFile, w: WarRow, key: string): boolean {
   return (w.phase === 'camp' || w.phase === 'march' || w.phase === 'back') && pacted(file, key, w.def);
 }
 
-/** Свои войны и осады союзников — свежие сверху. */
-export const warsOf = (file: WarFile, key: string): WarView[] =>
-  file.wars.filter((w) => w.atk === key || w.def === key || allyOf(file, w, key)).map((w) => viewOf(w, key)).reverse();
+/**
+ * Свои войны и осады союзников — свежие сверху. `since` — минута обнуления партии игрока (`partyreset.resetOf`, 30.10.2026): война,
+ * начатая раньше неё, шла у прежней партии, и новой не отдаётся — иначе новая партия приняла бы её бои, падение и дань как свои
+ * (ПН-5, хвост б). Не обнуляли — ноль, отдаётся всё.
+ */
+export const warsOf = (file: WarFile, key: string, since = 0): WarView[] =>
+  file.wars
+    .filter((w) => w.sentAt >= since && (w.atk === key || w.def === key || allyOf(file, w, key)))
+    .map((w) => viewOf(w, key))
+    .reverse();
 
 // ------------------------------------------------ пакты между игроками ---
 
@@ -3324,8 +3331,10 @@ export function spyViewOf(row: SpyRow, key: string): SpyView | null {
 }
 
 /** Свои дела лазутчиков и чужие у нас, которые мы видим, — свежие сверху. */
-export const spiesOf = (file: WarFile, key: string): SpyView[] =>
+export const spiesOf = (file: WarFile, key: string, since = 0): SpyView[] =>
   (file.spies ?? [])
+    // Дело, начатое раньше обнуления партии игрока, — дело прежней партии (`warsOf`, `since`).
+    .filter((x) => x.sentAt >= since)
     .map((x) => spyViewOf(x, key))
     .filter((x): x is SpyView => x !== null)
     .reverse();

@@ -43,6 +43,7 @@ import { queueNews } from '../outbox.js';
 import { RIVAL_DEED_BY_ID } from '../../../src/world/data/spy.js';
 import { STORES } from '../kv.js';
 import { FROZEN_ORDER, FROZEN_TARGET, frozenNow, isFrozen } from '../admin.js';
+import { resetOf } from '../partyreset.js';
 import { addFlags, agentsOf, bookOf, commandOf, marshalOf, noted, observe, readWatchRecord, scarsOfRec, spiritCeilOf, townOf, yieldCapOf } from '../watch.js';
 
 /** Все войны лежат одной записью рядом с реестром. */
@@ -93,6 +94,8 @@ export const war: Route = async (req, io) => {
   const pace = warPace();
   setWarPace(pace);
   const frozen = await frozenNow(io.stores);
+  // Партию игрока обнуляли (`partyreset`): войны и тайные дела, начатые раньше этой минуты, — прежней партии, новой не отдаются.
+  const since = await resetOf(io.stores, key);
 
   // Слепки обороны — из записей партий, по ключу из реестра или из самой войны. Только чтение. Замороженного города
   // для войны нет: слепка нет, и пришедшее войско поворачивает (docs/admin.md).
@@ -209,12 +212,12 @@ export const war: Route = async (req, io) => {
           else spyMenu = menu;
         }
       }
-      const spies = spiesOf(file, key);
+      const spies = spiesOf(file, key, since);
       const pacts = pactsOf(file, key);
       const proposals = proposalsOf(file, key);
       const body: WarResponse = {
         now,
-        wars: warsOf(file, key),
+        wars: warsOf(file, key, since),
         ...(spies.length ? { spies } : {}),
         ...(pacts.length ? { pacts } : {}),
         ...(proposals.length ? { proposals } : {}),
