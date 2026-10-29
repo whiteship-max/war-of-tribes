@@ -10,15 +10,12 @@
 // же энергия). Своей арифметики у окна, у мира и у сервера нет.
 //
 // Модуль чистый: часов не читает, время приходит доводом. Без `@/`: его собирает и сервер.
-import { GAIT_HAUL, GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, type Gait } from './data/gait';
+import { GAIT_HAUL, GAIT_LIGHT_WASTE, GAIT_META, GAIT_SPEED, readGait, type Gait } from './data/gait';
 import { wasteLosses } from './siegeroll';
 import { travelTime } from './geo';
 import { gameDaysOfMs, realMs } from '../game/pace';
 
-export { GAITS, GAIT_HAUL, GAIT_META, GAIT_SPEED, GAIT_LIGHT_WASTE, TRAIN_SHARE, type Gait } from './data/gait';
-
-/** Режим из записи: «налегке» или «с обозом», иначе — обычный (старый поход, мусор, нет поля). */
-export const readGait = (v: unknown): Gait => (v === 'light' || v === 'train' ? v : 'normal');
+export { GAITS, GAIT_HAUL, GAIT_META, GAIT_SPEED, GAIT_LIGHT_WASTE, TRAIN_SHARE, readGait, type Gait } from './data/gait';
 
 /** Поле режима для записи: обычный — без поля (как до ДР-2). */
 export const gaitField = (g: Gait | undefined): { gait?: 'light' | 'train' } => (g === 'light' || g === 'train' ? { gait: g } : {});

@@ -3,7 +3,8 @@ import type { DecreeId, RationId, TaxId } from './data/policy';
 import type { TroopStack } from './battle/kinds';
 import type { ProfileState } from '@/profile/types';
 import type { FigureId, GateCall } from '@/world/types';
-import type { Gait } from '@/world/data/gait';
+import type { RoamCampRec, RoamWay } from '@/world/roammove';
+import type { EnergyMark } from '@/world/energy';
 import type { ItemId } from './data/items';
 import type { TraitId } from './data/traits';
 import type { FightMark } from './scarrules';
@@ -1230,10 +1231,11 @@ export interface RoamHero {
   deeds?: RulerTally;
 }
 
-/** Лагерь отряда (ГДД 3.5.3) в объёме ПН-1: с какой игровой секунды стоит. Вид, клетка и работы — ПН-3. */
-export interface RoamCamp {
-  since: number;
-}
+/**
+ * Лагерь отряда (ГДД 3.5.3, ПН-3): вид, с какой минуты стоит (часы мира, мс — от неё растут рогатки) и сколько бойцов строя их
+ * ставили. Клетка — конец хода (`RoamState.way.to`). Считает и пишет его дверь хода `world/roam` (`roamCamp`).
+ */
+export type RoamCamp = RoamCampRec;
 
 /**
  * Отряд бродяги (ПН-1, ГДД 6.1.1 — черновик; поля Среза 1, которые читают и пишут двери ПН-1). Престиж — `s.prestige`, дух и
@@ -1253,10 +1255,16 @@ export interface RoamState {
   cargo: Partial<Record<ResourceId, number>>;
   /** Снаряжение в обозе: распущенные отдают его сюда (3.3.2). Не весит, как снаряжение на складе города. */
   gear: Partial<Record<EquipmentId, number>>;
-  /** Режим марша — тот же, что у полководца (`world/data/gait`): поклажа обоза и фураж в пути (3.3.4, 3.3.5). */
-  gait: Gait;
-  /** Стоит лагерем; `null` — в пути. */
+  /**
+   * Ход отряда (ПН-3, `world/roam.RoamWay`): откуда, куда, когда вышел и придёт (часы мира, мс) и режим марша — поклажа обоза и
+   * фураж в пути (3.3.4, 3.3.5) и скорость. **Режим живёт только здесь** (`way.gait`, решение ПН-3): поля режима у отряда больше
+   * нет. Нет поля — место выхода сервер ещё не назвал: мир бродяги не строится.
+   */
+  way?: RoamWay;
+  /** Стоит лагерем; `null` — в пути или в поле без лагеря. */
   camp: RoamCamp | null;
+  /** Энергия отряда (`world/energy`): дорога уходит по дням пути, в лагере копится. Нет поля — полный запас. */
+  energy?: EnergyMark;
 }
 
 /** Группа недовольных (docs/stability.md, 2.3): две новые полосы и два вида прежних сроков — ропота и терпения войска. */

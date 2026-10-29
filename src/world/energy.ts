@@ -205,6 +205,17 @@ export function energyBlock(have: number, price: number, road = 0, rate = 1): st
 }
 
 /**
+ * Хватит ли сил на ход отряда бродяги (ПН-3, `world/roam`): та же проверка, что `energyBlock`, — дорога и цена (смена режима
+ * марша в пути), — но слова о дороге, а не о месте дела: у хода в чистое поле дела нет, и «на месте будет 0, нужно 0» не говорит
+ * ничего. null — хватит, иначе отказ словами.
+ */
+export function walkBlock(have: number, price: number, road: number, rate = 1): string | null {
+  if (energyBlock(have, price, road, rate) === null) return null;
+  const need = roadCost(road, rate) + Math.max(0, price);
+  return `Не хватит сил на дорогу: нужно ${Math.ceil(need - EPS)}, есть ${Math.floor(Math.max(0, have) + EPS)}. В лагере силы копятся.`;
+}
+
+/**
  * Цена самого дешёвого дела агента — по таблице цен (`ENERGY_PRICE`, поле `agent`). Меньше — ему не по карману ни одно его
  * дело. Дела без цены (наблюдение, перевод дружины, «вести сюда» в чистое поле) платят только дорогой и мерой не служат:
  * иначе сил хватало бы всегда. У агента без строк в таблице мерка — единица, как прежде.

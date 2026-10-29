@@ -20,7 +20,9 @@ import { bandPatienceDays, fieldForage, forageShare } from '../roamrules';
 import { GAIT_HAUL, GAITS } from '@/world/data/gait';
 import { UNIT_BY_ID } from '@/world/data/units';
 import { AWAY_AFTER, CATCHUP_STEP, absence, awayGameSeconds, liveStep } from './tick';
-import { beginRoam, cargoCap, mergeRoam, roamFor } from './roam';
+import { beginRoam, cargoCap, mergeRoam, roamFor, setMove } from './roam';
+import { standWay } from '@/world/roammove';
+import { freshMark } from '@/world/energy';
 import { addStock } from './stock';
 import { layBandWounds } from './infirmary';
 import { spiritView } from './spirit';
@@ -196,11 +198,11 @@ describe('обоз — дверь склада с ключом cargo (ГДД 3.3
   it('вместимость — ноша бойца мира на голову строя, режимом марша', () => {
     const s = roamParty({ spearman: 6, rider: 2 });
     for (const g of GAITS) {
-      s.roam!.gait = g;
+      s.roam!.way = standWay(g);
       expect(cargoCap(s.roam!), g).toBeCloseTo(8 * UNIT_BY_ID.warrior.carry * GAIT_HAUL[g], 9);
     }
     layBandWounds(s, { spearman: 5 });
-    s.roam!.gait = 'normal';
+    s.roam!.way = standWay('normal');
     expect(cargoCap(s.roam!), 'раненых несут — они не везут').toBe(8 * UNIT_BY_ID.warrior.carry);
   });
 
@@ -246,12 +248,13 @@ describe('фураж по сезону — поле сезона из SEASON_MOD
     expect(fieldForage(SEASON_MODIFIERS.summer)).toBeGreaterThan(fieldForage(SEASON_MODIFIERS.spring));
   });
 
-  it('в лагере и обычным маршем — фураж; налегке и с обозом в пути — нет', () => {
+  it('в открытом лагере и обычным маршем — фураж; налегке и с обозом в пути — нет', () => {
     const m = SEASON_MODIFIERS.summer;
-    expect(forageShare(m, { camp: { since: 0 }, gait: 'light' })).toBeCloseTo(forageFormula('summer'), 12);
-    expect(forageShare(m, { camp: null, gait: 'normal' })).toBeCloseTo(forageFormula('summer'), 12);
-    expect(forageShare(m, { camp: null, gait: 'light' })).toBe(0);
-    expect(forageShare(m, { camp: null, gait: 'train' })).toBe(0);
+    expect(forageShare(m, { camp: { kind: 'open', since: 0, builders: 0 }, way: standWay('light') })).toBeCloseTo(forageFormula('summer'), 12);
+    expect(forageShare(m, { camp: null, way: standWay('normal') })).toBeCloseTo(forageFormula('summer'), 12);
+    expect(forageShare(m, { camp: null, way: undefined }), 'места выхода нет — обычный марш').toBeCloseTo(forageFormula('summer'), 12);
+    expect(forageShare(m, { camp: null, way: standWay('light') })).toBe(0);
+    expect(forageShare(m, { camp: null, way: standWay('train') })).toBe(0);
   });
 
   it('шаг отряда: осенью из обоза уходит полпайка, зимой второго года — весь паёк', () => {
@@ -261,7 +264,7 @@ describe('фураж по сезону — поле сезона из SEASON_MOD
       s.time = time;
       if (!camp) {
         s.roam!.camp = null;
-        s.roam!.gait = 'light';
+        s.roam!.way = standWay('light');
       }
       live(s, 1);
       return 3000 - s.roam!.cargo.food!;
@@ -308,17 +311,19 @@ describe('отряд в сохранении', () => {
   it('запись и чтение везут фазу и отряд целиком; чужое — партия лорда', () => {
     const s = roamParty({ spearman: 7, rider: 1 }, { purse: 55, food: 300 });
     layBandWounds(s, { archer: 2 });
-    s.roam!.gait = 'train';
+    // Ход, лагерь и энергия (ПН-3) — одной дверью записи хода.
+    setMove(s, { way: { ...standWay('train', { x: 5, y: 6 }, 1000), until: 1000 }, camp: { kind: 'hidden', since: 1000, builders: 8 }, energy: freshMark(1000, 'camp') });
     const back = deserialize(JSON.stringify(s));
     expect(back?.phase).toBe('roam');
     expect(back?.roam).toEqual(s.roam);
     expect(mergeRoam({ phase: 'roam', roam: { origin: 'king' } })).toEqual({});
     expect(mergeRoam({ phase: 'war' })).toEqual({});
     expect(mergeRoam({ phase: 'lord' })).toEqual({ phase: 'lord' });
-    expect(mergeRoam({ phase: 'roam', roam: { origin: 'taken', band: { spearman: -3, rider: 2.7 }, gait: 'fly', cargo: { food: 'x' } } }).roam).toMatchObject({
-      band: { rider: 2 },
-      gait: 'normal',
-      cargo: {},
-    });
+    const junk = mergeRoam({
+      phase: 'roam',
+      roam: { origin: 'taken', band: { spearman: -3, rider: 2.7 }, way: { from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, at: 9, until: 5, gait: 'fly' }, camp: { kind: 'tent' }, cargo: { food: 'x' } },
+    }).roam;
+    expect(junk).toMatchObject({ band: { rider: 2 }, cargo: {}, camp: null });
+    expect(junk?.way, 'режим из записи — из списка, срок — не раньше выхода').toEqual({ from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, at: 9, until: 9 });
   });
 });

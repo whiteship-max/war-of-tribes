@@ -20,12 +20,14 @@ import { ROAM_ON } from '../roamflag';
 import { bandHunger, bandRationPerDay, forageShare } from '../roamrules';
 import { readTally } from '../rulernow';
 import { troopTotal } from '../battle/kinds';
-// Мир — только данными (`world/data/*`): дверь режима марша (`world/gait`) тянет осаду и землю, и шаг города, который зовёт
-// этот модуль диспетчером, сдвинул бы ими первую загрузку.
-import { GAITS, GAIT_HAUL, type Gait } from '@/world/data/gait';
+// Мир — только данными (`world/data/*`) и формой записи хода (`world/roammove`): дверь режима марша (`world/gait`) и дверь хода
+// (`world/roam`) тянут осаду, землю и регионы, и шаг города, который зовёт этот модуль диспетчером, сдвинул бы ими первую загрузку.
+import { GAIT_HAUL } from '@/world/data/gait';
 import { UNIT_BY_ID } from '@/world/data/units';
-import { addStock } from './stock';
-import { settleBandWounds } from './infirmary';
+import { readMove, wayGait, type RoamMove } from '@/world/roammove';
+import { addStock, trimCargo } from './stock';
+import { hastenBandWounds, settleBandWounds } from './infirmary';
+import { roamStub } from '../roamstubs';
 import { bandUpkeep } from './upkeep';
 import { trimLog } from './log';
 
@@ -44,11 +46,11 @@ export interface RoamStart {
 
 /**
  * Вместимость обоза (ГДД 3.3.5): ноша бойца мира (`units.warrior.carry` — та же, что у обоза полководца) на голову строя, режимом
- * марша (`GAIT_HAUL` — та же поклажа, что у `gait.gaitHaul`: налегке меньше, с обозом больше). Раненых несут — они не везут. Золото не весит. Телеги — с
- * происхождениями (ПН-17), когда прибор выведет их вместимость.
+ * марша хода (`GAIT_HAUL` — та же поклажа, что у `gait.gaitHaul`: налегке меньше, с обозом больше; режим — поле хода `way.gait`,
+ * решение ПН-3). Раненых несут — они не везут. Золото не весит. Телеги — с происхождениями (ПН-17), когда прибор выведет их
+ * вместимость.
  */
-export const cargoCap = (r: Pick<RoamState, 'band' | 'gait'>): number =>
-  troopTotal(r.band) * UNIT_BY_ID.warrior.carry * GAIT_HAUL[GAITS.includes(r.gait) ? r.gait : 'normal'];
+export const cargoCap = (r: Pick<RoamState, 'band' | 'way'>): number => troopTotal(r.band) * UNIT_BY_ID.warrior.carry * GAIT_HAUL[wayGait(r.way)];
 
 /** Отказ войти в путь — словами; можно — `null`. */
 export function roamBlock(s: GameState): string | null {
@@ -88,8 +90,8 @@ export function beginRoam(s: GameState, start: RoamStart): string | null {
     purse: amount(start.purse),
     cargo: {},
     gear: {},
-    gait: 'normal',
-    camp: { since: s.time },
+    // Хода и лагеря нет, пока место выхода не названо (ПН-3): клетку назовёт сервер (`setMove` с `world/roam.roamSeat`).
+    camp: null,
   };
   s.phase = 'roam';
   s.roam = roam;
@@ -133,7 +135,8 @@ export function mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'> {
     const n = count(v);
     if (n > 0) gear[id as keyof RoamState['gear']] = n;
   }
-  const camp = r.camp && typeof r.camp === 'object' ? (r.camp as Record<string, unknown>) : null;
+  // Ход, лагерь и энергия (ПН-3) — одной формой записи (`world/roammove.readMove`): лагерь без хода не бывает.
+  const move = readMove(r);
   return {
     phase,
     roam: {
@@ -153,10 +156,31 @@ export function mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'> {
       purse: amount(r.purse),
       cargo,
       gear,
-      gait: GAITS.includes(r.gait as Gait) ? (r.gait as Gait) : 'normal',
-      camp: camp && typeof camp.since === 'number' && Number.isFinite(camp.since) ? { since: camp.since } : null,
+      camp: move?.camp ?? null,
+      ...(move ? { way: move.way } : {}),
+      ...(move?.energy ? { energy: move.energy } : {}),
     },
   };
+}
+
+/** Ход отряда из партии — запись целиком (`world/roammove.RoamMove`); места выхода нет — `null`. */
+export const moveOf = (r: Pick<RoamState, 'way' | 'camp' | 'energy'>): RoamMove | null =>
+  r.way ? { way: r.way, camp: r.camp, ...(r.energy ? { energy: r.energy } : {}) } : null;
+
+/**
+ * Записать ход отряда (ПН-3) — **единственная дверь записи** `way`, `camp` и `energy` партии: её зовут мир бродяги (приказы
+ * «Идти сюда» и «Встать лагерем», `world/local/RoamWorld`) и встреча с реестром (`world/store` — запись, которую принял сервер).
+ * Сам ход считает дверь хода `world/roam`; здесь — только запись и её следствие: сменился режим марша — сменилась вместимость
+ * обоза, и что сверх неё, брошено строкой летописи (`stock.trimCargo`). Возвращает эту строку или `null`.
+ */
+export function setMove(s: GameState, m: RoamMove): string | null {
+  const r = s.roam;
+  if (!ROAM_ON || s.phase !== 'roam' || !r) return null;
+  r.way = m.way;
+  r.camp = m.camp;
+  if (m.energy) r.energy = m.energy;
+  else delete r.energy;
+  return trimCargo(s, cargoCap(r));
 }
 
 /**
@@ -167,6 +191,9 @@ export function roamStep(s: GameState, dt: number): void {
   if (!r || !(dt > 0)) return;
   const dayBefore = Math.floor(s.time / DAY_LENGTH);
   s.time += dt;
+  // Открытый лагерь (костры, шатры) — раненые встают быстрее (ГДД 3.5.3; во сколько — заглушка `healOpen`, ПН-5): их срок
+  // подходит быстрее часов той же дверью раненых.
+  if (r.camp?.kind === 'open') hastenBandWounds(s, dt * (roamStub('healOpen') - 1));
   settleBandWounds(s);
   const mods = seasonMods(s);
   // Паёк: фураж с земли, остальное — из обоза. Голодна та доля, которую обоз не закрыл (как амбар города: «пуст, только если еды

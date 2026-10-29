@@ -18,7 +18,7 @@ import { rulerTraitNumbers } from '../rulernow';
 import { armyBar, stabLevel } from './stability';
 import { agentLevel, seated } from './agents';
 import { ROAM_ON } from '../roamflag';
-import { bandBar, bandHunger } from '../roamrules';
+import { bandBar, bandHunger, campSpirit } from '../roamrules';
 
 /** Жалованье дружине: режим, минута смены и доля восстановления в неё. Нет поля — полное и давно (доля 1). */
 export function wageTrack(s: GameState): { mode: WageMode; since: number; from: number } {
@@ -86,6 +86,8 @@ function bandSpiritIn(s: GameState, r: NonNullable<GameState['roam']>): SpiritIn
     pay: payShare(s),
     // Черты героя пути (ПН-2) — та же дверь, что у правителя.
     ruler: rulerTraitNumbers(s).drill,
+    // Лагерь (ПН-3): открытый — костры, скрытый зимой — холод (`roamrules.campSpirit`).
+    camp: campSpirit(r.camp, seasonMods(s)),
   };
 }
 

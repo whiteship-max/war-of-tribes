@@ -385,6 +385,12 @@ HEAD один на всех, см. правило 8). Значит развес�
 - `src/game/sim/prestige.ts` — престиж одной дверью (ПН-2, docs/gdd/path_of_sword.md, 14): `GameState.prestige` пишет только
   `movePrestige` (итог похода, награда задания, ответ вести), ступень — `prestigeStage` по порогам, которых в коде нет до вывода.
   Разойдись запись у двоих — престиж падал бы ниже нуля у одного и не падал у другого;
+- `src/world/roam.ts`, `src/world/roammove.ts`, `src/world/ruins.ts` и `src/game/roamstubs.ts` — ход и лагерь отряда бродяги (ПН-3,
+  docs/gdd/path_of_sword.md, 15): запись хода `RoamState.way` (режим марша — только `way.gait`), `.camp` (вид, минута, строители) и
+  `.energy` — необязательные поля, пишет их одна дверь `sim/roam.setMove`; путь, отказы, энергия, лагерь, рогатки и место выхода —
+  одна дверь `world/roam` на клиент и на реестр сервера (строки `bands`, `netlify/lib/roster.ts`); руины — общие точки мира постоянной
+  солью; числа без вывода — заглушки `roamstubs` (только за `ROAM_ON`, входами прибора). Разойдись правило у двоих — сервер отверг бы
+  честный ход или пропустил бы отряд в воду, а руины стояли бы у двоих в разных местах;
 - `src/game/rulertraits.ts`, `src/game/rulernow.ts` и `netlify/lib/rulerbook.ts` — черты правителя (ПН-2, решение П10): счёт дел
   `Ruler.deeds` (у героя пути — `RoamHero.deeds`) — необязательное поле, пишет одна дверь `sim/dynasty.noteRulerDeed`; черты —
   чистая функция `rulertraits.rulerTraitsOf` (правила — докачкой), читают их двери только числами `rulernow.rulerTraitNumbers`;

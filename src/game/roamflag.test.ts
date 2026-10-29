@@ -23,8 +23,8 @@ const BAND: RoamState = {
   purse: 120,
   cargo: { food: 40 },
   gear: {},
-  gait: 'normal',
-  camp: { since: 0 },
+  way: { from: { x: 3, y: 4 }, to: { x: 3, y: 4 }, at: 0, until: 0 },
+  camp: { kind: 'open', since: 0, builders: 6 },
 };
 
 /** Партия, которой фазу бродяги записали мимо входа: рукой или чужим сохранением. */

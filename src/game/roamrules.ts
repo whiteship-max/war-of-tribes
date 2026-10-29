@@ -17,6 +17,8 @@ import { DAY_LENGTH } from './pace';
 import { WAGE_MIN_SHARE, type WageMode } from './spiritrules';
 import { SEASONS, SEASON_MODIFIERS, type SeasonModifiers } from './data/seasons';
 import { FREE_RANGE_MULT } from './constants';
+import { roamStub } from './roamstubs';
+import { wayGait, type CampKind, type RoamCampRec } from '@/world/roammove';
 
 /**
  * Жалованье бойца отряда за игровой день — формула 3.3.2 (`TAX_PER_POP × (WAGE_HEAD + WAGE_MAN × grade + WAGE_GEAR × вещей и
@@ -84,19 +86,44 @@ export function fieldForage(mods: Pick<SeasonModifiers, 'jobs'>): number {
 }
 
 /**
- * Какую долю пайка отряд добирает с земли (ГДД 3.3.4): в лагере и в пути обычным маршем — фураж сезона; налегке времени на
- * сбор нет, с обозом колонна везёт своё. Местность (лес +, поле −) и вид лагеря — с ПН-3 и ПН-4у, когда прибор выведет их числа.
+ * Фураж лагеря вида `k` — доля полного (ГДД 3.5.3, ПН-3): открытый лагерь собирает, как ходят обычным маршем, — полный фураж
+ * сезона; скрытый (без огня) и в руинах — меньше, на сколько — заглушки `forageHidden`, `forageRuin` (`game/roamstubs`, ПН-5).
  */
-export function forageShare(mods: Pick<SeasonModifiers, 'jobs'>, r: Pick<RoamState, 'camp' | 'gait'>): number {
-  const share = r.camp !== null || r.gait === 'normal' ? fieldForage(mods) : 0;
+export const campForage = (k: CampKind): number => (k === 'hidden' ? roamStub('forageHidden') : k === 'ruin' ? roamStub('forageRuin') : 1);
+
+/**
+ * Какую долю пайка отряд добирает с земли (ГДД 3.3.4): в лагере — фураж сезона долей вида лагеря (`campForage`); в пути и в
+ * поле без лагеря обычным маршем — фураж сезона; налегке времени на сбор нет, с обозом колонна везёт своё. Режим — поле хода
+ * (`way.gait`, ПН-3). Местность (лес +, поле −) — с ПН-4у, когда прибор выведет её числа.
+ */
+export function forageShare(mods: Pick<SeasonModifiers, 'jobs'>, r: Pick<RoamState, 'camp' | 'way'>): number {
+  const share = r.camp ? fieldForage(mods) * campForage(r.camp.kind) : wayGait(r.way) === 'normal' ? fieldForage(mods) : 0;
   return Math.max(0, Math.min(1, Number.isFinite(share) ? share : 0));
+}
+
+/** Самая лютая стужа в таблице сезонов — дрова под открытым небом (`heating`); функцией, а не числом при загрузке модуля. */
+const heatPeak = (): number => Math.max(...SEASONS.map((x) => SEASON_MODIFIERS[x].heating));
+
+/**
+ * Дух лагеря, очков морали (ГДД 3.5.3, 3.3.3; ПН-3) — строка «Лагерь» в духе отряда (`sim/spirit`): открытый (костры, шатры) —
+ * плюс, сколько — заглушка `campMorale`; скрытый, без огня, — «холодный лагерь»: минус заглушки `coldCamp` долей стужи сезона —
+ * сколько дров жжёт житель под открытым небом против самой лютой зимы (`SEASON_MODIFIERS.heating`, через `seasonMods`: мягкая
+ * первая зима смягчает и его). Летом топить не нужно — и холода нет; условия по сезону в коде нет. В руинах огонь в укрытии —
+ * ни плюса, ни минуса. Нет лагеря — ноль.
+ */
+export function campSpirit(c: Pick<RoamCampRec, 'kind'> | null, mods: Pick<SeasonModifiers, 'heating'>): number {
+  if (!c) return 0;
+  if (c.kind === 'open') return roamStub('campMorale');
+  if (c.kind !== 'hidden') return 0;
+  const peak = heatPeak();
+  return peak > 0 ? (-roamStub('coldCamp') * Math.max(0, mods.heating)) / peak : 0;
 }
 
 /**
  * Какая доля отряда голодна сейчас (как `derived.foodShortfall` у города): обоз пуст — та часть пайка, которую не закрывает
  * фураж; хлеб в обозе есть — никто. «Пуст» — та же мерка, что у амбара: меньше половины единицы.
  */
-export const bandHunger = (r: Pick<RoamState, 'cargo' | 'camp' | 'gait'>, mods: Pick<SeasonModifiers, 'jobs'>): number =>
+export const bandHunger = (r: Pick<RoamState, 'cargo' | 'camp' | 'way'>, mods: Pick<SeasonModifiers, 'jobs'>): number =>
   (r.cargo.food ?? 0) > 0.5 ? 0 : 1 - forageShare(mods, r);
 
 /**

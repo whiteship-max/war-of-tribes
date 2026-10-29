@@ -32,6 +32,7 @@ import { generalSpeed } from '../../src/world/pvp';
 import { SCALING, wallFront } from '../../src/world/wall';
 import { LAIR_GOLD_PER_POWER } from '../../src/world/data/tuning';
 import type { Gait } from '../../src/world/data/gait';
+import { standWay } from '../../src/world/roammove';
 import { MARKS, type Camp, type Mark, type Origin } from './kinds';
 import { fieldFight } from './foes';
 
@@ -191,8 +192,9 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     purse: origin.gold,
     cargo: {},
     gear: {},
-    gait: style.gait,
-    camp: { since: 0 },
+    // Ход — стоянка в режиме стиля (ПН-3: режим марша живёт в ходе); лагерь своего вида — дверь ПН-3 считает его фураж.
+    way: standWay(style.gait),
+    camp: { kind: style.camp, since: 0, builders: 0 },
   };
   party.roam = roam;
   // Паёк и жалованье для расчётов вперёд (запас, найм) — среднего сезона; сам шаг ест сезонным пайком.
@@ -242,7 +244,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
       const dt = Math.min(1, to - t, queue.length > 0 ? Math.max(1e-6, queue[0].at - t) : 1);
       // В пути — пока идёт дело; дошёл — снова лагерем своего стиля.
       const camp: Camp | 'road' = t < busyUntil ? 'road' : style.camp;
-      roam.camp = camp === 'road' ? null : { since: 0 };
+      roam.camp = camp === 'road' ? null : { kind: camp, since: 0, builders: 0 };
       roam.purse = run.purse;
       const before = total(band);
       for (let left = dt * dayPerHour() * DAY_LENGTH; left > 1e-9; left -= PIECE) {
@@ -250,8 +252,8 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
         party.time += piece;
         const mods = seasonMods(party);
         const need = (bandRationPerDay(roam, mods.food) * piece) / DAY_LENGTH;
-        // Фураж: сезон — дверь (`forageShare`), вид лагеря — вход ПН-3.
-        const land = forageShare(mods, roam) * (camp === 'road' ? 1 : k.forage[camp]);
+        // Фураж: сезон и вид лагеря — дверь (`forageShare`; доли скрытого и руин — заглушки игры ПН-3, `game/roamstubs`).
+        const land = forageShare(mods, roam);
         let rest = need * (1 - land);
         const eat = Math.min(food, rest);
         food -= eat;

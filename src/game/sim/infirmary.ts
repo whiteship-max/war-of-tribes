@@ -236,6 +236,16 @@ export function layBandWounds(s: GameState, wounded: Partial<Record<TroopId, num
   return n;
 }
 
+/**
+ * Раненые отряда поправляются быстрее часов (ПН-3, открытый лагерь — ГДД 3.5.3): срок каждой группы, ещё не наступивший,
+ * подходит на `ahead` игровых секунд. Встают они потом тем же шагом (`settleBandWounds`), а не здесь.
+ */
+export function hastenBandWounds(s: GameState, ahead: number): void {
+  const r = s.roam;
+  if (!r || !(ahead > 0)) return;
+  for (const g of r.wounded) if (g.until !== null && g.until > s.time) g.until = Math.max(s.time, g.until - ahead);
+}
+
 /** Шаг отряда: чей срок прошёл — встают в строй отряда. Возвращает, сколько встало. */
 export function settleBandWounds(s: GameState): number {
   const r = s.roam;

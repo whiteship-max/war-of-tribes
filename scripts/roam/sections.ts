@@ -22,6 +22,7 @@ import { createInitialState } from '../../src/game/state';
 import { menOfPower } from '../../src/world/garrison';
 import { BURN_IMMUNE, CASTLE_GOLD_PER_POWER, LAIR_GOLD_PER_POWER, TEST_TRAVEL_SPEED } from '../../src/world/data/tuning';
 import type { Gait } from '../../src/world/data/gait';
+import { standWay } from '../../src/world/roammove';
 import { pilot, player } from '../autopilot';
 import type { InputId } from './inputs';
 import { CAMPS, CAMP_NAME, type Origin } from './kinds';
@@ -208,7 +209,7 @@ const band: Section = {
     }
     ctx.line('');
     ctx.line(`терпение отряда без жалованья и еды, игр. дн. (лестница Статуи по кружкам Военного дела героя): ${[1, 2, 3, 4, 5].map((w) => `${w} — ${fix(bandPatienceDays(w), 1)}`).join(', ')}`);
-    ctx.line(`обоз на голову строя (ноша бойца мира ${UNIT_BY_ID.warrior.carry}): ${GAITS.map((g) => `${GAIT_META[g].short} ${fix(cargoCap({ band: { spearman: 1 }, gait: g }), 1)}`).join(', ')}`);
+    ctx.line(`обоз на голову строя (ноша бойца мира ${UNIT_BY_ID.warrior.carry}): ${GAITS.map((g) => `${GAIT_META[g].short} ${fix(cargoCap({ band: { spearman: 1 }, way: standWay(g) }), 1)}`).join(', ')}`);
     ctx.line('');
     ctx.line('фураж — доля пайка с земли (поле сезона против лучшего, вольный сбор вполсилы), в лагере и обычным маршем:');
     ctx.line(`${padEnd('сезон', 8)} ${pad('год 1', 7)} ${pad('год 2+', 7)} ${pad('паёк ×', 7)}`);
@@ -218,14 +219,14 @@ const band: Section = {
       year += fieldForage(later) / SEASONS.length;
       ctx.line(`${padEnd(SEASON_META[s].name, 8)} ${pad(pct(fieldForage(seasonModsFor(s, 1))), 7)} ${pad(pct(fieldForage(later)), 7)} ${pad(fix(later.food), 7)}`);
     }
-    ctx.line(`в среднем за год (год 2+) — ${pct(year)}; налегке и с обозом в пути — ${pct(forageShare(seasonModsFor('autumn', 2), { camp: null, gait: 'light' }))}`);
+    ctx.line(`в среднем за год (год 2+) — ${pct(year)}; налегке и с обозом в пути — ${pct(forageShare(seasonModsFor('autumn', 2), { camp: null, way: standWay('light') }))}`);
     ctx.line('ориентир ГДД 3.3.4 (в код не пошёл): весна 30 %, лето 50 %, осень 60 %, зима 0 % — в среднем 35.0 %');
     ctx.line('');
     // Пример 3.3.2 на дверях: за настоящие сутки, без фуража и со средним фуражом года.
     const wage = wagesOf(EXAMPLE) * dayGame();
     const food = rationOf(EXAMPLE) * dayGame();
     ctx.line(`пример 3.3.2 — ${stackWords(EXAMPLE)}: жалованье ${Math.round(wage)} золота в настоящие сутки, паёк ${Math.round(food)} еды без фуража, ${Math.round(food * (1 - year))} с фуражом года`);
-    ctx.line(`обоз примера обычным маршем — ${Math.round(cargoCap({ band: EXAMPLE, gait: 'normal' }))}: паёк на ${fix(cargoCap({ band: EXAMPLE, gait: 'normal' }) / rationOf(EXAMPLE) / dayGame(), 1)} настоящих сут без фуража`);
+    ctx.line(`обоз примера обычным маршем — ${Math.round(cargoCap({ band: EXAMPLE, way: standWay('normal') }))}: паёк на ${fix(cargoCap({ band: EXAMPLE, way: standWay('normal') }) / rationOf(EXAMPLE) / dayGame(), 1)} настоящих сут без фуража`);
   },
 };
 

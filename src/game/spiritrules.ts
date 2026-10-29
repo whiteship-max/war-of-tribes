@@ -124,6 +124,7 @@ export type SpiritLineId =
   | 'barracks'
   | 'statue'
   | 'ruler'
+  | 'camp'
   | 'cap'
   | 'wage'
   | 'patience';
@@ -159,6 +160,8 @@ export interface SpiritIn {
   pay: number;
   /** Дисциплина от черт правителя (ПН-2: «Щедрый», «Скупой» — `rulertraits.rulerTraitNumbers`); нет — ноль. */
   ruler?: number;
+  /** Мораль от лагеря отряда бродяги (ПН-3, `roamrules.campSpirit`); у города и без лагеря — нет поля. */
+  camp?: number;
 }
 
 /** Одна шкала: значение, потолок и строки. Сумма строк — значение. */
@@ -227,6 +230,8 @@ export function spiritOfIn(i: SpiritIn): SpiritView {
       ...res,
       // Статуя Героя (ДР-7): памятник, а не стойкость — купцы его не режут.
       { id: 'statue', value: Math.max(0, fin(i.statue)) },
+      // Лагерь отряда бродяги (ПН-3): костры поднимают, холод без огня роняет; у города поля нет — ноль строкой не показывается.
+      { id: 'camp', value: fin(i.camp ?? 0) },
     ],
     i,
   );
