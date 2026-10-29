@@ -1,4 +1,4 @@
-// Общие помощники вестей: размер посёлка, толпа, склад, мораль и слава словами.
+// Общие помощники вестей: размер посёлка, толпа, склад, мораль и престиж словами.
 //
 // Живут отдельно от таблиц событий нарочно: таблиц две (`data/events.ts` — прежние вести,
 // `data/tidings.ts` — сезонные, случайные и цепочки), и считать «сколько это для нашего
@@ -8,6 +8,7 @@ import type { EventSize, GameState, ResourceId } from '../types';
 import { START_POP } from '../constants';
 import { population } from '../derived';
 import { addStock } from '../sim/stock';
+import { movePrestige } from '../sim/prestige';
 import { signedWhole } from '../num';
 
 /**
@@ -56,9 +57,9 @@ export const moveMorale = (s: GameState, d: number): void => {
   s.morale = d < 0 ? Math.max(0, s.morale + d) : Math.min(100, s.morale + d);
 };
 
-/** Сдвинуть славу: ниже нуля она не падает. */
+/** Сдвинуть престиж — дверью престижа (`sim/prestige.movePrestige`): ниже нуля он не падает. */
 export const moveFame = (s: GameState, d: number): void => {
-  s.prestige = Math.max(0, s.prestige + d);
+  movePrestige(s, d);
 };
 
 
@@ -68,11 +69,11 @@ export const moraleWord = (d: number): string => `мораль ${signedWhole(d)}
 /** То же с прописной — в начале подписи. */
 export const MoraleWord = (d: number): string => `М${moraleWord(d).slice(1)}`;
 
-/** «слава +2», «слава −4». */
-export const fameWord = (d: number): string => `слава ${signedWhole(d)}`;
+/** «престиж +2», «престиж −4» (слово Н12, ГДД 3.9). */
+export const fameWord = (d: number): string => `престиж ${signedWhole(d)}`;
 
 /** То же с прописной. */
-export const FameWord = (d: number): string => `С${fameWord(d).slice(1)}`;
+export const FameWord = (d: number): string => `П${fameWord(d).slice(1)}`;
 
 /** Склонение «N человек / человека». */
 export const people = (n: number): string => {

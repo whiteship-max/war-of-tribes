@@ -143,6 +143,17 @@ describe('двери ПН-1 вместо входов', () => {
   });
 });
 
+describe('дверь ПН-2 вместо входа', () => {
+  it('у прибора нет входа пачки ПН-2: престиж и его ступень — дверь, пороги — ориентир до вывода', () => {
+    // Граница: пачка ПН-2 закрыта — ступень считает дверь, а пороги остались заглушкой первого читателя в игре (ПН-5).
+    expect(Object.entries(INPUTS).filter(([, i]) => i.batch === 'ПН-2').map(([k]) => k)).toEqual([]);
+    expect(INPUTS.stages.kind).toBe('stub');
+    const src = readFileSync(path.join(HERE, 'path.ts'), 'utf8');
+    for (const door of ['prestigeAfter(', 'prestigeStage(']) expect(src, `автопилот зовёт ${door}`).toContain(door);
+    expect(src, 'своей арифметики престижа у модели нет').not.toMatch(/prestige\s*\+\s*p\b/);
+  });
+});
+
 describe('реестр ориентиров', () => {
   it('покрывает каждый раздел ГДД 0–9 с пометкой [ориентир] — и ничего лишнего', () => {
     const marked = orientSections(readFileSync(GDD, 'utf8'));

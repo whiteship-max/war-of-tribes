@@ -47,7 +47,7 @@ describe('ECO-7: ноль без знака', () => {
     expect(signedWhole(-2)).toBe('−2');
     expect(signedWhole(2.6)).toBe('+3');
     expect(moraleWord(0)).toBe('мораль 0');
-    expect(fameWord(-4)).toBe('слава −4');
+    expect(fameWord(-4)).toBe('престиж −4');
   });
 });
 

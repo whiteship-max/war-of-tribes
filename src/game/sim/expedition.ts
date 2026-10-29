@@ -35,6 +35,7 @@ import { addStock, outlay, trimStock } from './stock';
 import { stabAfterBattle } from './stability';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 import { noteBattle } from './spirit';
+import { movePrestige } from './prestige';
 import { noteFight } from './scars';
 import type { FightMark } from '../scarrules';
 import { count } from '@/ui/parts/plural';
@@ -386,7 +387,7 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.lair) recordLairBurned(s);
   // Замок считается отметкой мира, а не по золоту: золото везут и из логова.
   if (o.castle) s.stats.castles = (s.stats.castles ?? 0) + 1;
-  if (o.prestige) s.prestige = Math.max(0, s.prestige + o.prestige);
+  if (o.prestige) movePrestige(s, o.prestige);
   // Слава полководца ложится на мораль исхода боя: победы «Победоносного» радуют
   // сильнее, поражения «Битого» горше. Считается по чертам до этого боя — поэтому
   // до того, как дело попадёт в счёт.

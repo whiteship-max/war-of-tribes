@@ -527,7 +527,7 @@ export function QuestsNew() {
       ) : (
         <>
           <p className="nx-qsum">
-            Выполнено {questsDone(s)} из {QUESTS.length} · слава {s.prestige}
+            Выполнено {questsDone(s)} из {QUESTS.length} · престиж {s.prestige}
           </p>
           {open.map((q) => {
             const p = q.progress?.(s);

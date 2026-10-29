@@ -1759,9 +1759,9 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   add(
     'prestige',
     'ui-medal',
-    'Слава города',
+    'Престиж',
     Math.min(10, s.prestige / 5),
-    `${s.stats.battlesWon} побед · ${s.stats.battlesLost} поражений, слава ${Math.round(s.prestige)}`,
+    `${s.stats.battlesWon} побед · ${s.stats.battlesLost} поражений, престиж ${Math.round(s.prestige)}`,
   );
 
   const season = seasonOf(s.time);

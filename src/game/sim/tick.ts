@@ -47,6 +47,7 @@ import { log, trimLog } from './log';
 import { addStock, stockWords, trimStock, type Gains } from './stock';
 import { recordProduced, refreshCard } from '@/profile/stats';
 import { ROAM_ON } from '../roamflag';
+import { movePrestige } from './prestige';
 import { roamFor } from './roam';
 
 export interface TickOptions {
@@ -237,7 +238,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
       const n = q.reward[r];
       if (n) lost[r] = n - addStock(s, r, n);
     }
-    s.prestige += 2;
+    movePrestige(s, 2);
     const full = stockWords(lost);
     log(s, `Задание выполнено: ${q.title}.${full ? ` Склад полон: не поместилось ${full}.` : ''}`, 'quest');
   }

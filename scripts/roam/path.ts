@@ -1,12 +1,13 @@
 // Путь бродяги до первого замка — автопилот трёх стилей на заглушках (ГДД 2.4, 3.6.2, 3.9.1; ПН-0ч).
 //
-// **Это заглушка, а не игра.** Режима в коде почти нет (ГДД 7.1): ни престижа одной дверью (ПН-2), ни дел, встреч и договоров
+// **Это заглушка, а не игра.** Режима в коде почти нет (ГДД 7.1): ни дел, встреч и договоров
 // (ПН-5, ПН-7), ни вольных замков (ПН-10). Поэтому путь здесь — схема ГДД, где каждое число, которого нет в коде, приходит
 // входом (`PathKnobs` — только из `Ctx.use` раздела, см. `run.ts`), а всё, что в коде уже есть, — дверью. С ПН-1 отряд между
 // делами живёт дверями партии бродяги: паёк и фураж сезона (`roamrules.bandRationPerDay`, `forageShare`), жалованье, терпение
 // героя и уход равной долей (`sim/upkeep.bandUpkeep` на партии-оболочке), вместимость обоза (`sim/roam.cargoCap`); мощь и перевод в бой
 // (`price.troopPower`, `kindsOf`), бой в поле и у стены ядром мира (`world/battle.resolveField`, `fights.wallFight`), отряд и
-// гарнизон НПС (`garrison.raidingParty`, `garrisonOf`), потери долей родов (`price.shareLosses`), путь
+// гарнизон НПС (`garrison.raidingParty`, `garrisonOf`), потери долей родов (`price.shareLosses`), престиж и его ступень по
+// порогам-заглушкам (`sim/prestige.prestigeAfter`, `prestigeStage`, ПН-2), путь
 // (`geo.travelTime`, `pvp.generalSpeed`, `pace.realMs`) и случайность (`sim/random.seeded`). Каждая пачка заменяет свою часть
 // дверью, и тогда этот модуль худеет до вызова настоящего шага.
 //
@@ -22,6 +23,7 @@ import { seasonMods } from '../../src/game/derived';
 import { bandRationPerDay, bandWage, bandWagesPerDay, forageShare } from '../../src/game/roamrules';
 import { bandUpkeep } from '../../src/game/sim/upkeep';
 import { cargoCap } from '../../src/game/sim/roam';
+import { prestigeAfter, prestigeStage } from '../../src/game/sim/prestige';
 import { mixSeed, seeded } from '../../src/game/sim/random';
 import { wallFight } from '../../src/world/fights';
 import { garrisonOf } from '../../src/world/garrison';
@@ -150,12 +152,8 @@ const minus = (t: TroopStack, lost: TroopStack): void => {
   for (const [id, n] of Object.entries(lost) as [TroopId, number][]) t[id] = Math.max(0, (t[id] ?? 0) - n);
 };
 
-/** Ступень престижа по порогам. */
-export const stageOf = (stages: readonly number[], prestige: number): number => {
-  let k = 0;
-  for (let i = 0; i < stages.length; i++) if (prestige >= stages[i]) k = i;
-  return k;
-};
+/** Ступень престижа по порогам — дверью ступеней (`sim/prestige.prestigeStage`, ПН-2); пороги — заглушка прибора. */
+export const stageOf = (stages: readonly number[], prestige: number): number => prestigeStage(prestige, stages);
 
 /** Настоящих часов пути на `dist` клеток по равнине в режиме марша — двери пути и времени. */
 export const roadHours = (dist: number, gait: Gait): number => realMs(travelTime(dist, 1, generalSpeed(gait))) / 3_600_000;
@@ -227,7 +225,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
   const stage = (): number => stageOf(k.stages, run.prestige);
   const gain = (p: number): void => {
     const before = stage();
-    run.prestige = Math.max(0, run.prestige + p);
+    run.prestige = prestigeAfter(run.prestige, p);
     for (let s = before + 1; s <= stage(); s++) {
       if (run.stageAt[s] !== null) continue;
       run.stageAt[s] = t;

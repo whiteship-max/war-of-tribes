@@ -33,7 +33,7 @@ export function QuestsPanel() {
   return (
     <div className="panel">
       <h2>
-        Задания <small>выполнено {doneCount} из {QUESTS.length} · слава {s.prestige}</small>
+        Задания <small>выполнено {doneCount} из {QUESTS.length} · престиж {s.prestige}</small>
       </h2>
 
       <div className="tabs">

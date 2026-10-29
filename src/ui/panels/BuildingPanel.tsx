@@ -188,7 +188,7 @@ function CampfireData() {
         <FreeJobRow key={jobId} job={jobId} />
       ))}
 
-      {/* Мораль — разбором цели и дверью в «Мораль» (одна копия разбора — там); слава — словами. */}
+      {/* Мораль — разбором цели и дверью в «Мораль» (одна копия разбора — там); престиж — словами. */}
       <h3>Мораль и слава</h3>
       <Table
         label="Мораль и слава"
@@ -215,12 +215,12 @@ function CampfireData() {
               what: (
                 <span className="kit-name">
                   <span className="ic"><Icon name="ui-medal" /></span>
-                  <span className="one-line">Слава</span>
+                  <span className="one-line">Престиж</span>
                 </span>
               ),
               n: String(Math.round(s.prestige)),
             },
-            tip: () => ({ title: 'Слава', body: 'Её приносят задания, походы и вести, поражения отнимают. К цели морали — до +10.' }),
+            tip: () => ({ title: 'Престиж', body: 'Его приносят задания, походы и вести, поражения отнимают. К цели морали — до +10.' }),
           },
         ]}
       />
