@@ -237,7 +237,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
 
   // Отряд живёт сам от `t` до `to`: ест (фураж, запас, покупка), платит, ждёт неуплаты и уходит, принимает просящихся. Шаг дверей —
   // четверть игрового дня: правило ухода — доля в день, и мельче шага игры (`CATCHUP_STEP`) итог не меняется дальше доли человека,
-  // а шагов в восемь раз меньше.
+  // а шагов в семь с половиной раз меньше.
   const live = (to: number): void => {
     while (t < to) {
       while (queue.length > 0 && queue[0].at <= t) (queue.shift() as { apply: () => void }).apply();
