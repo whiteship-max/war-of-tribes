@@ -22,10 +22,13 @@ export function useRulerRules(r: RulerRules): void {
 /** Правила, если подгружены. */
 export const rulerRules = (): RulerRules | null => rules;
 
-/** Подгрузить правила черт. Повторный вызов — те же. */
-export async function loadRulerTraits(): Promise<void> {
-  if (!rules) await import('./rulertraits');
-}
+let loading: Promise<unknown> | null = null;
+
+/**
+ * Подгрузить правила черт. Повторный вызов — то же обещание: дверь чтения зовёт загрузку из каждого чтения, пока правил нет, и
+ * долгий синхронный прогон не должен заводить по загрузке на чтение.
+ */
+export const loadRulerTraits = (): Promise<unknown> => (loading ??= rules ? Promise.resolve() : import('./rulertraits'));
 
 /** Чей счёт сейчас: героя на пути или правителя в замке. Пишет в него одна дверь — `sim/dynasty.noteRulerDeed`. */
 export function rulerPerson(s: GameState): { deeds?: RulerTally } | null {

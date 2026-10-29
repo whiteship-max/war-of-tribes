@@ -39,6 +39,9 @@ import { starvesAt } from '@/world/siege';
 import type { GenSettlement } from '@/world/gen';
 import { LAIR_RIPE, LAIR_STEP } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
+// Правила черт правителя (ПН-2): игра подгружает их докачкой с первым делом, а прогон автопилота синхронный — до первого ожидания
+// докачка бы не пришла, и черты, которые игра даёт, в отчётах молча молчали бы. Прямой импорт регистрирует их сразу (`rulernow`).
+import '@/game/rulertraits';
 import { creditTech, study, troopOpen } from '@/game/sim/tech';
 import { stabLevel, steady, steadyInfo } from '@/game/sim/stability';
 import { pointsOf } from '@/game/sim/points';
