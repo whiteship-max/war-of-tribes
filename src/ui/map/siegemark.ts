@@ -93,12 +93,12 @@ export const fellShown = (fell: FellMark | null, now: number): fell is FellMark 
   fell !== null && now >= fell.at && now < fell.at + FALL_MARK;
 
 /** Слова знака участи. Короткие: плашка стоит под именем на 375 px. */
-export const FELL_WORDS: Record<Fate, string> = {
+export const FELL_WORDS = {
   plunder: 'ограблен',
   captives: 'уведены люди',
   burn: 'сожжён',
-  occupy: 'занят',
-};
+  // «Занять» (ПН-10) — только вольный замок бродяги: знака участи на карте лорда у неё нет, и легенда её не показывает.
+} as Record<Fate, string>;
 
 /**
  * Имя под поселением, вписанное в ширину. Длинное имя режется с многоточием, а не
