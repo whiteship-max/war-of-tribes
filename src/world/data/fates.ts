@@ -21,6 +21,7 @@ export const FATE_META: Record<Fate, FateMeta> = {
   plunder: { name: 'Ограбить', icon: 'ui-loot', title: 'Город разграбили' },
   captives: { name: 'Увести людей', icon: 'ui-chain', title: 'Город разграбили и увели людей' },
   burn: { name: 'Сжечь', icon: 'ui-flame', title: 'Город сожгли' },
+  occupy: { name: 'Занять', icon: 'ui-banner', title: 'Замок заняли' },
 };
 
 /**

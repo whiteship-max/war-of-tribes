@@ -12,7 +12,7 @@
 //
 // Из сцены осады отсюда берутся только типы и мерка эпизода боя (`show.fightEpisode`, крохотный модуль без сцены): значения
 // сцены лежат в её ленивом куске (`render/siege/play.ts`).
-import { fightEpisode, type ShowFight, type ShowMachine, type ShowMachineState, type ShowOpening, type ShowPhase, type SiegeShow } from '@/render/siege/show';
+import { fightEpisode, type ShowFate, type ShowFight, type ShowMachine, type ShowMachineState, type ShowOpening, type ShowPhase, type SiegeShow } from '@/render/siege/show';
 import type { Episode } from '@/render/siege/reel';
 import { NOON, groundOf } from '@/game/battle/ground';
 import { gameSecondsOfMs } from '@/game/pace';
@@ -26,7 +26,7 @@ import { artilleryAimOf, artilleryAt } from '@/world/shelling';
 import { BLOCKADE_GIVES, blockadeAt } from '@/world/blockade';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { FATE_META } from '@/world/data/fates';
-import type { Report } from '@/world/types';
+import type { Fate, Report } from '@/world/types';
 import { foeArmsCode, ownArmsCode } from './coats';
 
 /** Свет минуты осады: час племени в эту минуту — доля суток рига. Места нет — полдень. */
@@ -48,6 +48,9 @@ const phaseAtMs = (rec: SiegeRecord, ms: number): number => {
 };
 
 /** Запись осады → что показать: фазы, машины, бои, исход — дверями мира. */
+/** Участь для ролика: «Занять» — без эпизода участи. */
+const showFate = (f: Fate): ShowFate | null => (f === 'occupy' ? null : f);
+
 export function showOfSiege(rec: SiegeRecord, report?: Report): SiegeShow {
   const w = asWindow(rec);
   const rows = rowsOf(w);
@@ -125,7 +128,8 @@ export function showOfSiege(rec: SiegeRecord, report?: Report): SiegeShow {
     fights,
     end: {
       how: rec.end.how,
-      fate: fellBy(rec.end.how) ? (rec.end.fate ?? rec.fate ?? 'plunder') : null,
+      // «Занять» (ПН-10) эпизода участи не рисует: замок цел, жечь и грабить нечего.
+      fate: fellBy(rec.end.how) ? showFate(rec.end.fate ?? rec.fate ?? 'plunder') : null,
       k: endK,
       breaches: breachesOf(w, rows, rec.end.at),
       solar: solarOf(rec, rec.end.at),

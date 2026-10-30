@@ -15,7 +15,9 @@
  * увёз победитель, взято из того, что потерял город, — и это тест (`war.test.ts`). Алмазов здесь нет
  * ни в каком виде.
  */
-import { castleIdOf } from './roster.js';
+import { castleIdOf, freeHeld, type FreeHold } from './roster.js';
+import { freeAccess, isFreeKey, freeGold, freeLarder, freeLevels, freeName, freePop, freeTroops, type FreeTier } from '../../src/world/freecastle.js';
+import { roamCell, roamMoving } from '../../src/world/roam.js';
 import {
   cityName,
   plainName,
@@ -48,6 +50,8 @@ import {
   type SpyMenu,
   type SpyOption,
   type SpyView,
+  NOTICE_FATES,
+  type NoticeFate,
 } from './contract.js';
 import { stackTotal, type Flanks, type Pips, type Stack } from '../../src/battle/index.js';
 import { TROOPS_OF_KIND, troopTotal, type TroopStack } from '../../src/game/battle/kinds.js';
@@ -144,15 +148,17 @@ import {
   wasteLosses,
   type PhaseRow,
 } from '../../src/world/siegeroll.js';
-import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
+import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain, FREE_FATE_IDS } from '../../src/world/spoils.js';
 import type { Loot } from '../../src/world/types.js';
 import {
   answerAfter,
   bountyOf,
   fairTribute,
+  lairRansoms,
   liveOffer,
   offerAfter,
   offerBlock,
+  offersOf,
   siegeShare,
   softerThan,
   termsBlock,
@@ -168,7 +174,7 @@ import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { machineShare, gateBusyText, playerWood, rebaseWood } from '../../src/world/works.js';
 import { stackCarry, stackEscort } from '../../src/world/data/units.js';
-import { PACT_BREAK_NOTICE, PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
+import { BURN_IMMUNE, PACT_BREAK_NOTICE, PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
 import { bookLive, least, over, rulePips, ruleResolve, ruleSpirit, type ArmyBook } from './book.js';
 import { capPips, type AgentsAt } from './agentbook.js';
 import type { CommandAt } from './commandbook.js';
@@ -188,6 +194,11 @@ export interface WarRow extends Omit<WarView, 'role'> {
    * Книга войска вычитает их, как павших (`book.warLosses`): держать ушедших живыми — сверх книги, флаг. Наружу не уходит.
    */
   worn?: WarWorn[];
+  /**
+   * Осада вольного замка (ПН-10): защитник — НПС, `def` — ключ замка `free:x:y`, слепок — правилами ступени (`npcSheet`), нападает
+   * отряд бродяги. Нет поля — война игроков.
+   */
+  npc?: { tier: FreeTier };
 }
 
 /** Уход налегке на дороге удара или выручки одного замка (ДР-5). */
@@ -228,6 +239,11 @@ export interface WarFile {
    * таких дел не было.
    */
   gens?: Record<string, EnergyMark>;
+  /**
+   * Чьи вольные замки (ПН-10): взятые отрядами и сожжённые — по ключу замка `free:x:y`. Пишет одна дверь — падение вольного замка
+   * (`seizeFree`); кто первым победил защитников, тот и взял (записи войн идут условной записью по ETag). Нет поля — ни одного.
+   */
+  free?: Record<string, FreeHold>;
 }
 
 /** Пакт двух игроков: ключи по порядку, имена городов на минуту пакта. Ключи наружу не уходят (`pactsOf`). */
@@ -381,12 +397,25 @@ export function readWars(raw: unknown): WarFile {
     ...(offers.length ? { offers } : {}),
     ...(dealt.length ? { dealt } : {}),
     ...gensOf(r.gens),
+    ...freeOf(r.free),
   };
 }
 
 const ENERGY_MODES: readonly EnergyMark['mode'][] = ['drain', 'fill', 'camp', 'hold'];
 
 /** Отметки полководцев из хранилища: только целые (`WarFile.gens`). */
+/** Чьи вольные замки — из хранилища (ПН-10); испорченная строка выпадает. */
+function freeOf(v: unknown): { free?: Record<string, FreeHold> } {
+  if (!v || typeof v !== 'object') return {};
+  const out: Record<string, FreeHold> = {};
+  for (const [id, h] of Object.entries(v as Record<string, unknown>)) {
+    const x = (h ?? {}) as Partial<FreeHold>;
+    if (typeof x.key !== 'string' || typeof x.war !== 'string' || !Number.isFinite(x.at) || !NOTICE_FATES.includes(x.fate as NoticeFate)) continue;
+    out[id] = { key: x.key, at: x.at as number, war: x.war, fate: x.fate as NoticeFate, ...(Number.isFinite(x.burnt) ? { burnt: x.burnt as number } : {}) };
+  }
+  return Object.keys(out).length ? { free: out } : {};
+}
+
 function gensOf(v: unknown): { gens?: Record<string, EnergyMark> } {
   if (!v || typeof v !== 'object') return {};
   const gens: Record<string, EnergyMark> = {};
@@ -1049,6 +1078,216 @@ const craftOf = (w: WarRow): { craft?: Craft } => {
   return craftCount(c, 'fortify') > 0 || craftCount(c, 'bombard') > 0 || (c.breach ?? 0) > 0 ? { craft: c } : {};
 };
 
+// ------------------------------------------------ вольные замки (ПН-10, docs/gdd/path_of_sword.md, 3.11) ---
+//
+// Осада вольного замка — та же война: стена, фазы, машины, обстрел, блокада, вылазка — двери войны игроков без второй копии. Своё
+// у неё четыре вещи: защитник — НПС-слепок ступени (`npcSheet`), голод и «ворота» фазы не сдают замок, а выводят гарнизон в последнюю
+// вылазку (`lastSortie`, решение Н5: только мечом), сдачи на условиях нет (В6), и замок — тому, чей бой победил защитников первым
+// (`advanceFree` по времени событий, `seizeFree` — одна дверь записи `WarFile.free`).
+
+/** Слепок защитника войны в минуту `at`: у игрока — опись и книги (`liveSheet`), у вольного замка — НПС-слепок ступени. */
+function defSheet(file: WarFile, w: WarRow, at: number, s: SheetAt | null | undefined): WarSheet | null {
+  if (w.npc) return npcSheet(file, w.def, w.npc.tier, at);
+  return s ? liveSheet(file, w.def, s, at) : null;
+}
+
+/**
+ * НПС-слепок вольного замка `def` ступени `tier` в минуту `at` (`world/freecastle`): гарнизон строя замка бойцами племени, казна по
+ * мощи, кладовая НПС, уровни ступени. Убыль — бои и дань войн на этот замок, кончившихся меньше `BURN_IMMUNE` назад или идущих:
+ * кастелян набирает гарнизон за тот же срок, за который сожжённый замок отстраивается. Хлеб двух лагерей — меньший остаток
+ * (`siegeBread`).
+ */
+function npcSheet(file: WarFile, def: string, tier: FreeTier, at: number): WarSheet {
+  let home = freeTroops(def, tier) as Counts;
+  let gold = freeGold(tier);
+  const larder = freeLarder(tier);
+  let stock: Counts = { food: Math.floor(larder.food) };
+  for (const w of file.wars) {
+    if (w.def !== def || (w.endAt !== undefined && w.endAt + BURN_IMMUNE <= at)) continue;
+    for (const b of w.battles) if (b.at <= at) home = minus(home, b.homeLost);
+    const t = w.tribute;
+    if (t && t.at <= at) {
+      const { gold: g, ...goods } = t.taken;
+      stock = minus(stock, goods);
+      gold = Math.max(0, gold - (g ?? 0));
+    }
+  }
+  const sheet: WarSheet = {
+    army: home,
+    home,
+    militia: 0,
+    archers: 0,
+    resolve: 0,
+    pips: {},
+    rest: 1,
+    food: stock.food ?? 0,
+    townPerHour: larder.townPerHour,
+    perManPerHour: larder.perManPerHour,
+    yieldPerHour: 0,
+    stock,
+    stash: 0,
+    gold,
+    pop: freePop(tier),
+    bonded: 0,
+    levels: freeLevels(tier),
+    power: troopPower(asTroops(home)),
+    locks: {},
+    seen: [],
+  };
+  return siegeBread(file, def, sheet, at);
+}
+
+/**
+ * Последняя вылазка вольного замка (решение Н5): хлеб кончился или ворота фазы — гарнизон выходит всем, кто остался, истощённым
+ * осадой (`garrisonRest`), ударом по лагерю той же дверью, что вылазка города (`hitCamp` → `fights.campFight`). Отбит — замок взят
+ * (`fall` «вылазка»); прорвался — осада снята. Выходить некому — его уже выбили в боях этой войны: замок взят ими. Прохода нет
+ * (рогатки заняты) — боя нет: false, осада идёт дальше.
+ */
+function lastSortie(w: WarRow, at: number, sheet: WarSheet): boolean {
+  if (troopTotal(asTroops(sheet.home)) <= 0) {
+    fall(w, at, sheet, 'sortie');
+    turnBack(w, at, w.to, 'taken');
+    return true;
+  }
+  const before = w.battles.length;
+  hitCamp(w, at, sheet, { front: sheet.home, site: 'sortie' });
+  if (w.battles.length === before) return false;
+  if (w.phase !== 'camp') return true;
+  fall(w, at, sheet, 'sortie');
+  turnBack(w, at, w.to, 'taken');
+  return true;
+}
+
+/**
+ * Замок взят или сожжён — запись `WarFile.free`, одна дверь (ПН-10). Пишется, когда у войны на вольный замок есть падение, а замок
+ * ещё ничей: так он достаётся тому, чей бой победил первым. Взят — держится за отрядом до перехода (ПН-11); сожжён — отстраивается
+ * `BURN_IMMUNE`, потом снова свободен.
+ */
+function seizeFree(file: WarFile, w: WarRow): boolean {
+  const f = w.fall;
+  if (!w.npc || !f) return false;
+  const had = file.free?.[w.def];
+  if (had?.war === w.id || (had && freeHeld(had, f.at))) return false;
+  file.free = { ...(file.free ?? {}), [w.def]: { key: w.atk, at: f.at, war: w.id, fate: f.fate, ...(f.fate === 'burn' ? { burnt: f.at + BURN_IMMUNE } : {}) } };
+  return true;
+}
+
+/** Минута ближайшего события осады вольного замка; нет — бесконечность. */
+function freeNextAt(w: WarRow): number {
+  if (w.phase === 'march') return w.arriveAt;
+  if (w.phase === 'camp') return Math.min(w.strike?.at ?? Infinity, w.camp ? nextRollAt(w.camp as SiegeWindow) : Infinity);
+  if (w.phase === 'back') return w.backAt ?? 0;
+  return Infinity;
+}
+
+/**
+ * Осады вольных замков (ПН-10) — по времени событий через все войны: из двух осад одного замка раньше считается то событие, что
+ * раньше случилось, а не та война, что раньше легла в запись. Замок уже взят другим (или сожжён) — лагерь снимается без потерь в
+ * минуту взятия (`gone`); весть — у бродяги на столе.
+ */
+function advanceFree(file: WarFile, now: number, step: (w: WarRow) => boolean): boolean {
+  let changed = false;
+  const wars = file.wars.filter((w) => w.npc && w.phase !== 'done');
+  for (let guard = 0; guard < 64 * Math.max(1, wars.length); guard++) {
+    let next: WarRow | null = null;
+    let at = Infinity;
+    for (const w of wars) {
+      const t = freeNextAt(w);
+      if (t <= now && t < at) {
+        next = w;
+        at = t;
+      }
+    }
+    if (!next) break;
+    const h = file.free?.[next.def];
+    if (h && h.war !== next.id && (next.phase === 'march' || next.phase === 'camp') && h.at <= at && freeHeld(h, h.at)) {
+      turnBack(next, Math.max(h.at, next.sentAt), next.to, 'gone');
+      changed = true;
+      continue;
+    }
+    if (!step(next)) {
+      wars.splice(wars.indexOf(next), 1);
+      continue;
+    }
+    changed = true;
+    seizeFree(file, next);
+  }
+  return changed;
+}
+
+/**
+ * Поход отряда бродяги на вольный замок (ПН-10): штурм с ходу или осада. Путь открыт игроку, замок в пуле реестра и ничей, престиж
+ * не ниже порога ступени (слово описи — `BandRow.prestige`, docs/trust-boundary.md), отряд стоит у стен (клетка замка или соседняя,
+ * ходом реестра), одна война отряда за раз, войско — не больше книги отряда сервера (ВП4: сверх — подделка), участь — из участей
+ * вольного замка (`FREE_FATE_IDS`, «Занять» — только ему). Две осады одного замка допустимы (3.11.3). Полководца, энергии и режима
+ * марша у отряда нет: он уже у стен.
+ */
+function marchFree(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march' }>, now: number, ctx: OrderCtx): string | null {
+  if (!ctx.roamOpen) return 'Путь меча закрыт.';
+  const band = ctx.roster.bands?.[key];
+  if (!band) {
+    ctx.forged?.('Поход на вольный замок не от отряда бродяги: у города вольных замков нет.');
+    return 'На вольный замок ходит только отряд бродяги.';
+  }
+  const row = ctx.roster.free?.[order.target];
+  if (!row) return 'Этого замка больше нет.';
+  const held = file.free?.[order.target];
+  if (held && freeHeld(held, now)) {
+    if (held.fate === 'burn') return `Замок сожжён и отстраивается ещё ${Math.max(1, Math.ceil(((held.burnt ?? now) - now) / 3_600_000))} ч.`;
+    if (held.key === key) return 'Замок уже наш.';
+    // Чужой замок: карта показывает его взятым, и кнопки похода на него нет — приказ мимо интерфейса.
+    ctx.forged?.(`Поход на вольный замок ${order.target}, который держит другой отряд.`);
+    return 'Замок уже взял другой отряд.';
+  }
+  const no = freeAccess(band.prestige, row.tier);
+  if (no) return no;
+  if (roamMoving(band.way, now)) return 'Отряд в пути: сперва дойти до стен.';
+  const at = roamCell(band.way, now);
+  if (Math.max(Math.abs(at.x - row.x), Math.abs(at.y - row.y)) > 1) return 'Отряд не у стен замка: подойти к нему вплотную.';
+  if (file.wars.some((w) => w.atk === key && active(w))) return 'Отряд уже ведёт осаду.';
+  if (!(FREE_FATE_IDS as readonly string[]).includes(order.fate)) return 'Такой участи у вольного замка нет.';
+  const troops = order.army.troops;
+  if (troopTotal(asTroops(troops)) <= 0) return 'В отряде нет бойцов.';
+  const book = band.book?.troops ?? {};
+  for (const [k, n] of Object.entries(troops)) {
+    if ((n ?? 0) > ((book as Counts)[k] ?? 0)) {
+      ctx.forged?.(`Поход на вольный замок: ${k} — ${n}, книга отряда подтверждает ${(book as Counts)[k] ?? 0}.`);
+      return 'Столько людей в отряде нет.';
+    }
+  }
+  const gait = readGait(order.gait);
+  const noCamp = order.mode === 'siege' ? siegeBlockOf(gait) : null;
+  if (noCamp) {
+    ctx.forged?.('Осада вольного замка налегке: лагерь налегке не ставят, интерфейс такой приказ не шлёт.');
+    return noCamp;
+  }
+  const to = { x: row.x, y: row.y };
+  file.seq += 1;
+  file.wars.push({
+    id: `w${file.seq.toString(36)}${(now % 46656).toString(36)}`,
+    atk: key,
+    def: order.target,
+    atkCastle: castleIdOf(`band:${key}`),
+    defCastle: order.target,
+    atkCity: band.name,
+    defCity: freeName(row.x, row.y),
+    from: { x: at.x, y: at.y },
+    to,
+    mode: order.mode,
+    fate: order.fate,
+    sentAt: now,
+    arriveAt: now + walk(at, to, gait),
+    phase: 'march',
+    army: { troops: { ...troops }, resolve: 0, pips: {} },
+    went: { ...troops },
+    ...(order.blockade && order.mode === 'siege' ? { ring: true as const } : {}),
+    npc: { tier: row.tier },
+    battles: [],
+  });
+  return null;
+}
+
+
 /**
  * Штурм города войском похода в минуту `at`. Возвращает бой и победил ли поход. `machines` — машины лагеря, пущенные в этот
  * штурм (`world/machines.stormMachines`): они истрачены, а проёмы их — во фронте.
@@ -1191,11 +1430,12 @@ function settleOffer(file: WarFile, w: WarRow, now: number, ctx: OrderCtx, kind:
   if (!w.camp) return 'Лагеря уже нет.';
   const live = liveOffer(w.camp as SiegeWindow, kind, now);
   if (!live) return 'Предложение уже не в силе.';
-  const s = ctx.sheet(w.def);
-  if (yes && !s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+  // Вольный замок (ПН-10): дань кастеляна — да, сдачи на условиях — нет (решение В6).
+  if (w.npc && kind === 'terms') return 'Вольный замок не сдаётся на условиях: его берут только мечом.';
+  const sheet = defSheet(file, w, now, w.npc ? null : ctx.sheet(w.def));
+  if (yes && !sheet) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
   w.camp = { ...w.camp, ...answerAfter(w.camp as SiegeWindow, kind, yes ? 'yes' : 'no', now) } as WarCamp;
-  if (!yes || !s) return null;
-  const sheet = liveSheet(file, w.def, s, now);
+  if (!yes || !sheet) return null;
   if (kind === 'terms') {
     fall(w, now, sheet, 'gates', live.fate ?? softerFate(w.fate));
     turnBack(w, now, w.to, 'taken');
@@ -1405,9 +1645,14 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
   // Шаг осады (ОС-1): добыча → прокорм → проверка — склад окна, вставший на последнюю опись. Не оплатил прокорм — город сдан
   // голодом, и кость этой фазы не бросается. Ровно ноль — оплачен.
   if (starves(breadAt(camp, at))) {
-    fall(w, at, sheet, 'hunger');
-    turnBack(w, at, w.to, 'taken');
-    return;
+    // Вольный замок голодом не сдаётся (решение Н5): гарнизон выходит в последнюю вылазку. Прохода нет — боя нет, кость фазы идёт.
+    if (w.npc) {
+      if (lastSortie(w, at, sheet)) return;
+    } else {
+      fall(w, at, sheet, 'hunger');
+      turnBack(w, at, w.to, 'taken');
+      return;
+    }
   }
   const k = rowsOf(camp).length + 1;
   const row = rollPhase(camp, k, atkHungry);
@@ -1424,9 +1669,21 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
   ringCheck(w, at, sheet);
   camp = w.camp as SiegeWindow;
   if (row.out === 'gates') {
-    fall(w, at, sheet, 'gates');
-    turnBack(w, at, w.to, 'taken');
-    return;
+    // Сдачи у вольного замка нет (решение В6): сломленный гарнизон выходит в последнюю вылазку — той же дверью, что голод.
+    if (w.npc) {
+      if (lastSortie(w, at, sheet)) return;
+    } else {
+      fall(w, at, sheet, 'gates');
+      turnBack(w, at, w.to, 'taken');
+      return;
+    }
+  }
+  // Кастелян откупается от лагеря, которого замок не потянет (3.11.2): дань за снятие осады — правилом логова (`parley.lairRansoms`),
+  // цена — справедливая на эту минуту. Говорун бродяге не нужен: ответ — приказ `answer`.
+  if (w.npc && lairRansoms(siegeShare(camp, at)) && !offersOf(camp).some((o) => o.kind === 'tribute') && offerBlock(camp, 'tribute', at) === null) {
+    const price = fairOf(w, at, sheet);
+    if (price > 0) w.camp = { ...w.camp, ...offerAfter(camp, { kind: 'tribute', at, price }) } as WarCamp;
+    camp = w.camp as SiegeWindow;
   }
   const orders = camp.orders;
   if (orderStorms(orders, breachesOf(camp)) && !energyBlock(energyAt(w.army.energy, at), priceOf('storm'))) {
@@ -1938,98 +2195,100 @@ export function dueKeys(file: WarFile, now: number): string[] {
  */
 export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, SheetAt | null>): boolean {
   let changed = false;
-  const sheetOf = (w: WarRow, at: number): WarSheet | null => {
-    const s = sheets.get(w.def);
-    return s ? liveSheet(file, w.def, s, at) : null;
+  const sheetOf = (w: WarRow, at: number): WarSheet | null => defSheet(file, w, at, sheets.get(w.def));
+  /** Одно событие войны `w` не позже `now`: было — true. */
+  const step = (w: WarRow): boolean => {
+    // Перехват в поле (ПЛ-1) — раньше прихода и возврата: встреча в ту же минуту, что приход, — сперва бой в поле.
+    const met = dueMeet(w, now);
+    if (met) {
+      changed = true;
+      meetBattle(file, w, met);
+      return true;
+    }
+    if (w.phase === 'march' && w.arriveAt <= now) {
+      changed = true;
+      // Налегке — истощение пути до минуты прихода (ДР-2): к стене подходят те, кто дошёл.
+      wearLight(w, w.arriveAt);
+      const sheet = sheetOf(w, w.arriveAt);
+      if (!sheet) {
+        turnBack(w, w.arriveAt, w.to, 'gone');
+        return true;
+      }
+      if (w.mode === 'storm') {
+        const { won } = storm(w, w.arriveAt, sheet);
+        if (won) fall(w, w.arriveAt, sheet, 'storm');
+        turnBack(w, w.arriveAt, w.to, won ? 'taken' : 'beaten');
+      } else {
+        w.phase = 'camp';
+        setCamp(w, campWindow(w, w.arriveAt, sheet, null));
+        // Поход «Блокада» (Р-5): кольцо — в минуту постановки, если мощи вчетверо; нет — обычная осада.
+        if (w.ring && w.camp && blockadeBlock(w.camp as SiegeWindow, w.arriveAt, campPower(w, w.arriveAt), garrisonPower(sheet)) === null) {
+          w.camp = { ...w.camp, ...blockadeAfter(w.camp as SiegeWindow, w.arriveAt, true) } as WarCamp;
+        }
+        // Лагерь — полудом: энергия полководца копится залпом за фазу (ответ владельца 3, docs/siege_v2.md, 8.4).
+        w.army = { ...w.army, energy: remark(w.army.energy, w.arriveAt, 'camp') };
+        // Поход встал лагерем раньше встречи (ПЛ-1): в поле его уже не перехватить — по лагерю бьют ударом.
+        rechase(w, w.arriveAt);
+      }
+      return true;
+    }
+    if (w.phase === 'camp') {
+      // Голодом город сдаёт шаг осады (ОС-1, `phaseStep`), а не отметка прогноза: событий у лагеря три — удар, выручка, фаза.
+      // Выручка союзника — тот же удар с тыла, что у полководца города, в минуту своего прихода (раздел 5).
+      let relief: WarRelief | null = null;
+      for (const r of w.reliefs ?? []) if (!relief || r.at < relief.at) relief = r;
+      const strikeAt = Math.min(w.strike?.at ?? Infinity, relief?.at ?? Infinity);
+      const phaseAt = w.camp ? nextRollAt(w.camp as SiegeWindow) : Infinity;
+      const fresh = sheets.get(w.def);
+      if (fresh && regarrison(file, w, fresh, Math.min(strikeAt, phaseAt, now + 1))) {
+        changed = true;
+        return true;
+      }
+      const next = Math.min(strikeAt, phaseAt);
+      if (next > now) return false;
+      changed = true;
+      const sheet = sheetOf(w, next);
+      if (!sheet) {
+        turnBack(w, next, w.to, 'gone');
+        return true;
+      }
+      if (strikeAt <= phaseAt && w.strike && w.strike.at === strikeAt) {
+        const s = w.strike;
+        delete w.strike;
+        hitCamp(w, s.at, sheet, { rear: s.army, front: s.joint ? sheet.home : undefined, site: s.joint ? 'joint' : 'camp' });
+        unmarkBeaten(file, w, w.def, s.at);
+        return true;
+      }
+      if (strikeAt <= phaseAt && relief) {
+        w.reliefs = (w.reliefs ?? []).filter((r) => r !== relief);
+        if (!w.reliefs.length) delete w.reliefs;
+        hitCamp(w, relief.at, sheet, { rear: relief.army, site: 'camp', ally: relief.castle, city: cityOr(relief.city) });
+        const ally = w.allies?.[relief.castle]?.key;
+        if (ally) unmarkBeaten(file, w, ally, relief.at);
+        return true;
+      }
+      const atk = sheets.get(w.atk);
+      phaseStep(w, phaseAt, sheet, atk ? atk.sheet.food <= 0 : false);
+      return true;
+    }
+    if (w.phase === 'back' && (w.backAt ?? 0) <= now) {
+      changed = true;
+      // Налегке — истощение обратного пути до минуты возврата (ДР-2): домой входят те, кто дошёл.
+      wearLight(w, w.backAt ?? now);
+      delete w.wornAt;
+      w.phase = 'done';
+      rechase(w, w.backAt ?? now);
+      return true;
+    }
+    return false;
   };
   for (const w of file.wars) {
+    // Осады вольных замков (ПН-10) — ниже, по времени событий через все войны одного замка.
+    if (w.npc) continue;
     // Фаз за долгий простой бывает много: каждая — одно событие очереди.
-    for (let guard = 0; guard < 64; guard++) {
-      // Перехват в поле (ПЛ-1) — раньше прихода и возврата: встреча в ту же минуту, что приход, — сперва бой в поле.
-      const met = dueMeet(w, now);
-      if (met) {
-        changed = true;
-        meetBattle(file, w, met);
-        continue;
-      }
-      if (w.phase === 'march' && w.arriveAt <= now) {
-        changed = true;
-        // Налегке — истощение пути до минуты прихода (ДР-2): к стене подходят те, кто дошёл.
-        wearLight(w, w.arriveAt);
-        const sheet = sheetOf(w, w.arriveAt);
-        if (!sheet) {
-          turnBack(w, w.arriveAt, w.to, 'gone');
-          continue;
-        }
-        if (w.mode === 'storm') {
-          const { won } = storm(w, w.arriveAt, sheet);
-          if (won) fall(w, w.arriveAt, sheet, 'storm');
-          turnBack(w, w.arriveAt, w.to, won ? 'taken' : 'beaten');
-        } else {
-          w.phase = 'camp';
-          setCamp(w, campWindow(w, w.arriveAt, sheet, null));
-          // Поход «Блокада» (Р-5): кольцо — в минуту постановки, если мощи вчетверо; нет — обычная осада.
-          if (w.ring && w.camp && blockadeBlock(w.camp as SiegeWindow, w.arriveAt, campPower(w, w.arriveAt), garrisonPower(sheet)) === null) {
-            w.camp = { ...w.camp, ...blockadeAfter(w.camp as SiegeWindow, w.arriveAt, true) } as WarCamp;
-          }
-          // Лагерь — полудом: энергия полководца копится залпом за фазу (ответ владельца 3, docs/siege_v2.md, 8.4).
-          w.army = { ...w.army, energy: remark(w.army.energy, w.arriveAt, 'camp') };
-          // Поход встал лагерем раньше встречи (ПЛ-1): в поле его уже не перехватить — по лагерю бьют ударом.
-          rechase(w, w.arriveAt);
-        }
-        continue;
-      }
-      if (w.phase === 'camp') {
-        // Голодом город сдаёт шаг осады (ОС-1, `phaseStep`), а не отметка прогноза: событий у лагеря три — удар, выручка, фаза.
-        // Выручка союзника — тот же удар с тыла, что у полководца города, в минуту своего прихода (раздел 5).
-        let relief: WarRelief | null = null;
-        for (const r of w.reliefs ?? []) if (!relief || r.at < relief.at) relief = r;
-        const strikeAt = Math.min(w.strike?.at ?? Infinity, relief?.at ?? Infinity);
-        const phaseAt = w.camp ? nextRollAt(w.camp as SiegeWindow) : Infinity;
-        const fresh = sheets.get(w.def);
-        if (fresh && regarrison(file, w, fresh, Math.min(strikeAt, phaseAt, now + 1))) {
-          changed = true;
-          continue;
-        }
-        const next = Math.min(strikeAt, phaseAt);
-        if (next > now) break;
-        changed = true;
-        const sheet = sheetOf(w, next);
-        if (!sheet) {
-          turnBack(w, next, w.to, 'gone');
-          continue;
-        }
-        if (strikeAt <= phaseAt && w.strike && w.strike.at === strikeAt) {
-          const s = w.strike;
-          delete w.strike;
-          hitCamp(w, s.at, sheet, { rear: s.army, front: s.joint ? sheet.home : undefined, site: s.joint ? 'joint' : 'camp' });
-          unmarkBeaten(file, w, w.def, s.at);
-          continue;
-        }
-        if (strikeAt <= phaseAt && relief) {
-          w.reliefs = (w.reliefs ?? []).filter((r) => r !== relief);
-          if (!w.reliefs.length) delete w.reliefs;
-          hitCamp(w, relief.at, sheet, { rear: relief.army, site: 'camp', ally: relief.castle, city: cityOr(relief.city) });
-          const ally = w.allies?.[relief.castle]?.key;
-          if (ally) unmarkBeaten(file, w, ally, relief.at);
-          continue;
-        }
-        const atk = sheets.get(w.atk);
-        phaseStep(w, phaseAt, sheet, atk ? atk.sheet.food <= 0 : false);
-        continue;
-      }
-      if (w.phase === 'back' && (w.backAt ?? 0) <= now) {
-        changed = true;
-        // Налегке — истощение обратного пути до минуты возврата (ДР-2): домой входят те, кто дошёл.
-        wearLight(w, w.backAt ?? now);
-        delete w.wornAt;
-        w.phase = 'done';
-        rechase(w, w.backAt ?? now);
-        continue;
-      }
-      break;
-    }
+    for (let guard = 0; guard < 64; guard++) if (!step(w)) break;
   }
+  if (advanceFree(file, now, step)) changed = true;
   if (advanceSpies(file, now, sheets)) changed = true;
   if (expireOffers(file, now)) changed = true;
   if (endPacts(file, now)) changed = true;
@@ -2085,6 +2344,8 @@ export interface OrderCtx {
    * для флага в описи наблюдения. Слова — для админа.
    */
   forged?: (text: string, kind?: 'forged' | 'walk') => void;
+  /** Путь меча открыт игроку (`roamflag.roamOpenFor`): только тогда отряд ходит на вольный замок (ПН-10). Нет поля — закрыт. */
+  roamOpen?: boolean;
 }
 
 /**
@@ -2186,8 +2447,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
     case 'storm': {
       const w = theirs(file, order.id, key, 'atk');
       if (!w || w.phase !== 'camp') return 'Лагеря уже нет.';
-      const s = ctx.sheet(w.def);
-      if (!s) {
+      const s = w.npc ? null : ctx.sheet(w.def);
+      if (!s && !w.npc) {
         turnBack(w, now, w.to, 'gone');
         return 'Города больше нет в игре. Отряд идёт домой.';
       }
@@ -2201,8 +2462,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       w.army = { ...w.army, energy: spend(w.army.energy, now, priceOf('storm')) };
       // Штурм из лагеря машинами, выбранными у кнопки (нет списка — всеми готовыми); отбитый лагерь не снимает
       // (`siege.STORM_HOLDS`, docs/siege_v2.md, 4.4).
-      const sheet = liveSheet(file, w.def, s, now);
+      const sheet = defSheet(file, w, now, s) as WarSheet;
       stormCamp(w, now, sheet, w.camp ? stormMachines(w.camp as SiegeWindow, now, order.machines) : []);
+      seizeFree(file, w);
       return null;
     }
     case 'wood': {
@@ -2355,9 +2617,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
         w.camp = { ...w.camp, ...blockadeAfter(camp, now, false, 'order') } as WarCamp;
         return null;
       }
-      const s = ctx.sheet(w.def);
-      if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
-      const why = blockadeBlock(camp, now, campPower(w, now), garrisonPower(liveSheet(file, w.def, s, now)));
+      const sheet = defSheet(file, w, now, w.npc ? null : ctx.sheet(w.def));
+      if (!sheet) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+      const why = blockadeBlock(camp, now, campPower(w, now), garrisonPower(sheet));
       if (why) return why;
       w.camp = { ...w.camp, ...blockadeAfter(camp, now, true) } as WarCamp;
       return null;
@@ -2391,6 +2653,11 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const role = order.kind === 'terms' ? 'atk' : 'def';
       const w = theirs(file, order.id, key, role);
       if (!w || w.phase !== 'camp' || !w.camp) return role === 'atk' ? 'Лагеря уже нет.' : 'Лагеря под стенами уже нет.';
+      // Вольный замок берут только мечом (решение В6): сдачи на условиях нет — интерфейс бродяги такой кнопки не показывает.
+      if (w.npc) {
+        ctx.forged?.('Условия сдачи вольному замку: его берут только мечом, интерфейс такого приказа не шлёт.');
+        return 'Вольный замок не сдаётся на условиях: его берут только мечом.';
+      }
       const camp = w.camp as SiegeWindow;
       const why = offerBlock(camp, order.kind, now) ?? (order.kind === 'terms' ? termsBlock(w.fate, order.fate) : null);
       if (why) return why;
@@ -2604,6 +2871,8 @@ const burnedAt = (file: WarFile, def: string): number =>
  * штурм с участью (`spoils.fateBlock`): замки гейта объявляющего и неприкосновенность недавно сожжённого города.
  */
 function fateWhy(file: WarFile, key: string, def: string, fateId: WarRow['fate'], now: number, ctx: OrderCtx): string | null {
+  // Вольный замок (ПН-10): участи вольного замка, замков гейта у отряда нет.
+  if (isFreeKey(def)) return fateBlock(fateId, 'castle', undefined, now);
   const mine = ctx.sheet(key);
   if (!mine) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
   const burned = burnedAt(file, def);
@@ -2649,6 +2918,8 @@ export function generalBusy(file: WarFile, key: string): string | null {
 }
 
 function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march' }>, now: number, ctx: OrderCtx): string | null {
+  // Вольный замок (ПН-10) — поход отряда бродяги, своя дверь: полководца, энергии и защиты слабого у него нет.
+  if (isFreeKey(order.target)) return marchFree(file, key, order, now, ctx);
   const own = ctx.roster.rows[key];
   if (!own) return 'Твой город ещё не стоит на карте.';
   const entry = Object.entries(ctx.roster.rows).find(([k]) => castleIdOf(k) === order.target);
@@ -2791,6 +3062,8 @@ export interface WarNews {
  * падение голодом). Падение штурмом — тот же бой у стены, второй новостью не идёт.
  */
 export function newsOf(w: WarRow): WarNews[] {
+  // Осада вольного замка (ПН-10): защитник — НПС, вестей ему нет; бродяге — стол в игре (вести пути в Telegram — ПН-18).
+  if (w.npc) return [];
   const out: WarNews[] = [];
   const from = (role: 'atk' | 'def'): string => plainName(role === 'atk' ? w.defCity : w.atkCity);
   if (w.end !== 'recalled' && w.sentAt < w.arriveAt) {

@@ -31,9 +31,10 @@ import type { ProposalView } from './proposals';
  * Участь взятого города — что выбрал победитель: ограбить, ограбить и увести людей,
  * сжечь (docs/DEFEAT_LADDER.md). Выбирается **в момент приказа** — удара или осады, —
  * а не в минуту победы: город чаще падает от голода, когда победителя в игре нет.
- * Что делает каждая, знает одна таблица (`spoils.FATES`).
+ * Что делает каждая, знает одна таблица (`spoils.FATES`). «Занять» (`occupy`) — только вольный замок бродяги (ПН-10, ГДД 3.11.4):
+ * в лестницу лорда (`spoils.FATE_IDS`) она не входит.
  */
-export type Fate = 'plunder' | 'captives' | 'burn';
+export type Fate = 'plunder' | 'captives' | 'burn' | 'occupy';
 
 export interface Coord {
   x: number;

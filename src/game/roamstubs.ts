@@ -299,6 +299,63 @@ export const ROAM_STUBS = {
     batch: 'ПН-17',
     orient: false,
   },
+  // ---------- ПН-10: вольные замки (3.11, 6.4) ----------
+  castleLevel: {
+    value: [2, 4, 6] as readonly number[],
+    gdd: '3.11.1',
+    what: 'гарнизон вольного замка I, II, III — строка таблицы у ворот (`GATE_POWER.raiders`) этого уровня, строй замка (`castle`)',
+    batch: 'ПН-10',
+    orient: true,
+  },
+  castlePrestige: {
+    value: [150, 400, 1000] as readonly number[],
+    gdd: '3.11.1',
+    what: 'доступ к вольному замку I, II, III — престиж не ниже',
+    batch: 'ПН-10',
+    orient: true,
+  },
+  castlePop: {
+    value: [30, 45, 70] as readonly number[],
+    gdd: '3.11.1',
+    what: 'жители вольного замка I, II, III (хлеб осады — кладовая НПС `townLarder`, добыча участи)',
+    batch: 'ПН-11',
+    orient: true,
+  },
+  castleWall: {
+    value: [2, 3, 5] as readonly number[],
+    gdd: '3.11.1',
+    what: 'частокол вольного замка I, II, III (стена осады и обстрела)',
+    batch: 'ПН-11',
+    orient: true,
+  },
+  castleTower: {
+    value: [2, 3, 4] as readonly number[],
+    gdd: '3.11.1',
+    what: 'башня вольного замка I, II, III',
+    batch: 'ПН-11',
+    orient: true,
+  },
+  castleHall: {
+    value: [1, 2, 3] as readonly number[],
+    gdd: '3.11.1',
+    what: 'Ратуша вольного замка I, II, III (прочие постройки — 1-го уровня)',
+    batch: 'ПН-11',
+    orient: true,
+  },
+  castleShare: {
+    value: [0.5, 0.3, 0.2] as readonly number[],
+    gdd: '6.4',
+    what: 'ступени вольных замков пула I, II, III — доли',
+    batch: 'ПН-17',
+    orient: false,
+  },
+  castlePool: {
+    value: { base: 4, share: 0.5 },
+    gdd: '6.4',
+    what: 'пул вольных замков: max(базовый, ceil(бродяг × доля))',
+    batch: 'ПН-17',
+    orient: true,
+  },
 } as const satisfies Record<string, RoamStub>;
 
 export type RoamStubId = keyof typeof ROAM_STUBS;

@@ -210,12 +210,39 @@ export interface RosterFile {
    * открыт (`roamflag.roamOpenFor`: с 30.10.2026 — админам); читает и несёт дальше реестр всегда, отдаёт — только тем, кому путь открыт.
    */
   bands?: Record<string, BandRow>;
+  /**
+   * Вольные замки пула (ПН-10, docs/gdd/path_of_sword.md, 3.11 и 6.4): клетка и ступень; ключ — `free:x:y`. Ставит их только реестр
+   * (`roster.fillFree`) — по числу бродяг, на клетках, где может стоять замок; кто замок взял или сжёг, решает запись войн
+   * (`war.ts`, `WarFile.free`), а не строка реестра. Клетки замков пула — занятые места расселения (`roster.spotsOf`).
+   */
+  free?: Record<string, FreeRow>;
 }
 
 /**
  * Что игрок сообщает о себе. Координат здесь нет и завести их нельзя: тип —
  * это и есть запрет, а `readClaim` собирает новый объект, а не приводит тип.
  */
+/** Вольный замок пула (ПН-10): клетка, ступень I–III и минута постановки. Имя и кастелян — хешем клетки (`world/freecastle`). */
+export interface FreeRow {
+  x: number;
+  y: number;
+  tier: 1 | 2 | 3;
+  born: number;
+}
+
+/**
+ * Вольный замок глазами отряда бродяги (ПН-10): только тому, кому путь открыт (`routes/castles`). `held` — замок взят отрядом
+ * (`mine` — нашим) и держится за ним до перехода (ПН-11); `burnt` — сожжён и стоит на восстановлении до этой минуты.
+ */
+export interface FreeView {
+  id: string;
+  x: number;
+  y: number;
+  tier: 1 | 2 | 3;
+  held?: { mine: boolean; fate: NoticeFate; at: number };
+  burnt?: number;
+}
+
 export interface CastleClaim {
   name: string;
   /** Имя города, очищенное `cityName`. Пустая строка — владелец его не называл. */
@@ -257,6 +284,8 @@ export interface RosterResponse {
   /** Кто видит свой отряд бродяги сейчас (ПН-4у): только своему отряду и только пока Путь меча открыт. */
   seen?: SeenView;
   /** Отказ приказа отряда словами (`POST`); нет — принят. */
+  /** Вольные замки пула рядом (ПН-10) — только тому, кому путь открыт. */
+  free?: FreeView[];
   error?: string;
 }
 
@@ -619,8 +648,8 @@ export const NOTICE_GROUPS = ['folk', 'hungry', 'bonded', 'army'] as const;
 export const NOTICE_PHASES = ['breach', 'plague', 'short', 'calm'] as const;
 export type NoticePhase = (typeof NOTICE_PHASES)[number];
 
-/** Участь, объявленная городу, — теми же именами, что `Fate` мира. */
-export const NOTICE_FATES = ['plunder', 'captives', 'burn'] as const;
+/** Участь, объявленная городу, — теми же именами, что `Fate` мира. «Занять» — только вольный замок бродяги (ПН-10). */
+export const NOTICE_FATES = ['plunder', 'captives', 'burn', 'occupy'] as const;
 
 /** Что с союзом в вести `war-pact` (ДП-1): предложили, приняли, отклонили, срок вышел, отозвали, разорвали. */
 export const NOTICE_PACTS = ['offer', 'made', 'no', 'expired', 'withdrawn', 'broken'] as const;
@@ -1346,7 +1375,7 @@ export interface WarFall {
   at: number;
   fate: NoticeFate;
   /** Штурм, голод или сдача — ворота открыли на фазе осады (участь на ступень мягче, гарнизон уходит живым). */
-  by: 'storm' | 'hunger' | 'gates';
+  by: 'storm' | 'hunger' | 'gates' | 'sortie';
   /** Что увёз победитель (припасы и казна) и сколько людей увёл. */
   taken: Counts;
   led: number;

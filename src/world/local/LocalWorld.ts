@@ -10863,7 +10863,8 @@ export class LocalWorld implements WorldApi {
   private warFall(w: WarView, f: WarFall): void {
     const how = FATE_META[f.fate].name.toLowerCase();
     // Осада войны в донесении о падении (ролик осады): штурм с ходу осадой не был — записи нет.
-    const siege = this.warSiegeRecord(w, f.at, f.by === 'gates' ? (f.terms ? 'terms' : 'gates') : f.by, f.fate as Fate);
+    // Последняя вылазка вольного замка (ПН-10) — взятие боем: в ролике — как штурм.
+    const siege = this.warSiegeRecord(w, f.at, f.by === 'gates' ? (f.terms ? 'terms' : 'gates') : f.by === 'sortie' ? 'storm' : f.by, f.fate as Fate);
     if (w.role === 'atk') {
       const name = this.warCity(w, 'def');
       const loot = { ...(f.taken as Loot) };

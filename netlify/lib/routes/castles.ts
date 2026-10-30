@@ -31,7 +31,8 @@ import { readInitData, saveKeyOf } from '../initdata.js';
 import { eraGate } from '../era.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, spawnMode, type Route } from '../http.js';
 import { readBandOrder, readClaim, type CastleClaim, type RosterFile, type RosterResponse } from '../contract.js';
-import { ROSTER_KEY, bandOrder, prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting } from '../roster.js';
+import { ROSTER_KEY, bandOrder, fillFree, freeViews, prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting, type FreeHold } from '../roster.js';
+import { WARS_KEY, readWars } from '../war.js';
 import { STORES } from '../kv.js';
 import { addFlags, confirmedOf, observe, readWatchRecord } from '../watch.js';
 import { bandsSeen, clockAt, seenOf } from '../bandsight.js';
@@ -73,7 +74,7 @@ const PER_MINUTE = 40;
  * Ответ реестра: своя клетка и соседи в пределах досягаемости. Свой отряд бродяги (ПН-3) и видимость отрядов (ПН-4у) — только тому,
  * кому Путь меча открыт (`roamOpen`: правило `roamflag.roamOpenFor`, с 30.10.2026 — админам); замки соседей отряд видит от своей клетки.
  */
-function answer(file: RosterFile, key: string, now: number, roamOpen: boolean): RosterResponse {
+function answer(file: RosterFile, key: string, now: number, roamOpen: boolean, holds: Readonly<Record<string, FreeHold>> = {}): RosterResponse {
   const own = file.rows[key];
   const band = roamOpen ? file.bands?.[key] : undefined;
   const mine = own ? { x: own.x, y: own.y } : null;
@@ -87,8 +88,24 @@ function answer(file: RosterFile, key: string, now: number, roamOpen: boolean): 
     if (seenBands.length > 0) res.bands = seenBands;
     const seen = seenOf(file, key, now);
     if (seen) res.seen = seen;
+    // Вольные замки пула (ПН-10): кто взял и что сожжено — из записи войн (`WarFile.free`), а не из строки реестра.
+    const free = from ? freeViews(file, key, holds, from, NEAR, now) : [];
+    if (free.length > 0) res.free = free;
   }
   return res;
+}
+
+/**
+ * Чьи вольные замки (ПН-10) — из записи войн: взятие и сожжение решает бой на сервере войны (`war.ts`). Чтение без строгости, как у
+ * реестра: запись войн живёт минутами. Не прочиталась — замки свободны на вид, а взять чужой не даст сама война.
+ */
+async function holdsOf(io: Parameters<Route>[1]): Promise<Record<string, FreeHold>> {
+  try {
+    const got = await io.stores(STORES.world, 'eventual').getWithMetadata(WARS_KEY);
+    return readWars(got ? parseJson(String(got.data)) : null).free ?? {};
+  } catch {
+    return {};
+  }
 }
 
 export const castles: Route = async (req, io) => {
@@ -119,7 +136,7 @@ export const castles: Route = async (req, io) => {
   if (req.method === 'GET') {
     const found = await cool.getWithMetadata(KEY);
     const file = readRoster(found ? parseJson(String(found.data)) : null);
-    return json(answer(file, key, now, open));
+    return json(answer(file, key, now, open, open ? await holdsOf(io) : {}));
   }
 
   if (req.method === 'POST') return bandRoute(req, io, key, now, admin);
@@ -199,6 +216,8 @@ async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, no
     // Наблюдение не ответило — строка живёт прежней отметкой часов.
   }
   // Указы админа отряду (ПН-6): их бойцы ложатся в книгу отряда по номеру. Хранилище не ответило — книга подождёт следующего приказа.
+  // Вольные замки пула (ПН-10): взятые отрядами пул не держат — пул пополняется приказом отряда внутри цикла записи.
+  const holds = await holdsOf(io);
   let grants: StoredGrant[] = [];
   try {
     grants = (await grantsOf(io.stores, key)).list;
@@ -219,16 +238,16 @@ async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, no
     };
     if (done.error) {
       await flag();
-      return json({ ...answer(read, key, now, true), error: done.error });
+      return json({ ...answer(read, key, now, true, holds), error: done.error });
     }
-    const next = done.file;
+    const next = fillFree(done.file, now, holds, mode);
     // Эпоха — ещё раз, перед самой записью (OPS-3): стирание после проверки на входе не воскрешает строку старой эпохи.
     const late = await eraGate(req, io);
     if (late) return late;
     const written = await hot.setJSON(KEY, next, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
     if (written.modified) {
       await flag();
-      return json(answer(next, key, now, true));
+      return json(answer(next, key, now, true, holds));
     }
   }
   return deny(429, 'slow-down', { 'retry-after': '10' });

@@ -178,6 +178,15 @@ export const INPUTS = {
   dealDays: fromGame('dealDays'),
   dealStand: fromGame('dealStand'),
   dealCargo: fromGame('dealCargo'),
+  // ---------- заглушки игры ПН-10: вольные замки ----------
+  castleLevel: fromGame('castleLevel'),
+  castlePrestige: fromGame('castlePrestige'),
+  castlePop: fromGame('castlePop'),
+  castleWall: fromGame('castleWall'),
+  castleTower: fromGame('castleTower'),
+  castleHall: fromGame('castleHall'),
+  castleShare: fromGame('castleShare'),
+  castlePool: fromGame('castlePool'),
 } satisfies Record<string, Input>;
 
 export type InputId = keyof typeof INPUTS;

@@ -97,6 +97,7 @@ export const FELL_WORDS: Record<Fate, string> = {
   plunder: 'ограблен',
   captives: 'уведены люди',
   burn: 'сожжён',
+  occupy: 'занят',
 };
 
 /**

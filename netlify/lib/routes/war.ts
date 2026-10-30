@@ -42,7 +42,9 @@ import {
 import { queueNews } from '../outbox.js';
 import { RIVAL_DEED_BY_ID } from '../../../src/world/data/spy.js';
 import { STORES } from '../kv.js';
-import { FROZEN_ORDER, FROZEN_TARGET, frozenNow, isFrozen } from '../admin.js';
+import { FROZEN_ORDER, FROZEN_TARGET, frozenNow, isAdmin, isFrozen } from '../admin.js';
+import { roamOpenFor } from '../../../src/game/roamflag.js';
+import { isFreeKey } from '../../../src/world/freecastle.js';
 import { resetOf } from '../partyreset.js';
 import { addFlags, agentsOf, bookOf, commandOf, marshalOf, noted, observe, readWatchRecord, scarsOfRec, spiritCeilOf, townOf, yieldCapOf } from '../watch.js';
 
@@ -101,6 +103,8 @@ export const war: Route = async (req, io) => {
   // для войны нет: слепка нет, и пришедшее войско поворачивает (docs/admin.md).
   const sheets = new Map<string, SheetAt | null>();
   const load = async (player: string): Promise<void> => {
+    // Вольный замок (ПН-10) — защитник НПС: описи у него нет, слепок — правилами ступени (`war.npcSheet`).
+    if (isFreeKey(player)) return;
     if (sheets.has(player)) return;
     if (isFrozen(frozen, player)) {
       sheets.set(player, null);
@@ -189,6 +193,8 @@ export const war: Route = async (req, io) => {
           roster,
           sheet: (player) => sheets.get(player) ?? null,
           noShield: spawnMode() !== null,
+          // Путь меча — по игроку, тем же правилом, что реестр и клиент (`roamflag.roamOpenFor`): поход отряда на вольный замок.
+          roamOpen: roamOpenFor(isAdmin(auth.user.id)),
           forged: (text, kind = 'forged') => {
             forged.text = text;
             forged.kind = kind;

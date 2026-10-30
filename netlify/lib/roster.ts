@@ -27,6 +27,7 @@ import { readMove } from '../../src/world/roammove.js';
 import { bookClaim, bookGrants, bookMen, bookMoved, bookOrder, firstBook, startBook } from './roambook.js';
 import { isBookOrder, readRoamBook } from './bandorder.js';
 import { readGait } from '../../src/world/data/gait.js';
+import { freeId, freePoolSize, freeTierOf } from '../../src/world/freecastle.js';
 import {
   CASTLE_LIMITS,
   cityName,
@@ -37,6 +38,9 @@ import {
   type CastleClaim,
   type CastleRow,
   type CastleView,
+  type FreeRow,
+  type FreeView,
+  type NoticeFate,
   type RosterFile,
 } from './contract.js';
 
@@ -104,7 +108,24 @@ export function readRoster(raw: unknown): RosterFile {
       if (b) bands[key] = b;
     }
   }
-  return { v: 1, epoch: rosterEpoch(), rows, ...(Object.keys(bands).length > 0 ? { bands } : {}) };
+  // Вольные замки пула (ПН-10) — тоже всегда: их несёт дальше любая запись реестра, а отдаёт ответ только тому, кому путь открыт.
+  const free: Record<string, FreeRow> = {};
+  if (r.free && typeof r.free === 'object') {
+    for (const [id, row] of Object.entries(r.free)) {
+      const f = readFreeRow(row);
+      if (f && id === freeId(f.x, f.y)) free[id] = f;
+    }
+  }
+  return { v: 1, epoch: rosterEpoch(), rows, ...(Object.keys(bands).length > 0 ? { bands } : {}), ...(Object.keys(free).length > 0 ? { free } : {}) };
+}
+
+/** Строка вольного замка из хранилища; испорченная — `null`. */
+export function readFreeRow(v: unknown): FreeRow | null {
+  if (!v || typeof v !== 'object') return null;
+  const f = v as Partial<FreeRow>;
+  if (!Number.isInteger(f.x) || !Number.isInteger(f.y)) return null;
+  if (f.tier !== 1 && f.tier !== 2 && f.tier !== 3) return null;
+  return { x: f.x as number, y: f.y as number, tier: f.tier, born: Math.max(0, Math.floor(Number(f.born) || 0)) };
 }
 
 const whole = (v: unknown, max: number): number => Math.min(max, Math.max(0, Math.floor(Number(v) || 0)));
@@ -150,12 +171,73 @@ function clockOf(v: unknown): Pick<BandRow, 'clock'> {
   return Number.isFinite(time) && Number.isFinite(at) && time >= 0 && at >= 0 ? { clock: { time, at } } : {};
 }
 
-/** Строки реестра, которые надо пронести при записи замка: отряды — как были. */
-const bandsOf = (file: RosterFile): Pick<RosterFile, 'bands'> => (file.bands && Object.keys(file.bands).length > 0 ? { bands: file.bands } : {});
+/** Строки реестра, которые надо пронести при записи замка: отряды и вольные замки пула — как были. */
+const bandsOf = (file: RosterFile): Pick<RosterFile, 'bands' | 'free'> => ({
+  ...(file.bands && Object.keys(file.bands).length > 0 ? { bands: file.bands } : {}),
+  ...(file.free && Object.keys(file.free).length > 0 ? { free: file.free } : {}),
+});
 
-/** Где уже стоят замки. Ровно это и получает правило расселения. */
-export const spotsOf = (file: RosterFile): Spot[] =>
-  Object.values(file.rows).map((r) => ({ x: r.x, y: r.y }));
+/**
+ * Где уже стоят замки. Ровно это и получает правило расселения. Вольные замки пула (ПН-10, 6.4) — тоже занятые места: на их клетки
+ * и в их зазор не встаёт ни новичок, ни новый вольный замок, ни место выхода отряда.
+ */
+export const spotsOf = (file: RosterFile): Spot[] => [
+  ...Object.values(file.rows).map((r) => ({ x: r.x, y: r.y })),
+  ...Object.values(file.free ?? {}).map((f) => ({ x: f.x, y: f.y })),
+];
+
+/**
+ * Чей вольный замок (ПН-10): взят отрядом `key` — держится за ним до перехода (ПН-11); участь «Сжечь» — замок не взят и стоит на
+ * восстановлении до минуты `burnt`. Пишет её одна дверь — падение вольного замка в записи войн (`war.ts`, `WarFile.free`): кто взял,
+ * решает бой, а не строка реестра.
+ */
+export interface FreeHold {
+  key: string;
+  at: number;
+  war: string;
+  fate: NoticeFate;
+  burnt?: number;
+}
+
+/** Держит ли замок кто-то в минуту `now`: взят — да; сожжён — до конца восстановления. */
+export const freeHeld = (h: FreeHold | undefined, now: number): boolean => !!h && (h.fate !== 'burn' || now < (h.burnt ?? 0));
+
+/**
+ * Пополнить пул вольных замков (6.4): открытых — `max(базовый, ceil(бродяг × доля))` (`freecastle.freePoolSize`); взятые отрядами пул
+ * не держат, сожжённые — держат (вернутся сами). Клетка — правилом расселения замка (`settle.placeCastle`) от всех занятых мест,
+ * ступень — хешем клетки; бросок — от номера замка в пуле: повтор после проигранной записи ставит то же. Зовут её внутри цикла записи
+ * на только что прочитанном реестре (`routes/castles`).
+ */
+export function fillFree(file: RosterFile, now: number, holds: Readonly<Record<string, FreeHold>>, mode: SpawnMode | null): RosterFile {
+  const want = freePoolSize(Object.keys(file.bands ?? {}).length);
+  const rows: Record<string, FreeRow> = { ...(file.free ?? {}) };
+  const open = (): number => Object.keys(rows).filter((id) => !(holds[id] && holds[id].fate !== 'burn')).length;
+  if (open() >= want) return file;
+  for (let n = Object.keys(rows).length, guard = 0; open() < want && guard < 64; n++, guard++) {
+    const at = placeCastle(settleRandom(`free:${n}`), spotsOf({ ...file, free: rows }), mode === 'sicily' ? inSicilyTheatre : undefined);
+    const id = freeId(at.x, at.y);
+    if (!rows[id]) rows[id] = { x: at.x, y: at.y, tier: freeTierOf(at.x, at.y), born: now };
+  }
+  return { ...file, free: rows };
+}
+
+/** Вольные замки пула не дальше `near` клеток от `from` — глазами отряда `key` (ПН-10). */
+export function freeViews(file: RosterFile, key: string, holds: Readonly<Record<string, FreeHold>>, from: Spot, near: number, now: number): FreeView[] {
+  const out: FreeView[] = [];
+  for (const [id, f] of Object.entries(file.free ?? {})) {
+    if (Math.hypot(f.x - from.x, f.y - from.y) > near) continue;
+    const h = holds[id];
+    out.push({
+      id,
+      x: f.x,
+      y: f.y,
+      tier: f.tier,
+      ...(h && h.fate !== 'burn' ? { held: { mine: h.key === key, fate: h.fate, at: h.at } } : {}),
+      ...(h && h.fate === 'burn' && now < (h.burnt ?? 0) ? { burnt: h.burnt } : {}),
+    });
+  }
+  return out;
+}
 
 /**
  * Идентификатор замка наружу. Не телеграмный: соседям знать, кто именно за ним
@@ -272,7 +354,8 @@ export function prune(file: RosterFile, now: number, keep: string): RosterFile {
           .sort((a, b) => (a[0] === keep ? -1 : b[0] === keep ? 1 : b[1].seenAt - a[1].seenAt))
           .slice(0, ROSTER_MAX);
   if (left.length === Object.keys(file.rows).length && !bandsGone) return file;
-  return { v: 1, epoch: file.epoch, rows: Object.fromEntries(left), ...keptBands };
+  // Вольные замки пула (ПН-10) не забываются: их держит пул, а не «был в игре».
+  return { v: 1, epoch: file.epoch, rows: Object.fromEntries(left), ...keptBands, ...(file.free ? { free: file.free } : {}) };
 }
 
 /**
