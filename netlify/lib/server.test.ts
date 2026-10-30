@@ -211,7 +211,10 @@ describe('сервер ничего не начисляет, кроме одно
     // ничего — только флаг. Шестой — допуск разовых дел (AC-1, docs/audit/AU-3.md): сколько дела могли положить на склад и в
     // казну по таблице наград игры, — сверка и флаг, начислять ему нечего. Седьмой — наблюдение (АУ-8, п. 8): добро без дела по
     // записи войн (`watch.windfallKnown` — дань и кража у соседа, принятые клиентом) — допуск к той же сверке, не начисление.
-    expect(guilty).toEqual(['lib/commands.ts', 'lib/contract.ts', 'lib/deeds.ts', 'lib/goods.ts', 'lib/market.ts', 'lib/war.ts', 'lib/watch.ts']);
+    // Восьмой и девятый — книга договоров отряда бродяги (ПН-7, docs/gdd/path_of_sword.md, 20; docs/trust-boundary.md, 5в) и её разбор:
+    // плату сданного договора сервер сверяет с потолком таблицы наград дел и считает подтверждённое — кошеля отряда он не ведёт и
+    // ничего в него не кладёт (плату кладёт клиент дверью `sim/contracts.settle`); сверх потолка — срезано в счёте и флаг.
+    expect(guilty).toEqual(['lib/bandorder.ts', 'lib/commands.ts', 'lib/contract.ts', 'lib/deeds.ts', 'lib/goods.ts', 'lib/market.ts', 'lib/roambook.ts', 'lib/war.ts', 'lib/watch.ts']);
     for (const f of files()) expect(strip(readFileSync(f, 'utf8')), rel(f)).not.toMatch(/\breward/i);
   });
 });

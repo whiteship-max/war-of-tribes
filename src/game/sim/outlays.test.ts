@@ -38,6 +38,7 @@ const DOORS: Record<string, { why: Why[]; what: string }> = {
   'sim/candidates.ts': { why: ['outlay'], what: 'плата за найм советника за сезон вперёд (РТ-1)' },
   'sim/recruits.ts': { why: ['outlay'], what: 'найм агента в Ратуше: плата по ртам и жалованье вперёд (АГ-1)' },
   'sim/commanders.ts': { why: ['outlay'], what: 'найм командира фланга: плата по ртам и жалованье вперёд (ДР-3)' },
+  'sim/contracts.ts': { why: ['drain'], what: 'договор бродяги «Доставить груз» — груз заказчику с обоза (`cargo`) при сдаче, склад города не трогает (ПН-7)' },
   'sim/estates.ts': { why: ['outlay'], what: 'дар сословию золотом (РТ-2)' },
   'sim/roam.ts': { why: ['drain'], what: 'паёк отряда бродяги — из обоза (`cargo`), склад города не трогает (ПН-1)' },
   'sim/roamtown.ts': { why: ['drain'], what: 'найм бродяги у города и села — припас из обоза (`cargo`), склад города не трогает (ПН-6)' },
