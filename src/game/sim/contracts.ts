@@ -13,7 +13,7 @@
 import type { GameState, ResourceId, RoamDeal, RoamDebt, RoamState } from '../types';
 import type { DealOffer } from '@/world/dealboard';
 import type { FightOut } from './roamfight';
-import { CONTRACTS_MAX, contractTerms, dealLine } from '../contractrules';
+import { CONTRACTS_MAX, contractTerms, dealLine, settlePay } from '../contractrules';
 import { DEAL_DEFS, DEAL_KINDS, type DealFrom, type DealKind } from '../data/contracts';
 import { RESOURCE_IDS } from '../constants';
 import { DAY_LENGTH, realMs } from '../pace';
@@ -126,11 +126,11 @@ export function settle(s: GameState, id: string, now: number): string | null {
     if ((r.cargo[d.goods.id] ?? 0) < d.goods.n) return 'Груза в обозе меньше, чем взяли.';
     addStock(s, d.goods.id, -d.goods.n, cargoCap(r), 'cargo');
   }
-  r.purse += d.pay - d.advance;
+  r.purse += settlePay(d);
   const fame = movePrestige(s, d.fame);
   without(r, id);
   sendBook(s, { op: 'deal', key: bookKey(s, 'deal'), take: d.key, gold: d.pay, fame: d.fame });
-  log(s, `Договор исполнен: ${DEAL_DEFS[d.kind].name.toLowerCase()} для ${d.from.name}. Плата ${d.pay - d.advance} сверх аванса, престиж +${Math.round(fame)}.`, 'good', `deal:${d.id}`);
+  log(s, `Договор исполнен: ${DEAL_DEFS[d.kind].name.toLowerCase()} для ${d.from.name}. Плата ${settlePay(d)} сверх аванса, престиж +${Math.round(fame)}.`, 'good', `deal:${d.id}`);
   return null;
 }
 

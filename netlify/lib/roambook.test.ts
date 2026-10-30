@@ -6,7 +6,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RoamBookRow } from './contract.js';
 import { bandOrder, emptyRoster } from './roster.js';
-import { BOOK_SLACK_MS, DRILL_AHEAD_MS, bookClaim, bookGrants, bookMen, bookMoved, bookOrder, captivesCapNow, startBook, type BookAt } from './roambook.js';
+import { BOOK_SLACK_MS, DRILL_AHEAD_MS, bookClaim, bookGrants, bookMen, bookMoved, bookOrder, captivesCapNow, dealsPerCell, startBook, type BookAt } from './roambook.js';
+import { CONTRACTS_MAX } from '../../src/game/data/contracts.js';
+import { DEED_TABLE } from '../../src/game/data/deedgain.js';
+import { SHIFT } from '../../src/game/shift.js';
 import { askCap, drillMs } from '../../src/game/askrules.js';
 import { awayArrival } from '../../src/game/mailgrid.js';
 import { WARRIOR } from '../../src/game/roamstart.js';
@@ -118,5 +121,80 @@ describe('книга отряда: отметка', () => {
     const lie = bandOrder(first.file, 'tg-7', { op: 'seat', name: 'Герой', prestige: 0, men: 60, troops: { spearman: 50, clubman: 10 } }, now + 1000, null);
     expect(lie.forged?.text).toMatch(/сверх книги/);
     expect(lie.file.bands?.['tg-7'].men).toBe(6);
+  });
+});
+
+describe('книга договоров (ПН-7, ГДД 3.8): взятие у заказчика, сдача — не выше таблицы наград дел, подделка — флаг', () => {
+  // Граница области: отряд правда стоит (не в пути) в клетке заказчика, ключ взятия правда открыт, тир правда из I–III.
+  const STAND = { x: 10, y: 10 };
+  const take = (book: RoamBookRow, key: string, tier = 1, over: Partial<BookAt> = {}): ReturnType<typeof bookOrder> =>
+    bookOrder(book, { op: 'take', key, at: { ...STAND }, tier }, at(over));
+
+  it('взятие — стоя у заказчика: в пути — отказ без флага, не у его клетки — отказ и флаг', () => {
+    const ok = take(startBook(), 'take-0001');
+    expect(ok.error).toBeNull();
+    expect(ok.book.deals?.open.map((o) => o.key)).toEqual(['take-0001']);
+    const moving = take(startBook(), 'take-0002', 1, { moving: true });
+    expect(moving.error).not.toBeNull();
+    expect(moving.forged).toBeNull();
+    const far = bookOrder(startBook(), { op: 'take', key: 'take-0003', at: { x: 30, y: 30 }, tier: 1 }, at());
+    expect(far.error).not.toBeNull();
+    expect(far.forged).toMatch(/отряд стоит/);
+  });
+
+  it(`договоров разом — не больше ${CONTRACTS_MAX}; доска одной клетки за привоз — не больше доски города и видов кастеляна`, () => {
+    let book = startBook();
+    for (let i = 0; i < CONTRACTS_MAX; i++) book = take(book, `take-c${i}0`).book;
+    const fourth = take(book, 'take-c99');
+    expect(fourth.error).not.toBeNull();
+    expect(fourth.forged).toMatch(/разом/);
+    // Сдали и взяли снова — пока доска клетки не пуста за этот привоз.
+    let b2 = startBook();
+    let n = 0;
+    for (let i = 0; i < dealsPerCell() + 2; i++) {
+      const t = take(b2, `take-p${i}0`);
+      if (t.error) {
+        expect(t.forged).toMatch(/доска даёт не больше/);
+        break;
+      }
+      n++;
+      b2 = bookOrder(t.book, { op: 'drop', key: `drop-p${i}0`, take: `take-p${i}0` }, at()).book;
+    }
+    expect(n, 'граница: клетка дала ровно столько, сколько доска').toBe(dealsPerCell());
+    // Новый привоз — доска снова полна.
+    expect(take(b2, 'take-next', 1, { now: AT + 60_000 + SHIFT }).error).toBeNull();
+  });
+
+  it('сдача — только взятого; плата и престиж — не выше строки таблицы наград дел тира: сверх — срезано и флаг', () => {
+    const book = take(startBook(), 'take-g001', 2).book;
+    const cap = DEED_TABLE.deal;
+    expect(cap.gold[1]).toBeGreaterThan(0);
+    const honest = bookOrder(book, { op: 'deal', key: 'deal-g001', take: 'take-g001', gold: cap.gold[1], fame: cap.fame[1] }, at());
+    expect(honest.error).toBeNull();
+    expect(honest.forged).toBeNull();
+    expect(honest.book.deals).toMatchObject({ n: 1, gold: cap.gold[1], fame: cap.fame[1], open: [] });
+    const over = bookOrder(book, { op: 'deal', key: 'deal-g002', take: 'take-g001', gold: cap.gold[1] * 3, fame: 999 }, at());
+    expect(over.error).toBeNull();
+    expect(over.forged).toMatch(/при потолке/);
+    expect(over.book.deals?.gold).toBe(cap.gold[1]);
+    expect(over.book.deals?.fame).toBe(cap.fame[1]);
+    // Сдача без взятия — отказ и флаг; повтор ключа — прежний итог.
+    const none = bookOrder(startBook(), { op: 'deal', key: 'deal-g003', take: 'take-none', gold: 10, fame: 10 }, at());
+    expect(none.error).not.toBeNull();
+    expect(none.forged).toMatch(/без взятия/);
+    expect(bookOrder(honest.book, { op: 'deal', key: 'deal-g001', take: 'take-g001', gold: cap.gold[1], fame: cap.fame[1] }, at()).book.deals?.n).toBe(1);
+  });
+
+  it('срыв закрывает взятый договор; сдать его потом нельзя', () => {
+    const book = take(startBook(), 'take-d001').book;
+    const dropped = bookOrder(book, { op: 'drop', key: 'drop-d001', take: 'take-d001' }, at());
+    expect(dropped.book.deals?.open).toEqual([]);
+    expect(bookOrder(dropped.book, { op: 'deal', key: 'deal-d001', take: 'take-d001', gold: 1, fame: 1 }, at()).forged).toMatch(/без взятия/);
+  });
+
+  it('строка таблицы наград дел договоров — вывод из правил игры (тест вывода сверяет её буква в букву)', () => {
+    expect(DEED_TABLE.deal.gold).toHaveLength(3);
+    expect(DEED_TABLE.deal.gold[0]).toBeLessThan(DEED_TABLE.deal.gold[1]);
+    expect(DEED_TABLE.deal.fame).toEqual([12, 24, 36]);
   });
 });

@@ -121,3 +121,97 @@
   min-width: 40px;
   font-weight: 700;
 }
+/* Окно договоров (ПН-7, ГДД 5.4): доска заказчика — шапка (имя, кто, когда сменится), долг, карточки — вид и тир, что сделать, четыре
+   числа строкой договора (плата, аванс, срок, риск), «Взять». На 390 px — по два числа в ряд. */
+.roam-deal-board {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.roam-deal-from {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 2px 0;
+}
+.roam-deal-from b {
+  font-size: 15px;
+}
+.roam-deal-from small {
+  opacity: 0.75;
+  font-size: 12px;
+}
+.roam-deal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--m-plate-rim);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+}
+.roam-deal-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.roam-deal-top b {
+  font-size: 15px;
+}
+.roam-deal-tier {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.roam-deal-aim {
+  font-size: 12.5px;
+  line-height: 1.3;
+  opacity: 0.85;
+}
+.roam-deal-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  margin: 0;
+}
+.roam-deal-facts > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.roam-deal-facts dt {
+  flex: none;
+  display: flex;
+}
+.roam-deal-facts dt svg {
+  width: 16px;
+  height: 16px;
+}
+.roam-deal-facts dd {
+  margin: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roam-deal .nx-go {
+  min-height: var(--tap);
+}
+.roam-deal-debt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--m-plate-rim);
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+}

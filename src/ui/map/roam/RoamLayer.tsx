@@ -4,7 +4,7 @@
 // руке касание любой клетки открывает окно хода (`RoamSend`) — свобода хода есть только у отряда (П1). Лагерь — кнопкой полосы
 // (`RoamCamp`). Строка «скрыт / виден» (ПН-4у) — под строкой отряда: кто нас видит (слово сервера; без сервера — те же правила по
 // замкам реестра) и на сколько клеток нас видит круг замка — дверью `world/sight` (`world/bandsight.ownSight`). Чужие отряды и их
-// следы рисует свой кусок (`BandsLayer`) — у лорда и у бродяги.
+// следы рисует свой кусок (`BandsLayer`) — у лорда и у бродяги. Договоры НПС (ПН-7) — окно `RoamDeals` кнопкой ряда.
 import { useEffect, useRef, useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
@@ -26,6 +26,7 @@ import { RoamCamp } from './RoamCamp';
 import { RoamBand } from './RoamBand';
 import { RoamMail } from './RoamMail';
 import { RoamTown } from './RoamTown';
+import { RoamDeals } from './RoamDeals';
 import { fireLit, openSky } from '@/world/campsite';
 import './roam.css';
 
@@ -49,7 +50,8 @@ export default function RoamLayer() {
   const [plan, setPlan] = useState<RoamPlanView | null>(null);
   const [campOpen, setCampOpen] = useState(false);
   // Окна ПН-6: отряд, город или село у отряда, вести.
-  const [pane, setPane] = useState<'band' | 'town' | 'mail' | null>(null);
+  const [pane, setPane] = useState<'band' | 'town' | 'deals' | 'mail' | null>(null);
+  const deals = useGame((g) => g.s.roam?.deals?.length ?? 0);
   const mail = useGame((g) => g.s.inbox.length);
   const arms = useGame((g) => g.s.profile.arms ?? null);
   // Картинка лагеря (ПН-12л): ступень по людям, огонь — как в сцене (дождь гасит костры), знамя — гербом профиля.
@@ -110,6 +112,10 @@ export default function RoamLayer() {
           <button className="nx-mbtn" onClick={() => setPane('town')} aria-label="Город и село" disabled={!way || moving}>
             <Icon name="ui-scales" />
           </button>
+          <button className="nx-mbtn" onClick={() => setPane('deals')} aria-label={`Договоры: ${deals}`}>
+            <Icon name="ui-charter" />
+            {deals > 0 && <i className="roam-badge">{deals}</i>}
+          </button>
           <button className={`nx-mbtn${mail > 0 ? ' roam-new' : ''}`} onClick={() => setPane('mail')} aria-label={`Вести: ${mail}`}>
             <Icon name="ui-mail" />
             {mail > 0 && <i className="roam-badge">{mail}</i>}
@@ -160,6 +166,7 @@ export default function RoamLayer() {
       {campOpen && <RoamCamp onClose={() => setCampOpen(false)} />}
       {pane === 'band' && <RoamBand onClose={() => setPane(null)} />}
       {pane === 'town' && <RoamTown onClose={() => setPane(null)} />}
+      {pane === 'deals' && <RoamDeals onClose={() => setPane(null)} />}
       {pane === 'mail' && <RoamMail onClose={() => setPane(null)} />}
     </>
   );

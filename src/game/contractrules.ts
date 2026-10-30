@@ -118,6 +118,9 @@ export function contractTerms(d: DealIn): DealTerms {
   return { kind: d.kind, tier: d.tier, power, days, pay, advance, penalty, refuse: Math.round(penalty * REFUSE_SHARE), fame: d.tier * FAME_PER_TIER };
 }
 
+/** Сколько платы приходит при сдаче — остаток сверх аванса (аванс получен при взятии). Одна арифметика на дверь сдачи и окно. */
+export const settlePay = (t: Pick<DealTerms, 'pay' | 'advance'>): number => Math.max(0, t.pay - t.advance);
+
 /** Риск договора словами: бой с ~N, засады в пути или без боя. */
 export function riskWords(t: Pick<DealTerms, 'kind' | 'power'>): string {
   const fight = DEAL_DEFS[t.kind].fight;
