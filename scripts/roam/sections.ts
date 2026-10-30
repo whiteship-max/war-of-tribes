@@ -618,7 +618,10 @@ const castle: Section = {
     ctx.line('');
     for (const st of STYLES) {
       const power = p.runs.filter((r) => r.style === st.id).map((r) => troopPower(r.band));
-      ctx.line(`${st.name}: мощь отряда к концу — медиана ${fix(median(power), 1)}, лучшая ${fix(Math.max(...power), 1)}; гарнизон вольного замка I — ${p.knobs.castle.power}`);
+      const rs = p.runs.filter((r) => r.style === st.id);
+      ctx.line(
+        `${st.name}: мощь отряда к концу — медиана ${fix(median(power), 1)}, лучшая ${fix(Math.max(...power), 1)}; гарнизон вольного замка I — ${p.knobs.castle.power}; кошель к концу — медиана ${Math.round(median(rs.map((r) => r.purse)))}, престиж — ${Math.round(median(rs.map((r) => r.prestige)))}`,
+      );
     }
     for (const st of STYLES) {
       const at = p.runs.filter((r) => r.style === st.id).map((r) => (r.castleAt ?? Infinity) / 24);
