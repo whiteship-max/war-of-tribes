@@ -34,7 +34,7 @@ export function roamPort(): RoamPort {
     band: () => (roamOn() && s().phase === 'roam' ? (s().roam ?? null) : null),
     apply: (m) => useGame.getState().world((st) => void setMove(st, m)),
     foodAfter: (ms, g) => foodAfter(s(), ms, g),
-    campGain: (k) => campGain(s(), k),
+    campGain: (k, open) => campGain(s(), k, open),
     partyTime: () => s().time,
     prestige: () => s().prestige,
     setTrip: (t) => useGame.getState().world((st) => void setTrip(st, t)),

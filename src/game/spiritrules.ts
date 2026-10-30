@@ -125,6 +125,7 @@ export type SpiritLineId =
   | 'statue'
   | 'ruler'
   | 'camp'
+  | 'weather'
   | 'cap'
   | 'wage'
   | 'patience';
@@ -162,6 +163,8 @@ export interface SpiritIn {
   ruler?: number;
   /** Мораль от лагеря отряда бродяги (ПН-3, `roamrules.campSpirit`); у города и без лагеря — нет поля. */
   camp?: number;
+  /** Непогода над стоящим отрядом бродяги (ПН-12л, `campsite.weatherMorale`: дождь, зной); у города и под крышей — нет поля. */
+  weather?: number;
 }
 
 /** Одна шкала: значение, потолок и строки. Сумма строк — значение. */
@@ -232,6 +235,8 @@ export function spiritOfIn(i: SpiritIn): SpiritView {
       { id: 'statue', value: Math.max(0, fin(i.statue)) },
       // Лагерь отряда бродяги (ПН-3): костры поднимают, холод без огня роняет; у города поля нет — ноль строкой не показывается.
       { id: 'camp', value: fin(i.camp ?? 0) },
+      // Непогода над стоящим отрядом (ПН-12л): дождь мочит, зной сушит; у города поля нет.
+      { id: 'weather', value: fin(i.weather ?? 0) },
     ],
     i,
   );

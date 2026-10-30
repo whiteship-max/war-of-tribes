@@ -315,7 +315,8 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
           stage: stage(),
           camp: t < busyUntil ? 'none' : style.camp,
           winter: seasonOf(party.time) === 'winter',
-          morale: spiritNumbers(spiritOfIn(bandSpiritIn(party, roam))).morale,
+          // Автопилот живёт средней землёй и без погоды (ПН-12л): места и неба у его отряда нет — `null`.
+          morale: spiritNumbers(spiritOfIn(bandSpiritIn(party, roam, null))).morale,
         });
         // Кто берёт не всех — больший из двух ответов вести: «Взять, сколько прокормим» (та же дверь, что у вести,
         // `askrules.askFeedable`: хлеб обоза на `askFeed` игр. дн. всем) или «Принять всех», сколько потянет кошель сверх запаса на

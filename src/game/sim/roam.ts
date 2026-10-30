@@ -7,7 +7,8 @@
 //
 // Своих правил у шага нет — он зовёт двери ПН-1 по порядку:
 //   1. раненые, чей срок прошёл, встают в строй (`sim/infirmary.settleBandWounds`);
-//   2. паёк: фураж с земли по сезону (`roamrules.forageShare` ← поле сезона в `SEASON_MODIFIERS`), остальное — из обоза
+//   2. паёк: фураж с земли по сезону (`roamrules.forageShare` ← поле сезона в `SEASON_MODIFIERS`; стоящему под открытым небом — по
+//      месту и погоде, ПН-12л, `world/campsite`), остальное — из обоза
 //      (`sim/stock.addStock`, ключ `cargo`); не хватило — голодна та доля отряда, которую фураж не закрывает
 //      (`roamrules.bandHunger`, как амбар города);
 //   3. содержание: кошель, долг, терпение, уход (`sim/upkeep.bandUpkeep`).
@@ -23,17 +24,18 @@ import { seasonMods } from '../derived';
 import { roamOn } from '../roamflag';
 import { bandHunger, bandRationPerDay, campSpirit, forageShare } from '../roamrules';
 import { readTally } from '../rulernow';
-// Мир — только данными (`world/data/*`) и формой записи хода (`world/roammove`): дверь режима марша (`world/gait`) и дверь хода
-// (`world/roam`) тянут осаду, землю и регионы, и шаг города, который зовёт этот модуль диспетчером, сдвинул бы ими первую загрузку.
+// Мир — данными (`world/data/*`), формой записи хода (`world/roammove`) и местом лагеря (`world/campsite`, ПН-12л): с ПН-5 шаг отряда
+// едет куском пути (`game/roamdoor`), и мир отсюда первую загрузку не двигает (сторож сборки, `vite.config.ts`).
 import type { Gait } from '@/world/data/gait';
 import { cargoCap } from '../cargocap';
-import { readMove, readTrip, standWay, tripOfWay, type CampKind, type RoamMove, type RoamTrip } from '@/world/roammove';
+import { readMove, readTrip, standWay, tripOfWay, wayGait, type CampKind, type RoamMove, type RoamTrip } from '@/world/roammove';
 import { gameDaysOfMs, realMs } from '../pace';
 import { DRILL_MAX, FED_MAX, townStep } from './roamtown';
 import { TOWN_MARKETS } from '../townrules';
 import { addStock } from './stock';
 import { trimCargo } from './cargo';
 import { hastenBandWounds, settleBandWounds } from './bandwounds';
+import { campRest, openSky, rationWeather, weatherMorale, type BandPlace } from '@/world/campsite';
 import { roamStub } from '../roamstubs';
 import { bandUpkeep } from './bandkeep';
 import { trimLog } from './log';
@@ -238,15 +240,31 @@ export function foodAfter(s: GameState, ms: number, g: Gait): { now: number; at:
   return { now, at: Math.max(0, now - eat) };
 }
 
-/** Что даёт лагерь вида `kind` сейчас — для окна «Встать лагерем»: фураж, строка духа «Лагерь» и во сколько быстрее встают раненые. */
-export function campGain(s: GameState, kind: CampKind): { forage: number; morale: number; heal: number } {
+/** Что даёт стоянка — для окна «Встать лагерем» и шага: фураж, строки духа «Лагерь» и «Непогода», отдых раненых, множитель пайка. */
+export interface CampGain {
+  forage: number;
+  morale: number;
+  weather: number;
+  heal: number;
+  ration: number;
+}
+
+/**
+ * Что даёт лагерь вида `kind` (`null` — стоять в поле) в месте и погоде `open` (`campsite.openSky`; нет — под крышей или в пути:
+ * место не в счёт): фураж (`roamrules.forageShare`), строка духа «Лагерь» (`campSpirit`) и «Непогода» (`campsite.weatherMorale`), во сколько
+ * быстрее встают раненые (`campsite.campRest`), паёк под снегопадом (`rationWeather`) — те же двери, что шаг отряда.
+ */
+export function campGain(s: GameState, kind: CampKind | null, open: BandPlace | null): CampGain {
   const r = s.roam;
   const mods = seasonMods(s);
-  const camp = { kind, since: 0, builders: 0 };
+  const camp = kind ? { kind, since: 0, builders: 0 } : null;
+  const way = kind ? r?.way : standWay(r?.way ? wayGait(r.way) : 'normal');
   return {
-    forage: forageShare(mods, { camp, way: r?.way }),
-    morale: campSpirit(camp, mods),
-    heal: kind === 'open' ? roamStub('healOpen') : 1,
+    forage: forageShare(mods, { camp, way }, open),
+    morale: campSpirit(camp, mods, open?.sky),
+    weather: open ? weatherMorale(open.sky) : 0,
+    heal: open ? campRest(kind, open.site, open.sky) : kind === 'open' ? roamStub('healOpen') : 1,
+    ration: open ? rationWeather(open.sky) : 1,
   };
 }
 
@@ -291,18 +309,21 @@ export function roamStep(s: GameState, dt: number, now?: number): void {
   if (!r || !(dt > 0)) return;
   const dayBefore = Math.floor(s.time / DAY_LENGTH);
   s.time += dt;
-  // Открытый лагерь (костры, шатры) — раненые встают быстрее (ГДД 3.5.3; во сколько — заглушка `healOpen`, ПН-5): их срок
-  // подходит быстрее часов той же дверью раненых.
-  if (r.camp?.kind === 'open') hastenBandWounds(s, dt * (roamStub('healOpen') - 1));
+  // Место и погода (ПН-12л): стоит под открытым небом — земля клетки и погода над ней (`campsite.openSky`); идёт или на постое — нет.
+  const open = now !== undefined && r.way ? openSky(r.way, now, s.time) : null;
+  // Отдых (ГДД 3.5.3): огонь, вода рядом и укрытие — раненые встают быстрее (`campsite.campRest`); их срок подходит быстрее часов
+  // той же дверью раненых. Без минуты мира — как ПН-3: открытый лагерь — костры.
+  const rest = open ? campRest(r.camp?.kind ?? null, open.site, open.sky) : r.camp?.kind === 'open' ? roamStub('healOpen') : 1;
+  if (rest > 1) hastenBandWounds(s, dt * (rest - 1));
   settleBandWounds(s);
   const mods = seasonMods(s);
-  // Паёк: фураж с земли, остальное — из обоза. Голодна та доля, которую обоз не закрыл (как амбар города: «пуст, только если еды
-  // на этом шаге не хватило»).
-  const need = (bandRationPerDay(r, mods.food) * dt) / DAY_LENGTH;
-  const fromCargo = need * (1 - forageShare(mods, r));
+  // Паёк: фураж с земли, остальное — из обоза; под снегопадом паёк дороже (`rationWeather`). Голодна та доля, которую обоз не
+  // закрыл (как амбар города: «пуст, только если еды на этом шаге не хватило»).
+  const need = (bandRationPerDay(r, mods.food * (open ? rationWeather(open.sky) : 1)) * dt) / DAY_LENGTH;
+  const fromCargo = need * (1 - forageShare(mods, r, open));
   const had = r.cargo.food ?? 0;
   if (fromCargo > 0) addStock(s, 'food', -fromCargo, cargoCap(r), 'cargo');
-  const unfed = fromCargo > had ? bandHunger(r, mods) : 0;
+  const unfed = fromCargo > had ? bandHunger(r, mods, open) : 0;
   bandUpkeep(s, dt, unfed);
   // Город (ПН-6): постой и учения найма идут, пока отряд стоит у вольного города или села — по настоящей минуте куска.
   if (now !== undefined) townStep(s, dt, now);

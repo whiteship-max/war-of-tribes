@@ -16,6 +16,9 @@ import { Undeclared, render, statusLines, statusOf, type Section, type Size } fr
 import { PILOT, SECTIONS, knobsOf } from './sections';
 import { GOAL_ROWS, SIGHT_GOALS, deriveSight, goalCheck, writtenSight } from './sight';
 import { SICILY } from '../../src/world/spawn';
+import { WILD_MEAN } from '../../src/world/data/campsite';
+import { placeForage, wildMeanOf } from '../../src/world/campsite';
+import { campSample, deriveWildMean } from './camp';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -39,7 +42,7 @@ describe('разделы — те, что называют ГДД 6.5 и пач�
     // 6.5: темп престижа, медиана до замка, паритет, сила НПС, курс припаса, пул, доля обнаружений по видам лагеря.
     // ПН-1 добавил раздел дверей отряда (`band`) — содержание, терпение, обоз и фураж бродяги; ПН-3 — лагерь и руины (`camp`).
     // ПН-5 — точки мира и встречи с НПС (`meet`): густота точек, сила НПС по ступеням, шанс засады — двери мира бродяги.
-    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet', 'sight', 'people']);
+    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet', 'sight', 'people']);
   });
 
   it('у каждого раздела — раздел ГДД и двери кода или входы', () => {
@@ -68,7 +71,7 @@ describe('заглушка не выдаётся за выведенное', () 
   it('у разделов автопилота, ценности и пула заглушки есть; у пути, у отряда и у видимости — нет ни одного входа', () => {
     // Граница: что из разделов стоит на заглушках сейчас, до пачек ПН-1…ПН-17. Пачка, заменившая вход дверью, правит эту строку
     // тем же коммитом — и раздел честно переходит в «выведено».
-    for (const id of ['camp', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet']) {
+    for (const id of ['camp', 'placeSpirit', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet']) {
       expect(statusOf((SECTIONS.find((s) => s.id === id) as Section).uses), id).toBe('НЕ ИЗМЕРЕНО');
     }
     expect(statusOf((SECTIONS.find((s) => s.id === 'road') as Section).uses)).toBe('выведено');
@@ -76,11 +79,13 @@ describe('заглушка не выдаётся за выведенное', () 
     expect(statusOf((SECTIONS.find((s) => s.id === 'band') as Section).uses)).toBe('выведено');
     // ПН-4у: видимость — дверь `world/sight` и цели ГДД 3.5.4, заглушек нет; входов пачки ПН-4у у прибора не осталось.
     expect(statusOf((SECTIONS.find((s) => s.id === 'sight') as Section).uses)).toBe('выведено');
+    // ПН-12л: польза места — двери `world/campsite` и делитель фуража из выборки, заглушек нет; дух и отдых — на числах лагеря ПН-3.
+    expect(statusOf((SECTIONS.find((s) => s.id === 'place') as Section).uses)).toBe('выведено');
     expect(Object.entries(INPUTS).filter(([, i]) => i.batch === 'ПН-4у').map(([k]) => k)).toEqual([]);
   });
 
   it('напечатанный статус каждого раздела — тот, что выводится из входов, и слова «выведено» у раздела на заглушках нет', async () => {
-    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'pool', 'meet', 'sight', 'people']);
+    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'pool', 'meet', 'sight', 'people']);
     const heads = out.filter((l) => l.startsWith('━━ ') && !l.startsWith('━━ Итог'));
     const statuses = out.filter((l) => l.startsWith('статус: '));
     expect(statuses.length).toBe(heads.length);
@@ -89,7 +94,7 @@ describe('заглушка не выдаётся за выведенное', () 
       expect(heads[i], s.id).toContain(s.title);
       expect(statuses[i], `«${s.title}»: статус из входов`).toBe(`статус: ${statusOf(s.uses)}`);
     });
-    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 14 ━━$/);
+    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 16 ━━$/);
   });
 
   it('вход, не объявленный разделом, — исключение', async () => {
@@ -287,6 +292,30 @@ describe('видимость (ПН-4у): записано = выведено', (
       const want = row.id === 'ruinsNear' ? SIGHT_GOALS.ruinsNear * 100 : SIGHT_GOALS[row.id];
       expect(n, `Ц${i + 1}: ${row.what}`).toBe(want);
     });
+  });
+});
+
+describe('место лагеря (ПН-12л): записано = выведено', () => {
+  const sample = campSample();
+
+  it('делитель фуража места — средний вольный корм выборки: записано = выведено', () => {
+    expect(sample.length, 'выборка — клетки острова, где отряд может встать').toBeGreaterThan(300);
+    expect(WILD_MEAN).toBe(deriveWildMean(sample));
+  });
+
+  it('Ц1–Ц3: в среднем — как прежде; лес и берег больше, голое поле меньше; пустыня не кормит', () => {
+    const mean = sample.reduce((n, x) => n + placeForage(x), 0) / sample.length;
+    expect(Math.abs(mean - 1), `средний множитель места ${mean}`).toBeLessThanOrEqual(0.01);
+    expect(placeForage({ terrain: 'forest', shore: false })).toBeGreaterThan(1);
+    expect(placeForage({ terrain: 'plain', shore: true })).toBeGreaterThan(1);
+    expect(placeForage({ terrain: 'plain', shore: false })).toBeLessThan(1);
+    expect(placeForage({ terrain: 'desert', shore: false })).toBe(0);
+  });
+
+  it('вывод не глух к выборке: другая земля — другой делитель', () => {
+    const one = campSample([SICILY[0]], 3);
+    expect(one.length).toBeGreaterThan(0);
+    expect(Math.round(wildMeanOf(one) * 10) / 10).not.toBe(WILD_MEAN);
   });
 });
 

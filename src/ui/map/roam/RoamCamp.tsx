@@ -1,10 +1,12 @@
 // Окно «Встать лагерем» (ПН-3, docs/gdd/path_of_sword.md, 3.5.3, 5.4): открытый, скрытый, в руинах — что каждый даёт числами
 // дверей партии (фураж, строка духа «Лагерь», раненые) и почему нельзя; рогатки стоящего лагеря; «Снять лагерь». Заметность
-// лагеря (ПН-4у) — на сколько клеток его видит круг замка здесь и сейчас (`world/sight`). Числа — `WorldApi.roamCampView`.
+// лагеря (ПН-4у) — на сколько клеток его видит круг замка здесь и сейчас (`world/sight`). Место и погода (ПН-12л) — до выбора:
+// что за земля и небо и что они дают стоянке (еда, оборона, скрытность, отдых, непогода) — теми же дверями, что шаг отряда
+// (`world/campsite`, `sim/roam.campGain`). Числа — `WorldApi.roamCampView`.
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { worldApi } from '@/world/api';
-import type { RoamCampRow, RoamCampView } from '@/world/types';
+import type { RoamCampGain, RoamCampView } from '@/world/types';
 import type { CampKind } from '@/world/roammove';
 import { formatCoord } from '@/world/geo';
 import { num, signedWhole } from '@/game/num';
@@ -12,9 +14,17 @@ import { Icon } from '@/ui/icons/Icon';
 
 const pct = (x: number): string => `${Math.round(x * 100)} %`;
 
-/** Что даёт вид лагеря — одной строкой. */
-export const gainText = (r: RoamCampRow): string =>
-  `фураж ${pct(r.forage)} пайка · дух ${signedWhole(r.morale)}${r.heal > 1 ? ` · раненые встают в ${num(r.heal, 1)} раза быстрее` : ''} · замок видит за ${num(r.range, 0)} кл.`;
+/** Что даёт стоянка — одной строкой: еда, дух, отдых, оборона, скрытность. */
+export function gainText(r: RoamCampGain): string {
+  const parts = [`фураж ${pct(r.forage)} пайка`];
+  if (Math.abs(r.morale) >= 0.05) parts.push(`дух ${signedWhole(r.morale)}`);
+  if (Math.abs(r.weather) >= 0.05) parts.push(`непогода ${signedWhole(r.weather)}`);
+  if (r.ration > 1.005) parts.push(`паёк ×${num(r.ration, 2)}`);
+  if (r.heal > 1.005) parts.push(`раненые встают в ${num(r.heal, 1)} раза быстрее`);
+  if (r.faces > 0) parts.push(`нападающему −${r.faces} ${r.faces === 1 ? 'грань' : 'грани'} кости`);
+  parts.push(`замок видит за ${num(r.range, 0)} кл.`);
+  return parts.join(' · ');
+}
 
 export function RoamCamp({ onClose }: { onClose: () => void }) {
   const showToast = useGame((g) => g.showToast);
@@ -47,7 +57,11 @@ export function RoamCamp({ onClose }: { onClose: () => void }) {
           {typeof view === 'string' && <p className="nx-bwarn">{view}</p>}
           {view && typeof view !== 'string' && (
             <>
+              <p className="nx-tnote">
+                Место: {view.place}. Погода: {view.sky.toLowerCase()}.
+              </p>
               {view.ruin && <p className="nx-tnote">Здесь руины: {view.ruin.toLowerCase()}.</p>}
+              <p className="nx-tnote">Стоять в поле: {gainText(view.field)}.</p>
               {view.camp && <p className="nx-tnote">Рогатки лагеря: {pct(view.works)}.</p>}
               <div className="roam-legs">
                 {view.rows.map((r) => (

@@ -1,6 +1,6 @@
 // Видимость отряда бродяги (ПН-4у, docs/gdd/path_of_sword.md, 3.5.4, 3.14 и «Решения ПН-4у») — одна дверь на клиент и на сервер:
 //
-//   заметность = местность × лагерь × размер × движение (режим марша) × ночь × сезон
+//   заметность = местность × лагерь × размер × движение (режим марша) × ночь × туман × сезон
 //   виден ли   = расстояние ≤ радиус наблюдателя × заметность
 //
 // Клиент по ней пишет шапку отряда («скрыт / виден») и окно лагеря; сервер по ней решает, кому из игроков показать чужой отряд и
@@ -32,6 +32,7 @@ import { FIGURE_BY_ID } from './data/figures';
 import { terrainAt } from './geography';
 import { WAR_GROUND_SEED } from './pvp';
 import { ruinAt } from './ruins';
+import { placeWeather } from './weather';
 import { homeSight } from './lookout';
 import { roamCell, roamMoving } from './roam';
 import { wayGait } from './roammove';
@@ -50,6 +51,11 @@ export interface Look {
   men: number;
   /** Ночь по часам отряда. */
   night: boolean;
+  /**
+   * Туман над клеткой, 0..1 (ПН-12л): погода места — дверь `world/weather` (регион клетки, общие часы, утро по часам отряда). Нет
+   * поля — ясно.
+   */
+  fog?: number;
   /** Время года по часам отряда. */
   season: Season;
 }
@@ -57,7 +63,7 @@ export interface Look {
 /** Множитель сезона — поле таблицы сезонов, нет поля — единица. */
 export const seasonCamo = (season: Season): number => SEASON_MODIFIERS[season].camouflage ?? 1;
 
-export type SightPartId = 'ground' | 'ruin' | 'stance' | 'gait' | 'size' | 'night' | 'season';
+export type SightPartId = 'ground' | 'ruin' | 'stance' | 'gait' | 'size' | 'night' | 'fog' | 'season';
 
 /** Один множитель заметности: что и сколько — для шапки и окна лагеря. */
 export interface SightPart {
@@ -83,6 +89,9 @@ const SEASON_WORDS: Readonly<Record<Season, string>> = { spring: 'весна', s
 /** Множитель размера: `(люди / per) ^ pow`, не ниже `floor` — один человек почти невидим, сотня видна издалека. */
 export const sizeMult = (men: number, t: SightTable = SIGHT): number => Math.max(t.size.floor, Math.pow(Math.max(0, men) / t.size.per, t.size.pow));
 
+/** Сколько людей в отряде «единичного» размера — заметность размера у него единица (`size.per`): мерка большого лагеря (ПН-12л). */
+export const sizeUnit = (t: SightTable = SIGHT): number => t.size.per;
+
 /** Прячут ли руины: отряд встал в них лагерем и помещается. Сверх вместимости укрытие пропадает — отряд прячется, как скрытый лагерь. */
 const inRuins = (l: Look): boolean => 'camp' in l.stance && l.stance.camp === 'ruin' && l.ruinCap !== null && l.men <= l.ruinCap;
 
@@ -107,10 +116,16 @@ export function sightParts(l: Look, t: SightTable = SIGHT, camo: (s: Season) => 
   }
   out.push({ id: 'size', mult: sizeMult(l.men, t), words: `${Math.max(0, Math.floor(l.men))} чел.` });
   if (l.night) out.push({ id: 'night', mult: t.night, words: 'ночь' });
+  // Туман (ПН-12л) прячет, как ночь, — долей своей густоты; своего числа у него нет.
+  const fog = Math.max(0, Math.min(1, l.fog ?? 0));
+  if (fog > 0) out.push({ id: 'fog', mult: fogMult(fog, t), words: 'туман' });
   const c = camo(l.season);
   if (c !== 1) out.push({ id: 'season', mult: c, words: SEASON_WORDS[l.season] });
   return out;
 }
+
+/** Туман густоты `fog` (0..1) — множитель заметности: прячет, как ночь (`SightTable.night`), долей густоты. */
+export const fogMult = (fog: number, t: SightTable = SIGHT): number => 1 + (t.night - 1) * Math.max(0, Math.min(1, fog));
 
 /** Заметность отряда: произведение множителей (`sightParts`). */
 export const conspicuity = (l: Look, t: SightTable = SIGHT, camo: (s: Season) => number = seasonCamo): number =>
@@ -167,7 +182,8 @@ export const partyTimeAt = (clock: { time: number; at: number }, now: number): n
 
 /**
  * Как отряд выглядит в минуту мира `now`: клетка и местность — из записи хода (`roam.roamCell`), стоит ли он и как (лагерь, в поле,
- * в пути режимом марша), руины под ногами, люди строя, ночь и сезон — по часам партии отряда `partyTime` (игровые секунды).
+ * в пути режимом марша), руины под ногами, люди строя, ночь и сезон — по часам партии отряда `partyTime` (игровые секунды), туман —
+ * погодой места (`world/weather.placeWeather`, ПН-12л).
  */
 export function bandLook(m: RoamMove, men: number, partyTime: number, now: number): Look {
   const at = roamCell(m.way, now);
@@ -175,6 +191,7 @@ export function bandLook(m: RoamMove, men: number, partyTime: number, now: numbe
   const ruin = ruinAt(at.x, at.y);
   const stance: Stance = moving ? { march: wayGait(m.way) } : m.camp ? { camp: m.camp.kind } : { field: true };
   const t = Math.max(0, partyTime);
+  const fog = placeWeather(at, now, t).fog;
   return {
     terrain: terrainAt(WAR_GROUND_SEED, at.x, at.y),
     ruinCap: ruin ? ruin.cap : null,
@@ -182,6 +199,7 @@ export function bandLook(m: RoamMove, men: number, partyTime: number, now: numbe
     men: Math.max(0, Math.floor(men)),
     night: dayPartAt(t) === 'night',
     season: seasonOf(t),
+    ...(fog > 0 ? { fog } : {}),
   };
 }
 

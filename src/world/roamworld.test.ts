@@ -43,7 +43,7 @@ function portOf(s: GameState, order?: RoamPort['order']): RoamPort {
     band: () => s.roam ?? null,
     apply: (m) => void setMove(s, m),
     foodAfter: (ms, g) => foodAfter(s, ms, g),
-    campGain: (k) => campGain(s, k),
+    campGain: (k, open) => campGain(s, k, open),
     partyTime: () => s.time,
     prestige: () => s.prestige,
     setTrip: (t) => setTrip(s, t),

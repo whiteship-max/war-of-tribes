@@ -7,6 +7,8 @@ import { seasonMods } from '../derived';
 import { rulerTraitNumbers } from '../rulernow';
 import { bandBar, bandHunger, campSpirit } from '../roamrules';
 import { gloryNow, payShare } from './spirit';
+import { openSky, weatherMorale } from '@/world/campsite';
+import { partyNow } from '@/net/clock';
 
 /**
  * Дух отряда бродяги (ПН-1, ГДД 3.3.3) — тот же расчёт, входы отряда. Державы, храма, сословий, Казарм и Статуи у бродяги нет —
@@ -14,7 +16,10 @@ import { gloryNow, payShare } from './spirit';
  * (`roamrules.bandBar`: долг или голод против терпения героя), голод — доля, которую не закрывают обоз и фураж
  * (`roamrules.bandHunger`); память боёв и жалованье — общие поля партии (`s.spirit`, `PayState.wage`).
  */
-export function bandSpiritIn(s: GameState, r: NonNullable<GameState['roam']>): SpiritIn {
+export function bandSpiritIn(s: GameState, r: NonNullable<GameState['roam']>, now: number | null = partyNow()): SpiritIn {
+  // Место и погода стоящего под открытым небом (ПН-12л, `campsite.openSky`) в минуту `now` (игра — часы партии): дождь гасит костры,
+  // непогода — своей строкой. `null` — без места и погоды (автопилот прибора живёт средней землёй).
+  const open = r.way && now !== null ? openSky(r.way, now, s.time) : null;
   return {
     stab: 0,
     patience: bandBar(s.pay?.late ?? 0, r.hero.war),
@@ -30,7 +35,8 @@ export function bandSpiritIn(s: GameState, r: NonNullable<GameState['roam']>): S
     pay: payShare(s),
     // Черты героя пути (ПН-2) — та же дверь, что у правителя.
     ruler: rulerTraitNumbers(s).drill,
-    // Лагерь (ПН-3): открытый — костры, скрытый зимой — холод (`roamrules.campSpirit`).
-    camp: campSpirit(r.camp, seasonMods(s)),
+    // Лагерь (ПН-3): открытый — костры (дождь их заливает), скрытый зимой — холод (`roamrules.campSpirit`).
+    camp: campSpirit(r.camp, seasonMods(s), open?.sky),
+    ...(open ? { weather: weatherMorale(open.sky) } : {}),
   };
 }

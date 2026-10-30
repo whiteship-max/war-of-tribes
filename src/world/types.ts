@@ -1172,19 +1172,31 @@ export interface RoamPlanView {
 }
 
 /** Вид лагеря в окне «Встать лагерем» (ПН-3): можно ли и что даёт — числами дверей партии. */
-export interface RoamCampRow {
+export interface RoamCampRow extends RoamCampGain {
   kind: CampKind;
   name: string;
   /** Отказ (нет руин, не помещаемся, вода под ногами, уже стоим); `null` — можно. */
   block: string | null;
+}
+
+/** Что даёт стоянка здесь и сейчас (ПН-3, ПН-12л) — числами дверей партии и мира. */
+export interface RoamCampGain {
   /** Доля пайка с земли в этом лагере сейчас (`roamrules.forageShare`). */
   forage: number;
   /** На сколько клеток лагерь этого вида видит круг замка (ПН-4у, `world/sight`): местность, люди, ночь и сезон — здесь и сейчас. */
   range: number;
   /** Строка духа «Лагерь», очков морали (`roamrules.campSpirit`). */
   morale: number;
-  /** Во сколько раз быстрее встают раненые. */
+  /** Строка духа «Непогода», очков морали (`campsite.weatherMorale`); под крышей постоя — 0. */
+  weather: number;
+  /** Во сколько раз быстрее встают раненые (`campsite.campRest`). */
   heal: number;
+  /** Во сколько раз дороже паёк под снегопадом (`campsite.rationWeather`). */
+  ration: number;
+  /** Граней кости нападающему в бою у лагеря (`campsite.campGround`). */
+  faces: number;
+  /** Горят ли костры (`campsite.fireLit`). */
+  fire: boolean;
 }
 
 /** Окно «Встать лагерем»: где отряд, какой лагерь стоит и насколько достроены рогатки. */
@@ -1195,6 +1207,12 @@ export interface RoamCampView {
   works: number;
   /** Руины под отрядом — имя; нет — `null`. */
   ruin: string | null;
+  /** Место словами (ПН-12л, `campsite.siteWords`): «лес у воды, руины». */
+  place: string;
+  /** Погода над местом словами (`campsite.skyLine`); на постое — «под крышей». */
+  sky: string;
+  /** Стоять в поле без лагеря — что даёт (те же двери, что у видов). */
+  field: RoamCampGain;
   rows: RoamCampRow[];
 }
 

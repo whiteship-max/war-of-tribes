@@ -16,7 +16,7 @@
 import type { BandOrder, BandRow } from '../../../netlify/lib/contract';
 import type { RoamState } from '@/game/types';
 import type { FightOut } from '@/game/sim/roamfight';
-import type { Coord, FigureView, PlayerProfile, Rect, RegionChunk, RoamAimView, RoamCampView, RoamPlanView, WorldInfo, WorldPulse } from '../types';
+import type { Coord, FigureView, PlayerProfile, Rect, RegionChunk, RoamAimView, RoamCampGain, RoamCampView, RoamPlanView, WorldInfo, WorldPulse } from '../types';
 import { HOME_ID, LocalWorld, type LocalWorldOptions } from './LocalWorld';
 import { CAMP_KINDS, CAMP_NAME, campWorks, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamWhere, type CampKind, type RoamMove } from '../roam';
 import { wayGait, type RoamTrip, type RoamWay } from '../roammove';
@@ -35,6 +35,9 @@ import { TERRAIN_META } from '../data/terrain';
 import { FIGURE_BY_ID } from '../data/figures';
 import { troopTotal } from '@/game/battle/kinds';
 import { CASTLE_EYE, bandLook, conspicuity, detectRange } from '../sight';
+import { campFaces, campGround, fireLit, openSky, siteAt, siteWords, skyLine, type BandPlace } from '../campsite';
+import { dayPartAt } from '@/game/derived';
+import type { CampGain } from '@/game/sim/roam';
 
 /** Дверь мира бродяги к партии и серверу — её даёт стор. */
 export interface RoamPort {
@@ -44,8 +47,11 @@ export interface RoamPort {
   apply(m: RoamMove): void;
   /** Хлеб в обозе сейчас и через `ms` мс мира дороги в режиме `g` (`sim/roam.foodAfter`). */
   foodAfter(ms: number, g: Gait): { now: number; at: number };
-  /** Что даёт лагерь вида (`sim/roam.campGain`): фураж, строка духа, раненые. */
-  campGain(kind: CampKind): { forage: number; morale: number; heal: number };
+  /**
+   * Что даёт лагерь вида (`null` — стоять в поле) в месте и погоде `open` (`sim/roam.campGain`, ПН-12л): фураж, строки духа «Лагерь» и
+   * «Непогода», отдых раненых, паёк под снегом.
+   */
+  campGain(kind: CampKind | null, open: BandPlace | null): CampGain;
   /** Часы партии, игровые секунды: ночь и сезон заметности отряда (ПН-4у). */
   partyTime(): number;
   /** Престиж героя (ПН-5): от его ступени сила НПС (`world/roamfoes`). */
@@ -282,17 +288,27 @@ export class RoamWorld extends LocalWorld {
     const men = troopTotal(r.band);
     const at = roamCell(m.way, now);
     const ruin = ruinAt(at.x, at.y);
+    const partyTime = this.port.partyTime();
+    // Место и погода (ПН-12л) — как у стоящего здесь (идущий встаёт там, где застал приказ): те же двери, что шаг отряда.
+    const stand = { from: at, to: at, at: now, until: now };
+    const open = openSky(stand, now, partyTime);
+    const row = (kind: CampKind | null): RoamCampGain => {
+      // Заметность лагеря этого вида здесь и сейчас (ПН-4у) — дверью `world/sight`: на сколько клеток его видит круг замка.
+      const look = bandLook({ ...m, way: stand, camp: kind ? { kind, since: now, builders: men } : null }, men, partyTime, now);
+      const range = detectRange(CASTLE_EYE, conspicuity(look));
+      return { range, faces: campFaces(campGround(at, kind)), fire: open ? fireLit(kind, open.sky) : kind === 'open', ...this.port.campGain(kind, open) };
+    };
     return {
       at,
       camp: m.camp?.kind ?? null,
       works: m.camp ? campWorks(m.camp, now) : 0,
       ruin: ruin ? RUIN_NAME[ruin.kind] : null,
+      place: siteWords(siteAt(at)),
+      sky: open ? skyLine(open.sky, dayPartAt(partyTime) === 'night') : 'под крышей постоя',
+      field: row(null),
       rows: CAMP_KINDS.map((kind) => {
         const res = roamCamp(m, kind, men, now);
-        // Заметность лагеря этого вида здесь и сейчас (ПН-4у) — дверью `world/sight`: на сколько клеток его видит круг замка.
-        const look = bandLook({ ...m, way: { from: at, to: at, at: now, until: now }, camp: { kind, since: now, builders: men } }, men, this.port.partyTime(), now);
-        const range = detectRange(CASTLE_EYE, conspicuity(look));
-        return { kind, name: CAMP_NAME[kind], block: typeof res === 'string' ? res : null, range, ...this.port.campGain(kind) };
+        return { kind, name: CAMP_NAME[kind], block: typeof res === 'string' ? res : null, ...row(kind) };
       }),
     };
   }

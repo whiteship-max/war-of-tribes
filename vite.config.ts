@@ -371,7 +371,8 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
       /\/src\/game\/(roamorigin|roamrules|roamstubs|roamstart|promoterules|askrules|townrules|cargocap)\.ts$/,
       /\/src\/net\/(bandseat|bandroster|bandbook)\.ts$/,
       /\/src\/ui\/map\/roam\/(RoamBand|RoamTown|RoamMail)\.tsx$/,
-      /\/src\/world\/(roam|roammove|roampoints|roamfoes|encounter|sight|ruins)\.ts$/,
+      /\/src\/world\/(roam|roammove|roampoints|roamfoes|encounter|sight|ruins|campsite)\.ts$/,
+      /\/src\/world\/data\/campsite\.ts$/,
     ],
   },
 ];

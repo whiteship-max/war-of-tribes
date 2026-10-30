@@ -1,7 +1,8 @@
 // Разделы прибора `roam:report` (ПН-0ч; ГДД 6.5 и 7.1, ПН-0). Порядок — сначала то, что считается нынешними дверями
 // (содержание, курс припаса, повышение, путь, плата), потом автопилот пути на заглушках (сила НПС, престиж, замок, паритет),
 // потом карта (пул) и видимость. Входы разделы берут только `ctx.use` (см. `run.ts`); отсюда — одни типы входов.
-import type { TroopId } from '../../src/game/types';
+import type { Season, TroopId } from '../../src/game/types';
+import type { Terrain } from '../../src/world/types';
 import type { TroopStack } from '../../src/game/battle/kinds';
 import { baseWage, powerOf, troopPower } from '../../src/game/battle/price';
 import { soldierFoodPerDay } from '../../src/game/build';
@@ -50,6 +51,12 @@ import { FOE_KINDS, FOE_WORDS, foePower } from '../../src/world/roamfoes';
 import { ambushChance } from '../../src/world/encounter';
 import { menOfPower as foeMenOf } from '../../src/world/garrison';
 import { roamCellBlock } from '../../src/world/roam';
+import { WILD_MEAN } from '../../src/world/data/campsite';
+import { campFaces, campGround, campRest, fireShare, placeForage, rationWeather, weatherForage, weatherMorale, wildFood, wildMeanOf } from '../../src/world/campsite';
+import { SIGHT } from '../../src/world/data/sight';
+import { fogMult } from '../../src/world/sight';
+import { SPELL_DAYS, fogMorning, weatherAt } from '../../src/world/weather';
+import { campSample, deriveWildMean } from './camp';
 
 const pad = (v: string | number, n: number): string => String(v).padStart(n);
 const padEnd = (v: string | number, n: number): string => String(v).padEnd(n);
@@ -950,4 +957,146 @@ function askCountAt(st: number, camp: 'open' | 'hidden' | 'ruin' | 'none', share
   return Math.max(1, Math.round((share === 0 ? lo : hi) * askMult({ camp, winter: false, morale: 60 })));
 }
 
-export const SECTIONS: readonly Section[] = [pay, band, camp, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, meet, sight, people];
+/** Земля в разделе места — по строке на вид. */
+const PLACE_ROWS: readonly [string, Terrain][] = [
+  ['лес', 'forest'],
+  ['голое поле', 'plain'],
+  ['степь', 'steppe'],
+  ['холмы', 'hills'],
+  ['горы', 'mountains'],
+  ['пустыня', 'desert'],
+];
+
+/** Регионы погоды раздела: Сицилия (мир автопилота) и по одному на прочие пояса. */
+const SKY_REGIONS: readonly [string, string][] = [
+  ['Сицилия (italy)', 'italy'],
+  ['суша (germany)', 'germany'],
+  ['север (novgorod)', 'novgorod'],
+  ['сушь (egypt)', 'egypt'],
+];
+
+/** Полос погоды на сезон в выборке раздела: полдня игры каждая. */
+const SKY_SPELLS = 400;
+
+/** Погода региона в сезоне по полосам: средний дождь и снег днём, доля утр с туманом гуще трети, средний туман утром. */
+function skyStats(region: string, season: Season): { rain: number; snow: number; fogDays: number; fog: number } {
+  const spell = SPELL_DAYS * DAY_LENGTH * 1000 / gameSeconds(1);
+  let rain = 0;
+  let snow = 0;
+  let fogDays = 0;
+  let fog = 0;
+  for (let i = 0; i < SKY_SPELLS; i++) {
+    const ms = (i + 0.5) * spell;
+    const day = weatherAt(region, ms, season, 0.25);
+    const dawn = weatherAt(region, ms, season, 0.02);
+    rain += day.rain;
+    snow += day.snow;
+    fog += dawn.fog;
+    if (dawn.fog > 0.3) fogDays++;
+  }
+  return { rain: rain / SKY_SPELLS, snow: snow / SKY_SPELLS, fogDays: fogDays / SKY_SPELLS, fog: fog / SKY_SPELLS };
+}
+
+const place: Section = {
+  id: 'place',
+  title: 'Лагерь по месту и погоде',
+  gdd: '3.3.4, 3.5.1, 3.5.3, 3.14',
+  doors: [
+    'campsite.wildFood, placeForage, weatherForage, rationWeather, campGround',
+    'roamrules.forageShare',
+    'world/weather.weatherAt',
+    'world/sight.fogMult',
+    'world/spawn.SICILY',
+  ],
+  uses: [],
+  run(ctx) {
+    // Ц1–Ц3 (ГДД, «Решения ПН-12л»): в среднем по земле — прежний фураж; лес и берег больше, голое поле меньше; пустыня не кормит.
+    const sample = campSample();
+    const got = deriveWildMean(sample);
+    const kinds = new Map<string, number>();
+    for (const x of sample) kinds.set(x.terrain + (x.shore ? ' у воды' : ''), (kinds.get(x.terrain + (x.shore ? ' у воды' : '')) ?? 0) + 1);
+    ctx.line(`выборка — клетки, где отряд может встать, в 12 клетках от ${SICILY.length} мест острова: ${sample.length}; ${[...kinds].map(([k, n]) => `${k} ${n}`).join(', ')}`);
+    ctx.line(`вольный корм места — промыслы земли (охота — лес и горы, сбор — вся суша, кроме пустыни; рыбалка у воды — ещё один сбор), еды на работника в игр. день: ${PLACE_ROWS.map(([n, t]) => `${n} ${fix(wildFood(t, false), 0)}`).join(', ')}; у воды +${fix(wildFood('plain', true) - wildFood('plain', false), 0)}`);
+    ctx.line(`делитель фуража места (средний корм выборки): записано ${WILD_MEAN}, выведено ${got} — ${got === WILD_MEAN ? 'записано = выведено' : 'ЗАПИСАНО ≠ ВЫВЕДЕНО — перенеси выведенное в world/data/campsite.ts'}`);
+    const mean = sample.reduce((n, x) => n + placeForage(x), 0) / Math.max(1, sample.length);
+    ctx.line(`Ц1 «в среднем — как прежде»: средний множитель места на выборке ${fix(mean, 3)} (цель 1 ± 0.01) — ${Math.abs(mean - 1) <= 0.01 ? 'в цели' : 'МИМО'}`);
+    const forest = placeForage({ terrain: 'forest', shore: false });
+    const shore = placeForage({ terrain: 'plain', shore: true });
+    const plain = placeForage({ terrain: 'plain', shore: false });
+    ctx.line(`Ц2 «лес и берег больше, голое поле меньше»: лес ×${fix(forest)}, поле у воды ×${fix(shore)}, голое поле ×${fix(plain)} — ${forest > 1 && shore > 1 && plain < 1 ? 'в цели' : 'МИМО'}`);
+    const desert = placeForage({ terrain: 'desert', shore: false });
+    ctx.line(`Ц3 «пустыня не кормит»: пустыня ×${fix(desert)} — ${desert === 0 ? 'в цели' : 'МИМО'}`);
+    ctx.line(`  (проверка вывода: средний корм выборки без округления ${fix(wildMeanOf(sample), 3)})`);
+    ctx.line('');
+    ctx.line('фураж открытого лагеря (доля пайка с земли) по месту и сезону, год 2+, сухо:');
+    ctx.line(`${padEnd('место', 18)} ${SEASONS.map((x) => pad(SEASON_META[x].name, 9)).join('')}`);
+    const rows: [string, Terrain, boolean][] = [
+      ['лес у воды', 'forest', true],
+      ['лес', 'forest', false],
+      ['поле у воды', 'plain', true],
+      ['голое поле', 'plain', false],
+      ['горы', 'mountains', false],
+      ['пустыня', 'desert', false],
+    ];
+    const rec = { kind: 'open' as const, since: 0, builders: 0 };
+    for (const [name, t, sh] of rows) {
+      const cells = SEASONS.map((x) => pad(pct(forageShare(seasonModsFor(x, 2), { camp: rec, way: standWay('normal') }, { site: { terrain: t, shore: sh }, sky: { rain: 0 } })), 9));
+      ctx.line(`${padEnd(name, 18)} ${cells.join('')}`);
+    }
+    ctx.line(`дождь силы r — сбор стоит долей r: фураж ×(1 − r); снегопад силы s — паёк ×(1 + ${fix(rationWeather({ snow: 1 }) - 1)}·s) (самый дорогой паёк таблицы сезонов)`);
+    ctx.line(`туман густоты f прячет, как ночь (×${SIGHT.night}), долей f: заметность ×${fix(fogMult(1))} при f = 1, ×${fix(fogMult(0.5))} при 0.5`);
+    // Оборона — дверью места боя на клетках выборки: открытый лагерь на земле клетки и лагерь в руинах.
+    const faces = (pick: (x: (typeof sample)[number]) => boolean, kind: 'open' | 'ruin'): string => {
+      const at = sample.find(pick)?.at;
+      return at ? String(campFaces(campGround(at, kind))) : '—';
+    };
+    ctx.line(
+      `оборона у лагеря — граней кости нападающему (земля клетки — place.groundAt): голое поле ${faces((x) => x.terrain === 'plain' && !x.ruin, 'open')} · лес ${faces((x) => x.terrain === 'forest' && !x.ruin, 'open')} · горы ${faces((x) => x.terrain === 'mountains', 'open')} · руины на поле: открытый ${faces((x) => x.terrain === 'plain' && x.ruin, 'open')}, в руинах ${faces((x) => x.terrain === 'plain' && x.ruin, 'ruin')}`,
+    );
+    ctx.line('');
+    ctx.line(`погода по поясам, ${SKY_SPELLS} полос на сезон (днём — средний дождь и снег; утром — доля туманных и средний туман):`);
+    ctx.line(`${padEnd('регион', 18)} ${padEnd('сезон', 8)} ${pad('дождь', 7)} ${pad('снег', 7)} ${pad('туман', 7)} ${pad('утр', 7)} ${pad('фураж', 7)} ${pad('паёк', 7)}`);
+    for (const [name, region] of SKY_REGIONS) {
+      for (const x of SEASONS) {
+        const st = skyStats(region, x);
+        ctx.line(
+          `${padEnd(name, 18)} ${padEnd(SEASON_META[x].name, 8)} ${pad(fix(st.rain), 7)} ${pad(fix(st.snow), 7)} ${pad(fix(st.fog), 7)} ${pad(pct(st.fogDays), 7)} ${pad(`×${fix(weatherForage({ rain: st.rain }))}`, 7)} ${pad(`×${fix(rationWeather({ snow: st.snow }))}`, 7)}`,
+        );
+      }
+    }
+    ctx.line(`  утренний туман — по фазе солнца партии (${fix(fogMorning(0.02))} у рассвета, ${fix(fogMorning(0.25))} днём); фураж и паёк — средние за сезон`);
+  },
+};
+
+const placeSpirit: Section = {
+  id: 'placeSpirit',
+  title: 'Лагерь по месту и погоде: дух и отдых',
+  gdd: '3.3.3, 3.5.3',
+  doors: ['roamrules.campSpirit', 'campsite.weatherMorale, campRest, fireShare'],
+  uses: ['campMorale', 'coldCamp', 'healOpen'],
+  run(ctx) {
+    // Дух и отдых стоят на числах лагеря ПН-3 (заглушки): огонь, холод без огня, отдых у костра; погода берёт их долями, своего числа нет.
+    const summer = seasonModsFor('summer', 2);
+    const rec = { kind: 'open' as const, since: 0, builders: 0 };
+    ctx.line(`костры открытого лагеря (+${ctx.use('campMorale')}) под дождём силы r — ×(1 − r); непогода (дождь или зной) — до −${ctx.use('coldCamp')}, как холод без огня:`);
+    ctx.line(`${padEnd('дождь', 8)} ${pad('огонь', 7)} ${pad('Лагерь', 8)} ${pad('Непогода', 9)}`);
+    for (const r of [0, 0.25, 0.5, 0.8, 1]) {
+      ctx.line(`${padEnd(fix(r), 8)} ${pad(pct(fireShare({ rain: r })), 7)} ${pad(fix(campSpirit(rec, summer, { rain: r }), 1), 8)} ${pad(fix(weatherMorale({ rain: r, heat: 0 }), 1), 9)}`);
+    }
+    ctx.line(`зной пустыни под ясным небом летом: непогода ${fix(weatherMorale({ rain: 0, heat: 1 }), 1)}; зимой зноя нет (тепло сезона — таблица дров)`);
+    ctx.line('');
+    ctx.line(`отдых раненых: каждое удобство — огонь, вода рядом, укрытие (лес или стены руин) — весит, как костёр (×${ctx.use('healOpen')}):`);
+    const dry = { rain: 0 };
+    const cases: [string, 'open' | 'hidden' | 'ruin', { terrain: Terrain; shore: boolean; ruin: boolean }, { rain: number }][] = [
+      ['открытый, голое поле', 'open', { terrain: 'plain', shore: false, ruin: false }, dry],
+      ['открытый, поле под ливнем', 'open', { terrain: 'plain', shore: false, ruin: false }, { rain: 1 }],
+      ['открытый, лес у воды', 'open', { terrain: 'forest', shore: true, ruin: false }, dry],
+      ['скрытый, голое поле', 'hidden', { terrain: 'plain', shore: false, ruin: false }, dry],
+      ['скрытый, лес', 'hidden', { terrain: 'forest', shore: false, ruin: false }, dry],
+      ['в руинах у воды', 'ruin', { terrain: 'plain', shore: true, ruin: true }, dry],
+    ];
+    for (const [name, kind, site, sky] of cases) ctx.line(`  ${padEnd(name, 28)} ×${fix(campRest(kind, site, sky))}`);
+  },
+};
+
+export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, meet, sight, people];

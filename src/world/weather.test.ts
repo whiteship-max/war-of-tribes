@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Season } from '@/game/types';
 import { realMs } from '@/game/pace';
-import { BLEND, SNOW_HOLD_DAYS, easeWeather, SNOW_MELT_DAYS, SPELL_DAYS, WEATHER_LOOKS, flashAt, flashGlow, flashes, lyingSnow, snowCover, weatherAt, weatherWords, windTo, zoneOf, type Weather } from './climate';
+import { BLEND, SNOW_HOLD_DAYS, easeWeather, SNOW_MELT_DAYS, SPELL_DAYS, WEATHER_LOOKS, flashAt, flashGlow, flashes, lyingSnow, snowCover, weatherAt, weatherWords, windTo, zoneOf, type Weather } from './weather';
 
 /** Миг середины полосы `i` в мс общих часов — внутри полосы, вдали от перехода. */
 const mid = (i: number): number => realMs((i + 0.4) * SPELL_DAYS * 60);
