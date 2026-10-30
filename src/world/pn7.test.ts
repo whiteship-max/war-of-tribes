@@ -160,8 +160,8 @@ describe('строка договора — функцией условий (п�
 
   it('окно доски печатает строку `dealRow` и своей арифметики платы не держит', () => {
     const src = readFileSync(join(__dirname, '..', 'ui', 'map', 'roam', 'RoamDeals.tsx'), 'utf8');
-    expect(src).toContain('dealRow(termsOf(o))');
-    expect(src).toContain('settlePay(d)');
+    expect(src).toContain('d.dealRow(d.termsOf(o))');
+    expect(src).toContain('door.settlePay(d)');
     for (const no of ['DEAL_K', 'DEAL_R', 'etalonUpkeep', 'LAIR_GOLD_PER_POWER', '.pay -', '.pay*', '.pay *']) expect(src, no).not.toContain(no);
   });
 });

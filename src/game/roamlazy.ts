@@ -13,6 +13,30 @@ import type { AdminGrant, BandOrder, BandRow, RosterResponse } from '../../netli
 import type { GameState, ResourceId, RoamState } from './types';
 import type { SpiritIn } from './spiritrules';
 import type { RoamMove } from '../world/roammove';
+import type * as Deals from './sim/contracts';
+import type * as DealRules from './contractrules';
+import type { DEAL_DEFS } from './data/contracts';
+
+/**
+ * Двери договоров НПС (ПН-7) для окна договоров — через реестр, а не импортом: окно лежит в куске карты бродяги, и прямой импорт завёл бы
+ * договорам свой общий кусок, а его имя — строку в карте предзагрузки первой загрузки (потолок 609.3 КБ). Правил здесь нет — те же двери.
+ */
+export interface DealDoor {
+  takeDeal: typeof Deals.takeDeal;
+  takeBlock: typeof Deals.takeBlock;
+  termsOf: typeof Deals.termsOf;
+  refuseDeal: typeof Deals.refuseDeal;
+  payDebt: typeof Deals.payDebt;
+  debtBlock: typeof Deals.debtBlock;
+  debtTo: typeof Deals.debtTo;
+  dealRow: typeof DealRules.dealRow;
+  riskWords: typeof DealRules.riskWords;
+  settlePay: typeof DealRules.settlePay;
+  tierWord: typeof DealRules.tierWord;
+  /** Договоров разом (`data/contracts.CONTRACTS_MAX`) и виды (`DEAL_DEFS`). */
+  max: number;
+  defs: typeof DEAL_DEFS;
+}
 import { roamOn } from './roamflag';
 
 /**
@@ -49,6 +73,8 @@ export interface RoamDoor {
   flushBook(): Promise<void>;
   /** Лечение отряда за алмазы (ПН-6, `sim/bandwounds.healBand`; зовёт `sim/gems.applyGemDeeds`): сколько встало. */
   healBand(s: GameState, until: number): number;
+  /** Договоры НПС (ПН-7, `sim/contracts`, `contractrules`) — для окна договоров карты бродяги. */
+  deals: DealDoor;
 }
 
 let door: RoamDoor | null = null;

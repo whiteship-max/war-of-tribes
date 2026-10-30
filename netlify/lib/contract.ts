@@ -417,7 +417,7 @@ export interface RoamBookRow {
 }
 
 /** Потолки чисел приказа отряда. */
-export const BAND_LIMITS = { prestige: 1e9, men: 1e6, keys: 32, key: 64, gold: 1e9 } as const;
+export const BAND_LIMITS = { prestige: 1e9, men: 1e6, keys: 32, key: 64 } as const;
 
 
 /** Разбор приказа отряда: новый объект, мусор — `null` (400). Координаты — целые клетки. */

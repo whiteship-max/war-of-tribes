@@ -15,6 +15,9 @@ import { flushBook } from '@/net/bandbook';
 import { readMove } from '@/world/roammove';
 import type { GameState } from './types';
 import { profileName } from '@/profile/identity';
+import { debtBlock, debtTo, payDebt, refuseDeal, takeBlock, takeDeal, termsOf } from './sim/contracts';
+import { dealRow, riskWords, settlePay, tierWord } from './contractrules';
+import { CONTRACTS_MAX, DEAL_DEFS } from './data/contracts';
 
 /** Новая партия `s` бродягой — Воином (`roamorigin`): имя и лицо — прежней партии `was`, герой носит имя игрока. Отказ — словами. */
 function startRoam(s: GameState, was: GameState): string | null {
@@ -49,6 +52,8 @@ export const ROAM_DOOR: RoamDoor = {
   flushBook,
   /** Лечение отряда за алмазы (`sim/gems.applyGemDeeds`, ПН-6). */
   healBand,
+  /** Договоры НПС (ПН-7) — окну договоров карты бродяги. */
+  deals: { takeDeal, takeBlock, termsOf, refuseDeal, payDebt, debtBlock, debtTo, dealRow, riskWords, settlePay, tierWord, max: CONTRACTS_MAX, defs: DEAL_DEFS },
 };
 
 provideRoamDoor(ROAM_DOOR);

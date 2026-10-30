@@ -8,6 +8,9 @@ import { BAND_LIMITS, TROOP_KEYS, type BandBookOrder, type BandCell, type BandOr
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
+/** Потолок золота и престижа в приказах книги договоров (ПН-7): здесь, а не в договоре — договор лежит в первой загрузке. */
+const DEAL_MAX = 1e9;
+
 /** Виды приказов книги отряда. */
 export const BAND_BOOK_OPS = ['join', 'hire', 'captives', 'promote', 'demote', 'dismiss', 'take', 'deal', 'drop'] as const;
 
@@ -69,7 +72,7 @@ function readDealBook(v: unknown): RoamDealBook | undefined {
     .filter((o) => typeof o.at === 'string' && o.at.length <= BAND_LIMITS.key)
     .map((o) => ({ at: o.at as string, w: whole(o.w), n: whole(o.n) }))
     .slice(-BAND_LIMITS.keys);
-  return { open, took, n: whole(r.n), gold: Math.min(BAND_LIMITS.gold, whole(r.gold)), fame: Math.min(BAND_LIMITS.gold, whole(r.fame)) };
+  return { open, took, n: whole(r.n), gold: Math.min(DEAL_MAX, whole(r.gold)), fame: Math.min(DEAL_MAX, whole(r.fame)) };
 }
 
 const bandKey = (v: unknown): string | null => (typeof v === 'string' && /^[\w.:-]{6,64}$/.test(v) ? v : null);
@@ -90,7 +93,7 @@ export function readBookOrder(r: Record<string, unknown>): BandBookOrder | null 
     const gold = num(r.gold);
     const fame = num(r.fame);
     return gold !== null && fame !== null && gold >= 0 && fame >= 0
-      ? { op: 'deal', key, take, gold: Math.min(BAND_LIMITS.gold, Math.round(gold)), fame: Math.min(BAND_LIMITS.gold, Math.round(fame)) }
+      ? { op: 'deal', key, take, gold: Math.min(DEAL_MAX, Math.round(gold)), fame: Math.min(DEAL_MAX, Math.round(fame)) }
       : null;
   }
   const n = num(r.n);
