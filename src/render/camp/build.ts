@@ -15,10 +15,10 @@ import type { Season } from '@/game/types';
 import type { CampLook } from '@/world/campsite';
 
 /** Потолок треугольников сцены лагеря по уровню качества (земля, лагерь, деревья, руины). */
-export const CAMP_TRIS: Record<Quality, number> = { high: 5000, medium: 3400, low: 2400 };
+export const CAMP_TRIS: Record<Quality, number> = { high: 6000, medium: 4200, low: 2800 };
 
 /** Сколько деревьев вокруг лесного лагеря (у прочей земли — треть) по уровню. */
-export const TREES: Record<Quality, number> = { high: 34, medium: 22, low: 12 };
+export const TREES: Record<Quality, number> = { high: 48, medium: 32, low: 18 };
 
 /** Ячеек сетки земли на сторону по уровню: холмы и дюны лепятся вершинами. */
 const GRID: Record<Quality, number> = { high: 26, medium: 18, low: 12 };
@@ -27,7 +27,7 @@ const GRID: Record<Quality, number> = { high: 26, medium: 18, low: 12 };
 export const DROPS: Record<Quality, number> = { high: 700, medium: 450, low: 260 };
 
 /** Полуразмер площадки, м: за ней — дымка. */
-export const GROUND_HALF = 18;
+export const GROUND_HALF = 30;
 
 const BODY = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, vertexColors: true });
 BODY.name = 'camp-body';
@@ -381,11 +381,24 @@ export function buildCamp(look: CampLook, q: Quality): CampModel {
   const count = look.ground === 'desert' ? 0 : look.ground === 'forest' ? TREES[q] : Math.round(TREES[q] / 3);
   for (let i = 0; i < count; i++) {
     const a = r() * Math.PI * 2;
-    const d = (look.ground === 'forest' ? 6.5 : 9) + r() * 8;
+    const d = (look.ground === 'forest' ? 5.5 : 9) + r() * (look.ground === 'forest' ? 7 : 8);
     const x = Math.cos(a) * d;
     const z = Math.sin(a) * d - 2;
     if (look.ground === 'shore' && x < -6) continue;
+    // Перед лагерем деревьев нет: камера смотрит на него поверх поляны; лес обступает с боков и сзади — палатки между деревьями.
+    if (Math.abs(x) < 4.6 && z > -3.6) continue;
     tree(parts, look, x, z, r);
+  }
+  // Кусты на открытой земле — поле не голый лист.
+  if (look.ground !== 'desert' && look.ground !== 'ruin') {
+    const bush = hexMix(tone(look.season, 'bush'), PALETTE.fieldSnow, look.snow * 0.6);
+    for (let i = 0; i < 10; i++) {
+      const a = r() * Math.PI * 2;
+      const d = 4.5 + r() * 8;
+      const x = Math.cos(a) * d;
+      const z = Math.sin(a) * d;
+      parts.push(place(new THREE.IcosahedronGeometry(0.35 + r() * 0.3, 0), tint(bush), x, onGround(look, x, z) + 0.2, z));
+    }
   }
   const stones = look.ground === 'hills' || look.ground === 'desert' ? 8 : 3;
   for (let i = 0; i < stones; i++) {
@@ -415,7 +428,8 @@ export function buildCamp(look: CampLook, q: Quality): CampModel {
     flame,
     flag,
     smokeFrom: lit ? new THREE.Vector3(fireAt.x, fireAt.y + 0.9, fireAt.z) : null,
-    anchors: { tent: tentAt, fire: fireAt, cargo: cargoAt, banner: bannerTop },
+    // Подпись костра — над пламенем, а не на нём.
+    anchors: { tent: tentAt, fire: new THREE.Vector3(fireAt.x, fireAt.y + 1.3, fireAt.z), cargo: cargoAt, banner: bannerTop },
     tris: trisOf(root),
   };
 }

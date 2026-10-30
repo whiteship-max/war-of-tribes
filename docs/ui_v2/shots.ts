@@ -54,6 +54,9 @@
 //                                                    города, сёла, ватаги), касание города словами, окно хода к ватаге —
 //                                                    засада и «Напасть», итог боя строкой (победа, наследник пути) той же
 //                                                    дверью партии. Путь — как у ПН-3
+//   GROUP=pn12l WEATHER=clear NIGHT=0 …            — ПН-12л (docs/gdd/path_of_sword.md, 19): лагерь бродяги — лес (большой), поле,
+//                                                    скрытый, руины, окно «Встать лагерем»; GROUP=pn12w WEATHER=rain — дождь, GROUP=pn12s
+//                                                    WEATHER=snow — снег (зима). Путь включён только в сервере стенда.
 //   GROUP=pn6 WEATHER=clear NIGHT=0 …              — ПН-6 (docs/gdd/path_of_sword.md, 18): окно «Отряд» (пленные, раненые за
 //                                                    алмазы, карточка вида — повысить, разжаловать, распустить), весть «Просятся
 //                                                    в отряд», вольный город — рынок и найм, лазарет лорда с «Поднять сейчас».
@@ -594,7 +597,61 @@ const LORD_HEAL = `(async () => {
   return JSON.stringify('ok');
 })()`;
 
+/**
+ * ПН-12л: отряд в `n` человек стоит лагерем вида `kind` на ближайшей клетке земли `ground` (лес, поле, руины на поле) — той же дверью
+ * хода и лагеря, что игра (`sim/roam.setMove`, `WorldApi.roamCamp`); `winter` — часы партии в зиму года 2; карта закрыта — экран лагеря.
+ */
+const CAMP_AT = (ground: 'forest' | 'plain' | 'ruin', kind: 'open' | 'hidden' | 'ruin', n: number, winter = false): string => `(async () => {
+  const R = await import('/src/game/sim/roam.ts');
+  const Mv = await import('/src/world/roammove.ts');
+  const Ck = await import('/src/world/store.ts');
+  const S = await import('/src/world/campsite.ts');
+  const Ro = await import('/src/world/roam.ts');
+  const P = await import('/src/world/roampoints.ts');
+  const D = await import('/src/game/data/seasons.ts');
+  const A = await import('/src/world/api.ts');
+  window.__game.getState().openMap();
+  await new Promise((r) => setTimeout(r, 300));
+  const way = window.__game.getState().s.roam.way;
+  let best = null;
+  for (let dy = -16; dy <= 16; dy++) for (let dx = -16; dx <= 16; dx++) {
+    const c = { x: way.to.x + dx, y: way.to.y + dy };
+    if (Ro.roamCellBlock(c) !== null || P.townAt(c.x, c.y)) continue;
+    const s = S.siteAt(c);
+    const ok = '${ground}' === 'ruin' ? s.ruin && !s.shore : s.terrain === '${ground}' && !s.ruin && !s.shore;
+    if (ok && (!best || Math.hypot(dx, dy) < Math.hypot(best.x - way.to.x, best.y - way.to.y))) best = c;
+  }
+  if (!best) return JSON.stringify('нет клетки ${ground}');
+  window.__game.getState().world((s) => {
+    s.roam.band = ${n >= 20 ? `{ spearman: ${n - 10}, clubman: 6, archer: 4 }` : `{ spearman: ${n - 6}, clubman: 4, archer: 2 }`};
+    // Часы партии — полдень лета (зимы) года 2: сцена днём, сезон — тот, что снимаем.
+    s.time = D.SEASON_SECONDS * (${winter} ? 7 : 5) + (D.SEASON_SECONDS / D.SEASON_DAYS) * (${winter} ? 0.15 : 0.4);
+    void R.setMove(s, { way: Mv.standWay('normal', best, Ck.worldNow() - 60000), camp: null });
+  });
+  const e = await A.worldApi().roamCamp('${kind}');
+  window.__game.getState().closeMap();
+  return JSON.stringify((e ?? 'ok') + ' ' + best.x + '|' + best.y);
+})()`;
+
 const GROUPS: Record<string, Step[]> = {
+  // ПН-12л (docs/gdd/path_of_sword.md, 19): лагерь бродяги — главный экран; погода адресом (`WEATHER`) — только вид.
+  pn12l: [
+    { name: 'pn12l-start', run: ROAM_START, wait: 4000, shot: false },
+    { name: 'pn12l-forest', run: CAMP_AT('forest', 'open', 26), wait: 3500 },
+    { name: 'pn12l-field', run: CAMP_AT('plain', 'open', 12), wait: 3000 },
+    { name: 'pn12l-hidden', run: CAMP_AT('plain', 'hidden', 12), wait: 3000 },
+    { name: 'pn12l-ruins', run: CAMP_AT('ruin', 'ruin', 26), wait: 3000 },
+    { name: 'pn12l-window', run: `(() => { [...document.querySelectorAll('.camp-nav button')].find((b) => b.textContent.includes('Лагерь'))?.click(); return JSON.stringify('ok'); })()`, wait: 1500 },
+  ],
+  // Дождь и снег — погодой адресом, своими короткими заходами (WEATHER=rain, WEATHER=snow).
+  pn12w: [
+    { name: 'pn12l-start', run: ROAM_START, wait: 4000, shot: false },
+    { name: 'pn12l-rain', run: CAMP_AT('plain', 'open', 12), wait: 3500 },
+  ],
+  pn12s: [
+    { name: 'pn12l-start', run: ROAM_START, wait: 4000, shot: false },
+    { name: 'pn12l-snow', run: CAMP_AT('forest', 'open', 26, true), wait: 3500 },
+  ],
   // ПН-6 (docs/gdd/path_of_sword.md, 18): люди и город — окно «Отряд», весть «Просятся в отряд», вольный город (рынок, найм), лазарет лорда.
   pn6: [
     { name: 'pn6-start', run: ROAM_START, wait: 4000, shot: false },
@@ -1912,7 +1969,7 @@ async function main(): Promise<void> {
     server: { port: PORT, strictPort: true, host: '127.0.0.1' },
     logLevel: 'warn',
     // Заходы ПН-3, ПН-4у и ПН-5 — с открытым Путём меча: выключатель подменяется только в этом сервере стенда.
-    ...(name === 'pn3' || name === 'pn4' || name === 'pn5' || name === 'pn6' ? { plugins: [ROAM_PLUGIN] } : {}),
+    ...(name === 'pn3' || name === 'pn4' || name === 'pn5' || name === 'pn6' || name.startsWith('pn12') ? { plugins: [ROAM_PLUGIN] } : {}),
   });
   await vite.listen();
   try {

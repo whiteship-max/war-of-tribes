@@ -14,15 +14,13 @@ import { Icon } from '@/ui/icons/Icon';
 
 const pct = (x: number): string => `${Math.round(x * 100)} %`;
 
-/** Что даёт стоянка — одной строкой: еда, дух, отдых, оборона, скрытность. */
+/** Что даёт стоянка — одной строкой: еда, дух, отдых, оборона, скрытность (ПН-12л: все пять — всегда, числами дверей). */
 export function gainText(r: RoamCampGain): string {
-  const parts = [`фураж ${pct(r.forage)} пайка`];
-  if (Math.abs(r.morale) >= 0.05) parts.push(`дух ${signedWhole(r.morale)}`);
-  if (Math.abs(r.weather) >= 0.05) parts.push(`непогода ${signedWhole(r.weather)}`);
+  const parts = [`фураж ${pct(r.forage)} пайка`, `дух ${signedWhole(r.morale + r.weather)}`];
   if (r.ration > 1.005) parts.push(`паёк ×${num(r.ration, 2)}`);
-  if (r.heal > 1.005) parts.push(`раненые встают в ${num(r.heal, 1)} раза быстрее`);
-  if (r.faces > 0) parts.push(`нападающему −${r.faces} ${r.faces === 1 ? 'грань' : 'грани'} кости`);
-  parts.push(`замок видит за ${num(r.range, 0)} кл.`);
+  parts.push(`отдых раненых ×${num(r.heal, 1)}`);
+  parts.push(r.faces > 0 ? `нападающему −${r.faces} ${r.faces === 1 ? 'грань' : 'грани'} кости` : 'обороны нет');
+  parts.push(`замок видит за ${num(r.range, 0)} кл`);
   return parts.join(' · ');
 }
 
@@ -62,13 +60,16 @@ export function RoamCamp({ onClose }: { onClose: () => void }) {
               </p>
               {view.ruin && <p className="nx-tnote">Здесь руины: {view.ruin.toLowerCase()}.</p>}
               <p className="nx-tnote">Стоять в поле: {gainText(view.field)}.</p>
+              {(view.field.weather < 0 || view.rows.some((r) => r.weather < 0)) && (
+                <p className="nx-tnote">Непогода: дух {signedWhole(view.field.weather)} — в любом лагере под открытым небом.</p>
+              )}
               {view.camp && <p className="nx-tnote">Рогатки лагеря: {pct(view.works)}.</p>}
               <div className="roam-legs">
                 {view.rows.map((r) => (
                   <button key={r.kind} className={`roam-leg${view.camp === r.kind ? ' on' : ''}`} disabled={r.block !== null} onClick={() => void pick(r.kind)}>
                     <b>{r.name}</b>
                     <span />
-                    <small className="muted">{r.block ?? gainText(r)}</small>
+                    <small className="muted">{view.camp === r.kind ? `стоит: ${gainText(r)}` : (r.block ?? gainText(r))}</small>
                   </button>
                 ))}
               </div>

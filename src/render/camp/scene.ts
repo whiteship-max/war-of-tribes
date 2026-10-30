@@ -16,13 +16,16 @@ import { QUALITY, type Quality } from '@/render/quality';
 import { windTo } from '@/world/weather';
 import type { CampLook } from '@/world/campsite';
 import { armsCanvas } from '@/heraldry/paint';
-import { DROPS, GROUND_HALF, buildCamp, disposeCamp, type CampAnchors, type CampModel } from './build';
+import { DROPS, buildCamp, disposeCamp, type CampAnchors, type CampModel } from './build';
 
 /** Живое (огонь, капли, дым) — кадр раз в столько мс; неподвижное — раз в `STILL_MS`. */
 const LIVE_MS = 33;
 const STILL_MS = 1000;
 /** Клубов дыма над костром. */
 const PUFFS = 12;
+/** Коробка капель и хлопьев над лагерем, м: шире кадра у лагеря, дальше — дымка. */
+const PRECIP_SPAN = 26;
+const PRECIP_TOP = 14;
 
 /** Точка предмета на экране, CSS px от левого верхнего угла холста; за кадром — `null`. */
 export type ScreenPoint = { x: number; y: number } | null;
@@ -37,10 +40,31 @@ export interface CampScreenAnchors {
 const modelKey = (l: CampLook, arms: string | null): string =>
   [l.ground, l.tier, l.kind ?? '-', l.fire ? 1 : 0, Math.round(l.snow * 4), l.season, arms ?? ''].join('|');
 
+let puff: THREE.Texture | null = null;
+
+/** Круглое пятно с мягким краем — клуб дыма и хлопья снега (без него точки рисуются квадратами). */
+function puffTex(): THREE.Texture | null {
+  if (puff || typeof document === 'undefined') return puff;
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.6, 'rgba(255,255,255,0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 32, 32);
+  puff = new THREE.CanvasTexture(c);
+  return puff;
+}
+
 export class CampScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(48, 1, 0.5, 120);
+  private readonly camera = new THREE.PerspectiveCamera(58, 1, 0.5, 120);
+  /** Расстояние камеры до лагеря, м — от него дымка. */
+  private dist = 20;
   private readonly rig: LightRig;
   private readonly fireLight = new THREE.PointLight(PALETTE.fireLight, 0, 14, 1.6);
   private readonly loop: FrameLoop<'idle'>;
@@ -88,21 +112,21 @@ export class CampScene {
     const per = kind === 'rain' ? 2 : 1;
     const pos = new Float32Array(this.drops * per * 3);
     for (let i = 0; i < this.drops; i++) {
-      const x = (((i * 7919) % 1000) / 1000 - 0.5) * GROUND_HALF * 1.6;
-      const z = (((i * 104729) % 1000) / 1000 - 0.5) * GROUND_HALF * 1.6;
-      const y = ((i * 15485863) % 1000) / 1000 * 14;
-      for (let k = 0; k < per; k++) pos.set([x, y + k * 0.5, z], (i * per + k) * 3);
+      const x = (((i * 7919) % 1000) / 1000 - 0.5) * PRECIP_SPAN;
+      const z = (((i * 104729) % 1000) / 1000 - 0.5) * PRECIP_SPAN;
+      const y = (((i * 15485863) % 1000) / 1000) * PRECIP_TOP;
+      for (let k = 0; k < per; k++) pos.set([x, y + k * 0.8, z], (i * per + k) * 3);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     if (kind === 'rain') {
-      const m = new THREE.LineBasicMaterial({ color: 0xaebfcf, transparent: true, opacity: 0.55 });
+      const m = new THREE.LineBasicMaterial({ color: 0xc8d4de, transparent: true, opacity: 0.75 });
       const l = new THREE.LineSegments(g, m);
       l.visible = false;
       l.frustumCulled = false;
       return l;
     }
-    const m = new THREE.PointsMaterial({ color: PALETTE.snowflake, size: 0.12, transparent: true, opacity: 0.9 });
+    const m = new THREE.PointsMaterial({ color: PALETTE.snowflake, size: 0.16, transparent: true, opacity: 0.9, map: puffTex(), depthWrite: false });
     const p = new THREE.Points(g, m);
     p.visible = false;
     p.frustumCulled = false;
@@ -112,7 +136,7 @@ export class CampScene {
   private puffs(): THREE.Points {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PUFFS * 3), 3));
-    const m = new THREE.PointsMaterial({ color: PALETTE.smoke, size: 0.9, transparent: true, opacity: 0.35, depthWrite: false });
+    const m = new THREE.PointsMaterial({ color: PALETTE.smoke, size: 1.1, transparent: true, opacity: 0.4, depthWrite: false, map: puffTex() });
     const p = new THREE.Points(g, m);
     p.visible = false;
     p.frustumCulled = false;
@@ -133,6 +157,7 @@ export class CampScene {
       this.model = buildCamp(look, this.q);
       this.scene.add(this.model.root);
       this.dressFlag(arms);
+      this.aim();
       this.placeAnchors();
     }
     this.weather(look);
@@ -159,8 +184,9 @@ export class CampScene {
     const w = l.sky;
     const fog = this.scene.fog as THREE.Fog;
     const thick = Math.min(1, w.fog + 0.35 * w.rain + 0.25 * w.snow);
-    fog.near = 18 - 12 * thick;
-    fog.far = 48 - 28 * thick;
+    // Дымка — от расстояния до лагеря: в ясный день лагерь чёткий, дальний лес тонет; туман и ливень подходят к самому лагерю.
+    fog.near = this.dist * (1.15 - 0.75 * thick);
+    fog.far = this.dist * (2.6 - 1.35 * thick);
     this.rain.visible = w.rain > 0.05;
     this.rain.geometry.setDrawRange(0, Math.round(this.drops * Math.min(1, w.rain + 0.15)) * 2);
     this.snow.visible = w.snow > 0.05;
@@ -195,15 +221,26 @@ export class CampScene {
     this.w = Math.max(1, w);
     this.h = Math.max(1, h);
     this.renderer.setSize(this.w, this.h, false);
+    this.aim();
+    this.placeAnchors();
+    this.loop.restart();
+  }
+
+  /**
+   * Камера по ширине лагеря: малый (±3.9 м) и большой (±5.8 м) влезают по ширине — на узком телефоне камера отходит, на широком
+   * подходит. Середина взгляда — над лагерем: сверху полоса отряда, и лагерь встаёт ниже середины экрана.
+   */
+  private aim(): void {
     const aspect = this.w / this.h;
     this.camera.aspect = aspect;
     const half = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * aspect;
-    const d = Math.max(14, Math.min(34, 7 / half));
-    this.camera.position.set(0, d * 0.55, d * 0.84);
-    this.camera.lookAt(0, 0.6, -0.6);
+    const span = this.look?.tier === 'large' ? 5.8 : 3.9;
+    this.dist = Math.max(8, Math.min(30, span / half));
+    const d = this.dist;
+    this.camera.position.set(0, d * 0.58, d * 0.82);
+    this.camera.lookAt(0, 1 + 0.1 * d, -1.2);
     this.camera.updateProjectionMatrix();
-    this.placeAnchors();
-    this.loop.restart();
+    if (this.look) this.weather(this.look);
   }
 
   private toScreen(v: THREE.Vector3 | null): ScreenPoint {
@@ -272,14 +309,15 @@ export class CampScene {
       let y = a[j + 1] - down;
       let x = a[j] + wind.x * drift;
       let z = a[j + 2] + wind.z * drift;
-      if (y < 0) y += 14;
-      if (x > GROUND_HALF) x -= GROUND_HALF * 1.6;
-      if (x < -GROUND_HALF) x += GROUND_HALF * 1.6;
-      if (z > GROUND_HALF) z -= GROUND_HALF * 1.6;
-      if (z < -GROUND_HALF) z += GROUND_HALF * 1.6;
+      const h = PRECIP_SPAN / 2;
+      if (y < 0) y += PRECIP_TOP;
+      if (x > h) x -= PRECIP_SPAN;
+      if (x < -h) x += PRECIP_SPAN;
+      if (z > h) z -= PRECIP_SPAN;
+      if (z < -h) z += PRECIP_SPAN;
       for (let k = 0; k < per; k++) {
         a[j + k * 3] = x + wind.x * k * 0.12 * per;
-        a[j + k * 3 + 1] = y + k * 0.5;
+        a[j + k * 3 + 1] = y + k * 0.8;
         a[j + k * 3 + 2] = z + wind.z * k * 0.12 * per;
       }
     }

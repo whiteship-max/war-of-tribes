@@ -11,6 +11,7 @@ import { useGame } from '@/game/store';
 import { worldNow } from '@/world/store';
 import { CAMP_NAME } from '@/world/roam';
 import { bandPlace, campLook, siteWords, skyLine, type CampLook } from '@/world/campsite';
+import { forcedWeather, lyingSnow, regionAt } from '@/world/weather';
 import { townAt } from '@/world/roampoints';
 import { energyShown } from '@/world/energy';
 import { ownSight, seenWords, useBandSight } from '@/world/bandsight';
@@ -21,6 +22,7 @@ import { sideColor } from '@/side';
 import { levelNow } from '@/render/gfx';
 import { bootDone } from '@/boot/stage';
 import { castlePainted } from '@/boot/warm';
+import { DEFAULT_ARMS, armsCode } from '@/heraldry/arms';
 import { Icon } from '@/ui/icons/Icon';
 import type { CampScene, CampScreenAnchors } from '@/render/camp/scene';
 import { CampCargo, CampFire, CampTent } from './CampPanels';
@@ -50,7 +52,10 @@ export function useCampLook(): { look: CampLook; solar: number; moving: boolean;
     const p = bandPlace({ way }, now, time);
     const season = seasonOf(time);
     const solar = solarPhase(dayFraction(time), season);
-    return { look: campLook(p.site, p.sky, p.moving ? null : kind, men), solar, moving: p.moving, roof: !p.moving && townAt(p.site.at.x, p.site.at.y) !== null };
+    // Погода адресом (`?weather=rain`) — как у города: стенду и проверке на телефоне, только вид; польза считает настоящую.
+    const f = forcedWeather(location.search);
+    const sky = f ? { ...p.sky, ...f, snowGround: season === 'winter' ? lyingSnow(regionAt(p.site.at), now, f) : 0 } : p.sky;
+    return { look: campLook(p.site, sky, p.moving ? null : kind, men), solar, moving: p.moving, roof: !p.moving && townAt(p.site.at.x, p.site.at.y) !== null };
     // `tick` — минута шага: вид живёт часами партии и мира.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [way, kind, men, tick]);
@@ -113,7 +118,8 @@ function Prop({ at, icon, label, onClick, fallback }: { at: { x: number; y: numb
 
 export default function CampScreen() {
   const r = useGame((g) => g.s.roam);
-  const arms = useGame((g) => g.s.profile.arms ?? null);
+  // Знамя — герб профиля; не выбран — герб по умолчанию (как у профиля, `heraldry/arms`).
+  const arms = useGame((g) => g.s.profile.arms || armsCode(DEFAULT_ARMS));
   const food = useGame((g) => Math.floor(g.s.roam?.cargo.food ?? 0));
   const openMap = useGame((g) => g.openMap);
   const mail = useGame((g) => g.s.inbox.length);
@@ -133,7 +139,9 @@ export default function CampScreen() {
   const state = view?.roof ? 'на постое' : camp ? CAMP_NAME[camp.kind] : view?.moving ? 'в пути' : 'стоит в поле';
   const sight = ownSight(s, now, seenServer);
   const p = r.way ? bandPlace({ way: r.way }, now, s.time) : null;
-  const place = p ? `${siteWords(p.site)} · ${view?.roof ? 'под крышей постоя' : skyLine(p.sky, dayPartAt(s.time) === 'night').toLowerCase()}` : '';
+  const forced = forcedWeather(location.search);
+  const sky = p && forced ? { ...p.sky, ...forced } : p?.sky;
+  const place = p && sky ? `${siteWords(p.site)} · ${view?.roof ? 'под крышей постоя' : skyLine(sky, dayPartAt(s.time) === 'night').toLowerCase()}` : '';
   const close = (): void => setPane(null);
   return (
     <div className="camp-screen">
