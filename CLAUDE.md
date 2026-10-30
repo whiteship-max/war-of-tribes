@@ -398,6 +398,11 @@ HEAD один на всех, см. правило 8). Значит развес�
   `contractrules.contractTerms`, `dealRow`; K и R видов — вывод `roam:report` (`data/contracts`), доска — `world/dealboard`; сервер —
   книга договоров в книге отряда (`roambook`, приказы `take`, `deal`, `drop`) и строка `deal` таблицы наград дел (`data/deedgain`, вывод
   `scripts/deeds`). Разойдись правило у двоих — сервер срезал бы честную сдачу или пропустил договор дороже таблицы;
+- `src/world/freecastle.ts`, `src/game/sim/roamcastle.ts` — вольные замки (ПН-10, docs/gdd/path_of_sword.md, 21): ступень → гарнизон, казна,
+  кастелян, доступ, пул и участь «Занять» — одна дверь на клиент, сервер войны (`war.marchFree`, `npcSheet`, `lastSortie`, `seizeFree` →
+  `WarFile.free`) и реестр (`RosterFile.free`, `fillFree`; клетки пула — занятые места расселения); «Замок взят» и разбор осады партии
+  (`RoamState.castle`, `.siege` — необязательные поля) пишет одна дверь `sim/roamcastle.takeSiege`. Разойдись правило у двоих — сервер взял
+  бы замок, который игрок видит стоящим, или гарнизон у сервера был бы не тот, что в окне замка;
 - `src/game/sim/prestige.ts` — престиж одной дверью (ПН-2, docs/gdd/path_of_sword.md, 14): `GameState.prestige` пишет только
   `movePrestige` (итог похода, награда задания, ответ вести), ступень — `prestigeStage` по порогам, которых в коде нет до вывода.
   Разойдись запись у двоих — престиж падал бы ниже нуля у одного и не падал у другого;
