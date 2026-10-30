@@ -53,6 +53,7 @@ const DOORS: Record<string, { why: Why[]; what: string }> = {
 const GAINS: Record<string, string> = {
   'sim/daily.ts': 'награда ежедневки — разовое дело (`stats.dailyWins`)',
   'sim/minigames.ts': 'добыча промысла — разовое дело (`stats.games`)',
+  'sim/roamcastle.ts': 'добыча и дань вольного замка — в обоз отряда бродяги (`cargo`), склад города не трогает (ПН-10)',
 };
 
 function sources(dir: string): string[] {

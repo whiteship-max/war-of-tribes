@@ -1380,7 +1380,7 @@ function fateOfWar(w: WarRow, at: number, sheet: WarSheet, fated: WarRow['fate']
     bonded: sheet.bonded,
     // Вывоз — по режиму марша похода (ДР-5): налегке без обоза меньше, с обозом больше — той же дверью, что у мира. «Занять» (ПН-10)
     // берёт сам замок, а не добро: обоза ноль.
-    carry: FATES[fated]?.castleOnly ? 0 : stackCarry({ warrior: survivors }) * gaitHaul(w.gait),
+    carry: stackCarry({ warrior: survivors }) * gaitHaul(w.gait) * (FATES[fated]?.castleOnly ? 0 : 1),
     escort: stackEscort({ warrior: survivors }),
     levels: sheet.levels,
     seed: fallSeed(warSeed(w.id, 0xfa11), at),

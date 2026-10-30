@@ -95,19 +95,6 @@ function answer(file: RosterFile, key: string, now: number, roamOpen: boolean, h
   return res;
 }
 
-/**
- * Чьи вольные замки (ПН-10) — из записи войн: взятие и сожжение решает бой на сервере войны (`war.ts`). Чтение без строгости, как у
- * реестра: запись войн живёт минутами. Не прочиталась — замки свободны на вид, а взять чужой не даст сама война.
- */
-async function holdsOf(io: Parameters<Route>[1]): Promise<Record<string, FreeHold>> {
-  try {
-    const got = await io.stores(STORES.world, 'eventual').getWithMetadata(WARS_KEY);
-    return readWars(got ? parseJson(String(got.data)) : null).free ?? {};
-  } catch {
-    return {};
-  }
-}
-
 export const castles: Route = async (req, io) => {
   const now = io.now;
   const auth = readInitData(req.headers.get('x-telegram-init-data'), botToken(), Math.floor(now / 1000));
@@ -278,4 +265,17 @@ async function confirmedClaim(io: Parameters<Route>[1], player: string, said: Ca
   const power = conf ? powerOfCounts(conf.levels, conf.troops) : powerOfCounts(seedTown(1).levels, {});
   const pop = conf ? conf.pop : START_POP;
   return { ...said, power: Math.min(said.power, power), pop: Math.min(said.pop, pop) };
+}
+
+/**
+ * Чьи вольные замки (ПН-10) — из записи войн: взятие и сожжение решает бой на сервере войны (`war.ts`). Чтение без строгости, как у
+ * реестра: запись войн живёт минутами. Не прочиталась — замки свободны на вид, а взять чужой не даст сама война.
+ */
+async function holdsOf(io: Parameters<Route>[1]): Promise<Record<string, FreeHold>> {
+  try {
+    const got = await io.stores(STORES.world, 'eventual').getWithMetadata(WARS_KEY);
+    return readWars(got ? parseJson(String(got.data)) : null).free ?? {};
+  } catch {
+    return {};
+  }
 }
