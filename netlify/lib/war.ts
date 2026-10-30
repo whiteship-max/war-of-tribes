@@ -1135,23 +1135,35 @@ function npcSheet(file: WarFile, def: string, tier: FreeTier, at: number): WarSh
   return siegeBread(file, def, sheet, at);
 }
 
+/** Волн последней вылазки не больше стольких: гарнизон кончается раньше (проход лагеря — не меньше бойца за волну). */
+const SORTIE_WAVES = 256;
+
 /**
- * Последняя вылазка вольного замка (решение Н5): хлеб кончился или ворота фазы — гарнизон выходит всем, кто остался, истощённым
- * осадой (`garrisonRest`), ударом по лагерю той же дверью, что вылазка города (`hitCamp` → `fights.campFight`). Отбит — замок взят
- * (`fall` «вылазка»); прорвался — осада снята. Выходить некому — его уже выбили в боях этой войны: замок взят ими. Прохода нет
- * (рогатки заняты) — боя нет: false, осада идёт дальше.
+ * Последняя вылазка вольного замка (решение Н5): хлеб кончился или ворота фазы — гарнизон выходит **всем, кто остался**, истощённым
+ * осадой (`garrisonRest`), ударом по лагерю той же дверью, что вылазка города (`hitCamp` → `fights.campFight`). Рогатки пропускают за
+ * раз столько, сколько держит фронт лагеря (`works.throughWorks`), — гарнизон идёт волнами в ту же минуту, не дожидаясь, пока проход
+ * освободится: отчаянная вылазка не возвращается за стены. Прорвала волна лагерь — осада снята; волн больше некому — замок взят
+ * (`fall` «вылазка»), последним боем, который выиграл лагерь. Выходить некому с самого начала — гарнизон уже выбит в боях этой войны:
+ * замок взят ими. Ни одна волна не прошла рогатки — боя нет: false, осада идёт дальше.
  */
 function lastSortie(w: WarRow, at: number, sheet: WarSheet): boolean {
-  if (troopTotal(asTroops(sheet.home)) <= 0) {
-    fall(w, at, sheet, 'sortie');
-    turnBack(w, at, w.to, 'taken');
-    return true;
+  let home = sheet.home;
+  for (let wave = 0; wave < SORTIE_WAVES && troopTotal(asTroops(home)) > 0 && w.phase === 'camp' && w.camp; wave++) {
+    const before = w.battles.length;
+    // Проход — заново на каждую волну: вылазка всем, в одну минуту.
+    w.camp = { ...w.camp, gateAt: undefined } as WarCamp;
+    hitCamp(w, at, { ...sheet, home }, { front: home, site: 'sortie' });
+    const b = w.battles[w.battles.length - 1];
+    if (w.battles.length === before || !b) break;
+    const left = minus(home, b.homeLost);
+    // Волна не потеряла ни бойца и лагерь стоит — дальше биться нечем: гарнизон не прошёл.
+    if (troopTotal(asTroops(left)) === troopTotal(asTroops(home)) && w.phase === 'camp') break;
+    home = left;
   }
-  const before = w.battles.length;
-  hitCamp(w, at, sheet, { front: sheet.home, site: 'sortie' });
-  if (w.battles.length === before) return false;
   if (w.phase !== 'camp') return true;
-  fall(w, at, sheet, 'sortie');
+  // Гарнизон остался (волна не прошла или не потеряла ни бойца): замок стоит, кость фазы идёт — вылазка повторится следующей фазой.
+  if (troopTotal(asTroops(home)) > 0) return false;
+  fall(w, at, { ...sheet, home }, 'sortie');
   turnBack(w, at, w.to, 'taken');
   return true;
 }

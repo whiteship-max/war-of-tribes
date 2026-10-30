@@ -3,11 +3,12 @@
 // потом карта (пул) и видимость. Входы разделы берут только `ctx.use` (см. `run.ts`); отсюда — одни типы входов.
 import type { Season, TroopId } from '../../src/game/types';
 import type { Terrain } from '../../src/world/types';
-import type { TroopStack } from '../../src/game/battle/kinds';
+import { troopTotal, type TroopStack } from '../../src/game/battle/kinds';
+import { ROAM_STUBS, type RoamStubId } from '../../src/game/roamstubs';
+import { FREE_TIERS, FREE_TIER_NAMES, freeGold, freeId, freePoolSize, freePop, freePower, freePrestige, freeTroopPower, freeTroops } from '../../src/world/freecastle';
 import { baseWage, powerOf, troopPower } from '../../src/game/battle/price';
 import { soldierFoodPerDay } from '../../src/game/build';
 import { DAY_LENGTH, RESOURCE_IDS, TEST_ARMY_FOOD } from '../../src/game/constants';
-import { GATE_POWER } from '../../src/game/data/events';
 import { GOOD_BY_ID } from '../../src/game/data/market';
 import { TROOP_BY_ID, TROOP_IDS } from '../../src/game/data/troops';
 import { SALE_SHARE, buyUnit, depthOf, shiftOf } from '../../src/game/marketrules';
@@ -29,8 +30,7 @@ import { GAIT_META, GAITS } from '../../src/world/data/gait';
 import { UNIT_BY_ID } from '../../src/world/data/units';
 import { selfCost } from '../../src/game/selfcost';
 import { createInitialState } from '../../src/game/state';
-import { menOfPower } from '../../src/world/garrison';
-import { BURN_IMMUNE, CASTLE_GOLD_PER_POWER, LAIR_GOLD_PER_POWER, TEST_TRAVEL_SPEED } from '../../src/world/data/tuning';
+import { BURN_IMMUNE, LAIR_GOLD_PER_POWER, TEST_TRAVEL_SPEED } from '../../src/world/data/tuning';
 import type { Gait } from '../../src/world/data/gait';
 import { standWay } from '../../src/world/roammove';
 import { campWorks, roamWalkMs } from '../../src/world/roam';
@@ -41,7 +41,7 @@ import type { InputId } from './inputs';
 import { CAMPS, CAMP_NAME, type Origin } from './kinds';
 import type { Ctx, Section } from './run';
 import { evenPower, rowMove } from './foes';
-import { STYLES, roadHours, runPath, stageOf, type PathKnobs, type PathRun } from './path';
+import { STYLES, roadHours, runPath, type PathKnobs, type PathRun } from './path';
 import { placeAll } from './pool';
 import { SIGHT_GOALS, STANCES, deriveSight, detectShare, goalCheck, writtenSight, type SightNumbers } from './sight';
 import { RUIN_BLOCK, RUIN_CAP } from '../../src/world/data/sight';
@@ -135,7 +135,15 @@ export const PILOT: readonly InputId[] = [
   'foodMix',
   'defeatPurse',
   'defeatPrestige',
-  'castleTiers',
+  // Вольные замки (ПН-10) — двери `world/freecastle` и сервер войны в памяти (`castle.castleTry`): их заглушки.
+  'castleLevel',
+  'castlePrestige',
+  'castlePop',
+  'castleWall',
+  'castleTower',
+  'castleHall',
+  'castleShare',
+  'castlePool',
   // Мир дороги (`placeAll`): пул замков, место выхода дверью ПН-3 и его заглушка (зазор; руины — вывод ПН-4у); фураж лагеря стиля — дверью.
   'pool',
   'spawnGap',
@@ -146,15 +154,15 @@ export const PILOT: readonly InputId[] = [
 /** Мир дороги автопилота: вольные замки пула и места выхода бродяг — дверями (`placeAll`), один на все партии. */
 function roadWorld(ctx: Pick<Ctx, 'use'>): Pick<PathKnobs, 'spawns' | 'castleRoads'> {
   const rule = ctx.use('pool');
-  const size = Math.max(rule.base, Math.ceil(rule.world.bands * rule.share));
+  const size = freePoolSize(rule.world.bands);
   const w = placeAll(1, rule.world.lords, size, rule.world.bands);
   const roads = (g: Gait): number[] => w.toFree.map((t) => t.hours[g]);
   return { spawns: w.bands, castleRoads: { light: roads('light'), normal: roads('normal'), train: roads('train') } };
 }
 
 export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
-  const tiers = ctx.use('castleTiers');
   const stages = ctx.use('stages');
+  for (const id of ['castleLevel', 'castlePrestige', 'castlePop', 'castleWall', 'castleTower', 'castleHall'] as const) ctx.use(id);
   // Договоры (ПН-7) — двери игры: доска (`world/dealboard`) и условия (`contractrules`); их заглушки автопилот объявляет (`PILOT`), а
   // читает дверью — сторож чтений держит, что объявлено всё прочитанное.
   for (const id of ['boardSize', 'dealReach', 'dealRoads', 'dealDays', 'dealStand', 'dealCargo', 'townBlock', 'townTier', 'villageBlock', 'vatagaBlock'] as const) ctx.use(id);
@@ -173,10 +181,8 @@ export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
     },
     defeatPurse: ctx.use('defeatPurse'),
     defeatPrestige: ctx.use('defeatPrestige'),
-    castle: {
-      stage: stageOf(stages, tiers[0].prestige),
-      power: GATE_POWER.raiders[tiers[0].level - 1],
-    },
+    // Вольный замок I — дверью `world/freecastle`: порог престижа и гарнизон бойцами (тот, что встанет на стену у сервера войны).
+    castle: { prestige: freePrestige(1), power: freeTroopPower(freeId(0, 0), 1) },
     // Повышение и найм — двери игры (ПН-6): разность полных цен по основе рынка (`promoterules`), найм по основе (`townrules.hireBase`).
     upgrade: promoteUnit,
     hire: hireBase,
@@ -510,7 +516,7 @@ const foes: Section = {
     ctx.line(
       `стили (договоры у всех — разбоя в Срезе 1 нет): ${STYLES.map((s) => `${s.name} — до ${s.edge} ровного боя, штурм от ${pct(s.storm)} разведки, лагерь ${CAMP_NAME[s.camp]}, марш ${s.gait}, запас — до захода и ещё ${s.margin} ч, ${s.takeAll ? 'берёт всех просящихся' : 'берёт, сколько прокормит'}, растит «${TROOP_BY_ID[s.grow].name.toLowerCase()}»`).join('; ')}`,
     );
-    ctx.line(`вольный замок I: гарнизон ${k.castle.power} мощи (${menOfPower(k.castle.power)} бойцов строя), с ${k.castle.stage}-й ступени престижа`);
+    ctx.line(`вольный замок I: гарнизон ${fix(k.castle.power, 1)} мощи бойцами (${troopTotal(freeTroops(freeId(0, 0), 1))} бойцов строя), с престижа ${k.castle.prestige}`);
     // Начало — с записанной в игре (ПН-5, заглушка `foeTable`: её читают засады, логова и ватаги мира бродяги): неподвижная точка
     // проверяет, что записанное и есть вывод. Ровный бой к мощи эталона на первом шаге — ровный бой отряда происхождения медианной
     // мощи (оценка автопилота «по силам ли дело»), дальше — эталонов ступеней.
@@ -636,6 +642,81 @@ const castle: Section = {
   },
 };
 
+/**
+ * Подменить заглушку игры на время вывода (ПН-10): прибор ищет число, которое сам и запишет в игру, — двери пути (здесь сервер войны в
+ * памяти, `castle.castleTry`) читают его там же, где игра (`roamStub`). Вне вывода — записанное.
+ */
+function withStub<T>(id: RoamStubId, value: unknown, fn: () => T): T {
+  const s = ROAM_STUBS[id] as { value: unknown };
+  const was = s.value;
+  s.value = value;
+  try {
+    return fn();
+  } finally {
+    s.value = was;
+  }
+}
+
+/** Медиана, быстрейший и доля дошедших до первого замка по всем стилям и происхождениям — сутки. */
+function castleStats(runs: readonly PathRun[]): { median: number; fastest: number; share: number } {
+  const at = runs.map((r) => (r.castleAt ?? Infinity) / 24);
+  return { median: median(at), fastest: Math.min(...at), share: at.filter(Number.isFinite).length / at.length };
+}
+
+/** Цель медианы до первого замка — середина 4…6 сут (ГДД 2.4); сошлась — в полсуток от неё. */
+const CASTLE_AIM = 5;
+const CASTLE_SETTLE = 0.5;
+
+const castleFix: Section = {
+  id: 'castleFix',
+  title: 'Вольный замок I — гарнизон под цели пути (неподвижная точка)',
+  gdd: '2.4, 3.11.1',
+  doors: ['castle.castleTry — сервер войны в памяти', 'freecastle.levelPower', 'партии автопилота раздела «Сила НПС»'],
+  uses: PILOT,
+  run(ctx) {
+    const p = ctx.take<Pilot>('pilot');
+    const written = [...ctx.use('castleLevel')];
+    // Уровень гарнизона замка I — то число, что само входит в свою выборку: от него зависит, когда автопилот берёт замок и с каким
+    // отрядом. Поиск — по медиане всех партий (три стиля × происхождения × сиды), до середины цели; II и III — те же отношения
+    // ступеней, что в ориентире 3.11.1 (ур. 4 и 6 к ур. 2): у первого замка их целей нет.
+    const ratio = written.map((l) => l / written[0]);
+    const tried: { level: number; median: number; fastest: number; share: number; power: number }[] = [];
+    const runAt = (level: number) => {
+      const levels = ratio.map((r) => r * level);
+      return withStub('castleLevel', levels, () => {
+        const k: PathKnobs = { ...p.knobs, castle: { prestige: freePrestige(1), power: freeTroopPower(freeId(0, 0), 1) } };
+        const st = castleStats(allRuns(k, p.origins, p.row, p.even, ctx.size.seeds));
+        const row = { level, ...st, power: k.castle.power };
+        tried.push(row);
+        ctx.line(
+          `  ур. ${fix(level, 3)} — гарнизон ${fix(row.power, 1)} мощи: медиана ${days(st.median * 24)}, быстрейший ${days(st.fastest * 24)}, дошли ${pct(st.share)}`,
+        );
+        return st.median;
+      });
+    };
+    ctx.line(`начало — записанное в игре: ур. ${fix(written[0], 3)} (II, III — ×${fix(ratio[1], 2)}, ×${fix(ratio[2], 2)})`);
+    let lo = 0;
+    let hi = Infinity;
+    let level = written[0];
+    for (let step = 0; step < 6; step++) {
+      const m = runAt(level);
+      if (Math.abs(m - CASTLE_AIM) <= CASTLE_SETTLE) break;
+      if (m > CASTLE_AIM) hi = level;
+      else lo = level;
+      level = hi < Infinity ? (lo + hi) / 2 : level * 2;
+    }
+    const best = [...tried].sort((a, b) => Math.abs(a.median - CASTLE_AIM) - Math.abs(b.median - CASTLE_AIM))[0];
+    const settled = Math.abs(best.median - CASTLE_AIM) <= CASTLE_SETTLE;
+    const out = Math.round(best.level * 1000) / 1000;
+    ctx.line(
+      `${settled ? 'сошлась' : 'НЕ СОШЛАСЬ'}: ур. ${fix(out, 3)} — медиана ${days(best.median * 24)} (${ctx.target('castleMedian', best.median, (v) => fix(v, 1))}); быстрейший ${days(best.fastest * 24)} (${ctx.target('castleFastest', best.fastest, (v) => fix(v, 1))}); дошли ${pct(best.share)} (${ctx.target('castleShare', best.share, pct)})`,
+    );
+    ctx.line(
+      `вывод castleLevel: ${ratio.map((r) => fix(Math.round(r * out * 1000) / 1000, 3)).join(', ')}; записано ${written.map((v) => fix(v, 3)).join(', ')} — ${Math.abs(out - written[0]) <= 1e-9 ? 'совпадает' : 'РАЗОШЛОСЬ: записать в game/roamstubs.castleLevel'}`,
+    );
+  },
+};
+
 const parity: Section = {
   id: 'parity',
   title: 'Ценность города и паритет',
@@ -706,7 +787,7 @@ const parity: Section = {
         const l = (seat.levels as Record<string, number>)[b.type];
         if (l) b.level = l;
       }
-      g.gold = CASTLE_GOLD_PER_POWER * p.knobs.castle.power + r.purse;
+      g.gold = freeGold(1) + r.purse;
       for (const id of TROOP_IDS) g.army[id] = Math.max(0, Math.round(r.band[id] ?? 0));
       return cityValue(g, prices);
     };
@@ -748,14 +829,15 @@ const pool: Section = {
   ],
   uses: PILOT,
   run(ctx) {
-    const tiers = ctx.use('castleTiers');
     const rule = ctx.use('pool');
+    const pool = ctx.use('castlePool');
+    const levels = ctx.use('castleLevel');
     const gap = ctx.use('spawnGap');
-    ctx.line(`${padEnd('ступень', 20)} ${pad('ур.', 4)} ${pad('мощь', 6)} ${pad('бойцов', 7)} ${pad('казна', 6)} ${pad('население', 10)} ${pad('доступ', 7)}`);
-    for (const t of tiers) {
-      const power = GATE_POWER.raiders[t.level - 1];
+    ctx.line(`${padEnd('ступень', 20)} ${pad('ур.', 5)} ${pad('мощь', 6)} ${pad('бойцов', 7)} ${pad('казна', 6)} ${pad('население', 10)} ${pad('доступ', 7)}`);
+    for (const t of FREE_TIERS) {
+      const power = freePower(t);
       ctx.line(
-        `${padEnd(t.name, 20)} ${pad(t.level, 4)} ${pad(power, 6)} ${pad(menOfPower(power), 7)} ${pad(Math.round(CASTLE_GOLD_PER_POWER * power), 6)} ${pad(t.pop, 10)} ${pad(t.prestige, 7)}`,
+        `${padEnd(FREE_TIER_NAMES[t], 20)} ${pad(fix(levels[t - 1], 2), 5)} ${pad(power, 6)} ${pad(troopTotal(freeTroops(freeId(0, 0), t)), 7)} ${pad(freeGold(t), 6)} ${pad(freePop(t), 10)} ${pad(freePrestige(t), 7)}`,
       );
     }
     ctx.line(`сожжённый — восстановление ${fix(BURN_IMMUNE / 3_600_000 / 24, 1)} сут (BURN_IMMUNE)`);
@@ -763,13 +845,13 @@ const pool: Section = {
     const share = p.runs.filter((r) => r.castleAt !== null).length / p.runs.length;
     ctx.line('');
     ctx.line(
-      `пул = max(${rule.base}, ceil(бродяг × ${rule.share})); выход — дверью placeBand: у руин или опушки, не ближе ${gap} клеток к замкам игроков и к новичкам; ${ctx.size.pool} расселений на строку`,
+      `пул = max(${pool.base}, ceil(бродяг × ${pool.share})) — дверь реестра fillFree (freecastle.freePoolSize); выход — дверью placeBand: у руин или опушки, не ближе ${gap} клеток к замкам игроков и к новичкам; ${ctx.size.pool} расселений на строку`,
     );
     ctx.line(`мир дороги автопилота: ${rule.world.bands} бродяг, ${rule.world.lords} лордов; путь до ближайшего вольного — обычным маршем`);
     ctx.line(`дошли до замка за ${LIMIT_DAYS} сут у автопилота: ${pct(share)} — столько замков нужно на бродягу к сроку`);
     ctx.line(`${pad('бродяг', 7)} ${pad('лордов', 7)} ${pad('пул', 5)} ${pad('нужно к сроку', 14)} ${pad('до ближ. вольного', 18)} ${pad('худший', 8)}`);
     for (const bands of [2, 5, 20, 50]) {
-      const size = Math.max(rule.base, Math.ceil(bands * rule.share));
+      const size = freePoolSize(bands);
       for (const lords of [0, bands]) {
         const to = Array.from({ length: ctx.size.pool }, (_, run) => placeAll(run + 1, lords, size, bands).toFree).flat();
         const hours = to.map((x) => x.hours.normal);
@@ -1115,4 +1197,4 @@ const placeSpirit: Section = {
   },
 };
 
-export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, deals, foes, prestige, castle, parity, pool, meet, sight, people];
+export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, deals, foes, prestige, castle, castleFix, parity, pool, meet, sight, people];

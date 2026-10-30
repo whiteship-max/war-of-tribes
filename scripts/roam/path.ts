@@ -17,7 +17,7 @@
 // Срезе 1 нет (Р10), поэтому все три стиля живут договорами; разнятся они риском, лагерем, маршем, запасом и наймом. Между заходами отряд живёт сам: ест, платит, принимает просящихся, уходит неуплатой.
 import type { RoamState, TroopId } from '../../src/game/types';
 import type { TroopStack } from '../../src/game/battle/kinds';
-import { kindsOf, shareLosses, troopPower } from '../../src/game/battle/price';
+import { troopPower } from '../../src/game/battle/price';
 import { DAY_LENGTH, dayRealSeconds, gameDaysPerHour, realMs } from '../../src/game/pace';
 import { createInitialState } from '../../src/game/state';
 import { seasonMods, seasonOf, seasonProgress } from '../../src/game/derived';
@@ -31,13 +31,11 @@ import { bandUpkeep } from '../../src/game/sim/bandkeep';
 import { cargoCap } from '../../src/game/sim/roam';
 import { prestigeAfter, prestigeStage } from '../../src/game/sim/prestige';
 import { mixSeed, seeded } from '../../src/game/sim/random';
-import { wallFight } from '../../src/world/fights';
-import { garrisonOf } from '../../src/world/garrison';
+import { castleTry } from './castle';
 import { travelTime } from '../../src/world/geo';
 import { roamWalkMs } from '../../src/world/roam';
 import type { Spot } from '../../src/world/settle';
 import { generalSpeed } from '../../src/world/pvp';
-import { SCALING, wallFront } from '../../src/world/wall';
 import { LAIR_RUIN } from '../../src/world/data/tuning';
 import { lairGold } from '../../src/world/lairs';
 import { CONTRACTS_MAX, DEAL_DEFS } from '../../src/game/data/contracts';
@@ -59,6 +57,8 @@ export interface Style {
   edge: number;
   /** Доля побед в разведке штурма, с которой отряд идёт на замок. */
   storm: number;
+  /** Не берёт штурмом — садится в осаду (ПН-10: голод → последняя вылазка), если сухая осада берёт замок не реже раза из двух. */
+  siege: boolean;
   camp: Camp;
   gait: Gait;
   /** Сверх срока до следующего захода — сколько настоящих часов содержания отряд держит в кошеле, прежде чем тратить на рост. */
@@ -80,6 +80,7 @@ export const STYLES: readonly Style[] = [
     name: 'Атаман',
     edge: 1,
     storm: 0.5,
+    siege: false,
     camp: 'hidden',
     gait: 'light',
     margin: 1,
@@ -92,6 +93,7 @@ export const STYLES: readonly Style[] = [
     name: 'Капитан',
     edge: 0.9,
     storm: 0.75,
+    siege: true,
     camp: 'open',
     gait: 'normal',
     margin: 3,
@@ -104,6 +106,7 @@ export const STYLES: readonly Style[] = [
     name: 'осторожный',
     edge: 0.75,
     storm: 1,
+    siege: true,
     camp: 'ruin',
     gait: 'normal',
     margin: 6,
@@ -132,8 +135,8 @@ export interface PathKnobs {
   /** Поражение (3.6.4): доля кошеля перебитого победителю, доля престижа минус — заглушки игры, двери `sim/roamfight`. */
   defeatPurse: number;
   defeatPrestige: number;
-  /** Вольный замок I: с какой ступени престижа и мощь гарнизона. */
-  castle: { stage: number; power: number };
+  /** Вольный замок I (дверь `world/freecastle`): доступ — престиж не ниже, мощь гарнизона бойцами (`troopPower`). */
+  castle: { prestige: number; power: number };
   upgrade: (from: TroopId, to: TroopId) => number;
   hire: (id: TroopId) => number;
   limitDays: number;
@@ -390,11 +393,6 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     }
   };
 
-  const lost = (share: number): void => {
-    const l = shareLosses(band, share);
-    minus(band, l);
-  };
-
   const wiped = (): void => {
     if (total(band) > 0) return;
     run.purse *= 1 - k.defeatPurse;
@@ -422,17 +420,22 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     stockWinter(untilNext(at));
     const s = stage();
     const power = troopPower(band);
-    // Штурм с ходу: дорос ли по ступени и по силе — разведкой четырьмя боями у стены (сиды разведки — не сиды штурма).
-    if (s >= k.castle.stage && power >= 0.8 * k.castle.power) {
-      const scout = [1, 2, 3, 4].filter((i) => storm(band, k.castle.power, mixSeed(root, 9000 + deed * 8 + i))).length / 4;
-      if (scout >= style.storm) {
+    // Вольный замок I (ПН-10) — сервером войны в памяти (`castle.castleTry`): доступ — престиж ступени, дорос ли — разведкой сухими
+    // делами у стены (сиды разведки — не сиды дела). Штурм с ходу — если разведка берёт стену не реже порога стиля; иначе осада (стиль,
+    // который её ведёт): лагерь, фазы, голод — и последняя вылазка гарнизона всем, кто остался.
+    if (run.prestige >= k.castle.prestige && power >= 0.5 * k.castle.power) {
+      const dry = (mode: 'storm' | 'siege', n: number, salt: number): number =>
+        Array.from({ length: n }, (_, i) => castleTry(band, 1, mode, mixSeed(root, salt + deed * 8 + i)).won).filter(Boolean).length / n;
+      const mode: 'storm' | 'siege' | null = dry('storm', 4, 9000) >= style.storm ? 'storm' : style.siege && dry('siege', 2, 9500) >= 0.5 ? 'siege' : null;
+      if (mode) {
         deed++;
         run.storms++;
         const road = k.castleRoads[style.gait][spot];
-        busyUntil = at + 2 * road;
         live(at + road);
-        const r = stormFight(band, k.castle.power, mixSeed(root, 5000 + deed));
-        lost(r.loss);
+        const r = castleTry(band, 1, mode, mixSeed(root, 5000 + deed));
+        minus(band, r.lost);
+        busyUntil = at + 2 * road + r.hours;
+        live(at + road + r.hours);
         if (r.won) {
           run.castleAt = t;
           break;
@@ -552,16 +555,4 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
   return run;
 }
 
-/** Штурм вольного замка с ходу: гарнизон — строй замка (`garrisonOf`, `castle`), фронт — лестницы (`wall.SCALING`). */
-function stormFight(band: TroopStack, power: number, seed: number): { won: boolean; loss: number } {
-  const g = garrisonOf(seed, 'roam-castle', power, true);
-  const { field } = wallFight({
-    seed,
-    attacker: { kinds: kindsOf(band) },
-    defender: { kinds: g.kinds, militia: 0, archers: 0 },
-    front: wallFront(SCALING),
-  });
-  return { won: field.won, loss: field.attackerLoss };
-}
 
-const storm = (band: TroopStack, power: number, seed: number): boolean => stormFight(band, power, seed).won;

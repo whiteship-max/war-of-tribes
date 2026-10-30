@@ -45,7 +45,7 @@ describe('разделы — те, что называют ГДД 6.5 и пач�
     // ПН-1 добавил раздел дверей отряда (`band`) — содержание, терпение, обоз и фураж бродяги; ПН-3 — лагерь и руины (`camp`).
     // ПН-5 — точки мира и встречи с НПС (`meet`): густота точек, сила НПС по ступеням, шанс засады — двери мира бродяги.
     // ПН-7 — вывод K и R видов договоров (`deals`) рядом с платой договоров.
-    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet', 'sight', 'people']);
+    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'castle', 'castleFix', 'parity', 'pool', 'meet', 'sight', 'people']);
   });
 
   it('у каждого раздела — раздел ГДД и двери кода или входы', () => {
@@ -74,7 +74,7 @@ describe('заглушка не выдаётся за выведенное', () 
   it('у разделов автопилота, ценности и пула заглушки есть; у пути, у отряда и у видимости — нет ни одного входа', () => {
     // Граница: что из разделов стоит на заглушках сейчас, до пачек ПН-1…ПН-17. Пачка, заменившая вход дверью, правит эту строку
     // тем же коммитом — и раздел честно переходит в «выведено».
-    for (const id of ['camp', 'placeSpirit', 'contract', 'deals', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet']) {
+    for (const id of ['camp', 'placeSpirit', 'contract', 'deals', 'foes', 'prestige', 'castle', 'castleFix', 'parity', 'pool', 'meet']) {
       expect(statusOf((SECTIONS.find((s) => s.id === id) as Section).uses), id).toBe('НЕ ИЗМЕРЕНО');
     }
     expect(statusOf((SECTIONS.find((s) => s.id === 'road') as Section).uses)).toBe('выведено');
@@ -92,7 +92,8 @@ describe('заглушка не выдаётся за выведенное', () 
     const heads = out.filter((l) => l.startsWith('━━ ') && !l.startsWith('━━ Итог'));
     const statuses = out.filter((l) => l.startsWith('статус: '));
     expect(statuses.length).toBe(heads.length);
-    const ran = SECTIONS.filter((s) => s.id !== 'parity');
+    // «Паритет» и вывод гарнизона замка (ПН-10: поиск — шесть прогонов автопилота) в выборку теста не входят — дорого.
+    const ran = SECTIONS.filter((s) => s.id !== 'parity' && s.id !== 'castleFix');
     ran.forEach((s, i) => {
       expect(heads[i], s.id).toContain(s.title);
       expect(statuses[i], `«${s.title}»: статус из входов`).toBe(`статус: ${statusOf(s.uses)}`);

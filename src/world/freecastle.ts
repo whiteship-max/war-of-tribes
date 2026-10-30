@@ -76,12 +76,20 @@ export function freeCellOf(id: string): { x: number; y: number } | null {
 
 const tierAt = <T>(row: readonly T[], tier: FreeTier): T => row[Math.max(0, Math.min(row.length - 1, tier - 1))];
 
-/** Мощь гарнизона ступени — строка таблицы у ворот уровня ступени (3.11.1). */
-export const freePower = (tier: FreeTier): number => {
+/**
+ * Мощь гарнизона на уровне `level` таблицы у ворот (`GATE_POWER.raiders`): между строками — прямой, ниже первой — доля первой. Уровень
+ * дробный: его выводит `roam:report` под цели 2.4 (раздел «Вольный замок I — гарнизон под цели пути»).
+ */
+export function levelPower(level: number): number {
   const row = GATE_POWER.raiders;
-  const level = Math.max(1, Math.min(row.length, Math.round(tierAt(roamStub('castleLevel'), tier))));
-  return row[level - 1];
-};
+  if (level <= 1) return row[0] * Math.max(0, level);
+  if (level >= row.length) return row[row.length - 1];
+  const lo = Math.floor(level);
+  return row[lo - 1] + (row[lo] - row[lo - 1]) * (level - lo);
+}
+
+/** Мощь гарнизона ступени — таблица у ворот на уровне ступени (3.11.1, `castleLevel`). */
+export const freePower = (tier: FreeTier): number => Math.round(levelPower(tierAt(roamStub('castleLevel'), tier)));
 
 /** Порог престижа ступени (доступ, 3.11.1). */
 export const freePrestige = (tier: FreeTier): number => tierAt(roamStub('castlePrestige'), tier);
