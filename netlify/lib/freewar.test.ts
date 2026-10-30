@@ -9,8 +9,8 @@ import { breadAt, siegeSince, type SiegeWindow } from '../../src/world/siege.js'
 import { starves } from '../../src/world/siegefood.js';
 import { roamSeat } from '../../src/world/roam.js';
 import { SPAWNS } from '../../src/world/spawn.js';
-import { freeId, freePrestige, freeTroops } from '../../src/world/freecastle.js';
-import { fateBlock, FREE_FATE_IDS, FATE_IDS } from '../../src/world/spoils.js';
+import { FREE_FATE_IDS, freeFateBlock, freeId, freePrestige, freeTroops } from '../../src/world/freecastle.js';
+import { fateBlock, FATE_IDS } from '../../src/world/spoils.js';
 import { BURN_IMMUNE } from '../../src/world/data/tuning.js';
 import { troopTotal } from '../../src/game/battle/kinds.js';
 
@@ -29,7 +29,7 @@ const STRONG: WarArmy['troops'] = { knight: 400, legionary: 500, archer: 300 };
 const WEAK: WarArmy['troops'] = { clubman: 4 };
 
 const band = (troops: WarArmy['troops'], prestige = 1000, at = { x: C.x + 1, y: C.y }): BandRow => ({
-  ...roamSeat(at, T0),
+  way: roamSeat(at, T0).way,
   born: T0,
   name: 'Ватага',
   prestige,
@@ -173,10 +173,11 @@ describe('ПН-10: участи вольного замка', () => {
   it('«Занять» — только вольный замок; в лестницу лорда не входит', () => {
     expect(FATE_IDS).not.toContain('occupy');
     expect(FREE_FATE_IDS).toContain('occupy');
-    expect(fateBlock('occupy', 'castle', undefined, T0)).toBeNull();
-    expect(fateBlock('occupy', 'player', undefined, T0)).toBe('Занять можно только вольный замок.');
-    expect(fateBlock('occupy', 'world', undefined, T0)).toBe('Занять можно только вольный замок.');
-    expect(fateBlock('burn', 'castle', undefined, T0), 'вольный замок можно сжечь').toBeNull();
+    expect(freeFateBlock('occupy', 'castle')).toBeNull();
+    expect(freeFateBlock('occupy', 'player')).toBe('Занять можно только вольный замок.');
+    expect(freeFateBlock('occupy', 'world')).toBe('Занять можно только вольный замок.');
+    expect(freeFateBlock('burn', 'castle'), 'вольный замок можно сжечь').toBeNull();
+    expect(fateBlock('plunder', 'player', undefined, T0), 'лестница лорда — прежней дверью').toBeNull();
   });
 
   it('лорд не объявит «Занять» городу игрока', () => {

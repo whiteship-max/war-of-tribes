@@ -16,7 +16,7 @@
  * ни в каком виде.
  */
 import { castleIdOf, freeHeld, type FreeHold } from './roster.js';
-import { freeAccess, isFreeKey, freeGold, freeLarder, freeLevels, freeName, freePop, freeTroops, type FreeTier } from '../../src/world/freecastle.js';
+import { FREE_FATE_IDS, OCCUPY_RULE, freeAccess, freeFateBlock, isFreeKey, freeGold, freeLarder, freeLevels, freeName, freePop, freeTroops, type FreeTier } from '../../src/world/freecastle.js';
 import { roamCell, roamMoving } from '../../src/world/roam.js';
 import {
   cityName,
@@ -148,7 +148,7 @@ import {
   wasteLosses,
   type PhaseRow,
 } from '../../src/world/siegeroll.js';
-import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain, FREE_FATE_IDS } from '../../src/world/spoils.js';
+import { FATES, burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
 import type { Loot } from '../../src/world/types.js';
 import {
   answerAfter,
@@ -194,11 +194,6 @@ export interface WarRow extends Omit<WarView, 'role'> {
    * Книга войска вычитает их, как павших (`book.warLosses`): держать ушедших живыми — сверх книги, флаг. Наружу не уходит.
    */
   worn?: WarWorn[];
-  /**
-   * Осада вольного замка (ПН-10): защитник — НПС, `def` — ключ замка `free:x:y`, слепок — правилами ступени (`npcSheet`), нападает
-   * отряд бродяги. Нет поля — война игроков.
-   */
-  npc?: { tier: FreeTier };
 }
 
 /** Уход налегке на дороге удара или выручки одного замка (ДР-5). */
@@ -1079,6 +1074,9 @@ const craftOf = (w: WarRow): { craft?: Craft } => {
 };
 
 // ------------------------------------------------ вольные замки (ПН-10, docs/gdd/path_of_sword.md, 3.11) ---
+
+// Строка «Занять» таблицы участи — здесь, у сервера: падение вольного замка считает дверь `spoils.fate` этой строкой.
+FATES.occupy = OCCUPY_RULE;
 //
 // Осада вольного замка — та же война: стена, фазы, машины, обстрел, блокада, вылазка — двери войны игроков без второй копии. Своё
 // у неё четыре вещи: защитник — НПС-слепок ступени (`npcSheet`), голод и «ворота» фазы не сдают замок, а выводят гарнизон в последнюю
@@ -1368,8 +1366,9 @@ function fateOfWar(w: WarRow, at: number, sheet: WarSheet, fated: WarRow['fate']
     stash: sheet.stash,
     pop: sheet.pop,
     bonded: sheet.bonded,
-    // Вывоз — по режиму марша похода (ДР-5): налегке без обоза меньше, с обозом больше — той же дверью, что у мира.
-    carry: stackCarry({ warrior: survivors }) * gaitHaul(w.gait),
+    // Вывоз — по режиму марша похода (ДР-5): налегке без обоза меньше, с обозом больше — той же дверью, что у мира. «Занять» (ПН-10)
+    // берёт сам замок, а не добро: обоза ноль.
+    carry: FATES[fated]?.castleOnly ? 0 : stackCarry({ warrior: survivors }) * gaitHaul(w.gait),
     escort: stackEscort({ warrior: survivors }),
     levels: sheet.levels,
     seed: fallSeed(warSeed(w.id, 0xfa11), at),
@@ -2871,8 +2870,10 @@ const burnedAt = (file: WarFile, def: string): number =>
  * штурм с участью (`spoils.fateBlock`): замки гейта объявляющего и неприкосновенность недавно сожжённого города.
  */
 function fateWhy(file: WarFile, key: string, def: string, fateId: WarRow['fate'], now: number, ctx: OrderCtx): string | null {
-  // Вольный замок (ПН-10): участи вольного замка, замков гейта у отряда нет.
-  if (isFreeKey(def)) return fateBlock(fateId, 'castle', undefined, now);
+  // Вольный замок (ПН-10): участи вольного замка, замков гейта у отряда нет; «Занять» — только ему.
+  if (isFreeKey(def)) return freeFateBlock(fateId, 'castle');
+  const only = freeFateBlock(fateId, 'player');
+  if (only) return only;
   const mine = ctx.sheet(key);
   if (!mine) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
   const burned = burnedAt(file, def);

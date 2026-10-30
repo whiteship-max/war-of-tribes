@@ -215,3 +215,12 @@
   background: rgba(0, 0, 0, 0.18);
   font-size: 13px;
 }
+
+/* Окно вольного замка (ПН-10): невыполненное условие «что нужно, чтобы взять» — приглушённо. */
+.roam-row.roam-short {
+  opacity: 0.62;
+}
+.roam-row > .icon:first-child,
+.roam-row > svg:first-child {
+  flex: none;
+}

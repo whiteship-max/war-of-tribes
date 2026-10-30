@@ -17,12 +17,12 @@ export interface FateMeta {
   title: string;
 }
 
-export const FATE_META: Record<Fate, FateMeta> = {
+export const FATE_META = {
   plunder: { name: 'Ограбить', icon: 'ui-loot', title: 'Город разграбили' },
   captives: { name: 'Увести людей', icon: 'ui-chain', title: 'Город разграбили и увели людей' },
   burn: { name: 'Сжечь', icon: 'ui-flame', title: 'Город сожгли' },
-  occupy: { name: 'Занять', icon: 'ui-banner', title: 'Замок заняли' },
-};
+  // «Занять» (ПН-10) кладёт сюда `world/freecastle` — с куском пути и сервером, первая загрузка лорда её не несёт.
+} as Record<Fate, FateMeta>;
 
 /**
  * Что потерял взятый город — одной строкой для отчёта проигравшему. Начинается с

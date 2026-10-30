@@ -19,7 +19,8 @@ import { num } from '@/game/num';
 import { ownSight, seenWords, useBandSight } from '@/world/bandsight';
 import { sideColor } from '@/side';
 import { setRoamHook } from '../roamhook';
-import { paintRoam, pointAtTap } from './paint';
+import { freeAtTap, paintRoam, pointAtTap } from './paint';
+import { RoamCastle } from './RoamCastle';
 import { pointWords, townAt } from '@/world/roampoints';
 import { RoamSend } from './RoamSend';
 import { RoamCamp } from './RoamCamp';
@@ -51,6 +52,8 @@ export default function RoamLayer() {
   const [campOpen, setCampOpen] = useState(false);
   // Окна ПН-6: отряд, город или село у отряда, вести.
   const [pane, setPane] = useState<'band' | 'town' | 'deals' | 'mail' | null>(null);
+  // Окно вольного замка (ПН-10): касание знака без отряда в руке.
+  const [castleId, setCastleId] = useState<string | null>(null);
   const deals = useGame((g) => g.s.roam?.deals?.length ?? 0);
   const mail = useGame((g) => g.s.inbox.length);
   const arms = useGame((g) => g.s.profile.arms ?? null);
@@ -79,6 +82,12 @@ export default function RoamLayer() {
         if (at && at.x === c.x && at.y === c.y) {
           setHand(true);
           showToast(HAND_WORDS);
+          return true;
+        }
+        // Вольный замок (ПН-10) — окно замка: гарнизон по сведениям, доступ, что нужно, чтобы взять.
+        const fc = freeAtTap({ x: c.x, y: c.y, w: 1, h: 1 }, c);
+        if (fc) {
+          setCastleId(fc.id);
           return true;
         }
         // Точка бродяги (ПН-5) — словами: что даёт и как войти; войти или напасть — отрядом в руке.
@@ -168,6 +177,7 @@ export default function RoamLayer() {
       {pane === 'town' && <RoamTown onClose={() => setPane(null)} />}
       {pane === 'deals' && <RoamDeals onClose={() => setPane(null)} />}
       {pane === 'mail' && <RoamMail onClose={() => setPane(null)} />}
+      {castleId && <RoamCastle id={castleId} onClose={() => setCastleId(null)} />}
     </>
   );
 }

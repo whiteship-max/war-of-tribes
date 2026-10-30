@@ -1,8 +1,11 @@
 // Пул вольных замков в реестре (ПН-10, docs/gdd/path_of_sword.md, 6.4): размер от числа бродяг, клетки — где может стоять замок, клетки
 // пула — занятые места расселения; строки пула переживают любую запись реестра.
-import { describe, expect, it } from 'vitest';
-import type { BandRow, CastleClaim, RosterFile } from './contract.js';
-import { emptyRoster, fillFree, placeNew, prune, readRoster, spotsOf, upsert, type FreeHold } from './roster.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { BandRow, CastleClaim, RosterFile, RosterResponse } from './contract.js';
+import { ROSTER_KEY, emptyRoster, fillFree, placeNew, prune, readRoster, spotsOf, upsert, type FreeHold } from './roster.js';
+import { ROUTES } from './routes/index.js';
+import { STORES } from './kv.js';
+import { TEST_TOKEN, signInit, sqliteHome, type Home } from '../vps/testkit.js';
 import { freeId, freePoolSize } from '../../src/world/freecastle.js';
 import { fitToSettle } from '../../src/world/settle.js';
 import { roamSeat } from '../../src/world/roam.js';
@@ -18,7 +21,7 @@ function lords(n: number): RosterFile {
 }
 
 const bands = (n: number): Record<string, BandRow> =>
-  Object.fromEntries(Array.from({ length: n }, (_, i) => [`tg-${5000 + i}`, { ...roamSeat({ x: 0, y: 0 }, T0), born: T0, name: 'Б', prestige: 0, men: 5, seenAt: T0 }]));
+  Object.fromEntries(Array.from({ length: n }, (_, i) => [`tg-${5000 + i}`, { way: roamSeat({ x: 0, y: 0 }, T0).way, born: T0, name: 'Б', prestige: 0, men: 5, seenAt: T0 }]));
 
 const gap = (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -63,5 +66,42 @@ describe('ПН-10: пул вольных замков', () => {
     expect(readRoster(JSON.parse(JSON.stringify(r))).free).toEqual(r.free);
     expect(upsert(r, 'tg-7000', claim('Новый'), T0 + 1).free).toEqual(r.free);
     expect(prune(r, T0 + 400 * 24 * 3_600_000, 'tg-7000').free, 'вольные замки не забываются').toEqual(r.free);
+  });
+});
+
+describe('ПН-10: вольные замки видят только те, у кого путь открыт', () => {
+  const saved: Record<string, string | undefined> = {};
+  let home: Home;
+  beforeEach(() => {
+    home = sqliteHome();
+    for (const k of ['TELEGRAM_BOT_TOKEN', 'ADMIN_IDS']) saved[k] = process.env[k];
+    process.env.TELEGRAM_BOT_TOKEN = TEST_TOKEN;
+    process.env.ADMIN_IDS = '901';
+  });
+  afterEach(async () => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    await home.close();
+  });
+
+  const ask = async (id: number): Promise<RosterResponse> => {
+    const headers = { 'x-telegram-init-data': signInit(id, Math.floor(T0 / 1000) - 60) };
+    const res = await ROUTES['/api/castles'](new Request('https://x/api/castles', { headers }), { stores: home.stores, now: T0, ip: null });
+    return (await res.json()) as RosterResponse;
+  };
+
+  it('лорду — ни одной строки пула, админу на пути — замки рядом с отрядом', async () => {
+    const lords3 = lords(3);
+    const at = Object.values(lords3.rows)[0];
+    const base: RosterFile = { ...lords3, bands: { 'tg-901': { way: roamSeat({ x: at.x, y: at.y }, T0).way, born: T0, name: 'Админ', prestige: 0, men: 5, seenAt: T0 } } };
+    const r = fillFree(base, T0, {}, null);
+    await home.stores(STORES.world, 'strong').setJSON(ROSTER_KEY, r);
+    expect(Object.keys(r.free ?? {}).length, 'точка внутри области: пул стоит').toBeGreaterThan(0);
+    expect((await ask(902)).free, 'путь закрыт — пула в ответе нет').toBeUndefined();
+    const open = await ask(901);
+    expect(open.free?.length, 'путь открыт — замки рядом').toBeGreaterThan(0);
+    for (const f of open.free ?? []) expect(r.free?.[f.id]).toMatchObject({ x: f.x, y: f.y, tier: f.tier });
   });
 });

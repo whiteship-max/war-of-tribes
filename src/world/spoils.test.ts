@@ -417,9 +417,9 @@ describe('одно правило на обе стороны', () => {
     expect(calls(door, 'plunder')).toBe(1);
     // Людей уводят дважды — невольников города и горожан, — и оба раза тем же `lead`.
     expect(calls(door, 'lead')).toBe(2);
-    // Ступени три у лорда и «Занять» у вольного замка (ПН-10), и что делает каждая, дверь читает из таблицы один раз, а не
-    // ветками по имени ступени.
-    expect(Object.keys(FATES).sort()).toEqual(['burn', 'captives', 'occupy', 'plunder']);
+    // Ступени три у лорда («Занять» вольного замка кладёт в таблицу `world/freecastle`, ПН-10), и что делает каждая, дверь читает из
+    // таблицы один раз, а не ветками по имени ступени.
+    expect(Object.keys(FATES).sort()).toEqual(['burn', 'captives', 'plunder']);
     expect((door.match(/FATES\[/g) ?? []).length, 'правило ступени читается в двери один раз').toBe(1);
     expect(door, 'дверь ветвится по имени ступени').not.toMatch(/'(plunder|captives|burn|occupy)'/);
   });

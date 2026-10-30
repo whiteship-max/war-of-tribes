@@ -13,10 +13,17 @@
 //    принимает сервер (реестр той же дверью), и запись хода партия берёт из его ответа; без сервера мир применяет правило сам.
 // Запись хода лежит в партии (`GameState.roam`), мир её не хранит: дверь к партии — порт `RoamPort`, его даёт стор (как реестр и
 // войну — мир про партию не знает).
-import type { BandOrder, BandRow } from '../../../netlify/lib/contract';
+import type { BandOrder, BandRow, FreeView, WarOrder, WarView } from '../../../netlify/lib/contract';
+import type { SiegeLook } from '@/game/sim/roamcastle';
+import { FREE_FATE_IDS, castellanOf, freeAccess, freeFateBlock, freeName, freePrestige, freeTierWords, freeTroops, isFreeKey } from '../freecastle';
+import { FATE_META } from '../data/fates';
+import { troopPower } from '@/game/battle/price';
+import { breachesOf } from '../siegeroll';
+import { liveOffer } from '../parley';
+import type { SiegeWindow } from '../siege';
 import type { RoamState } from '@/game/types';
 import type { FightOut } from '@/game/sim/roamfight';
-import type { Coord, FigureView, PlayerProfile, Rect, RegionChunk, RoamAimView, RoamCampGain, RoamCampView, RoamPlanView, WorldInfo, WorldPulse } from '../types';
+import type { Coord, Fate, FigureView, FreeCastleView, FreeMark, FreeSiegeView, PlayerProfile, Rect, RegionChunk, RoamAimView, RoamCampGain, RoamCampView, RoamPlanView, WorldInfo, WorldPulse } from '../types';
 import { HOME_ID, LocalWorld, type LocalWorldOptions } from './LocalWorld';
 import { CAMP_KINDS, CAMP_NAME, campWorks, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamWhere, type CampKind, type RoamMove } from '../roam';
 import { wayGait, type RoamTrip, type RoamWay } from '../roammove';
@@ -65,7 +72,18 @@ export interface RoamPort {
   failDeal(id: string, why: string): void;
   /** Приказ серверу (реестр, `net/bandroster.bandOrder`) — в Telegram; нет — мир применяет правило сам. */
   order?: (o: BandOrder) => Promise<BandRow | string>;
+  /** Вольные замки пула рядом (ПН-10) — слово реестра сервера; нет — пула не видно. */
+  free?: () => FreeView[];
+  /** Войны с сервера (ПН-10: осады вольных замков отряда); нет — осад нет. */
+  wars?: () => WarView[];
+  /** Приказ серверу войны (ПН-10); нет — связи нет: осада вольного замка идёт только сервером. */
+  warOrder?: (o: WarOrder) => Promise<string | null>;
+  /** Положить итог осады вольного замка одной дверью партии (`sim/roamcastle.takeSiege`); строки летописи. */
+  siege?: (look: SiegeLook) => string[];
 }
+
+/** Осада вольного замка — только сервером войны (ПН-10): без связи её не начать. */
+export const SIEGE_OFFLINE = 'Осада вольного замка идёт на сервере войны: нужна связь.';
 
 /** Мир бродяги без места выхода не строится (`roamboot`); здесь — на случай, если запись хода пропала. */
 export const NO_SEAT = 'Отряд ещё не вышел на карту: место выхода не названо.';
@@ -121,7 +139,11 @@ export class RoamWorld extends LocalWorld {
     const points = pointsIn(this.save.seed, x, y, x + w, y + h)
       .filter((p) => c.explored[(p.y - y) * w + (p.x - x)] === 1 && !this.beaten(p.id, now))
       .map((p) => ({ id: p.id, kind: p.kind, x: p.x, y: p.y, name: p.name, tier: p.tier }));
-    return { ...c, settlements: c.settlements.filter((s) => s.id !== HOME_ID && !this.beaten(s.id, now)), ruins, points };
+    // Вольные замки пула (ПН-10) — слово реестра, на разведанном; взят ли, сожжён ли, стоит ли наш лагерь — из записи войн.
+    const free: FreeMark[] = (this.port.free?.() ?? [])
+      .filter((f) => f.x >= x && f.x < x + w && f.y >= y && f.y < y + h && c.explored[(f.y - y) * w + (f.x - x)] === 1)
+      .map((f) => this.freeMark(f, now));
+    return { ...c, settlements: c.settlements.filter((s) => s.id !== HOME_ID && !this.beaten(s.id, now)), ruins, points, free };
   }
 
   /** Точка побита и ещё пепелище (ПН-5, `RoamState.beaten`). */
@@ -168,6 +190,7 @@ export class RoamWorld extends LocalWorld {
     this.walkFog(now);
     this.settleTrip(now);
     this.settleDeals(now);
+    this.settleSieges();
     return { now, marches: [], figures: [], reports: [], effects: [], siege: null, faith: this.faithView(profile.faith ?? null), unread: 0 };
   }
 
@@ -266,6 +289,8 @@ export class RoamWorld extends LocalWorld {
     // Встречи прежнего хода и набеги на сёла договоров, чья минута прошла, — до того, как ход сменится.
     this.settleTrip(now);
     this.settleDeals(now);
+    const held = this.siegeNow();
+    if (held) return `Отряд в осаде у ${held.defCity}: сперва отступить.`;
     const next = roamGo(m, to, gait, now);
     if (typeof next === 'string') return next;
     // Удар по цели (ПН-5): только логово и ватага, и не раненым героем; сила — та, что показало окно (престиж той же минуты).
@@ -391,5 +416,165 @@ export class RoamWorld extends LocalWorld {
     }
     this.port.apply(next);
     return null;
+  }
+
+  // ---------- вольные замки (ПН-10, ГДД 3.11, 5.4) ----------
+  //
+  // Замки пула — слово реестра сервера (`net/bandroster.freeCastles`), гарнизон, казна, кастелян и доступ — дверью правил
+  // `world/freecastle` (той же, что у сервера войны), осада — запись войн сервера: приказ уходит туда (`port.warOrder`), а итоги своей
+  // стороны мир кладёт в партию одной дверью (`sim/roamcastle.takeSiege`) на пульсе. Замок берут только мечом: кнопок сдачи и подкупа
+  // нет, дань кастеляна — ответом на его предложение.
+
+  /** Наши осады вольных замков — из записи войн сервера. */
+  private sieges(): WarView[] {
+    return (this.port.wars?.() ?? []).filter((w) => w.role === 'atk' && isFreeKey(w.defCastle));
+  }
+
+  /** Осада, что идёт (поход к стенам или лагерь); нет — `null`. */
+  private siegeNow(): WarView | null {
+    return this.sieges().find((w) => w.phase === 'march' || w.phase === 'camp') ?? null;
+  }
+
+  /** Наша осада замка `id`: идущая, иначе последняя кончившаяся; нет — `null`. */
+  private freeSiegeOf(id: string): WarView | null {
+    const list = this.sieges().filter((w) => w.defCastle === id);
+    return list.find((w) => w.phase === 'march' || w.phase === 'camp') ?? list[list.length - 1] ?? null;
+  }
+
+  private freeMark(f: FreeView, now: number): FreeMark {
+    const siege = this.freeSiegeOf(f.id);
+    return {
+      id: f.id,
+      x: f.x,
+      y: f.y,
+      tier: f.tier,
+      name: freeName(f.x, f.y),
+      ...(f.held ? { held: f.held.mine ? ('mine' as const) : ('other' as const) } : {}),
+      ...(f.burnt !== undefined && f.burnt > now ? { burnt: true } : {}),
+      ...(siege && (siege.phase === 'march' || siege.phase === 'camp') ? { siege: true } : {}),
+    };
+  }
+
+  /** Итоги осад с сервера — в партию одной дверью, каждый один раз (`RoamState.siege.seen`). */
+  private settleSieges(): void {
+    if (!this.port.siege) return;
+    for (const w of this.sieges()) {
+      const tier = w.npc?.tier ?? this.port.free?.().find((f) => f.id === w.defCastle)?.tier ?? 1;
+      const look: SiegeLook = {
+        war: w.id,
+        id: w.defCastle,
+        name: w.defCity,
+        tier,
+        went: w.went as SiegeLook['went'],
+        army: w.army.troops as SiegeLook['army'],
+        battles: w.battles.map((b) => ({
+          id: b.id,
+          at: b.at,
+          site: b.site,
+          // Наша сторона победила: нападали мы и победили, или нападал город и проиграл.
+          won: (b.by === 'atk') === b.won,
+          lost: b.atkLost as SiegeLook['went'],
+          foePower: troopPower(b.homeLost as SiegeLook['went']),
+          foeMen: troopTotal(b.homeTroops as SiegeLook['went']),
+        })),
+        ...(w.fall ? { fall: { at: w.fall.at, fate: w.fall.fate as Fate, taken: w.fall.taken, led: w.fall.led } } : {}),
+        ...(w.end && w.endAt !== undefined ? { end: { end: w.end, at: w.endAt, ...(w.tribute ? { tribute: w.tribute.taken } : {}) } } : {}),
+      };
+      this.port.siege(look);
+    }
+  }
+
+  private freeSiegeView(w: WarView, now: number): FreeSiegeView {
+    const camp = w.camp as SiegeWindow | undefined;
+    const offer = camp ? liveOffer(camp, 'tribute', now) : null;
+    return {
+      war: w.id,
+      phase: w.phase,
+      mode: w.mode,
+      fate: w.fate as Fate,
+      phases: camp?.phases?.length ?? w.phases?.length ?? 0,
+      breaches: camp ? breachesOf(camp) : 0,
+      starvesAt: w.starvesAt ?? null,
+      men: troopTotal(w.army.troops as SiegeLook['went']),
+      tribute: offer && offer.price ? { price: offer.price, until: offer.until } : null,
+      end: w.end ?? null,
+    };
+  }
+
+  async roamFree(id: string): Promise<FreeCastleView | string> {
+    const f = (this.port.free?.() ?? []).find((x) => x.id === id);
+    if (!f) return 'Этого замка больше нет.';
+    const now = this.clock();
+    const r = this.port.band();
+    const m = this.move();
+    const at = m ? roamCell(m.way, now) : null;
+    const near = !!m && !!at && !roamMoving(m.way, now) && Math.max(Math.abs(at.x - f.x), Math.abs(at.y - f.y)) <= 1;
+    const troops = freeTroops(id, f.tier);
+    const men = troopTotal(troops);
+    const power = troopPower(troops);
+    const band = { men: troopTotal(r?.band ?? {}), power: troopPower(r?.band ?? {}) };
+    const have = this.port.prestige();
+    const need = freePrestige(f.tier);
+    const siegeAll = this.freeSiegeOf(id);
+    const live = this.siegeNow();
+    const held = f.held ? (f.held.mine ? 'mine' : 'other') : null;
+    const burntUntil = f.burnt !== undefined && f.burnt > now ? f.burnt : null;
+    const needs = [
+      { text: `Престиж ${need} — у отряда ${Math.floor(have)}`, ok: have >= need },
+      { text: 'Отряд у стен — в клетке замка или рядом', ok: near },
+      { text: `Сила отряда ${Math.round(band.power)} против гарнизона ${Math.round(power)}: штурм — стеной и лестницами, осада — пока не кончится хлеб`, ok: band.power >= power },
+      { text: 'Связь с сервером войны: бой у стен считает он', ok: !!this.port.warOrder },
+    ];
+    const block =
+      held === 'mine'
+        ? 'Замок уже наш.'
+        : held === 'other'
+          ? 'Замок взял другой отряд.'
+          : burntUntil
+            ? `Замок сожжён и отстраивается: ${realSpan(Math.ceil((burntUntil - now) / 1000))}.`
+            : live
+              ? live.defCastle === id
+                ? 'Наш лагерь уже под этими стенами.'
+                : `Отряд в осаде у ${live.defCity}.`
+              : freeAccess(have, f.tier) ?? (!near ? 'Сперва подойти к стенам: отряд в клетке замка или рядом.' : !this.port.warOrder ? SIEGE_OFFLINE : band.men <= 0 ? 'В отряде нет бойцов.' : null);
+    return {
+      id,
+      name: freeName(f.x, f.y),
+      tier: f.tier,
+      tierWords: freeTierWords(f.tier),
+      castellan: castellanOf(f.x, f.y),
+      garrison: { men: Math.max(10, Math.round(men / 10) * 10), power: Math.round(power) },
+      prestige: { need, have: Math.floor(have) },
+      band: { men: band.men, power: Math.round(band.power) },
+      near,
+      needs,
+      block,
+      held,
+      burntUntil,
+      fates: FREE_FATE_IDS.map((x) => ({ id: x, name: FATE_META[x].name, block: freeFateBlock(x, 'castle') })),
+      siege: siegeAll ? this.freeSiegeView(siegeAll, now) : null,
+    };
+  }
+
+  async roamSiege(id: string, mode: 'storm' | 'siege', fate: Fate): Promise<string | null> {
+    const v = await this.roamFree(id);
+    if (typeof v === 'string') return v;
+    if (v.block) return v.block;
+    const r = this.port.band();
+    if (!r || !this.port.warOrder) return SIEGE_OFFLINE;
+    const why = freeFateBlock(fate, 'castle');
+    if (why) return why;
+    // Весь отряд — в бой: у бродяги раскладки нет (ГДД 3.12, ДР-6); идёт обычным маршем — он уже у стен.
+    const troops = Object.fromEntries(Object.entries(r.band).filter(([, n]) => (n ?? 0) > 0)) as Record<string, number>;
+    return this.port.warOrder({ op: 'march', target: id, mode, fate, army: { troops, resolve: 0, pips: {} } });
+  }
+
+  async roamSiegeOrder(war: string, act: 'storm' | 'retreat' | 'tribute-yes' | 'tribute-no'): Promise<string | null> {
+    if (!this.port.warOrder) return SIEGE_OFFLINE;
+    const w = this.sieges().find((x) => x.id === war);
+    if (!w || w.phase !== 'camp') return 'Лагеря уже нет.';
+    if (act === 'storm') return this.port.warOrder({ op: 'storm', id: war });
+    if (act === 'retreat') return this.port.warOrder({ op: 'retreat', id: war });
+    return this.port.warOrder({ op: 'answer', id: war, kind: 'tribute', yes: act === 'tribute-yes' });
   }
 }

@@ -282,4 +282,9 @@ export const ROAM_MARK = {
   hut: '#b58a5a',
   hutRoof: '#6b4a2b',
   vataga: '#2c2420',
+  /** Вольный замок (ПН-10): серый камень с тёмными зубцами, стяг кастеляна — синий; сожжённый — пепел. */
+  castle: '#b8b0a0',
+  castleDark: '#5f584c',
+  castleFlag: '#3d6aa8',
+  ash: '#4a4440',
 };

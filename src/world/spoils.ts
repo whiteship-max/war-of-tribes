@@ -133,7 +133,7 @@ export function lead(people: number, escort: number): Led {
  */
 export const HEAD_CARRY = UNIT_BY_ID.warrior.carry / UNIT_BY_ID.warrior.escort;
 
-interface FateRule {
+export interface FateRule {
   /** Достаётся ли победителю добро и казна. Сожжение не берёт ничего. */
   spoils: boolean;
   /** Уводит ли он невольников города — всех, первыми, скольких устережёт. */
@@ -156,10 +156,12 @@ interface FateRule {
   vsWorld: boolean;
   /** Закрывает ли она город от себя же на `BURN_IMMUNE` — защита от цепочки. */
   chain: boolean;
-  /** Склад, казна и люди остаются в городе: победитель берёт сам город, а не добро (ПН-10, «Занять»). */
-  keeps: boolean;
-  /** Только вольному замку бродяги (ПН-10, ГДД 3.11.4): у города игрока и логова её нет. */
-  castleOnly: boolean;
+  /**
+   * Только вольному замку бродяги (ПН-10, ГДД 3.11.4) — слова отказа любой другой цели; проверка — `freecastle.freeFateBlock`. Такая
+   * ступень берёт сам замок, а не добро: обоза ноль (`war.fateOfWar`), склад, казна и люди остаются. Строка «Занять» и её проверка
+   * лежат в `world/freecastle` (кусок пути и сервер), а не здесь: лестница лорда в первой загрузке их не несёт.
+   */
+  castleOnly?: string;
 }
 
 /**
@@ -177,7 +179,7 @@ interface FateRule {
  *   `BURN_LEVELS` уровня, улучшения в работе сгорают. `FALL_BUILDINGS` здесь не
  *   действует — вместо него, а не вдобавок.
  */
-export const FATES: Record<Fate, FateRule> = {
+export const FATES = {
   plunder: {
     spoils: true,
     bonded: false,
@@ -189,8 +191,6 @@ export const FATES: Record<Fate, FateRule> = {
     burnsWorks: false,
     vsWorld: true,
     chain: false,
-    keeps: false,
-    castleOnly: false,
   },
   captives: {
     spoils: true,
@@ -203,8 +203,6 @@ export const FATES: Record<Fate, FateRule> = {
     burnsWorks: false,
     vsWorld: true,
     chain: false,
-    keeps: false,
-    castleOnly: false,
   },
   burn: {
     spoils: false,
@@ -217,32 +215,12 @@ export const FATES: Record<Fate, FateRule> = {
     burnsWorks: true,
     vsWorld: false,
     chain: true,
-    keeps: false,
-    castleOnly: false,
   },
-  // Занять (ПН-10, ГДД 3.11.4): в обоз ничего, склад, казна и люди целы; уровни теряет только обстрел осады (`shelling`), сама участь
-  // ничего не роняет. Только вольный замок — для него и объявляется (`fateBlock`).
-  occupy: {
-    spoils: false,
-    bonded: false,
-    ledPop: 0,
-    scatterPop: 0,
-    scatterBonded: false,
-    buildings: 0,
-    levels: 0,
-    burnsWorks: false,
-    vsWorld: true,
-    chain: false,
-    keeps: true,
-    castleOnly: true,
-  },
-};
+  // «Занять» (ПН-10) кладёт сюда `world/freecastle`: строка едет с куском пути и сервером, первая загрузка лорда её не несёт.
+} as Record<Fate, FateRule>;
 
-/** Ступени по порядку тяжести — так их и показывают. Лестница лорда: «Занять» в неё не входит. */
+/** Ступени по порядку тяжести — так их и показывают. Лестница лорда: «Занять» (ПН-10) в неё не входит. */
 export const FATE_IDS: readonly Fate[] = ['plunder', 'captives', 'burn'];
-
-/** Участи вольного замка (ПН-10, ГДД 3.11.4) — по тяжести, «Занять» первой. */
-export const FREE_FATE_IDS: readonly Fate[] = ['occupy', 'plunder', 'captives', 'burn'];
 
 /**
  * Участь, которую никто не объявлял: так берут город логово и двор мира, и так
@@ -349,8 +327,7 @@ export function fate(input: FateInput): FateResult {
   const lessGoods = HEAD_CARRY * (ledBonded.taken + ledPop.taken);
   // Добро делится один раз. У грабежа — не больше обоза и не больше того, что
   // осталось на виду после мест, отданных людям; у сожжения огню обоз не нужен.
-  // «Занять» не берёт и не жжёт ничего: обоза ноль.
-  const carry = rule.spoils ? Math.min(input.carry, Math.max(0, openOf(all, input.stash).total - lessGoods)) : rule.keeps ? 0 : Infinity;
+  const carry = rule.spoils ? Math.min(input.carry, Math.max(0, openOf(all, input.stash).total - lessGoods)) : Infinity;
   const spoils = plunder(all, input.stash, carry);
   return {
     taken: rule.spoils ? spoils.taken : {},
@@ -470,7 +447,6 @@ export function fateBlock(
   locks?: FateLocks,
 ): string | null {
   const rule = FATES[f];
-  if (rule.castleOnly && target !== 'castle') return 'Занять можно только вольный замок.';
   if (!rule.vsWorld && target === 'world') {
     return 'Сжечь можно только город игрока.';
   }

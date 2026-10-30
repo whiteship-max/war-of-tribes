@@ -13,7 +13,8 @@ import { failDeal } from '@/game/sim/contracts';
 import { roamOn } from '@/game/roamflag';
 import { partyNow } from '@/net/clock';
 import { castles, rosterReady } from '@/net/roster';
-import { bandOrder } from '@/net/bandroster';
+import { bandOrder, freeCastles } from '@/net/bandroster';
+import { takeSiege } from '@/game/sim/roamcastle';
 import { tgInitData } from '@/telegram/webapp';
 import { leaseHolder } from '@/net/session';
 import { settleRandom } from '../settle';
@@ -55,6 +56,18 @@ export function roamPort(): RoamPort {
         line = st.log[0]?.text ?? '';
       });
       if (line) useGame.getState().showToast(line);
+    },
+    // Осада вольного замка (ПН-10) — сервером войны: замки пула — слово реестра, итоги своей стороны — одной дверью партии.
+    free: freeCastles,
+    wars,
+    ...(online ? { warOrder } : {}),
+    siege: (look) => {
+      let lines: string[] = [];
+      useGame.getState().world((st) => {
+        lines = takeSiege(st, look);
+      });
+      for (const line of lines) useGame.getState().showToast(line);
+      return lines;
     },
     ...(online ? { order: bandOrder } : {}),
   };

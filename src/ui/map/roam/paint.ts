@@ -7,7 +7,7 @@
 // Рисует поверх кадра карты (`WorldMap` → `roamhook`), только пока открыт кусок карты бродяги. Положение отряда — функцией
 // записи хода (`world/roam.roamWhere`), руины — из кусков карты (`RegionChunk.ruins`, их отдаёт только мир бродяги, и только на
 // разведанной земле). Мерка экранная: знак не мельче пальца на дальнем виде и не крупнее клетки на ближнем.
-import type { RoamPointMark, RuinMark } from '@/world/types';
+import type { FreeMark, RoamPointMark, RuinMark } from '@/world/types';
 import type { BandMark } from '@/world/bandsight';
 import { agoText } from '../feedWords';
 import type { RoamCampRec, RoamWay } from '@/world/roammove';
@@ -64,6 +64,49 @@ function townGlyph(ctx: C, x: number, y: number, u: number, tier: number): void 
     ctx.beginPath();
     ctx.arc(x + (i - (tier - 1) / 2) * u * 0.22, y - u * 0.98, u * 0.07, 0, Math.PI * 2);
     ctx.fill();
+  }
+}
+
+/**
+ * Вольный замок (ПН-10): стена с башнями по ступени (I — одна, II — две, III — три и шире), зубцы, стяг: кастеляна — синий, наш —
+ * цвета стороны, чужого отряда — тёмный; сожжённый — пеплом без стяга; под нашим лагерем — пунктирный круг стороны.
+ */
+function castleGlyph(ctx: C, x: number, y: number, u: number, m: FreeMark): void {
+  const wide = 0.55 + 0.15 * m.tier;
+  const stone = m.burnt ? ROAM_MARK.ash : ROAM_MARK.castle;
+  ctx.fillStyle = ROAM_MARK.plate;
+  ctx.beginPath();
+  ctx.ellipse(x, y + u * 0.36, u * (wide + 0.12), u * 0.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = stone;
+  ctx.fillRect(x - u * wide, y - u * 0.1, u * wide * 2, u * 0.44);
+  const towers = m.tier === 1 ? [0] : m.tier === 2 ? [-0.62, 0.62] : [-0.8, 0, 0.8];
+  for (const t of towers) {
+    const tx = x + t * u * wide;
+    const h = t === 0 ? 0.62 : 0.5;
+    ctx.fillStyle = stone;
+    ctx.fillRect(tx - u * 0.17, y - u * h, u * 0.34, u * h);
+    ctx.fillStyle = ROAM_MARK.castleDark;
+    for (const dx of [-0.17, -0.03, 0.11]) ctx.fillRect(tx + dx * u, y - u * (h + 0.08), u * 0.07, u * 0.08);
+  }
+  ctx.fillStyle = ROAM_MARK.castleDark;
+  ctx.fillRect(x - u * 0.09, y + u * 0.08, u * 0.18, u * 0.26);
+  if (!m.burnt) {
+    const top = m.tier === 2 ? x - 0.62 * u * wide : x;
+    const h = m.tier === 2 ? 0.5 : 0.62;
+    ctx.fillStyle = ROAM_MARK.pole;
+    ctx.fillRect(top - u * 0.02, y - u * (h + 0.42), u * 0.04, u * 0.36);
+    ctx.fillStyle = m.held === 'mine' ? sideColor(true) : m.held === 'other' ? ROAM_MARK.vataga : ROAM_MARK.castleFlag;
+    ctx.fillRect(top + u * 0.02, y - u * (h + 0.42), u * 0.28, u * 0.16);
+  }
+  if (m.siege) {
+    ctx.strokeStyle = sideColor(true);
+    ctx.lineWidth = Math.max(1.5, u * 0.07);
+    ctx.setLineDash([u * 0.18, u * 0.12]);
+    ctx.beginPath();
+    ctx.ellipse(x, y, u * (wide + 0.3), u * 0.75, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 }
 
@@ -221,6 +264,14 @@ export function paintRoam(
     else vatagaGlyph(ctx, x, y, u);
     if (cam.scale >= 20) label(ctx, p.name, x, y + u * 0.95);
   }
+  // Вольные замки пула (ПН-10) — картинкой поверх кадра, по ступени; имя — на ближнем виде.
+  const free: FreeMark[] = loadedIn(rect).flatMap((c) => c.free ?? []);
+  for (const m of free) {
+    const [x, y] = toScreen(cam, vp, m.x + 0.5, m.y + 0.5);
+    if (x < -u * 2 || y < -u * 2 || x > vp.w + u * 2 || y > vp.h + u * 2) continue;
+    castleGlyph(ctx, x, y, u, m);
+    if (cam.scale >= 20) label(ctx, m.name, x, y + u * 0.95);
+  }
   let moving = false;
   if (way) {
     const at = roamWhere(way, now);
@@ -305,6 +356,12 @@ export const pointAtTap = (rect: { x: number; y: number; w: number; h: number },
   loadedIn(rect)
     .flatMap((k) => k.points ?? [])
     .find((p) => p.x === c.x && p.y === c.y) ?? null;
+
+/** Вольный замок в клетке касания (ПН-10) — из кусков карты. */
+export const freeAtTap = (rect: { x: number; y: number; w: number; h: number }, c: { x: number; y: number }): FreeMark | null =>
+  loadedIn(rect)
+    .flatMap((k) => k.free ?? [])
+    .find((m) => m.x === c.x && m.y === c.y) ?? null;
 
 /** Чужой отряд в клетке касания: живой — первым, следы — свежим первым. */
 export const bandAt = (marks: readonly BandMark[], c: { x: number; y: number }): BandMark | null =>

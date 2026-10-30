@@ -13,6 +13,7 @@
 //      (`roamrules.bandHunger`, как амбар города);
 //   3. содержание: кошель, долг, терпение, уход (`sim/upkeep.bandUpkeep`).
 // Дух не тикает: он читается из этих полей (`sim/spirit.spiritIn`, входы отряда).
+import { readCastle } from './roamcastle';
 import type { GameState, MarketState, RoamDrill, RoamOrigin, RoamState, RulerTally, TroopId, WoundGroup } from '../types';
 import type { BandBookOrder } from '../../../netlify/lib/contract';
 import { readBookOrder } from '../../../netlify/lib/bandorder';
@@ -174,6 +175,8 @@ export function mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'> {
       ...readTown(r),
       // ПН-7: договоры, долги заказчикам и взятые номера доски — целые записи, не больше потолков.
       ...readDeals(r),
+      // ПН-10: взятый вольный замок и разбор осады — целые записи.
+      ...readCastle(r),
       ...((): { beaten?: { id: string; until: number }[] } => {
         const list = Array.isArray(r.beaten) ? r.beaten : [];
         const beaten = list

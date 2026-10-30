@@ -5,7 +5,7 @@
 // Строка отряда: место выхода и ход выводит сервер (`roster.placeBandNew`, `bandOrder`), партия кладёт её одной дверью хода
 // (`sim/roam.setMove`, провайдер — кусок пути). Видимость (ПН-4у): обнаружение считает сервер (`netlify/lib/bandsight.ts`, дверью
 // `world/sight`); здесь — только доставка ответа тому, кто его ждёт (`provideSightSink` — кусок `world/bandsight`).
-import type { BandOrder, BandRow, BandView, RosterResponse, SeenView } from '../../netlify/lib/contract';
+import type { BandOrder, BandRow, BandView, FreeView, RosterResponse, SeenView } from '../../netlify/lib/contract';
 import { roamOn } from '@/game/roamflag';
 import { bandSink } from '@/game/roamlazy';
 import { apiPost } from './api';
@@ -57,9 +57,16 @@ export const provideSightSink = (fn: ((v: SightNews) => void) | null): void => {
   if (fn && sight) fn(sight);
 };
 
-/** Ответ реестра: строка отряда и видимость отрядов. Зовёт реестр (`roster.keep`). */
+/** Вольные замки пула рядом (ПН-10): слово реестра тому, кому путь открыт; кто взял и что сожжено — из записи войн сервера. */
+let free: FreeView[] = [];
+
+/** Вольные замки пула рядом из последнего ответа реестра. */
+export const freeCastles = (): FreeView[] => free;
+
+/** Ответ реестра: строка отряда, видимость отрядов и вольные замки рядом. Зовёт реестр (`roster.keep`). */
 export function keepRoster(res: RosterResponse): void {
   keepBand(res.band ?? null);
+  free = res.free ?? [];
   sight = { bands: res.bands ?? [], seen: res.seen ?? null, at: res.now };
   sightSink?.(sight);
 }

@@ -18,8 +18,40 @@ import { GATE_POWER } from '@/game/data/events';
 import { TROOPS_OF_KIND, gearOfTroop, type TroopStack } from '@/game/battle/kinds';
 import { troopPower } from '@/game/battle/price';
 import { roamStub } from '@/game/roamstubs';
+import type { FateRule, FateTarget } from './spoils';
+import { FATE_META } from './data/fates';
+import type { Fate } from './types';
 import { UNIT_KINDS } from '@/battle';
 import type { TroopId } from '@/game/types';
+
+// Участь «Занять» (ГДД 3.11.4): в обоз ничего (обоза ноль — `war.fateOfWar`), склад, казна и люди целы; уровни теряет только обстрел
+// осады (`shelling`), сама участь ничего не роняет. Строку таблицы участи (`spoils.FATES`) кладёт сервер войны (`war.ts`), слова
+// (`data/fates.FATE_META`) — этот модуль: первая загрузка лорда ни того, ни другого не несёт. Только вольный замок — `freeFateBlock`.
+export const OCCUPY_WORDS = 'Занять можно только вольный замок.';
+export const OCCUPY_RULE: FateRule = {
+  spoils: true,
+  bonded: false,
+  ledPop: 0,
+  scatterPop: 0,
+  scatterBonded: false,
+  buildings: 0,
+  levels: 0,
+  burnsWorks: false,
+  vsWorld: true,
+  chain: false,
+  castleOnly: OCCUPY_WORDS,
+};
+FATE_META.occupy = { name: 'Занять', icon: 'ui-banner', title: 'Замок заняли' };
+
+/** Участи вольного замка (ГДД 3.11.4) — по тяжести, «Занять» первой. */
+export const FREE_FATE_IDS: readonly Fate[] = ['occupy', 'plunder', 'captives', 'burn'];
+
+/**
+ * Можно ли объявить участь цели (ПН-10): «Занять» — только вольному замку. Вольному замку открыты все четыре: замков гейта у отряда нет,
+ * неприкосновенности от огня у замка нет — сожжённый стоит на восстановлении и в поход не берётся вовсе (`war.marchFree`). Прочие цели
+ * — лестницей лорда, `spoils.fateBlock` у сервера войны.
+ */
+export const freeFateBlock = (f: Fate, target: FateTarget): string | null => (f === 'occupy' && target !== 'castle' ? OCCUPY_WORDS : null);
 
 /** Ступень вольного замка: I — усадьба с башней, II — замок кастеляна, III — баронская крепость (3.11.1). */
 export type FreeTier = 1 | 2 | 3;

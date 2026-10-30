@@ -1109,6 +1109,8 @@ export interface RegionChunk {
   ruins?: RuinMark[];
   /** Точки бродяги на разведанных клетках (ПН-5, `world/roampoints`) — только у мира бродяги. */
   points?: RoamPointMark[];
+  /** Вольные замки пула на разведанных клетках (ПН-10, `world/freecastle`) — только у мира бродяги, по слову реестра сервера. */
+  free?: FreeMark[];
 }
 
 /** Один режим марша в окне хода отряда бродяги (ПН-3) — числа двери хода `world/roam.roamPlan`. */
@@ -1155,6 +1157,58 @@ export interface RoamPointMark {
   y: number;
   name: string;
   tier: 0 | 1 | 2 | 3;
+}
+
+/** Вольный замок на карте бродяги (ПН-10): ступень, взят ли (нами или другим отрядом), сожжён ли, стоит ли под ним наш лагерь. */
+export interface FreeMark {
+  id: string;
+  x: number;
+  y: number;
+  tier: 1 | 2 | 3;
+  name: string;
+  held?: 'mine' | 'other';
+  burnt?: boolean;
+  siege?: boolean;
+}
+
+/** Наша осада вольного замка (ПН-10) — из записи войн сервера. */
+export interface FreeSiegeView {
+  war: string;
+  phase: 'march' | 'camp' | 'back' | 'done';
+  mode: 'storm' | 'siege';
+  fate: Fate;
+  /** Фаз прошло, проломов; прогноз голода — для сведения (голод не сдаёт замок: последняя вылазка); нет — `null`. */
+  phases: number;
+  breaches: number;
+  starvesAt: number | null;
+  /** Наших в лагере. */
+  men: number;
+  /** Дань кастеляна за снятие осады, ждущая ответа (`world/parley`); нет — `null`. */
+  tribute: { price: number; until: number } | null;
+  /** Чем кончилась (`taken`, `beaten`, `lifted`, `gone`, `paid`, `retreat`); идёт — `null`. */
+  end: string | null;
+}
+
+/** Окно вольного замка (ПН-10, ГДД 5.4): гарнизон по сведениям, доступ по престижу, что нужно, чтобы взять, — функциями мира. */
+export interface FreeCastleView {
+  id: string;
+  name: string;
+  tier: 1 | 2 | 3;
+  tierWords: string;
+  castellan: string;
+  /** Гарнизон по сведениям: людей около (до десятка) и мощь строя замка. */
+  garrison: { men: number; power: number };
+  prestige: { need: number; have: number };
+  band: { men: number; power: number };
+  near: boolean;
+  /** Что нужно, чтобы взять: условие и выполнено ли. */
+  needs: { text: string; ok: boolean }[];
+  /** Почему не идти на замок сейчас; можно — `null`. */
+  block: string | null;
+  held: 'mine' | 'other' | null;
+  burntUntil: number | null;
+  fates: { id: Fate; name: string; block: string | null }[];
+  siege: FreeSiegeView | null;
 }
 
 /** Окно хода отряда бродяги (ПН-3): что будет, если приказать сейчас, — теми же функциями, что исполнят приказ. */
