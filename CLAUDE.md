@@ -392,6 +392,12 @@ HEAD один на всех, см. правило 8). Значит развес�
   `sim/roamfight.takeFight` (поражение 3.6.4, наследник пути 3.6.5, `RoamState.beaten`, `RoamHero.hurt` — необязательные поля). Встречи с
   НПС считает клиент (точки НПС свои), сервер их не знает. Разойдись правило у двоих — окно хода показало бы одну засаду, а сыграла бы
   другая, или наследник пути взял бы не ту долю престижа;
+- `src/game/sim/contracts.ts`, `src/game/contractrules.ts`, `src/game/data/contracts.ts` и `src/world/dealboard.ts` — договоры НПС бродяги
+  (ПН-7, docs/gdd/path_of_sword.md, 20): `RoamState.deals`, `.debts`, `.took` — необязательные поля, пишет их одна дверь `sim/contracts`
+  (взять, сдать `settle`, сорвать, отказ, долг; чтение `readDeals`); плата от эталона тира, аванс, неустойка, престиж и строка —
+  `contractrules.contractTerms`, `dealRow`; K и R видов — вывод `roam:report` (`data/contracts`), доска — `world/dealboard`; сервер —
+  книга договоров в книге отряда (`roambook`, приказы `take`, `deal`, `drop`) и строка `deal` таблицы наград дел (`data/deedgain`, вывод
+  `scripts/deeds`). Разойдись правило у двоих — сервер срезал бы честную сдачу или пропустил договор дороже таблицы;
 - `src/game/sim/prestige.ts` — престиж одной дверью (ПН-2, docs/gdd/path_of_sword.md, 14): `GameState.prestige` пишет только
   `movePrestige` (итог похода, награда задания, ответ вести), ступень — `prestigeStage` по порогам, которых в коде нет до вывода.
   Разойдись запись у двоих — престиж падал бы ниже нуля у одного и не падал у другого;
@@ -856,6 +862,10 @@ HEAD один на всех, см. правило 8). Значит развес�
   `ui/next/Heal`: цена — кривая ожидания от оставшегося срока (`gemrules.healPriceOfLeft`), последние пять минут даром; приказ `heal`
   `/api/gems` (`net/gemorder`), остаток сервер берёт больший из своего по часам партии из описи; дело — `sim/gems.healNow`, в осаде тоже
   (`gemheal.test.ts`).
+- **Договоры НПС** (ПН-7) — доска `world/dealboard.boardsAt` (город по привозу 3 ч UTC, кастелян раз в сутки — в городе II–III до ПН-10,
+  село при угрозе), условия — `contractrules.contractTerms` (плата от эталона тира, не от отряда — E1), строка — `dealRow`; запись — одна
+  дверь `sim/contracts` (сдача — `settle`, исполненный сдаётся сразу), набег на село — мир бродяги (`RoamWorld.settleDeals`); сервер —
+  книга договоров `roambook` по таблице наград дел (`pn7.test.ts`, `roambook.test.ts`; docs/gdd/path_of_sword.md, 20).
 - **Престиж** — одна дверь `sim/prestige.movePrestige` (по исходникам — `sim/prestige.test.ts`); слово игрока — «Престиж»; ступень —
   `prestigeStage` по порогам вывода (до вывода — заглушка прибора `roam:report`) (docs/gdd/path_of_sword.md, 14).
 - **Черты правителя** (ПН-2) — счёт дел пишет `sim/dynasty.noteRulerDeed` (бои, уровни, пиры, участь взятого города, минимальное
