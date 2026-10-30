@@ -64,6 +64,9 @@
 //   GROUP=pn7 WEATHER=clear NIGHT=0 …              — ПН-7 (docs/gdd/path_of_sword.md, 20): окно «Договоры» — доска вольного города
 //                                                    и кастеляна, взятые договоры, долг неустойки (доска закрыта), доска села при
 //                                                    угрозе. Путь — как у ПН-3
+//   GROUP=pn10 WEATHER=clear NIGHT=0 …             — ПН-10 (docs/gdd/path_of_sword.md, 21): окно вольного замка ступени I у стен,
+//                                                    осада (лагерь после фазы), «Замок взят» после штурма с ходу; сервер войны и
+//                                                    реестр — в памяти стенда (`pn10Server`). Путь — как у ПН-3
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -81,7 +84,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
-import { createServer as createVite } from 'vite';
+import { createServer as createVite, type Plugin } from 'vite';
 import sharp from 'sharp';
 import { ENTER_GAME, launchChrome, sleep, Tab } from '../../scripts/lib/chrome';
 import { BROWSER_MAX_MS, gpuCoolDown, gpuStamp, refuseIfBusy } from '../../scripts/lib/budget';
@@ -709,6 +712,123 @@ const CAMP_AT = (ground: 'forest' | 'plain' | 'ruin', kind: 'open' | 'hidden' | 
   return JSON.stringify((e ?? 'ok') + ' ' + best.x + '|' + best.y);
 })()`;
 
+/**
+ * ПН-10: вольный замок ступени I у отряда. Вне Telegram связи нет, а окну замка нужны слово реестра (`RosterResponse.free`) и запись
+ * войн с НПС-защитником, — их даёт сервер войны стенда (`pn10Server`), а порт мира бродяги (`RoamPort.free`, `wars`, `warOrder`)
+ * читает его ответы раз в секунду. Замок — на клетке суши рядом с отрядом (у стен); `band` — отряд, `prestige` — престиж; `order` —
+ * поход отряда на замок (осада, штурм с ходу), отданный `ago` часов назад: сервер стенда доводит войну до настоящей минуты той же
+ * дверью, что боевой (`advance`), а итог своей стороны мир кладёт в партию на пульсе. Окно — касанием знака замка на карте.
+ */
+const PN10 = (band: string, prestige: number, order: 'none' | 'siege' | 'storm', ago: number): string => `(async () => {
+  document.querySelector('.am-wrap .nx-bclose')?.click();
+  const A = await import('/src/world/api.ts');
+  const Ck = await import('/src/world/store.ts');
+  const L = await import('/src/world/land.ts');
+  const F = await import('/src/world/freecastle.ts');
+  const Ch = await import('/src/world/cache.ts');
+  const way = window.__game.getState().s.roam.way;
+  const band = ${band};
+  window.__game.getState().world((s) => { s.roam.band = { ...band }; s.prestige = ${prestige}; });
+  let castle = null;
+  for (const [dx, dy] of [[1, 0], [0, -1], [-1, 0], [0, 1], [1, -1], [-1, -1], [-1, 1], [1, 1]]) if (!castle && L.settleable(way.to.x + dx, way.to.y + dy)) castle = { x: way.to.x + dx, y: way.to.y + dy };
+  if (!castle) return JSON.stringify('нет суши у отряда');
+  const id = F.freeId(castle.x, castle.y);
+  const now = Ck.worldNow();
+  const post = async (path, body) => (await fetch('/__stand/pn10/' + path, { method: 'POST', body: JSON.stringify(body) })).json();
+  const look = async () => (window.__pn10 = await (await fetch('/__stand/pn10/look?now=' + Ck.worldNow())).json());
+  await post('setup', { band: way.to, castle, troops: band, prestige: ${prestige}, since: now - (${ago} + 1) * 3600000 });
+  const w = A.worldApi();
+  w.port.free = () => window.__pn10?.free ?? [];
+  w.port.wars = () => window.__pn10?.wars ?? [];
+  w.port.warOrder = async (o) => {
+    const r = await post('order', { order: o, at: Ck.worldNow() });
+    await look();
+    return r.error ?? null;
+  };
+  clearInterval(window.__pn10t);
+  window.__pn10t = setInterval(look, 1000);
+  let said = 'замок ' + id;
+  if ('${order}' !== 'none') {
+    const r = await post('order', { order: { op: 'march', target: id, mode: '${order}', fate: 'occupy', army: { troops: band, resolve: 0, pips: {} } }, at: now - ${ago} * 3600000 });
+    said += r.error ? ', отказ: ' + r.error : ', поход ${order} ${ago} ч назад';
+  }
+  await look();
+  // Знак замка — из куска карты: кусок перечитывается заново (взят ли, наш ли лагерь), и карта будится — камера могла не сдвинуться.
+  Ch.clearCache();
+  window.__mapCam(castle.x, castle.y, 18);
+  Ck.useWorld.getState().ensureRegion({ x: castle.x - 24, y: castle.y - 24, w: 49, h: 49 });
+  (await import('/src/ui/map/roamhook.ts')).wakeMap();
+  await new Promise((r) => setTimeout(r, 3000));
+  window.__mapTap(castle.x, castle.y);
+  const wars = window.__pn10.wars.map((x) => x.phase + (x.end ? ' ' + x.end : '') + ' фаз ' + (x.camp?.phases?.length ?? 0));
+  return JSON.stringify(said + '; войны: ' + (wars.join(', ') || 'нет') + '; замок у отряда: ' + (window.__game.getState().s.roam.castle?.id ?? 'нет'));
+})()`;
+
+/**
+ * ПН-10: сервер войны и реестр стенда — код боевого сервера (`netlify/lib/war`, `roster.freeViews`) в памяти процесса стенда, как в
+ * `src/world/pn10.test.ts`: реестр с отрядом (место, престиж и книга — то, что положила страница) и одним замком пула ступени I,
+ * запись войн; `order` — приказ отряда в названную минуту, `look` — война, доведённая до минуты страницы, и замки рядом.
+ */
+async function pn10Server(): Promise<Plugin> {
+  const War = await import('../../netlify/lib/war');
+  const Ros = await import('../../netlify/lib/roster');
+  const { roamSeat } = await import('../../src/world/roam');
+  const { freeId } = await import('../../src/world/freecastle');
+  const { troopTotal } = await import('../../src/game/battle/kinds');
+  const KEY = 'tg-stand';
+  let file = War.emptyWars();
+  let roster = Ros.emptyRoster();
+  let home = { x: 0, y: 0 };
+  const ctx = (): Parameters<typeof War.applyOrder>[4] => ({ roster, sheet: () => null, roamOpen: true });
+  const body = (req: NodeJS.ReadableStream): Promise<any> =>
+    new Promise((ok) => {
+      let s = '';
+      req.on('data', (c) => (s += c));
+      req.on('end', () => ok(s ? JSON.parse(s) : {}));
+    });
+  return {
+    name: 'stand-pn10-server',
+    configureServer(server) {
+      server.middlewares.use('/__stand/pn10', (req, res) => {
+        void (async () => {
+          const url = new URL(req.url ?? '/', 'http://stand');
+          let out: unknown = {};
+          if (url.pathname === '/setup') {
+            const b = await body(req);
+            home = b.band;
+            file = War.emptyWars();
+            roster = {
+              ...Ros.emptyRoster(),
+              bands: {
+                [KEY]: {
+                  way: roamSeat(b.band, b.since).way,
+                  born: b.since,
+                  name: 'Ратко',
+                  prestige: b.prestige,
+                  men: troopTotal(b.troops),
+                  seenAt: b.since,
+                  book: { troops: { ...b.troops }, join: -1, drill: 0, fights: 0, grant: 0, keys: [] },
+                },
+              },
+              free: { [freeId(b.castle.x, b.castle.y)]: { x: b.castle.x, y: b.castle.y, tier: 1, born: b.since } },
+            } as typeof roster;
+          } else if (url.pathname === '/order') {
+            const b = await body(req);
+            War.advance(file, b.at, new Map());
+            out = { error: War.applyOrder(file, KEY, b.order, b.at, ctx()) };
+          } else {
+            const now = Number(url.searchParams.get('now'));
+            War.advance(file, now, new Map());
+            out = { free: Ros.freeViews(roster, KEY, file.free ?? {}, home, 200, now), wars: War.warsOf(file, KEY) };
+          }
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify(out));
+        })();
+      });
+    },
+  };
+}
+
 const GROUPS: Record<string, Step[]> = {
   // ПН-12л (docs/gdd/path_of_sword.md, 19): лагерь бродяги — главный экран; погода адресом (`WEATHER`) — только вид.
   pn12l: [
@@ -744,6 +864,12 @@ const GROUPS: Record<string, Step[]> = {
     { name: 'pn7-held', run: ROAM_TAKE, wait: 1200 },
     { name: 'pn7-debt', run: ROAM_DEBT, wait: 1200 },
     { name: 'pn7-village', run: ROAM_DEALS('village'), wait: 1500 },
+  ],
+  pn10: [
+    { name: 'pn10-start', run: ROAM_START, wait: 4000, shot: false },
+    { name: 'pn10-castle', run: PN10(`{ spearman: 30, clubman: 14, archer: 16 }`, 180, 'none', 0), wait: 1500 },
+    { name: 'pn10-siege', run: PN10(`{ spearman: 160, archer: 90, knight: 30 }`, 420, 'siege', 2.5), wait: 1500 },
+    { name: 'pn10-taken', run: PN10(`{ knight: 400, legionary: 500, archer: 300 }`, 1000, 'storm', 0.5), wait: 1500 },
   ],
   pn5: [
     { name: 'pn5-start', run: ROAM_START, wait: 4000, shot: false },
@@ -2052,7 +2178,9 @@ async function main(): Promise<void> {
     server: { port: PORT, strictPort: true, host: '127.0.0.1' },
     logLevel: 'warn',
     // Заходы ПН-3, ПН-4у и ПН-5 — с открытым Путём меча: выключатель подменяется только в этом сервере стенда.
+    // ПН-10 — и сервер войны стенда (`pn10Server`): окно вольного замка — слово реестра и запись войн.
     ...(name === 'pn3' || name === 'pn4' || name === 'pn5' || name === 'pn6' || name === 'pn7' || name.startsWith('pn12') ? { plugins: [ROAM_PLUGIN] } : {}),
+    ...(name === 'pn10' ? { plugins: [ROAM_PLUGIN, await pn10Server()] } : {}),
   });
   await vite.listen();
   try {
