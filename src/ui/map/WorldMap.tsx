@@ -916,11 +916,12 @@ export function WorldMap() {
             </span>
             Походы
           </button>
-          <button className="nx-main" data-tut="nav-city" onClick={closeMap} aria-label="Город">
+          {/* У бродяги города нет — середина низа ведёт в его лагерь (ПН-12л). */}
+          <button className="nx-main" data-tut="nav-city" onClick={closeMap} aria-label={roamMode ? 'Лагерь' : 'Город'}>
             <span className="nx-ib">
-              <Icon name="bld-town_hall" />
+              <Icon name={roamMode ? 'stage-camp' : 'bld-town_hall'} />
             </span>
-            Город
+            {roamMode ? 'Лагерь' : 'Город'}
           </button>
           <button onClick={toggleZoom} aria-label={zoomedIn ? 'Отдалить' : 'Приблизить'}>
             <span className="nx-ib">

@@ -83,9 +83,10 @@ describe('ход — только у отряда бродяги', () => {
       const code = readFileSync(p, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
       if (/\.roam(To|Plan|Camp|CampView)\?*\.?\(/.test(code)) callers.add(relative(ROOT, p).split(sep).join('/'));
     }
-    // Граница области: зовущие правда есть — карта бродяги; лорд среди них не появляется.
+    // Граница области: зовущие правда есть — карта и лагерь бродяги (ПН-12л: «Погасить костры» — тот же приказ лагеря); лорд среди
+    // них не появляется.
     expect(callers.size).toBeGreaterThan(0);
-    for (const c of callers) expect(c, 'зовёт ход отряда').toMatch(/^ui\/map\/roam\//);
+    for (const c of callers) expect(c, 'зовёт ход отряда').toMatch(/^ui\/(map\/roam|camp)\//);
   });
 
   it('мира без места выхода нет: приказ — отказ словами', async () => {

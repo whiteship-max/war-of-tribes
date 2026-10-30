@@ -226,6 +226,8 @@ export interface CampLook {
   /** Погода сцены. */
   sky: Weather;
   heat: number;
+  /** Время года по часам партии — краски земли и листвы. */
+  season: Season;
 }
 
 /** С какого числа людей лагерь большой: размер отряда, при котором его заметность — единица (`sight.sizeUnit`). */
@@ -253,6 +255,7 @@ export function campLook(site: Site, sky: CampSky, kind: CampKind | null, men: n
     snow: clamp01(sky.snowGround),
     sky: { cloud: sky.cloud, rain: sky.rain, snow: sky.snow, storm: sky.storm, fog: sky.fog, wind: sky.wind, from: sky.from },
     heat: sky.heat,
+    season: sky.season,
   };
 }
 

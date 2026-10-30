@@ -1,0 +1,101 @@
+/* Лагерь бродяги (ПН-12л, docs/gdd/path_of_sword.md, 5.2): сцена во весь экран, полоса отряда сверху, предметы-кнопки поверх сцены,
+   низ — ряд действий отряда. Своим куском. Мерки — переменные окна (`--app-h`, `--safe-*`, `--nav-h`, `--tap`). */
+.camp-screen {
+  position: absolute;
+  inset: 0;
+  height: var(--app-h);
+  overflow: hidden;
+  background: var(--m-ink, #1b1712);
+}
+.camp-stage {
+  position: absolute;
+  inset: 0;
+}
+.camp-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.camp-top {
+  position: absolute;
+  top: calc(8px + var(--safe-top));
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--m-plate);
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 0 1px var(--m-ink), var(--m-plate-bevel), 0 2px 8px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  line-height: 1.3;
+}
+.camp-top b {
+  font-size: 14px;
+}
+.camp-top .roam-sight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-style: normal;
+  font-size: 12px;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.camp-top .roam-sight svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.camp-top .camp-place {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.camp-prop {
+  position: absolute;
+  z-index: 11;
+  transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--tap);
+  padding: 0 10px 0 6px;
+  border-radius: 22px;
+  border: 1px solid var(--accent);
+  background: var(--m-plate);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.camp-prop svg {
+  width: 22px;
+  height: 22px;
+}
+.camp-nav {
+  z-index: 12;
+}
+.camp-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+}
+.camp-line {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+.camp-line svg {
+  width: 20px;
+  height: 20px;
+}

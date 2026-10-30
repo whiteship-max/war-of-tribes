@@ -1,6 +1,8 @@
 // Знаки карты бродяги (ПН-3, docs/gdd/path_of_sword.md, 5.2): руины — меткой карты, отряд — знаменем стороны, лагерь — шатром
 // (открытый — с огнём, скрытый — холодный, в руинах — на камнях), путь — пунктиром до цели; точки ПН-5 — вольный город (стена и
-// башня, ступень — точками), село (срубы), ватага НПС (чёрный стан с огнём). Простые знаки до 3D (ПН-12).
+// башня, ступень — точками), село (срубы), ватага НПС (чёрный стан с огнём). Лагерь — картинкой по ступени (ПН-12л, `campsite.tierOf`):
+// малый — палатка и костёр, большой — шатёр героя, палатка и обоз; огонь — как в сцене (дождь гасит, `campsite.fireLit`); знамя своего
+// отряда — гербом профиля (`heraldry/paint.armsCanvas`). Рисуется поверх кадра — без новых выпечек тайлов.
 //
 // Рисует поверх кадра карты (`WorldMap` → `roamhook`), только пока открыт кусок карты бродяги. Положение отряда — функцией
 // записи хода (`world/roam.roamWhere`), руины — из кусков карты (`RegionChunk.ruins`, их отдаёт только мир бродяги, и только на
@@ -14,6 +16,8 @@ import { loadedIn } from '@/world/cache';
 import { sideColor, sideRgba } from '@/side';
 import { toScreen, viewRect, type Camera, type Viewport } from '../grid';
 import { ROAM_MARK } from '../palette';
+import { tierOf, type CampTier } from '@/world/campsite';
+import { armsCanvas } from '@/heraldry/paint';
 
 type C = CanvasRenderingContext2D;
 
@@ -95,9 +99,9 @@ function vatagaGlyph(ctx: C, x: number, y: number, u: number): void {
   ctx.fill();
 }
 
-function tentGlyph(ctx: C, x: number, y: number, u: number, camp: RoamCampRec): void {
-  const cold = camp.kind === 'hidden';
-  ctx.fillStyle = cold ? ROAM_MARK.tentCold : ROAM_MARK.tent;
+/** Палатка: треугольник полотна с тёмным входом; холодная — тусклей. */
+function tentShape(ctx: C, x: number, y: number, u: number, cold: boolean, fill?: string): void {
+  ctx.fillStyle = fill ?? (cold ? ROAM_MARK.tentCold : ROAM_MARK.tent);
   ctx.beginPath();
   ctx.moveTo(x - u * 0.5, y + u * 0.3);
   ctx.lineTo(x, y - u * 0.4);
@@ -111,25 +115,68 @@ function tentGlyph(ctx: C, x: number, y: number, u: number, camp: RoamCampRec): 
   ctx.lineTo(x + u * 0.1, y + u * 0.3);
   ctx.closePath();
   ctx.fill();
-  if (camp.kind === 'open') {
-    ctx.fillStyle = ROAM_MARK.fire;
+}
+
+function fireGlyph(ctx: C, x: number, y: number, u: number): void {
+  ctx.fillStyle = ROAM_MARK.fire;
+  ctx.beginPath();
+  ctx.arc(x, y, u * 0.13, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = ROAM_MARK.fireCore;
+  ctx.beginPath();
+  ctx.arc(x, y + u * 0.02, u * 0.06, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** Обоз: кузов под полотном и два колеса. */
+function wagonGlyph(ctx: C, x: number, y: number, u: number): void {
+  ctx.fillStyle = ROAM_MARK.tentDark;
+  ctx.fillRect(x - u * 0.28, y + u * 0.02, u * 0.56, u * 0.16);
+  ctx.fillStyle = ROAM_MARK.tent;
+  ctx.beginPath();
+  ctx.ellipse(x, y + u * 0.02, u * 0.28, u * 0.2, 0, Math.PI, 0);
+  ctx.fill();
+  ctx.fillStyle = ROAM_MARK.stoneDark;
+  for (const dx of [-0.17, 0.17]) {
     ctx.beginPath();
-    ctx.arc(x + u * 0.62, y + u * 0.22, u * 0.13, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = ROAM_MARK.fireCore;
-    ctx.beginPath();
-    ctx.arc(x + u * 0.62, y + u * 0.24, u * 0.06, 0, Math.PI * 2);
+    ctx.arc(x + dx * u, y + u * 0.22, u * 0.08, 0, Math.PI * 2);
     ctx.fill();
   }
 }
 
-function bannerGlyph(ctx: C, x: number, y: number, u: number, ours = true): void {
+/** Что рисовать на месте лагеря: вид, ступень по людям, горит ли огонь. */
+export interface CampMark {
+  kind: RoamCampRec['kind'];
+  tier: CampTier;
+  fire: boolean;
+}
+
+/** Лагерь картинкой по ступени: малый — палатка и костёр; большой — шатёр героя (шире, с красной полосой), палатка и обоз. */
+function campGlyph(ctx: C, x: number, y: number, u: number, m: CampMark): void {
+  const cold = m.kind === 'hidden';
+  if (m.tier === 'large') {
+    tentShape(ctx, x + u * 0.45, y - u * 0.12, u * 0.7, cold);
+    wagonGlyph(ctx, x - u * 0.62, y + u * 0.08, u);
+    tentShape(ctx, x, y, u * 1.2, cold, cold ? ROAM_MARK.tentCold : ROAM_MARK.tent);
+    ctx.fillStyle = sideColor(true);
+    ctx.fillRect(x - u * 0.28, y - u * 0.02, u * 0.56, u * 0.07);
+  } else tentShape(ctx, x, y, u, cold);
+  if (m.fire) fireGlyph(ctx, x + u * (m.tier === 'large' ? 0.78 : 0.62), y + u * 0.22, u);
+}
+
+function bannerGlyph(ctx: C, x: number, y: number, u: number, ours = true, arms: string | null = null): void {
   ctx.strokeStyle = ROAM_MARK.pole;
   ctx.lineWidth = Math.max(1.5, u * 0.08);
   ctx.beginPath();
   ctx.moveTo(x, y + u * 0.35);
   ctx.lineTo(x, y - u * 0.6);
   ctx.stroke();
+  // Знамя своего отряда — гербом профиля; без документа или чужое — вымпел стороны.
+  const art = arms ? armsCanvas(arms, 32, { gloss: false }) : null;
+  if (art) {
+    ctx.drawImage(art, x + u * 0.02, y - u * 0.62, u * 0.42, u * 0.5);
+    return;
+  }
   ctx.fillStyle = sideColor(ours);
   ctx.beginPath();
   ctx.moveTo(x, y - u * 0.6);
@@ -142,7 +189,16 @@ function bannerGlyph(ctx: C, x: number, y: number, u: number, ours = true): void
 /**
  * Дорисовать карту бродяги: руины в кадре, путь, отряд и лагерь. `true` — отряд в пути: кадр нужен по часам (знак едет).
  */
-export function paintRoam(ctx: C, cam: Camera, vp: Viewport, dpr: number, now: number, way: RoamWay | null, camp: RoamCampRec | null): boolean {
+export function paintRoam(
+  ctx: C,
+  cam: Camera,
+  vp: Viewport,
+  dpr: number,
+  now: number,
+  way: RoamWay | null,
+  camp: RoamCampRec | null,
+  look: { men: number; fire: boolean; arms: string | null } = { men: 0, fire: camp?.kind === 'open', arms: null },
+): boolean {
   const u = markSize(cam.scale);
   const rect = viewRect(cam, vp);
   ctx.save();
@@ -184,8 +240,8 @@ export function paintRoam(ctx: C, cam: Camera, vp: Viewport, dpr: number, now: n
       ctx.arc(tx, ty, u * 0.35, 0, Math.PI * 2);
       ctx.stroke();
     }
-    if (camp && !moving) tentGlyph(ctx, x - u * 0.35, y, u, camp);
-    bannerGlyph(ctx, camp && !moving ? x + u * 0.35 : x, y, u);
+    if (camp && !moving) campGlyph(ctx, x - u * 0.35, y, u, { kind: camp.kind, tier: tierOf(look.men), fire: look.fire });
+    bannerGlyph(ctx, camp && !moving ? x + u * (tierOf(look.men) === 'large' ? 0.75 : 0.35) : x, y, u, true, look.arms);
   }
   ctx.restore();
   return moving;
@@ -216,7 +272,7 @@ export function paintBands(ctx: C, cam: Camera, vp: Viewport, dpr: number, now: 
     const [x, y] = toScreen(cam, vp, m.at.x + 0.5, m.at.y + 0.5);
     if (x < -u * 2 || y < -u * 2 || x > vp.w + u * 2 || y > vp.h + u * 2) continue;
     if (m.visible) {
-      if (m.camp) tentGlyph(ctx, x - u * 0.35, y, u, { kind: m.camp, since: 0, builders: 0 });
+      if (m.camp) campGlyph(ctx, x - u * 0.35, y, u, { kind: m.camp, tier: tierOf(m.men), fire: m.camp === 'open' });
       if (m.heading) {
         ctx.strokeStyle = sideRgba(false, 0.9);
         ctx.lineWidth = 2;

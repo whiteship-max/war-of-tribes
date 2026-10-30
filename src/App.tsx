@@ -20,6 +20,7 @@ import { Crash } from './ui/Crash';
 import type { Sheet as SheetBody } from './ui/Sheet';
 import { warmAfter } from './boot/warm';
 import { MAP_CHUNKS, mapUi } from './ui/map/chunks';
+import { roamOn } from './game/roamflag';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -106,6 +107,8 @@ const BuildingsPanel = lazy(() => nextUi().then((m) => ({ default: m.BuildingsPa
  * города нет вовсе — контекст WebGL один (docs/minigames.md, 7).
  */
 const Minigame = lazy(() => import('./minigames/Minigame').then((m) => ({ default: m.Minigame })));
+// Лагерь бродяги (ПН-12л) — главный экран отряда вместо диорамы города; своим куском, только за `roamOn` и в фазе бродяги.
+const CampScreen = lazy(() => import('./ui/camp/CampScreen'));
 /** «Сообщить об ошибке» — своим куском: открывают его редко (docs/admin.md). */
 const BugReport = lazy(() => import('./ui/parts/BugReport').then((m) => ({ default: m.BugReport })));
 
@@ -248,6 +251,7 @@ export function App() {
   const cheat = useGame((g) => g.cheat);
   const cheated = useGame((g) => g.s.cheated);
   const mapOpen = useGame((g) => g.mapOpen);
+  const camp = useGame((g) => roamOn() && g.s.phase === 'roam');
   const realmOpen = useRealm((r) => r.open);
   const hideRealm = useRealm((r) => r.hide);
   const hideBug = useBugReport((b) => b.hide);
@@ -371,7 +375,14 @@ export function App() {
       {/* Пока открыта предыстория, диорамы нет вовсе — не приостановлена, а
           разобрана: контекст WebGL в игре один, и делить его между двумя живыми
           сценами нельзя (подробно — в `prologue/Prologue.tsx`). */}
-      {!prologue && !playing && <GameCanvas />}
+      {!prologue && !playing && !camp && <GameCanvas />}
+      {camp && !prologue && !playing && !mapOpen && (
+        <Crash where="лагерь" onClose={useGame.getState().openMap}>
+          <Suspense fallback={null}>
+            <CampScreen />
+          </Suspense>
+        </Crash>
+      )}
       {mapOpen && (
         <Crash where="карта" onClose={closeMap}>
           <Suspense fallback={null}>
@@ -379,7 +390,7 @@ export function App() {
           </Suspense>
         </Crash>
       )}
-      {!mapOpen && <Suspense fallback={null}><Hud /></Suspense>}
+      {!mapOpen && !camp && <Suspense fallback={null}><Hud /></Suspense>}
       <Suspense fallback={null}><Alerts /></Suspense>
       {/* Тревоги войны — осада, набеги, свой лагерь — значками справа внизу, над нижней панелью (П-7): её не
           разбирают, из-под неё выходят. На карте столбец стоит внутри её слоя (`WorldMap`), под меню приказов.
@@ -387,8 +398,8 @@ export function App() {
       {/* Кнопка кодов — раньше значков нарочно: по этому порядку стиль и отодвигает
           столбец вверх (`.cheat ~ .nx-signs`), а выключенные коды не рисуют
           ничего, и столбец возвращается на своё место сам. */}
-      {!mapOpen && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
-      {!mapOpen && <Suspense fallback={null}><WarSigns where="city" /></Suspense>}
+      {!mapOpen && !camp && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
+      {!mapOpen && !camp && <Suspense fallback={null}><WarSigns where="city" /></Suspense>}
       <SheetDoor open={sheet !== null} onClose={closeSheet} tall={tallSheet}>
         {shown && (
           <Crash key={JSON.stringify(shown)} where={`шторка ${shown.kind}`} onClose={closeSheet} inline>
@@ -416,7 +427,7 @@ export function App() {
           </Crash>
         </Leave>
       </SheetDoor>
-      {!mapOpen && <Suspense fallback={null}><Nav /></Suspense>}
+      {!mapOpen && !camp && <Suspense fallback={null}><Nav /></Suspense>}
       {/* Меню державы появляется и уходит плавно (`leave.tsx`): закрытое ещё тает, касаний не беря. */}
       <Leave open={!mapOpen && realmOpen}>
         <Crash where="держава" onClose={hideRealm}>

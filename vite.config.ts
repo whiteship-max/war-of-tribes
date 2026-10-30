@@ -375,6 +375,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
       /\/src\/world\/data\/campsite\.ts$/,
     ],
   },
+  {
+    // Лагерь бродяги (ПН-12л): главный экран отряда — 3D-сцена и предметы-кнопки; `App` открывает его только за `roamOn` и в фазе
+    // бродяги, игроку он не грузится.
+    name: 'лагерь бродяги',
+    door: /\/src\/ui\/camp\/CampScreen\.tsx$/,
+    owns: [/\/src\/ui\/camp\//, /\/src\/render\/camp\//],
+  },
 ];
 
 function lazyDoorsPlugin(): Plugin {

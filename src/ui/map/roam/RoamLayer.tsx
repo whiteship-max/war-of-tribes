@@ -26,6 +26,7 @@ import { RoamCamp } from './RoamCamp';
 import { RoamBand } from './RoamBand';
 import { RoamMail } from './RoamMail';
 import { RoamTown } from './RoamTown';
+import { fireLit, openSky } from '@/world/campsite';
 import './roam.css';
 
 /** Что сказать, взяв отряд в руку. */
@@ -50,9 +51,13 @@ export default function RoamLayer() {
   // Окна ПН-6: отряд, город или село у отряда, вести.
   const [pane, setPane] = useState<'band' | 'town' | 'mail' | null>(null);
   const mail = useGame((g) => g.s.inbox.length);
+  const arms = useGame((g) => g.s.profile.arms ?? null);
+  // Картинка лагеря (ПН-12л): ступень по людям, огонь — как в сцене (дождь гасит костры), знамя — гербом профиля.
+  const open = way ? openSky(way, worldNow(), useGame.getState().s.time) : null;
+  const mark = { men, fire: camp ? (open ? fireLit(camp.kind, open.sky) : camp.kind === 'open') : false, arms };
   // Крючок карты читает последнее — без перевешивания на каждую перемену.
-  const live = useRef<{ way: RoamWay | null; camp: RoamCampRec | null; hand: boolean }>({ way, camp, hand });
-  live.current = { way, camp, hand };
+  const live = useRef<{ way: RoamWay | null; camp: RoamCampRec | null; hand: boolean; mark: typeof mark }>({ way, camp, hand, mark });
+  live.current = { way, camp, hand, mark };
 
   useEffect(() => {
     const ask = (c: Coord): void => {
@@ -61,7 +66,7 @@ export default function RoamLayer() {
         .then((p) => (typeof p === 'string' ? showToast(p) : setPlan(p)));
     };
     setRoamHook({
-      paint: (ctx, cam, vp, dpr, now) => paintRoam(ctx, cam, vp, dpr, now, live.current.way, live.current.camp),
+      paint: (ctx, cam, vp, dpr, now) => paintRoam(ctx, cam, vp, dpr, now, live.current.way, live.current.camp, live.current.mark),
       tap: (c) => {
         if (live.current.hand) {
           ask(c);
