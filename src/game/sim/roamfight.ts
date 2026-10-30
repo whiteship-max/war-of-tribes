@@ -29,11 +29,12 @@ import { plunder, HEAD_CARRY } from '@/world/spoils';
 import { LAIR_RUIN, LETTER_TTL } from '@/world/data/tuning';
 import { captivesOf } from '../askrules';
 import { BEATEN_MAX } from './roam';
+import { noteDealFight } from './contracts';
 
 /** Итог боя, который отдаёт мир: кто бился, чем кончилось, кого потеряли. */
 export interface FightOut {
-  /** Засада на дороге или удар по цели. */
-  how: 'ambush' | 'strike';
+  /** Засада на дороге, удар по цели или набег на село договора «Защитить село» (ПН-7: ватага нападает, `id` — номер договора). */
+  how: 'ambush' | 'strike' | 'defend';
   /** Цель удара или ватага засады: номер точки (у засады — пусто), вид словами и имя. */
   id: string;
   name: string;
@@ -111,6 +112,13 @@ export function heirOfPath(s: GameState): string {
  * строкой).
  */
 export function takeFight(s: GameState, f: FightOut): string {
+  const line = layFight(s, f);
+  // Договоры (ПН-7): удар по цели договора выигран или набег на село отбит — исполнен и сдан; набег не отбит — сорван.
+  noteDealFight(s, f);
+  return line;
+}
+
+function layFight(s: GameState, f: FightOut): string {
   const r = s.roam;
   if (!r) return '';
   const fell = minus(r.band, f.lost);
@@ -118,7 +126,8 @@ export function takeFight(s: GameState, f: FightOut): string {
   const hurt = layBandWounds(s, shareOf(f.lost, fell * roamStub('bandWound')));
   noteBattle(s, f.won);
   noteRulerDeed(s, f.won ? 'won' : 'lost');
-  const what = f.how === 'ambush' ? `Засада: ${f.name.toLowerCase()} (~${f.foeMen})` : `Бой: ${f.name} (~${f.foeMen})`;
+  const what =
+    f.how === 'ambush' ? `Засада: ${f.name.toLowerCase()} (~${f.foeMen})` : f.how === 'defend' ? `Набег на ${f.name} (~${f.foeMen})` : `Бой: ${f.name} (~${f.foeMen})`;
   const losses = fell > 0 ? ` Павших ${fell}${hurt > 0 ? `, из них ранены ${hurt}` : ''}.` : ' Без потерь.';
   if (f.won) {
     const fame = movePrestige(s, f.power / roamStub('prestigeS'));

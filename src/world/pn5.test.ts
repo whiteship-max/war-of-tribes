@@ -11,6 +11,7 @@ import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { beginRoam, campGain, foodAfter, setMove, setTrip } from '@/game/sim/roam';
 import { takeFight } from '@/game/sim/roamfight';
+import { failDeal } from '@/game/sim/contracts';
 import { roamStub } from '@/game/roamstubs';
 import { LAIR_RUIN } from './data/tuning';
 import { lairGold } from './lairs';
@@ -51,6 +52,7 @@ function portOf(s: GameState): RoamPort {
     prestige: () => s.prestige,
     setTrip: (t) => setTrip(s, t),
     fight: (f) => takeFight(s, f),
+    failDeal: (id, why) => failDeal(s, id, why),
   };
 }
 

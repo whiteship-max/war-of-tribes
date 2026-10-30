@@ -39,6 +39,7 @@ import { campRest, openSky, rationWeather, weatherMorale, type BandPlace } from 
 import { roamStub } from '../roamstubs';
 import { bandUpkeep } from './bandkeep';
 import { trimLog } from './log';
+import { dealStep, readDeals } from './contracts';
 
 /** Происхождения бродяги (ГДД 3.1): что даёт каждое — ПН-17. */
 export const ROAM_ORIGINS: readonly RoamOrigin[] = ['warrior', 'merchant', 'craftsman', 'taken'];
@@ -171,6 +172,8 @@ export function mergeRoam(saved: unknown): Pick<GameState, 'phase' | 'roam'> {
       })(),
       // ПН-6: рынки вольных городов, хлеб сёл, учения, просящиеся, пленные и очередь книги — целые записи, не больше потолков.
       ...readTown(r),
+      // ПН-7: договоры, долги заказчикам и взятые номера доски — целые записи, не больше потолков.
+      ...readDeals(r),
       ...((): { beaten?: { id: string; until: number }[] } => {
         const list = Array.isArray(r.beaten) ? r.beaten : [];
         const beaten = list
@@ -327,6 +330,8 @@ export function roamStep(s: GameState, dt: number, now?: number): void {
   bandUpkeep(s, dt, unfed);
   // Город (ПН-6): постой и учения найма идут, пока отряд стоит у вольного города или села — по настоящей минуте куска.
   if (now !== undefined) townStep(s, dt, now);
+  // Договоры (ПН-7): служба, разведка и груз — стоя у цели; исполненный — сдаётся, срок вышел — сорван.
+  if (now !== undefined) dealStep(s, dt, now);
   if (Math.floor(s.time / DAY_LENGTH) > dayBefore) trimLog(s);
 }
 

@@ -370,14 +370,31 @@ export type BandOrder =
  *  — `join` — просящиеся: номер прихода на сетке почты (`sim/mail.awayArrival` от сида партии) и сколько взято;
  *  — `hire` — найм у точки (вольный город — общий, село — слово клиента) не быстрее учений казарм 1-го уровня;
  *  — `captives` — пленные дубинщиками после боя хода;
- *  — `promote`, `demote` — повышение и разжалование (дерево — `game/promoterules`); `dismiss` — роспуск.
+ *  — `promote`, `demote` — повышение и разжалование (дерево — `game/promoterules`); `dismiss` — роспуск;
+ *  — договоры НПС (ПН-7, ГДД 3.8): `take` — взят у заказчика в клетке `at` (тир — по ступени престижа), `deal` — сдан с платой и
+ *    престижем (сверка — таблицей наград дел `data/deedgain`), `drop` — сорван или брошен; `take` называет сдачу и срыв ключом взятия.
  */
 export type BandBookOrder =
   | { op: 'join'; key: string; k: number; n: number }
   | { op: 'hire'; key: string; kind: TroopKey; n: number; at: BandCell }
   | { op: 'captives'; key: string; n: number }
   | { op: 'promote' | 'demote'; key: string; from: TroopKey; to: TroopKey; n: number }
-  | { op: 'dismiss'; key: string; kind: TroopKey; n: number };
+  | { op: 'dismiss'; key: string; kind: TroopKey; n: number }
+  | { op: 'take'; key: string; at: BandCell; tier: number }
+  | { op: 'deal'; key: string; take: string; gold: number; fame: number }
+  | { op: 'drop'; key: string; take: string };
+
+/**
+ * Книга договоров отряда на сервере (ПН-7, `netlify/lib/roambook.ts`): взятые и ещё открытые договоры (ключ, тир, клетка заказчика,
+ * привоз), сколько взято у каждой клетки за привоз и что сдано — сколько договоров, платы и престижа сервер подтвердил.
+ */
+export interface RoamDealBook {
+  open: { key: string; tier: number; at: BandCell; w: number }[];
+  took: { at: string; w: number; n: number }[];
+  n: number;
+  gold: number;
+  fame: number;
+}
 
 /**
  * Книга отряда на сервере (ПН-6, решение ВП4; `netlify/lib/roambook.ts`): люди отряда по видам — строй и раненые вместе, — которых
@@ -395,10 +412,12 @@ export interface RoamBookRow {
   grant: number;
   /** Ключи принятых приказов книги — последние `BAND_LIMITS.keys`: повтор не приходит второй раз. */
   keys: string[];
+  /** Книга договоров (ПН-7). Нет поля — договоров у отряда не было. */
+  deals?: RoamDealBook;
 }
 
 /** Потолки чисел приказа отряда. */
-export const BAND_LIMITS = { prestige: 1e9, men: 1e6, keys: 32, key: 64 } as const;
+export const BAND_LIMITS = { prestige: 1e9, men: 1e6, keys: 32, key: 64, gold: 1e9 } as const;
 
 
 /** Разбор приказа отряда: новый объект, мусор — `null` (400). Координаты — целые клетки. */

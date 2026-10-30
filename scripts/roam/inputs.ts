@@ -12,7 +12,6 @@
 // Ни одно число отсюда не идёт в код игры (ГДД, «Как читать числа»): `src/` этот модуль не читает, и это тоже тест.
 // Двери кода — то, что уже есть (жалованье, бой, путь, расселение, рынок), — входами не бывают: разделы зовут их прямо.
 import { ROAM_STUBS, type RoamStubId } from '../../src/game/roamstubs';
-import type { TroopStack } from '../../src/game/battle/kinds';
 import type { Origin } from './kinds';
 
 export type InputKind = 'rule' | 'stub';
@@ -51,20 +50,6 @@ export const INPUTS = {
     per: [3, 5] as const,
     wake: [8, 23] as const,
   }),
-  etalons: rule(
-    '4.3',
-    'эталонные отряды тира: I — 8 копейщиков и 4 дубинщика, II — 12 копейщиков, 8 лучников, 6 топорников, 4 мечника, III — 70 человек составом автопилота',
-    'ПН-7',
-    {
-      tiers: [
-        { spearman: 8, clubman: 4 },
-        { spearman: 12, archer: 8, axeman: 6, swordsman: 4 },
-        { spearman: 28, archer: 21, legionary: 14, rider: 7 },
-      ] as readonly TroopStack[],
-    },
-  ),
-  contracts: rule('3.8.4', 'договоров разом — до 3', 'ПН-7', 3),
-  contractRule: rule('3.8.3', 'плата = содержание эталона × дни × K + мощь × LAIR_GOLD_PER_POWER × R; престиж = мощь / S + тир × 10', 'ПН-7', true),
   npcRule: rule(
     '3.6.2',
     'сила НПС = ровный бой эталонного отряда ступени / 1.1, неподвижной точкой; эталон ступени — отряд автопилота в минуту входа в ступень',
@@ -129,15 +114,8 @@ export const INPUTS = {
       war: 2,
     },
   ] as readonly Origin[]),
-  stageTier: stub('3.9.1', 'высший тир договоров по ступени: I до «Известного», II с него, III с «Грозного»', 'ПН-7', [1, 1, 2, 3, 3] as readonly number[]),
-  board: stub('3.8.1', 'договоров на доске за заход', 'ПН-7', 5, false),
-  contractK: stub('4.3', 'множитель вида договора K', 'ПН-7', 1.6),
-  contractR: stub('3.8.3', 'доля риска R в плате договора', 'ПН-7', 1, false),
-  contractTerm: stub('3.8.2', 'срок договора «сжечь логово» — путь × 2 + 4 игр. дн.', 'ПН-7', { roads: 2, days: 4 }),
-  foodGold: stub('4.3', 'еда в содержании эталона — по 3 золота', 'ПН-7', 3),
   // До вольного замка — с ПН-3 дверями: место выхода (`world/roam.placeBand`) и путь отряда (`roamWalkMs`) до ближайшего замка пула.
-  // До дела — точки НПС (ПН-5): их на карте ещё нет, и дорога до дела — путь отряда той же дверью на брошенное расстояние.
-  reach: stub('3.6.2', 'клеток до дела — точки НПС на карте придут с ПН-5', 'ПН-5', { deed: [5, 25] as const }, false),
+  // До дела — с ПН-7 доской договоров (`world/dealboard`): дорога от города заказчика к цели.
   foodMix: stub('3.3.4', 'откуда бродяга берёт еду сверх фуража: доля села, остальное — рынок города', 'ПН-5', 0.7, false),
   castleTiers: stub('3.11.1', 'ступени вольных замков: гарнизон — строка таблицы у ворот уровня 2, 4, 6; население; доступ по престижу', 'ПН-10', [
     { name: 'Усадьба с башней', level: 2, pop: 30, prestige: 150 },
@@ -193,6 +171,13 @@ export const INPUTS = {
   boardFee: fromGame('boardFee'),
   townMarket: fromGame('townMarket'),
   townYard: fromGame('townYard'),
+  // ПН-7: договоры НПС — доска, дальность, сроки, груз; плата и K, R — двери игры (`contractrules`, `data/contracts`).
+  boardSize: fromGame('boardSize'),
+  dealReach: fromGame('dealReach'),
+  dealRoads: fromGame('dealRoads'),
+  dealDays: fromGame('dealDays'),
+  dealStand: fromGame('dealStand'),
+  dealCargo: fromGame('dealCargo'),
 } satisfies Record<string, Input>;
 
 export type InputId = keyof typeof INPUTS;

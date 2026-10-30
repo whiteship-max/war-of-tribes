@@ -11,6 +11,7 @@ import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { beginRoam, campGain, foodAfter, roamStep, setMove, setTrip } from '@/game/sim/roam';
 import { takeFight } from '@/game/sim/roamfight';
+import { failDeal } from '@/game/sim/contracts';
 import { bandSpiritIn } from '@/game/sim/bandspirit';
 import { spiritOfIn } from '@/game/spiritrules';
 import { bandRationPerDay, campSpirit, forageShare } from '@/game/roamrules';
@@ -306,6 +307,7 @@ describe('окно «Встать лагерем» — то же, что счи�
     prestige: () => s.prestige,
     setTrip: (t) => setTrip(s, t),
     fight: (f) => takeFight(s, f),
+    failDeal: (id, why) => failDeal(s, id, why),
   });
 
   it('место, погода и польза каждого вида — числами тех же дверей, что шаг отряда', async () => {

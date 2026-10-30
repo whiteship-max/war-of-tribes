@@ -57,6 +57,10 @@ import { SIGHT } from '../../src/world/data/sight';
 import { fogMult } from '../../src/world/sight';
 import { SPELL_DAYS, fogMorning, weatherAt } from '../../src/world/weather';
 import { campSample, deriveWildMean } from './camp';
+import { DEAL_DEFS, DEAL_K, DEAL_KINDS, DEAL_R, ETALONS } from '../../src/game/data/contracts';
+import { advanceShare, etalonUpkeep, roadCapDays, termWords, tierWord } from '../../src/game/contractrules';
+import { termsOf } from '../../src/game/sim/contracts';
+import { FIGHTS_PER, KEEP_MARGIN, SHIFTS, dealSample, deriveDealKR } from './deals';
 
 const pad = (v: string | number, n: number): string => String(v).padStart(n);
 const padEnd = (v: string | number, n: number): string => String(v).padEnd(n);
@@ -98,23 +102,27 @@ const LIMIT_DAYS = 14;
 /** Входы автопилота пути: все, что читают `knobsOf` и происхождения, — раздел, берущий его партии, объявляет их все. */
 export const PILOT: readonly InputId[] = [
   'sessions',
-  'etalons',
-  'contractRule',
   'npcRule',
   'origins',
   'stages',
-  'stageTier',
   'prestigeS',
-  'contractK',
-  'contractR',
-  'contractTerm',
   // Сила НПС, встречи и поражение (ПН-5) — двери игры `world/roamfoes`, `world/encounter` на заглушках игры тем же числом.
   'foeTable',
   'foeShare',
   'foeRipe',
   'ambushBase',
   'ambushCap',
-  'reach',
+  // Договоры (ПН-7) — доска `world/dealboard` и условия `contractrules` на заглушках игры: доска, дальность, сроки, груз; точки мира.
+  'boardSize',
+  'dealReach',
+  'dealRoads',
+  'dealDays',
+  'dealStand',
+  'dealCargo',
+  'townBlock',
+  'townTier',
+  'villageBlock',
+  'vatagaBlock',
   // Просящиеся (ПН-6) — дверь игры `askrules` на заглушках игры тем же числом; сетка прихода — почта (`mailgrid`).
   'askBase',
   'askCamp',
@@ -128,8 +136,6 @@ export const PILOT: readonly InputId[] = [
   'defeatPurse',
   'defeatPrestige',
   'castleTiers',
-  'board',
-  'contracts',
   // Мир дороги (`placeAll`): пул замков, место выхода дверью ПН-3 и его заглушка (зазор; руины — вывод ПН-4у); фураж лагеря стиля — дверью.
   'pool',
   'spawnGap',
@@ -147,24 +153,17 @@ function roadWorld(ctx: Pick<Ctx, 'use'>): Pick<PathKnobs, 'spawns' | 'castleRoa
 }
 
 export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
-  ctx.use('contractRule');
   const tiers = ctx.use('castleTiers');
   const stages = ctx.use('stages');
-  // Содержание эталона в плате договора — хлебом по цене села (ПН-6: дверь `townrules.villageFoodPrice`), а не ориентиром «еда по 3»:
-  // отряд кормится по этой цене, и плата, считанная по другой, разошлась бы с его расходом (находка прогона ПН-6, ГДД 18).
-  const food = villageFoodPrice();
+  // Договоры (ПН-7) — двери игры: доска (`world/dealboard`) и условия (`contractrules`); их заглушки автопилот объявляет (`PILOT`), а
+  // читает дверью — сторож чтений держит, что объявлено всё прочитанное.
+  for (const id of ['boardSize', 'dealReach', 'dealRoads', 'dealDays', 'dealStand', 'dealCargo', 'townBlock', 'townTier', 'villageBlock', 'vatagaBlock'] as const) ctx.use(id);
   return {
     sessions: ctx.use('sessions'),
     stages,
-    stageTier: ctx.use('stageTier'),
     S: ctx.use('prestigeS'),
-    K: ctx.use('contractK'),
-    R: ctx.use('contractR'),
-    term: ctx.use('contractTerm'),
-    etalonUpkeep: ctx.use('etalons').tiers.map((t) => wagesOf(t) + rationOf(t) * food),
     foeShare: ctx.use('foeShare'),
     foeRipe: ctx.use('foeRipe'),
-    reach: ctx.use('reach'),
     ...roadWorld(ctx),
     foodMix: ctx.use('foodMix'),
     // Хлеб села и рынок города — двери игры (ПН-6): цена села `townrules.villageFoodPrice`, рынок города 1-го уровня — `marketrules`.
@@ -181,8 +180,6 @@ export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
     // Повышение и найм — двери игры (ПН-6): разность полных цен по основе рынка (`promoterules`), найм по основе (`townrules.hireBase`).
     upgrade: promoteUnit,
     hire: hireBase,
-    board: ctx.use('board'),
-    contracts: ctx.use('contracts'),
     limitDays: LIMIT_DAYS,
   };
 }
@@ -213,8 +210,8 @@ const pay: Section = {
   id: 'pay',
   title: 'Содержание эталонов тира',
   gdd: '4.3, 3.3.2',
-  doors: ['roamrules.bandWagesPerDay', 'roamrules.bandRationPerDay', 'price.powerOf', 'build.soldierFoodPerDay', 'pace.dayRealSeconds'],
-  uses: ['etalons'],
+  doors: ['roamrules.bandWagesPerDay', 'roamrules.bandRationPerDay', 'price.powerOf', 'build.soldierFoodPerDay', 'pace.dayRealSeconds', 'data/contracts.ETALONS'],
+  uses: [],
   run(ctx) {
     ctx.line(`игровых дней в настоящих сутках — ${dayGame()}; паёк бойца — ${soldierFoodPerDay(1, 1)} еды за игр. день (TEST_ARMY_FOOD = ${TEST_ARMY_FOOD})`);
     ctx.line(`${padEnd('вид', 16)} ${pad('жалованье', 10)} ${pad('паёк', 6)} ${pad('мощь', 6)}   (за игровой день, на голову)`);
@@ -225,7 +222,7 @@ const pay: Section = {
     ctx.line(
       `${padEnd('тир', 4)} ${pad('людей', 6)} ${pad('мощь', 7)} ${pad('жалованье/игр.дн', 17)} ${pad('еда/игр.дн', 11)} ${pad('жалованье/сут', 14)} ${pad('еда/сут', 9)}`,
     );
-    ctx.use('etalons').tiers.forEach((t, i) => {
+    ETALONS.forEach((t, i) => {
       const w = wagesOf(t);
       const f = rationOf(t);
       ctx.line(
@@ -341,8 +338,9 @@ const rate: Section = {
     'townrules.villageStock',
     'price.baseWage',
     'build.soldierFoodPerDay',
+    'data/contracts.ETALONS',
   ],
-  uses: ['etalons'],
+  uses: [],
   run(ctx) {
     ctx.line('золота за единицу: своим трудом (цена мощи вида и склада), основа рынка, рынок города 1-го и 5-го уровня (привоз 12:00 UTC)');
     ctx.line(`${padEnd('припас', 10)} ${pad('свой труд', 10)} ${pad('основа', 7)} ${pad('город 1', 8)} ${pad('город 5', 8)}`);
@@ -370,7 +368,7 @@ const rate: Section = {
     ctx.line('');
     ctx.line('содержание эталона тира за игровой день, золотом: жалованье + еда по курсу; доля еды в содержании');
     ctx.line(`${padEnd('тир', 4)} ${pad('жалованье', 10)} ${rates.map(([n]) => pad(n, 16)).join('')}`);
-    ctx.use('etalons').tiers.forEach((t, i) => {
+    ETALONS.forEach((t, i) => {
       const w = wagesOf(t);
       const f = rationOf(t);
       ctx.line(
@@ -437,39 +435,54 @@ const contract: Section = {
   id: 'contract',
   title: 'Плата договоров по эталону',
   gdd: '3.8.3, 4.3, 3.8.2',
-  doors: ['price.baseWage', 'build.soldierFoodPerDay', 'tuning.LAIR_GOLD_PER_POWER', 'price.troopPower', 'geo.travelTime'],
-  uses: ['etalons', 'contractRule', 'contractK', 'contractR', 'contractTerm', 'foodGold'],
+  doors: ['contractrules.contractTerms', 'contractrules.etalonUpkeep', 'data/contracts (K, R — вывод раздела «Договоры: K и R видов»)', 'world/dealboard.boardsAt', 'world/roam.roamWalkMs'],
+  uses: ['dealRoads', 'dealDays', 'dealStand', 'dealReach', 'dealCargo', 'boardSize', 'stages', 'foeTable', 'foeShare', 'foeRipe', 'townBlock', 'townTier', 'villageBlock', 'vatagaBlock'],
   run(ctx) {
-    ctx.use('contractRule');
-    const K = ctx.use('contractK');
-    const R = ctx.use('contractR');
-    const term = ctx.use('contractTerm');
-    const food3 = ctx.use('foodGold');
-    const village = villageFoodPrice();
-    ctx.line(`K = ${K}, R = ${R}, LAIR_GOLD_PER_POWER = ${LAIR_GOLD_PER_POWER}; срок «сжечь логово» — путь × ${term.roads} + ${term.days} игр. дн.`);
-    ctx.line(
-      `${padEnd('тир', 4)} ${pad('содерж. (еда 3)', 16)} ${pad('плата 10 дн.', 13)} ${pad('содерж. (село)', 15)} ${pad('плата 10 дн.', 13)}   без риска`,
-    );
-    const tiers = ctx.use('etalons').tiers;
-    tiers.forEach((t, i) => {
-      const a = wagesOf(t) + rationOf(t) * food3;
-      const b = wagesOf(t) + rationOf(t) * village;
-      ctx.line(
-        `${padEnd(['I', 'II', 'III'][i], 4)} ${pad(fix(a, 1), 16)} ${pad(Math.round(a * 10 * K), 13)} ${pad(fix(b, 1), 15)} ${pad(Math.round(b * 10 * K), 13)}`,
-      );
-    });
+    ctx.line(`содержание эталона тира за игр. день (хлеб по цене села ${fix(villageFoodPrice(), 2)}): ${([1, 2, 3] as const).map((t) => `${tierWord(t)} ${fix(etalonUpkeep(t), 1)}`).join(' · ')}`);
+    ctx.line(`потолок дороги в плате — ${fix(roadCapDays(), 1)} игр. дн. (два радиуса доски, ${ctx.use('dealReach').target} клеток); аванс при Дипломатии 1 — ${pct(advanceShare(1))}, неустойка — аванс × 1.5, отказ — половина`);
     ctx.line('');
-    ctx.line('«сжечь логово» эталоном тира, противник — мощью эталона (обычный марш): срок, настоящих часов, и плата с риском');
-    for (const d of [10, 25]) {
-      const termDays = term.roads * roadHours(d, 'normal') * (dayGame() / 24) + term.days;
-      tiers.forEach((t, i) => {
-        const up = wagesOf(t) + rationOf(t) * food3;
-        const gold = up * termDays * K + troopPower(t) * LAIR_GOLD_PER_POWER * R;
+    ctx.line('выборка досок у мест Сицилии (раздел «Договоры: K и R видов»): медианы по виду и тиру — срок, плата, аванс, неустойка, престиж');
+    ctx.line(`${padEnd('вид', 20)} ${padEnd('тир', 4)} ${pad('n', 5)} ${pad('срок', 14)} ${pad('плата', 7)} ${pad('аванс', 6)} ${pad('неуст.', 7)} ${pad('престиж', 8)}`);
+    const sample = dealSample();
+    for (const kind of DEAL_KINDS) {
+      for (const t of [1, 2, 3] as const) {
+        const list = sample.offers.filter((o) => o.kind === kind && o.tier === t).map((o) => termsOf(o));
+        if (list.length === 0) continue;
+        const m = (f: (x: (typeof list)[number]) => number): number => median(list.map(f));
         ctx.line(
-          `  ${pad(d, 2)} клеток, тир ${padEnd(['I', 'II', 'III'][i], 3)}: срок ${fix(termDays, 1)} игр. дн. (${hrs((termDays * 24) / dayGame())}), плата ${Math.round(gold)}`,
+          `${padEnd(DEAL_DEFS[kind].name, 20)} ${padEnd(tierWord(t), 4)} ${pad(list.length, 5)} ${pad(`${fix(m((x) => x.days), 1)} (${termWords(m((x) => x.days))})`, 14)} ${pad(Math.round(m((x) => x.pay)), 7)} ${pad(Math.round(m((x) => x.advance)), 6)} ${pad(Math.round(m((x) => x.penalty)), 7)} ${pad(Math.round(m((x) => x.fame)), 8)}`,
         );
-      });
+      }
     }
+    ctx.line('');
+    ctx.line('против таблицы ГДД 4.3 (плата за 10 игр. дн. при K = 1.6, без риска, «еда по 3»: I ≈ 950, II ≈ 2 670) — тем же содержанием эталона:');
+    for (const t of [1, 2, 3] as const) ctx.line(`  тир ${padEnd(tierWord(t), 3)}: 10 игр. дн. содержания — ${Math.round(etalonUpkeep(t) * 10)}, × K «Сжечь логово» ${DEAL_K.lair} — ${Math.round(etalonUpkeep(t) * 10 * DEAL_K.lair)}`);
+  },
+};
+
+const deals: Section = {
+  id: 'deals',
+  title: 'Договоры: K и R видов',
+  gdd: '3.8.3, 3.8.2',
+  doors: ['world/dealboard.boardsAt', 'contractrules.dealDays', 'world/encounter.strikeFight, ambushFight, ambushChance', 'townrules.hireBase', 'world/gen (логова)', 'world/spawn.SICILY'],
+  uses: ['sessions', 'dealRoads', 'dealDays', 'dealStand', 'dealReach', 'dealCargo', 'boardSize', 'stages', 'foeTable', 'foeShare', 'foeRipe', 'ambushBase', 'ambushCap', 'townBlock', 'townTier', 'villageBlock', 'vatagaBlock'],
+  run(ctx) {
+    const sessions = ctx.use('sessions');
+    ctx.line(`цели (ГДД 20.2): Д1 — эталон тира, живущий договорами вида по одному, покрывает содержание с запасом ${pct(KEEP_MARGIN)} за цикл (дорога, стоянка, ожидание захода: ${sessions.per[0]}–${sessions.per[1]} заходов в часы ${sessions.wake[0]}–${sessions.wake[1]}); K = ${1 + KEEP_MARGIN} × Σцикл / Σсрок`);
+    ctx.line(`  Д2 — доля риска возмещает людей эталона, павших в боях договора (бой с целью; засады на дорогах — шансом двери встреч), по цене найма по основе; R = Σпотерь / Σ(мощь × ${LAIR_GOLD_PER_POWER})`);
+    const sample = dealSample();
+    ctx.line(`выборка: ${SICILY.length} мест Сицилии × ${SHIFTS} привозов × тиры I–III — предложений ${sample.offers.length}; боёв на вид и тир — до ${FIGHTS_PER}`);
+    const out = deriveDealKR(sample, sessions);
+    ctx.line(`${padEnd('вид', 20)} ${pad('n', 5)} ${pad('срок', 7)} ${pad('занят', 7)} ${pad('цикл', 7)} ${pad('K', 6)} ${pad('боёв', 5)} ${pad('потери', 8)} ${pad('R', 7)}   записано K, R`);
+    let same = true;
+    for (const r of out.rows) {
+      const ok = DEAL_K[r.kind] === r.K && DEAL_R[r.kind] === r.R;
+      same &&= ok;
+      ctx.line(
+        `${padEnd(DEAL_DEFS[r.kind].name, 20)} ${pad(r.n, 5)} ${pad(fix(r.term, 1), 7)} ${pad(fix(r.busy, 1), 7)} ${pad(fix(r.cycle, 1), 7)} ${pad(fix(r.K), 6)} ${pad(r.fights, 5)} ${pad(Math.round(r.loss), 8)} ${pad(fix(r.R), 7)}   ${fix(DEAL_K[r.kind])}, ${fix(DEAL_R[r.kind])}${ok ? '' : ' — РАЗОШЛОСЬ'}`,
+      );
+    }
+    ctx.line(`таблица игры (game/data/contracts.DEAL_K, DEAL_R): ${same ? 'совпадает с выведенной' : 'РАЗОШЛАСЬ с выведенной — перенести выведенное'}`);
   },
 };
 
@@ -590,7 +603,7 @@ const castle: Section = {
   run(ctx) {
     const p = ctx.take<Pilot>('pilot');
     ctx.line(
-      `${padEnd('стиль', 11)} ${padEnd('происхождение', 14)} ${pad('дошли', 7)} ${pad('медиана', 12)} ${pad('быстрее всех', 13)} ${pad('дел', 5)} ${pad('побед', 6)} ${pad('ушло', 5)} ${pad('пришло', 7)}`,
+      `${padEnd('стиль', 11)} ${padEnd('происхождение', 14)} ${pad('дошли', 7)} ${pad('медиана', 12)} ${pad('быстрее всех', 13)} ${pad('дел', 5)} ${pad('побед', 6)} ${pad('сорвано', 8)} ${pad('договоры', 9)} ${pad('штурмов', 8)} ${pad('ушло', 5)} ${pad('пришло', 7)}`,
     );
     for (const st of STYLES) {
       for (const o of p.origins) {
@@ -598,7 +611,7 @@ const castle: Section = {
         const at = rs.map((r) => r.castleAt ?? Infinity);
         const n = at.filter(Number.isFinite).length;
         ctx.line(
-          `${padEnd(st.name, 11)} ${padEnd(o.name, 14)} ${pad(`${n}/${rs.length}`, 7)} ${pad(days(median(at)), 12)} ${pad(days(Math.min(...at)), 13)} ${pad(Math.round(median(rs.map((r) => r.deeds))), 5)} ${pad(Math.round(median(rs.map((r) => r.wins))), 6)} ${pad(Math.round(median(rs.map((r) => r.deserted))), 5)} ${pad(Math.round(median(rs.map((r) => r.recruited))), 7)}`,
+          `${padEnd(st.name, 11)} ${padEnd(o.name, 14)} ${pad(`${n}/${rs.length}`, 7)} ${pad(days(median(at)), 12)} ${pad(days(Math.min(...at)), 13)} ${pad(Math.round(median(rs.map((r) => r.deeds))), 5)} ${pad(Math.round(median(rs.map((r) => r.wins))), 6)} ${pad(Math.round(median(rs.map((r) => r.failed))), 8)} ${pad(Math.round(median(rs.map((r) => r.earned))), 9)} ${pad(rs.reduce((n, r) => n + r.storms, 0), 8)} ${pad(Math.round(median(rs.map((r) => r.deserted))), 5)} ${pad(Math.round(median(rs.map((r) => r.recruited))), 7)}`,
         );
       }
     }
@@ -919,7 +932,7 @@ const people: Section = {
     'gemrules.healPriceOfLeft, healFullSeconds',
     'roambook.captivesCapNow',
   ],
-  uses: ['askBase', 'askCamp', 'askWinter', 'askSpirit', 'askFeed', 'captiveShare', 'boardFee', 'townMarket', 'townYard', 'foeTable', 'foeShare', 'foeRipe', 'etalons'],
+  uses: ['askBase', 'askCamp', 'askWinter', 'askSpirit', 'askFeed', 'captiveShare', 'boardFee', 'townMarket', 'townYard', 'foeTable', 'foeShare', 'foeRipe'],
   run(ctx) {
     // Просящиеся (3.4.1): по ступени престижа — края базы при доле 0 и 1 (у прихода доля — хешем сида), лагерь, зима, дух.
     ctx.line('«Просятся в отряд» — дубинщиков в приход (края базы × лагерь), лето, мораль 60:');
@@ -940,7 +953,7 @@ const people: Section = {
     ctx.line(`пленные (3.4.5): доля уцелевших врагов ${ctx.use('captiveShare')} — из 20 уцелевших ${captivesOf(20)}, из 60 — ${captivesOf(60)}`);
     ctx.line('');
     const fee = ctx.use('boardFee');
-    ctx.line(`постой (4.2): ${fee} золота за голову и игр. день; эталоны тира I…III за игр. день: ${ctx.use('etalons').tiers.map((t) => fix(boardDue(total(t), DAY_LENGTH), 1)).join(' · ')}`);
+    ctx.line(`постой (4.2): ${fee} золота за голову и игр. день; эталоны тира I…III за игр. день: ${ETALONS.map((t) => fix(boardDue(total(t), DAY_LENGTH), 1)).join(' · ')}`);
     ctx.line(`вольный город I…III: уровень рынка ${ctx.use('townMarket').join(' · ')}, уровень дворов ${ctx.use('townYard').join(' · ')}`);
     ctx.line('');
     ctx.line('заработки (3.7.7): золота за игру при полном счёте, по ступени города (энергия — четыре игры в сутки):');
@@ -1099,4 +1112,4 @@ const placeSpirit: Section = {
   },
 };
 
-export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, foes, prestige, castle, parity, pool, meet, sight, people];
+export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, deals, foes, prestige, castle, parity, pool, meet, sight, people];

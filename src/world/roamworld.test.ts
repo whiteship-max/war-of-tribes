@@ -15,6 +15,7 @@ import { cargoCap } from '@/game/sim/roam';
 import { HOME_ID, LocalWorld } from './local/LocalWorld';
 import { NO_SEAT, RoamWorld, type RoamPort } from './local/RoamWorld';
 import { takeFight } from '@/game/sim/roamfight';
+import { failDeal } from '@/game/sim/contracts';
 import { SICILY, inSicilyTheatre } from './spawn';
 import { settleable, type Spot } from './land';
 import { roamCell, roamGo, roamSeat, roamWhere, type RoamMove } from './roam';
@@ -48,6 +49,7 @@ function portOf(s: GameState, order?: RoamPort['order']): RoamPort {
     prestige: () => s.prestige,
     setTrip: (t) => setTrip(s, t),
     fight: (f) => takeFight(s, f),
+    failDeal: (id, why) => failDeal(s, id, why),
     ...(order ? { order } : {}),
   };
 }

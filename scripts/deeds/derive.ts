@@ -12,7 +12,10 @@
 //    размер посёлка (`eventKit.scale` — так их считают сами вести);
 //  · задания — наибольшая награда по видам (постоянная часть); ежедневка — база награды на размер посёлка;
 //  · бой — груз бойца и уводимые на бойца (`world/data/units`), промысел — доля дневной выработки за игру, лавка — лот,
-//    караван — привоз.
+//    караван — привоз;
+//  · договор НПС бродяги (ПН-7) — наибольшая плата одного договора тира (`game/contractrules.contractTerms`): каждый вид тира, дорога
+//    — потолок платы (`roadCapDays`), стоянка — верхний край, сила противника — высшая ступень тира при полной спелости; престиж —
+//    тир × 10. По ней книга отряда сервера сверяет сдачу договора.
 import { createInitialState } from '@/game/state';
 import { RESOURCE_IDS, START_POP } from '@/game/constants';
 import { buildingOfType, maxLevelFor, storageCap } from '@/game/derived';
@@ -34,6 +37,11 @@ import { UNITS } from '@/world/data/units';
 import { TRADE_GOLD_PER_SETTLEMENT } from '@/world/data/tuning';
 import { generateWorld } from '@/world/gen';
 import { DEED_MARGIN, type DeedTable, type Row } from '@/game/data/deedgain';
+import { DEAL_DEFS, DEAL_KINDS, type DealTier } from '@/game/data/contracts';
+import { FAME_PER_TIER, contractTerms, roadCapDays, stageTier } from '@/game/contractrules';
+import { roamStub } from '@/game/roamstubs';
+import { realMs } from '@/game/pace';
+import { DAY_LENGTH } from '@/game/constants';
 
 /** Виды склада и казна — ключи таблицы. */
 export const KEYS: readonly string[] = [...RESOURCE_IDS, 'gold'];
@@ -179,6 +187,33 @@ export function pactGoldMax(): number {
   return Math.round(TRADE_GOLD_PER_SETTLEMENT * Math.max(1, most));
 }
 
+/**
+ * Договор НПС (ПН-7): наибольшая плата и престиж одного договора тира — дверью условий `contractTerms`. Каждый вид, который тир даёт;
+ * дорога — потолок платы (дальше двух радиусов доски плата не растёт); стоянка — верхний край заглушки; сила противника — высшая
+ * ступень этого тира, вид — самая большая доля, полная спелость.
+ */
+export function dealMax(): { gold: number[]; fame: number[] } {
+  const table = roamStub('foeTable');
+  const share = Math.max(...Object.values(roamStub('foeShare')));
+  const ripe = Math.max(...roamStub('foeRipe'));
+  const stand = roamStub('dealStand');
+  const road = realMs(roadCapDays() * DAY_LENGTH) + 1;
+  const gold: number[] = [];
+  const fame: number[] = [];
+  for (const tier of [1, 2, 3] as DealTier[]) {
+    const power = Math.max(0, ...table.filter((_, st) => stageTier(st) === tier)) * share * ripe;
+    let most = 0;
+    for (const kind of DEAL_KINDS) {
+      if (DEAL_DEFS[kind].tier > tier) continue;
+      const days = kind === 'defend' ? stand.defendHi : kind === 'garrison' ? stand.garrisonHi : 0;
+      most = Math.max(most, contractTerms({ kind, tier, power, roadMs: road, stand: days }).pay);
+    }
+    gold.push(most);
+    fame.push(tier * FAME_PER_TIER);
+  }
+  return { gold, fame };
+}
+
 /** С запасом: ×`DEED_MARGIN`, вверх до целого (доли — до сотых). */
 const up = (n: number, frac = false): number => (frac ? Math.ceil(n * DEED_MARGIN * 100) / 100 : Math.ceil(n * DEED_MARGIN));
 
@@ -207,6 +242,7 @@ export function deriveDeedTable(): DeedTable {
     shop: up(SHOP_LOT),
     caravan: Object.fromEntries(KEYS.map((k) => [k, up(caravanMax()[k] ?? 0)])),
     windfall: { carry: up(Math.max(...UNITS.map((u) => u.carry))), gold: up(pactGoldMax()) },
+    deal: ((d) => ({ gold: d.gold.map((g) => up(g)), fame: d.fame.map((f) => up(f)) }))(dealMax()),
   };
 }
 
@@ -254,6 +290,11 @@ export interface DeedTable {
    * сервера, не таблицей.
    */
   windfall: { carry: number; gold: number };
+  /**
+   * Договор НПС бродяги (ПН-7): наибольшая плата и престиж одного договора по тирам I…III — потолок сдачи договора в книге отряда
+   * сервера (\`roambook\`).
+   */
+  deal: { gold: number[]; fame: number[] };
 }
 
 export const DEED_TABLE: DeedTable = {
@@ -265,6 +306,7 @@ export const DEED_TABLE: DeedTable = {
   shop: ${t.shop},
   caravan: ${counts(t.caravan)},
   windfall: { carry: ${t.windfall.carry}, gold: ${t.windfall.gold} },
+  deal: { gold: [${t.deal.gold.join(', ')}], fame: [${t.deal.fame.join(', ')}] },
 };
 `;
 }

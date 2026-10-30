@@ -9,6 +9,7 @@
 import { useGame } from '@/game/store';
 import { setMove, setTrip, foodAfter, campGain } from '@/game/sim/roam';
 import { takeFight } from '@/game/sim/roamfight';
+import { failDeal } from '@/game/sim/contracts';
 import { roamOn } from '@/game/roamflag';
 import { partyNow } from '@/net/clock';
 import { castles, rosterReady } from '@/net/roster';
@@ -46,6 +47,14 @@ export function roamPort(): RoamPort {
       });
       if (line) useGame.getState().showToast(line);
       return line;
+    },
+    failDeal: (id, why) => {
+      let line = '';
+      useGame.getState().world((st) => {
+        failDeal(st, id, why);
+        line = st.log[0]?.text ?? '';
+      });
+      if (line) useGame.getState().showToast(line);
     },
     ...(online ? { order: bandOrder } : {}),
   };

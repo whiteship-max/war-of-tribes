@@ -38,6 +38,7 @@ import { CASTLE_EYE, bandLook, conspicuity, detectRange } from '../sight';
 import { campFaces, campGround, fireLit, openSky, siteAt, siteWords, skyLine, type BandPlace } from '../campsite';
 import { dayPartAt } from '@/game/derived';
 import type { CampGain } from '@/game/sim/roam';
+import { boardsAt, type DealBoard, type DealPlace } from '../dealboard';
 
 /** Дверь мира бродяги к партии и серверу — её даёт стор. */
 export interface RoamPort {
@@ -60,6 +61,8 @@ export interface RoamPort {
   setTrip(t: RoamTrip | null): void;
   /** Положить итог боя (`sim/roamfight.takeFight`) и сказать о нём; вернёт строку летописи. */
   fight(f: FightOut): string;
+  /** Договор сорван (ПН-7, `sim/contracts.failDeal`): набег на село пришёл, а отряда у села не было. */
+  failDeal(id: string, why: string): void;
   /** Приказ серверу (реестр, `net/bandroster.bandOrder`) — в Telegram; нет — мир применяет правило сам. */
   order?: (o: BandOrder) => Promise<BandRow | string>;
 }
@@ -164,6 +167,7 @@ export class RoamWorld extends LocalWorld {
     const now = this.clock();
     this.walkFog(now);
     this.settleTrip(now);
+    this.settleDeals(now);
     return { now, marches: [], figures: [], reports: [], effects: [], siege: null, faith: this.faithView(profile.faith ?? null), unread: 0 };
   }
 
@@ -259,8 +263,9 @@ export class RoamWorld extends LocalWorld {
     const m = this.move();
     if (!m) return NO_SEAT;
     const now = this.clock();
-    // Встречи прежнего хода, чья минута прошла, — до того, как ход сменится.
+    // Встречи прежнего хода и набеги на сёла договоров, чья минута прошла, — до того, как ход сменится.
     this.settleTrip(now);
+    this.settleDeals(now);
     const next = roamGo(m, to, gait, now);
     if (typeof next === 'string') return next;
     // Удар по цели (ПН-5): только логово и ватага, и не раненым героем; сила — та, что показало окно (престиж той же минуты).
@@ -313,6 +318,45 @@ export class RoamWorld extends LocalWorld {
     };
   }
 
+  /**
+   * Набеги на сёла договоров «Защитить село» (ПН-7, ГДД 3.8.2), чья минута пришла: стоял отряд у села в минуту набега (не в пути, в его
+   * клетке или соседней) — бой у ворот (ватага нападает, `encounter.ambushFight`, итог — `takeFight`, договор отмечает дверь договоров);
+   * не стоял — договор сорван. Каждый набег — один раз: договор после него снят. Зовут пульс мира и новый приказ.
+   */
+  private settleDeals(now: number): void {
+    const r = this.port.band();
+    if (!r?.deals || !r.way) return;
+    for (const d of r.deals) {
+      if (d.kind !== 'defend' || d.due === undefined || now < d.due) continue;
+      const at = roamCell(r.way, d.due);
+      const stood = !roamMoving(r.way, d.due) && Math.max(Math.abs(at.x - d.target.x), Math.abs(at.y - d.target.y)) <= 1;
+      const band = { ...(this.port.band()?.band ?? {}) };
+      if (!stood || troopTotal(band) <= 0) {
+        this.port.failDeal(d.id, 'набег пришёл, а отряда у села не было');
+        continue;
+      }
+      const seed = (Math.imul(this.save.seed | 0, 29) ^ d.due) >>> 0;
+      const f = ambushFight(d.power, band, d.target, seed);
+      this.port.fight({ how: 'defend', id: d.id, name: d.target.name, power: d.power, foeMen: f.foeMen, foeLoss: f.foeLoss, won: f.won, lost: f.lost, seed, at: d.due });
+    }
+  }
+
+  /** Живые логова мира для доски договоров (ПН-7): своё логово мира бродяги, не пепелище. */
+  private lairPlaces(now: number): DealPlace[] {
+    const out: DealPlace[] = [];
+    for (const st of this.byId.values()) if (isLair(st) && !this.beaten(st.id, now)) out.push({ id: st.id, x: st.x, y: st.y, name: st.name });
+    return out;
+  }
+
+  async roamBoards(): Promise<DealBoard[]> {
+    const m = this.move();
+    if (!m) return [];
+    const now = this.clock();
+    if (roamMoving(m.way, now)) return [];
+    const c = roamCell(m.way, now);
+    return boardsAt(this.save.seed, c, now, this.port.prestige(), { lairs: this.lairPlaces(now), beaten: (id) => this.beaten(id, now) });
+  }
+
   async roamHere(): Promise<RoamPoint | null> {
     const m = this.move();
     if (!m) return null;
@@ -337,6 +381,7 @@ export class RoamWorld extends LocalWorld {
     if (!m || !r) return NO_SEAT;
     const now = this.clock();
     this.settleTrip(now);
+    this.settleDeals(now);
     const men = troopTotal(r.band);
     const next = roamCamp(m, kind, men, now);
     if (typeof next === 'string') return next;

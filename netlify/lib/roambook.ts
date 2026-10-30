@@ -18,10 +18,17 @@
  * **Расход** — бой, уход, голод, роспуск: отметка отряда (`seat`) называет людей по видам; меньше книги — книга опускается (убыль
  * игрок не подделывает себе на пользу: назвавший меньше теряет людей и у сервера). **Больше книги — флаг** «внимание:», книга не растёт.
  *
+ * **Договоры НПС** (ПН-7, ГДД 3.8): взятие (`take`) — отряд стоит у заказчика (клетка или соседняя — та же мерка, что найм), не больше
+ * `CONTRACTS_MAX` открытых разом и не больше, чем доска одной клетки даёт за привоз (`boardSize` города и два вида кастеляна); сдача
+ * (`deal`) — только взятого, плата и престиж — не выше строки таблицы наград дел тира (`data/deedgain.DEED_TABLE.deal`, вывод
+ * `scripts/deeds` из `game/contractrules`): сверх — срезано и флаг; срыв (`drop`) — закрывает взятый. Что сдано — подтверждённые
+ * плата и престиж договоров (`RoamDealBook`). Кошеля и престижа отряда сервер по-прежнему не ведёт (граница доверия, 9): книга держит,
+ * сколько договоры **могли** дать.
+ *
  * Повтор приказа с тем же ключом — прежний итог без второго прихода (`keys`). Чистая логика; хранилище — строка отряда реестра
  * (`BandRow.book`), пишет её `roster.bandOrder`.
  */
-import type { AdminGrant, BandBookOrder, BandCell, RoamBookRow, TroopKey } from './contract.js';
+import type { AdminGrant, BandBookOrder, BandCell, RoamBookRow, RoamDealBook, TroopKey } from './contract.js';
 import { BAND_LIMITS, TROOP_KEYS } from './contract.js';
 import { canPromote } from '../../src/game/promoterules.js';
 import { DRILL_AHEAD_MS, askCap, captiveCap, drillMs, FIGHTS_PER_MOVE } from '../../src/game/askrules.js';
@@ -31,6 +38,9 @@ import { LETTER_TTL } from '../../src/world/data/tuning.js';
 import { roamStub } from '../../src/game/roamstubs.js';
 import { menOfPower } from '../../src/world/garrison.js';
 import { realTime } from '../../src/game/pace.js';
+import { shiftOf } from '../../src/game/shift.js';
+import { CONTRACTS_MAX, FROM_KINDS } from '../../src/game/data/contracts.js';
+import { DEED_TABLE } from '../../src/game/data/deedgain.js';
 
 /** Запаздывание часов: приход, наступивший у клиента на столько раньше сервера, — честный. */
 export const BOOK_SLACK_MS = realTime(2 * 60_000);
@@ -85,6 +95,11 @@ export function captivesCapNow(): number {
   return captiveCap(menOfPower(Math.max(...table) * share * ripe));
 }
 
+/** Сколько договоров одна клетка может дать за привоз: доска города (`boardSize`) и виды кастеляна (его замок — клетка города до ПН-10). */
+export const dealsPerCell = (): number => roamStub('boardSize') + FROM_KINDS.castellan.length;
+
+const noDeals = (): RoamDealBook => ({ open: [], took: [], n: 0, gold: 0, fame: 0 });
+
 /** Применить приказ книги. Повтор ключа — прежняя книга без отказа. */
 export function bookOrder(book: RoamBookRow, o: BandBookOrder, at: BookAt): BookStep {
   if (book.keys.includes(o.key)) return { book, error: null, forged: null };
@@ -130,6 +145,46 @@ export function bookOrder(book: RoamBookRow, o: BandBookOrder, at: BookAt): Book
   } else if (o.op === 'dismiss') {
     if (have(o.kind) < o.n) return no('Столько бойцов этого вида нет.', null);
     put(o.kind, -o.n);
+  } else if (o.op === 'take') {
+    const deals = book.deals ?? noDeals();
+    if (at.moving) return no('Отряд в пути: договор берут стоя.', null);
+    if (Math.max(Math.abs(at.cell.x - o.at.x), Math.abs(at.cell.y - o.at.y)) > 1)
+      return no('Отряд не у заказчика.', `Договор у ${o.at.x}|${o.at.y}, а отряд стоит в ${at.cell.x}|${at.cell.y}.`);
+    if (o.tier < 1 || o.tier > 3) return no('Такого тира нет.', `Договор тира ${o.tier}.`);
+    if (deals.open.length >= CONTRACTS_MAX) return no(`Договоров уже ${CONTRACTS_MAX}.`, `Взят ${deals.open.length + 1}-й договор разом (правило — ${CONTRACTS_MAX}).`);
+    const w = shiftOf(at.now);
+    const cell = `${o.at.x}:${o.at.y}`;
+    const was = deals.took.find((x) => x.at === cell && x.w === w)?.n ?? 0;
+    const cap = dealsPerCell();
+    if (was >= cap) return no('Доска заказчика пуста.', `Договоров у ${o.at.x}|${o.at.y} за привоз — ${was + 1}, доска даёт не больше ${cap}.`);
+    // Счёт взятых — за этот привоз и прошлый: старше доска сменилась.
+    const took = [...deals.took.filter((x) => x.w >= w - 1 && !(x.at === cell && x.w === w)), { at: cell, w, n: was + 1 }].slice(-BAND_LIMITS.keys);
+    next = { deals: { ...deals, open: [...deals.open, { key: o.key, tier: o.tier, at: { ...o.at }, w }], took } };
+  } else if (o.op === 'deal' || o.op === 'drop') {
+    const deals = book.deals ?? noDeals();
+    const take = deals.open.find((x) => x.key === o.take);
+    if (!take) {
+      if (o.op === 'drop') return { book: { ...book, keys: [...book.keys, o.key].slice(-BAND_LIMITS.keys) }, error: null, forged: null };
+      return no('Такого договора нет.', `Сдача договора ${o.take} без взятия.`);
+    }
+    const open = deals.open.filter((x) => x !== take);
+    if (o.op === 'drop') next = { deals: { ...deals, open } };
+    else {
+      // Плата и престиж — не выше строки таблицы наград дел тира: сверх — срезано, флаг.
+      const goldCap = DEED_TABLE.deal.gold[take.tier - 1] ?? 0;
+      const fameCap = DEED_TABLE.deal.fame[take.tier - 1] ?? 0;
+      const over = o.gold > goldCap || o.fame > fameCap;
+      const book2 = {
+        ...book,
+        deals: { ...deals, open, n: deals.n + 1, gold: deals.gold + Math.min(o.gold, goldCap), fame: deals.fame + Math.min(o.fame, fameCap) },
+        keys: [...book.keys, o.key].slice(-BAND_LIMITS.keys),
+      };
+      return {
+        book: book2,
+        error: null,
+        forged: over ? `Договор тира ${take.tier}: плата ${o.gold} при потолке ${goldCap}, престиж ${o.fame} при потолке ${fameCap}.` : null,
+      };
+    }
   }
   return { book: { ...book, ...next, troops: clean(t), keys: [...book.keys, o.key].slice(-BAND_LIMITS.keys) }, error: null, forged: null };
 }

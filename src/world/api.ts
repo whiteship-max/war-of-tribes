@@ -13,6 +13,7 @@ import type { TroopStack } from '@/game/battle/kinds';
 import type { ProposalAct } from './proposals';
 import type { CampKind } from './roammove';
 import type { RoamPoint } from './roampoints';
+import type { DealBoard } from './dealboard';
 import type {
   AssaultMode,
   AttackOrder,
@@ -117,6 +118,12 @@ export interface WorldApi {
    * сиду мира — поэтому их называет мир бродяги. В пути или пусто — `null`.
    */
   roamHere?(): Promise<RoamPoint | null>;
+  /**
+   * Доски договоров у стоящего отряда (ПН-7, ГДД 3.8.1): вольный город (по привозу), кастелян (раз в сутки), село при угрозе — в клетке
+   * отряда или соседней. Цели — точки мира бродяги (сёла и ватаги свои по сиду мира) — поэтому доску строит мир бродяги
+   * (`world/dealboard.boardsAt`). В пути — пусто.
+   */
+  roamBoards?(): Promise<DealBoard[]>;
 
   /** Развернуть фигуру домой. Обратный путь считается по уже пройденному. */
   recallFigure(id: FigureId): Promise<string | null>;

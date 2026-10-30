@@ -17,6 +17,8 @@ import { PILOT, SECTIONS, knobsOf } from './sections';
 import { GOAL_ROWS, SIGHT_GOALS, deriveSight, goalCheck, writtenSight } from './sight';
 import { SICILY } from '../../src/world/spawn';
 import { WILD_MEAN } from '../../src/world/data/campsite';
+import { DEAL_K, DEAL_KINDS, DEAL_R, ETALONS } from '../../src/game/data/contracts';
+import { KEEP_MARGIN, busyDays, dealSample, deriveDealKR } from './deals';
 import { placeForage, wildMeanOf } from '../../src/world/campsite';
 import { campSample, deriveWildMean } from './camp';
 
@@ -42,7 +44,8 @@ describe('разделы — те, что называют ГДД 6.5 и пач�
     // 6.5: темп престижа, медиана до замка, паритет, сила НПС, курс припаса, пул, доля обнаружений по видам лагеря.
     // ПН-1 добавил раздел дверей отряда (`band`) — содержание, терпение, обоз и фураж бродяги; ПН-3 — лагерь и руины (`camp`).
     // ПН-5 — точки мира и встречи с НПС (`meet`): густота точек, сила НПС по ступеням, шанс засады — двери мира бродяги.
-    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet', 'sight', 'people']);
+    // ПН-7 — вывод K и R видов договоров (`deals`) рядом с платой договоров.
+    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet', 'sight', 'people']);
   });
 
   it('у каждого раздела — раздел ГДД и двери кода или входы', () => {
@@ -71,7 +74,7 @@ describe('заглушка не выдаётся за выведенное', () 
   it('у разделов автопилота, ценности и пула заглушки есть; у пути, у отряда и у видимости — нет ни одного входа', () => {
     // Граница: что из разделов стоит на заглушках сейчас, до пачек ПН-1…ПН-17. Пачка, заменившая вход дверью, правит эту строку
     // тем же коммитом — и раздел честно переходит в «выведено».
-    for (const id of ['camp', 'placeSpirit', 'contract', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet']) {
+    for (const id of ['camp', 'placeSpirit', 'contract', 'deals', 'foes', 'prestige', 'castle', 'parity', 'pool', 'meet']) {
       expect(statusOf((SECTIONS.find((s) => s.id === id) as Section).uses), id).toBe('НЕ ИЗМЕРЕНО');
     }
     expect(statusOf((SECTIONS.find((s) => s.id === 'road') as Section).uses)).toBe('выведено');
@@ -85,7 +88,7 @@ describe('заглушка не выдаётся за выведенное', () 
   });
 
   it('напечатанный статус каждого раздела — тот, что выводится из входов, и слова «выведено» у раздела на заглушках нет', async () => {
-    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'foes', 'prestige', 'castle', 'pool', 'meet', 'sight', 'people']);
+    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'castle', 'pool', 'meet', 'sight', 'people']);
     const heads = out.filter((l) => l.startsWith('━━ ') && !l.startsWith('━━ Итог'));
     const statuses = out.filter((l) => l.startsWith('статус: '));
     expect(statuses.length).toBe(heads.length);
@@ -94,7 +97,7 @@ describe('заглушка не выдаётся за выведенное', () 
       expect(heads[i], s.id).toContain(s.title);
       expect(statuses[i], `«${s.title}»: статус из входов`).toBe(`статус: ${statusOf(s.uses)}`);
     });
-    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 16 ━━$/);
+    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 17 ━━$/);
   });
 
   it('вход, не объявленный разделом, — исключение', async () => {
@@ -170,8 +173,10 @@ describe('двери ПН-3 вместо входов', () => {
     // Граница: пачка ПН-3 закрыта — дорога до замка, фураж вида лагеря и место выхода ушли в двери (`world/roam`, `roamrules`);
     // чего вывести нечем, лежит заглушкой игры (`game/roamstubs`) и входит в прибор тем же числом, а не вторым.
     expect(Object.entries(INPUTS).filter(([, i]) => i.batch === 'ПН-3').map(([k]) => k)).toEqual([]);
+    // С ПН-7 дорога до дела — от города заказчика к цели доски договоров (`world/dealboard.boardsAt`: цели — точки мира на суше), а не
+    // брошенное расстояние с проверкой клетки (`roamCellBlock`).
     const src = readFileSync(path.join(HERE, 'path.ts'), 'utf8') + readFileSync(path.join(HERE, 'pool.ts'), 'utf8');
-    for (const door of ['placeBand(', 'roamWalkMs(', 'roamCellBlock(']) expect(src, `автопилот зовёт ${door}`).toContain(door);
+    for (const door of ['placeBand(', 'roamWalkMs(', 'boardsAt(']) expect(src, `автопилот зовёт ${door}`).toContain(door);
   });
 
   it('каждая заглушка игры — вход-заглушка прибора с тем же числом, разделом ГДД и пачкой', () => {
@@ -256,6 +261,40 @@ describe('детерминизм по сиду', () => {
   });
 });
 
+describe('договоры (ПН-7): K и R видов — записано = выведено', () => {
+  const sessions = { per: [3, 5] as const, wake: [8, 23] as const };
+  const sample = dealSample();
+  const got = deriveDealKR(sample, sessions);
+
+  it('у прибора нет входов платы договоров: K, R, срок, тир по ступени, доска — двери и заглушки игры', () => {
+    // Граница: пачка ПН-7 закрыта — плата считается `contractrules.contractTerms`, K и R — данные игры, выведенные этим прибором.
+    for (const k of ['contractK', 'contractR', 'contractTerm', 'stageTier', 'board', 'contracts', 'contractRule', 'etalons', 'foodGold', 'reach']) {
+      expect(Object.keys(INPUTS), k).not.toContain(k);
+    }
+    expect(PILOT).toEqual(expect.arrayContaining(['boardSize', 'dealReach', 'dealRoads', 'dealDays', 'dealStand', 'dealCargo']));
+  });
+
+  it('выборка — внутри области правила: у каждого вида есть предложения, у каждого боевого — бои', () => {
+    for (const k of DEAL_KINDS) expect(sample.offers.filter((o) => o.kind === k).length, k).toBeGreaterThan(10);
+    for (const r of got.rows) if (r.kind === 'lair' || r.kind === 'vataga' || r.kind === 'head' || r.kind === 'defend') expect(r.fights, r.kind).toBeGreaterThan(0);
+  });
+
+  it('K и R игры (`data/contracts`) — ровно вывод по целям Д1 и Д2', () => {
+    expect(got.K).toEqual(DEAL_K);
+    expect(got.R).toEqual(DEAL_R);
+  });
+
+  it('Д1 держится на записанном: содержание за срок × K покрывает цикл с запасом', () => {
+    for (const r of got.rows) expect(r.K * r.term, r.kind).toBeGreaterThanOrEqual((1 + KEEP_MARGIN) * r.cycle - 0.01 * r.term);
+  });
+
+  it('вывод не глух к целям: занятость отряда двигает K, а цикл не короче занятости', () => {
+    for (const r of got.rows) expect(r.cycle, r.kind).toBeGreaterThanOrEqual(r.busy - 1e-9);
+    const one = sample.offers.find((o) => o.kind === 'lair') as (typeof sample.offers)[number];
+    expect(busyDays({ ...one, roadMs: one.roadMs * 2 })).toBeGreaterThan(busyDays(one));
+  });
+});
+
 describe('видимость (ПН-4у): записано = выведено', () => {
   const world = { lords: SICILY.length };
 
@@ -320,7 +359,7 @@ describe('место лагеря (ПН-12л): записано = выведен
 });
 
 describe('правила ГДД на числах кода', () => {
-  it('эталон тира III — 70 человек составом автопилота', () => {
-    expect(use('etalons').tiers[2]).toEqual(stackOf(70, MIX) as TroopStack);
+  it('эталон тира III — 70 человек составом автопилота (правило 4.3 — данные игры `data/contracts.ETALONS`)', () => {
+    expect(ETALONS[2]).toEqual(stackOf(70, MIX) as TroopStack);
   });
 });

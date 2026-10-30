@@ -9,6 +9,7 @@ import type { ItemId } from './data/items';
 import type { TraitId } from './data/traits';
 import type { FightMark } from './scarrules';
 import type { BandBookOrder } from '../../netlify/lib/contract';
+import type { DealFrom, DealKind, DealTier } from './data/contracts';
 
 export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'charcoal' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
@@ -1313,6 +1314,55 @@ export interface RoamState {
    * поля — ждать нечего.
    */
   outbox?: BandBookOrder[];
+  /**
+   * Взятые договоры НПС (ПН-7, ГДД 3.8.4): условия, замороженные при взятии, срок и что уже исполнено. Пишет одна дверь
+   * `sim/contracts`; не больше `contractrules.CONTRACTS_MAX`. Нет поля — договоров нет.
+   */
+  deals?: RoamDeal[];
+  /** Долги неустоек заказчикам (3.8.5): долг закрывает доску этого заказчика до уплаты. Пишет `sim/contracts`. Нет поля — долгов нет. */
+  debts?: RoamDebt[];
+  /** Предложения доски, уже взятые (номера): второй раз их не берут, пока доска не сменилась. Пишет `sim/contracts`. */
+  took?: string[];
+}
+
+/** Взятый договор НПС (ПН-7, ГДД 3.8): заказчик, цель, условия при взятии и ход исполнения. */
+export interface RoamDeal {
+  /** Номер предложения доски — тот же, что у доски (`world/dealboard`). */
+  id: string;
+  kind: DealKind;
+  tier: DealTier;
+  /** Заказчик: номер (`town:x:y`, `castle:x:y`, `village:x:y`), клетка, имя, кто он. */
+  from: { id: string; x: number; y: number; name: string; who: DealFrom };
+  /** Цель: логово, ватага, село, город назначения или замок. */
+  target: { id: string; x: number; y: number; name: string };
+  /** Условия при взятии (`contractrules.contractTerms`). */
+  power: number;
+  pay: number;
+  advance: number;
+  penalty: number;
+  refuse: number;
+  fame: number;
+  /** Когда взят и до какой минуты мира срок (часы мира, мс). */
+  at: number;
+  until: number;
+  /** Защита села: минута набега. */
+  due?: number;
+  /** Гарнизонная служба: сколько игровых секунд стоять и сколько отстояли. */
+  need?: number;
+  stood?: number;
+  /** Доставка: что и сколько везти. */
+  goods?: { id: ResourceId; n: number };
+  /** Исполнен: плата ждёт сдачи. */
+  done?: boolean;
+  /** Ключ приказа книги отряда о взятии — сдача и срыв называют его. */
+  key: string;
+}
+
+/** Долг неустойки заказчику (3.8.5). */
+export interface RoamDebt {
+  id: string;
+  name: string;
+  gold: number;
 }
 
 /** Заказ найма на учениях (ПН-6, ГДД 3.4.3): вид, сколько, точка (номер вольного города или села) и работа учений, что осталась. */

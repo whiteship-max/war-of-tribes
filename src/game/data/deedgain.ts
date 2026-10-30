@@ -38,6 +38,11 @@ export interface DeedTable {
    * сервера, не таблицей.
    */
   windfall: { carry: number; gold: number };
+  /**
+   * Договор НПС бродяги (ПН-7): наибольшая плата и престиж одного договора по тирам I…III — потолок сдачи договора в книге отряда
+   * сервера (`roambook`).
+   */
+  deal: { gold: number[]; fame: number[] };
 }
 
 export const DEED_TABLE: DeedTable = {
@@ -49,4 +54,5 @@ export const DEED_TABLE: DeedTable = {
   shop: 120,
   caravan: { wood: 8024, stone: 6419, food: 1544, hides: 2442, charcoal: 2442, copper: 1605, iron: 1535, gold: 0 },
   windfall: { carry: 900, gold: 3 },
+  deal: { gold: [7851, 19714, 54622], fame: [12, 24, 36] },
 };

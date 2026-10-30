@@ -82,7 +82,7 @@ export const ROAM_STUBS = {
     orient: true,
   },
   foeTable: {
-    value: [12, 52, 53, 141, 303] as readonly number[],
+    value: [12, 74, 81, 240, 303] as readonly number[],
     gdd: '3.6.2',
     what: 'сила НПС по ступеням престижа, мощи — что напечатал раздел «Сила НПС — неподвижная точка» (на заглушках автопилота)',
     batch: 'ПН-17',
@@ -248,6 +248,55 @@ export const ROAM_STUBS = {
     gdd: '3.7.7',
     what: 'уровень дворов вольного города по ступени I, II, III — от него добыча промысла на заработках',
     batch: 'ПН-7',
+    orient: false,
+  },
+  // ---------- ПН-7: договоры НПС (ГДД 3.8) ----------
+  boardSize: {
+    value: 5,
+    gdd: '3.8.1',
+    what: 'договоров на доске вольного города за привоз (3 ч)',
+    batch: 'ПН-17',
+    orient: false,
+  },
+  dealReach: {
+    value: { target: 25, threat: 8 } as Readonly<Record<'target' | 'threat', number>>,
+    gdd: '3.8.2',
+    what: 'договоры: цель — не дальше N клеток от заказчика; угроза селу — живая ватага не дальше M клеток',
+    batch: 'ПН-17',
+    orient: false,
+  },
+  dealRoads: {
+    value: { lair: 2, vataga: 1, defend: 0, cargo: 1.5, head: 1, garrison: 0, scout: 2 } as Readonly<Record<
+      'lair' | 'vataga' | 'defend' | 'cargo' | 'head' | 'garrison' | 'scout',
+      number
+    >>,
+    gdd: '3.8.2',
+    what: 'срок договора — столько дорог от заказчика к цели: логово ×2, ватага ×1, груз ×1.5, голова ×1, разведка ×2',
+    batch: 'ПН-17',
+    orient: true,
+  },
+  dealDays: {
+    value: { lair: 4, vataga: 6, defend: 0, cargo: 0, head: 10, garrison: 0, scout: 0 } as Readonly<Record<
+      'lair' | 'vataga' | 'defend' | 'cargo' | 'head' | 'garrison' | 'scout',
+      number
+    >>,
+    gdd: '3.8.2',
+    what: 'срок договора — игр. дн. сверх дороги: логово +4, ватага +6, голова +10',
+    batch: 'ПН-17',
+    orient: true,
+  },
+  dealStand: {
+    value: { defendLo: 6, defendHi: 12, garrisonLo: 12, garrisonHi: 24 } as Readonly<Record<'defendLo' | 'defendHi' | 'garrisonLo' | 'garrisonHi', number>>,
+    gdd: '3.8.2',
+    what: 'стоянка договора: набег на село — через 6…12 игр. дн., гарнизонная служба — 12…24 игр. дн.',
+    batch: 'ПН-17',
+    orient: true,
+  },
+  dealCargo: {
+    value: 0.5,
+    gdd: '3.8.2',
+    what: '«Доставить груз» — груз занимает эту долю обоза эталона тира',
+    batch: 'ПН-17',
     orient: false,
   },
 } as const satisfies Record<string, RoamStub>;

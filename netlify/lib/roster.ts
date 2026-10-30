@@ -375,7 +375,8 @@ export function bandOrder(
     if (!had.book) return no('Отряд ещё не отметился: книга не заведена.');
     const step = bookOrder(bookGrants(had.book, known.grants ?? []), o, { now, cell: roamCell(m.way, now), moving: roamMoving(m.way, now), seed: known.seed });
     if (step.error) return no(step.error, step.forged ? { kind: 'forged', text: step.forged } : null);
-    return { file: put({ ...had, book: step.book, men: bookMen(step.book), seenAt: now }), error: null, forged: null };
+    // Принятый приказ тоже может нести флаг: сдача договора сверх таблицы наград принята срезанной (ПН-7).
+    return { file: put({ ...had, book: step.book, men: bookMen(step.book), seenAt: now }), error: null, forged: step.forged ? { kind: 'forged', text: step.forged } : null };
   }
   // Отряд стоял и минуту назад: клетка у клиента и у сервера одна — отказ клетки честный клиент не получает.
   const still = !roamMoving(m.way, now) && !roamMoving(m.way, now - ROAM_SLACK_MS);
