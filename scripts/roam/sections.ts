@@ -1010,7 +1010,7 @@ const place: Section = {
   ],
   uses: [],
   run(ctx) {
-    // Ц1–Ц3 (ГДД, «Решения ПН-12л»): в среднем по земле — прежний фураж; лес и берег больше, голое поле меньше; пустыня не кормит.
+    // Л1–Л3 (ГДД, «Решения ПН-12л»): в среднем по земле — прежний фураж; лес и берег больше, голое поле меньше; пустыня не кормит.
     const sample = campSample();
     const got = deriveWildMean(sample);
     const kinds = new Map<string, number>();
@@ -1019,13 +1019,13 @@ const place: Section = {
     ctx.line(`вольный корм места — промыслы земли (охота — лес и горы, сбор — вся суша, кроме пустыни; рыбалка у воды — ещё один сбор), еды на работника в игр. день: ${PLACE_ROWS.map(([n, t]) => `${n} ${fix(wildFood(t, false), 0)}`).join(', ')}; у воды +${fix(wildFood('plain', true) - wildFood('plain', false), 0)}`);
     ctx.line(`делитель фуража места (средний корм выборки): записано ${WILD_MEAN}, выведено ${got} — ${got === WILD_MEAN ? 'записано = выведено' : 'ЗАПИСАНО ≠ ВЫВЕДЕНО — перенеси выведенное в world/data/campsite.ts'}`);
     const mean = sample.reduce((n, x) => n + placeForage(x), 0) / Math.max(1, sample.length);
-    ctx.line(`Ц1 «в среднем — как прежде»: средний множитель места на выборке ${fix(mean, 3)} (цель 1 ± 0.01) — ${Math.abs(mean - 1) <= 0.01 ? 'в цели' : 'МИМО'}`);
+    ctx.line(`Л1 «в среднем — как прежде»: средний множитель места на выборке ${fix(mean, 3)} (цель 1 ± 0.01) — ${Math.abs(mean - 1) <= 0.01 ? 'в цели' : 'МИМО'}`);
     const forest = placeForage({ terrain: 'forest', shore: false });
     const shore = placeForage({ terrain: 'plain', shore: true });
     const plain = placeForage({ terrain: 'plain', shore: false });
-    ctx.line(`Ц2 «лес и берег больше, голое поле меньше»: лес ×${fix(forest)}, поле у воды ×${fix(shore)}, голое поле ×${fix(plain)} — ${forest > 1 && shore > 1 && plain < 1 ? 'в цели' : 'МИМО'}`);
+    ctx.line(`Л2 «лес и берег больше, голое поле меньше»: лес ×${fix(forest)}, поле у воды ×${fix(shore)}, голое поле ×${fix(plain)} — ${forest > 1 && shore > 1 && plain < 1 ? 'в цели' : 'МИМО'}`);
     const desert = placeForage({ terrain: 'desert', shore: false });
-    ctx.line(`Ц3 «пустыня не кормит»: пустыня ×${fix(desert)} — ${desert === 0 ? 'в цели' : 'МИМО'}`);
+    ctx.line(`Л3 «пустыня не кормит»: пустыня ×${fix(desert)} — ${desert === 0 ? 'в цели' : 'МИМО'}`);
     ctx.line(`  (проверка вывода: средний корм выборки без округления ${fix(wildMeanOf(sample), 3)})`);
     ctx.line('');
     ctx.line('фураж открытого лагеря (доля пайка с земли) по месту и сезону, год 2+, сухо:');

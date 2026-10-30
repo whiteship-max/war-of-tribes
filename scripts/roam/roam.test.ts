@@ -303,7 +303,7 @@ describe('место лагеря (ПН-12л): записано = выведен
     expect(WILD_MEAN).toBe(deriveWildMean(sample));
   });
 
-  it('Ц1–Ц3: в среднем — как прежде; лес и берег больше, голое поле меньше; пустыня не кормит', () => {
+  it('Л1–Л3: в среднем — как прежде; лес и берег больше, голое поле меньше; пустыня не кормит', () => {
     const mean = sample.reduce((n, x) => n + placeForage(x), 0) / sample.length;
     expect(Math.abs(mean - 1), `средний множитель места ${mean}`).toBeLessThanOrEqual(0.01);
     expect(placeForage({ terrain: 'forest', shore: false })).toBeGreaterThan(1);
