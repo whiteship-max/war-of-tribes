@@ -82,7 +82,7 @@ export const ROAM_STUBS = {
     orient: true,
   },
   foeTable: {
-    value: [12, 55, 56, 108, 265] as readonly number[],
+    value: [12, 52, 52, 150, 303] as readonly number[],
     gdd: '3.6.2',
     what: 'сила НПС по ступеням престижа, мощи — что напечатал раздел «Сила НПС — неподвижная точка» (на заглушках автопилота)',
     batch: 'ПН-17',
