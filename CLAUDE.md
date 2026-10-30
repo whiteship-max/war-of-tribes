@@ -407,6 +407,12 @@ HEAD один на всех, см. правило 8). Значит развес�
   числа — вывод `roam:report` из целей обнаружения (руками не правят); кто кого видит из игроков — сервер (`bandsight`: часы партии
   отряда ставит приказ — `BandRow.clock`, необязательное поле). Разойдись правило у двоих — сервер показал бы соседям отряд, который
   игрок у себя видит скрытым, или спрятал бы видимый;
+- `src/world/weather.ts`, `src/world/campsite.ts` и `src/world/data/campsite.ts` — погода и место лагеря бродяги (ПН-12л,
+  docs/gdd/path_of_sword.md, 19): погода — одна дверь на сцену города, лагерь, пользу и сервер (регион клетки, общие часы, часы партии;
+  `render/climate` — реэкспорт, без `@/`), туман входит в заметность `world/sight`, и её пересчитывает сервер; польза места — фураж по
+  земле (делитель `WILD_MEAN` — вывод `roam:report`), дождь, снег, зной, отдых, оборона в руинах — числа шага отряда. Разойдись погода
+  у двоих — сервер увидел бы отряд в тумане, который игрок у себя видит спрятанным; разойдись польза — окно лагеря обещало бы не то,
+  что съел шаг;
 - `src/game/sim/bandranks.ts`, `sim/bandasks.ts`, `sim/roamtown.ts`, `sim/bandearn.ts`, `src/net/bandbook.ts` и правила `src/game/promoterules.ts`,
   `askrules.ts`, `townrules.ts`, `roamstart.ts`, `mailgrid.ts` — люди и город отряда бродяги (ПН-6, docs/gdd/path_of_sword.md, 18):
   `RoamState.markets` (рынок вольного города — дверь `sim/market` с ключом `town:x:y`), `.fed` (хлеб сёл), `.drill` (учения найма),
@@ -828,6 +834,12 @@ HEAD один на всех, см. правило 8). Значит развес�
   приказу, чтение ничего не пишет); клиент — следы и весть «Нас видели» своим куском (`world/bandsight`), карта — `ui/map/roam/BandsLayer`;
   круги живого обзора лорда — `world/lookout` (`sight.test.ts`, `bandsight.test.ts` сервера и клиента, `bands.test.ts`;
   docs/gdd/path_of_sword.md, 16).
+- **Лагерь бродяги по месту и погоде** (ПН-12л) — погода одна: `world/weather` (`placeWeather`; `render/climate` — реэкспорт, второй формулы
+  нет — тест); место и польза — `world/campsite` (`openSky` под открытым небом, `placeForage`, `campRest`, `campGround`, `weatherMorale`,
+  `rationWeather`, `fireLit`), читают прежние двери (`roamrules.forageShare`, `campSpirit`, строка духа «Непогода», `sim/roam.roamStep`,
+  `world/sight` — туман); окно «Встать лагерем» — `sim/roam.campGain` тем же местом; вид — `campLook`, сцена — `render/camp` своим куском
+  (`ui/camp/CampScreen`, кадр — `render/loop`, бюджет `CAMP_TRIS`); погода адресом — только вид (`campsite.test.ts`, `render/camp/build.test.ts`;
+  docs/gdd/path_of_sword.md, 19).
 - **Встречи с НПС** (ПН-5) — точки `world/roampoints` (без `@/`), сила `world/roamfoes.foePower` (от престижа, не от отряда), засада и
   удар — `world/encounter` (шанс — дверью `world/sight`, заморожен при отправке `tripOf` → `sim/roam.setTrip`, показан до приказа окном
   хода «засада N % · если засада — бой с ~M»; встреча — `pursuit.intercept`; бой — `resolveField`), разбор — мир бродяги на пульсе один

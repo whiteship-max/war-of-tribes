@@ -115,7 +115,8 @@ describe('где стоит ловушка', () => {
     const onTap = lazies.filter((n) => !atEntry.has(n));
     // С РТ-2 — и карта мира: своим куском по кнопке низа (код подтягивается в фоне, когда замок встал, — `boot/warm`, РТ-2б).
     // С ОС-1 — и окно «Настройки» стартового экрана: по кнопке, тем же куском, что шаг имени.
-    expect(onTap.sort()).toEqual(['BugReport', 'Minigame', 'Prologue', 'RealmMenu', 'Settings', 'Trades', 'Treasury', 'WorldMap']);
+    // С ПН-12л — и лагерь бродяги: главный экран отряда своим куском, только за `roamOn` и в фазе бродяги.
+    expect(onTap.sort()).toEqual(['BugReport', 'CampScreen', 'Minigame', 'Prologue', 'RealmMenu', 'Settings', 'Trades', 'Treasury', 'WorldMap']);
     for (const name of [...onTap, 'SheetContent', 'WorldMap']) expect(guarded(app, name), name).toBe(true);
   });
 });

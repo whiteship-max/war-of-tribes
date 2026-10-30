@@ -84,8 +84,13 @@ describe('первая загрузка', () => {
     const norm = (f: string): string => f.split('\\').join('/');
     // Промыслы (`src/minigames`) — тоже свой кусок на конвейере поляны: новое имя в них дописалось бы в первую загрузку
     // так же молча, поэтому и они считаются здесь, а не «игрой» (docs/minigames.md, 8).
+    // Лагерь бродяги (ПН-12л, `render/camp`) — тоже свой кусок, только тем, кому открыт путь: его имена — его, а не игры.
     const lazy = all.filter(
-      (f) => norm(f).includes('/src/prologue/') || norm(f).includes('/src/minigames/') || norm(f).endsWith('/src/sound/howl.ts'),
+      (f) =>
+        norm(f).includes('/src/prologue/') ||
+        norm(f).includes('/src/minigames/') ||
+        norm(f).endsWith('/src/sound/howl.ts') ||
+        norm(f).includes('/src/render/camp/'),
     );
     const game = taken(all.filter((f) => !lazy.includes(f)));
     const extra = [...taken(lazy)].filter((n) => !game.has(n)).sort();
