@@ -54,5 +54,5 @@ export const DEED_TABLE: DeedTable = {
   shop: 120,
   caravan: { wood: 8024, stone: 6419, food: 1544, hides: 2442, charcoal: 2442, copper: 1605, iron: 1535, gold: 0 },
   windfall: { carry: 900, gold: 3 },
-  deal: { gold: [7913, 19680, 59682], fame: [12, 24, 36] },
+  deal: { gold: [7906, 19674, 59705], fame: [12, 24, 36] },
 };
