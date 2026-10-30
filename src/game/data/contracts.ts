@@ -70,11 +70,11 @@ export const DEAL_K: Readonly<Record<DealKind, number>> = {
 
 /** Доля риска вида R — вывод `roam:report` («Договоры: K и R видов»). */
 export const DEAL_R: Readonly<Record<DealKind, number>> = {
-  lair: 53.57,
-  vataga: 50.56,
-  defend: 42.28,
-  cargo: 6.2,
-  head: 54.64,
+  lair: 53.23,
+  vataga: 50.91,
+  defend: 42.32,
+  cargo: 6.24,
+  head: 54.77,
   garrison: 0,
-  scout: 8.19,
+  scout: 8.23,
 };
