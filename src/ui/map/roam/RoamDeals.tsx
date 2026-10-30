@@ -194,7 +194,8 @@ function aimWords(o: Pick<DealOffer, 'kind' | 'target' | 'goods'>): string {
 
 /** Взятые договоры: что осталось сделать и до какого срока, что получим при сдаче; «Отказаться» — половина неустойки. Долги. */
 function Held({ deals, now, run, toast }: { deals: RoamDeal[]; now: number; run: Run; toast: (t: string) => void }) {
-  const debts = useGame((g) => g.s.roam?.debts ?? []);
+  const owed = useGame((g) => g.s.roam?.debts);
+  const debts = owed ?? [];
   if (deals.length === 0 && debts.length === 0) return <p className="nx-tnote">Договоров нет. Возьми их на доске у заказчика.</p>;
   return (
     <div className="roam-legs">
@@ -205,7 +206,7 @@ function Held({ deals, now, run, toast }: { deals: RoamDeal[]; now: number; run:
             <span className="roam-deal-tier">тир {tierWord(d.tier)}</span>
           </div>
           <small className="roam-deal-aim">
-            {d.from.name}: {progressWords(d, now)}
+            {d.from.name} — {progressWords(d, now)}
           </small>
           <small className="roam-deal-aim">
             Срок — {now < d.until ? `ещё ${realSpan(Math.ceil((d.until - now) / 1000))}` : 'вышел'}. Аванс {d.advance} получен, при сдаче — {settlePay(d)} и престиж +

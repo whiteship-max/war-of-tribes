@@ -61,6 +61,9 @@
 //                                                    алмазы, карточка вида — повысить, разжаловать, распустить), весть «Просятся
 //                                                    в отряд», вольный город — рынок и найм, лазарет лорда с «Поднять сейчас».
 //                                                    Путь — как у ПН-3
+//   GROUP=pn7 WEATHER=clear NIGHT=0 …              — ПН-7 (docs/gdd/path_of_sword.md, 20): окно «Договоры» — доска вольного города
+//                                                    и кастеляна, взятые договоры, долг неустойки (доска закрыта), доска села при
+//                                                    угрозе. Путь — как у ПН-3
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -540,6 +543,79 @@ const ROAM_AT = (kind: 'town' | 'village'): string => `(async () => {
   return JSON.stringify(p.name);
 })()`;
 
+/**
+ * ПН-7: отряд у ближайшей точки вида `kind` (вольный город II–III — с кастеляном; село — с угрозой), окно «Договоры» кнопкой ряда.
+ * Ход ставится той же дверью хода, что у сервера; кошель и престиж — как у отряда середины пути (ступень «Известный» — тир II).
+ */
+const ROAM_DEALS = (kind: 'town' | 'village'): string => `(async () => {
+  document.querySelector('.am-wrap .nx-bclose')?.click();
+  const way = window.__game.getState().s.roam.way;
+  const A = await import('/src/world/api.ts');
+  const R = await import('/src/game/sim/roam.ts');
+  const Mv = await import('/src/world/roammove.ts');
+  const Ck = await import('/src/world/store.ts');
+  const St = await import('/src/game/roamstubs.ts');
+  // Сёла свои по сиду мира (не партии): мир бродяги держит его в сохранении мира; в тумане точек карты нет — ищем дверью точек.
+  const P = await import('/src/world/roampoints.ts');
+  const B = await import('/src/world/dealboard.ts');
+  const seed = JSON.parse(localStorage.getItem('tribe.world.v1') || '{}').seed ?? 0;
+  const pts = P.pointsIn(seed, way.to.x - 30, way.to.y - 30, way.to.x + 31, way.to.y + 31)
+    .filter((p) => p.kind !== 'village' || B.threatOf(seed, p, { lairs: [], beaten: () => false }) !== null)
+    .filter((p) => p.kind === '${kind}' && (p.kind !== 'town' || p.tier >= 2))
+    .sort((a, b) => Math.hypot(a.x - way.to.x, a.y - way.to.y) - Math.hypot(b.x - way.to.x, b.y - way.to.y));
+  window.__game.getState().world((s) => {
+    s.prestige = ${kind === 'town'} ? St.ROAM_STUBS.stages.value[2] + 20 : 30;
+    s.roam.purse = 1840;
+  });
+  let at = null;
+  for (const p of pts) {
+    window.__game.getState().world((s) => void R.setMove(s, { way: Mv.standWay('normal', { x: p.x, y: p.y }, Ck.worldNow() - 60000), camp: null }));
+    const boards = await A.worldApi().roamBoards();
+    if (boards.some((b) => b.from.who === '${kind === 'town' ? 'castellan' : 'village'}' && b.offers.length > 0)) { at = p; break; }
+  }
+  if (!at) return JSON.stringify('нет точки ${kind} с доской');
+  window.__mapCam(at.x, at.y, 26);
+  await new Promise((r) => setTimeout(r, 400));
+  document.querySelector('.roam-acts [aria-label^="Договоры"]')?.click();
+  return JSON.stringify(at.name + ' ' + seed);
+})()`;
+
+/** ПН-7: взять два договора доски той же дверью (`sim/contracts.takeDeal`) и открыть вкладку «Взятые». */
+const ROAM_TAKE = `(async () => {
+  const A = await import('/src/world/api.ts');
+  const Ck = await import('/src/world/store.ts');
+  const C = await import('/src/game/sim/contracts.ts');
+  const boards = await A.worldApi().roamBoards();
+  const offers = boards.flatMap((b) => b.offers);
+  let took = 0;
+  for (const o of offers) {
+    if (took >= 2) break;
+    let why = 'x';
+    window.__game.getState().world((s) => { why = C.takeDeal(s, o, Ck.worldNow()); });
+    if (!why) took++;
+  }
+  document.querySelector('.am-wrap .nx-bclose')?.click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.querySelector('.roam-acts [aria-label^="Договоры"]')?.click();
+  await new Promise((r) => setTimeout(r, 400));
+  [...document.querySelectorAll('.roam-tabs .roam-leg')].find((b) => b.textContent.includes('Взятые'))?.click();
+  return JSON.stringify('взято ' + took);
+})()`;
+
+/** ПН-7: первый взятый договор сорван сроком (`sim/contracts.failDeal`) — долг закрывает доску заказчика; вкладка «Доска». */
+const ROAM_DEBT = `(async () => {
+  const C = await import('/src/game/sim/contracts.ts');
+  window.__game.getState().world((s) => {
+    const d = s.roam.deals?.[0];
+    if (d) C.failDeal(s, d.id, 'срок вышел');
+    s.roam.purse = 120;
+  });
+  document.querySelector('.am-wrap .nx-bclose')?.click();
+  await new Promise((r) => setTimeout(r, 300));
+  document.querySelector('.roam-acts [aria-label^="Договоры"]')?.click();
+  return JSON.stringify('ok');
+})()`;
+
 /** ПН-6: окно «Отряд» — пленные, раненые и снаряжение в обозе, карточка вида «Дубинщики» (повысить, разжаловать, распустить). */
 const ROAM_BAND = `(async () => {
   const Ck = await import('/src/world/store.ts');
@@ -662,6 +738,13 @@ const GROUPS: Record<string, Step[]> = {
     { name: 'pn6-heal', run: LORD_HEAL, wait: 1500 },
   ],
   // ПН-5 (docs/gdd/path_of_sword.md, 17): точки мира и встречи с НПС.
+  pn7: [
+    { name: 'pn7-start', run: ROAM_START, wait: 4000, shot: false },
+    { name: 'pn7-board', run: ROAM_DEALS('town'), wait: 1500 },
+    { name: 'pn7-held', run: ROAM_TAKE, wait: 1200 },
+    { name: 'pn7-debt', run: ROAM_DEBT, wait: 1200 },
+    { name: 'pn7-village', run: ROAM_DEALS('village'), wait: 1500 },
+  ],
   pn5: [
     { name: 'pn5-start', run: ROAM_START, wait: 4000, shot: false },
     { name: 'pn5-points', run: `(async () => { const w = window.__game.getState().s.roam.way; window.__mapCam(w.to.x, w.to.y, 22); return JSON.stringify('ok'); })()`, wait: 2500 },
@@ -1969,7 +2052,7 @@ async function main(): Promise<void> {
     server: { port: PORT, strictPort: true, host: '127.0.0.1' },
     logLevel: 'warn',
     // Заходы ПН-3, ПН-4у и ПН-5 — с открытым Путём меча: выключатель подменяется только в этом сервере стенда.
-    ...(name === 'pn3' || name === 'pn4' || name === 'pn5' || name === 'pn6' || name.startsWith('pn12') ? { plugins: [ROAM_PLUGIN] } : {}),
+    ...(name === 'pn3' || name === 'pn4' || name === 'pn5' || name === 'pn6' || name === 'pn7' || name.startsWith('pn12') ? { plugins: [ROAM_PLUGIN] } : {}),
   });
   await vite.listen();
   try {
