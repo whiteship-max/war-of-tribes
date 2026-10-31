@@ -10,6 +10,7 @@
 import { hash2 } from './geography';
 import { TOWN_SALT } from './roampoints';
 import { roamStub } from '../game/roamstubs';
+import { caravanUnit } from '../game/marketrules';
 import type { GoodId } from '../game/types';
 
 export type TownSpec = 'granary' | 'timber' | 'ore' | 'hides' | 'craft';
@@ -41,4 +42,22 @@ export function specMult(spec: TownSpec, good: string, swing: number = roamStub(
   if ((m.makes as readonly string[]).includes(good)) return 1 - swing;
   if ((m.wants as readonly string[]).includes(good)) return 1 + swing;
   return 1;
+}
+
+/** Караванный кошель вольного города (ПН-Э2в): полный кошель серебра и срок пополнения до полного (настоящие мс). */
+export interface TownCaravan {
+  cap: number;
+  refillMs: number;
+}
+
+/**
+ * Караванный кошель вольного города в клетке `x, y` при уровне рынка `level` (ступень — `townrules.townMarketLevel`): размер — от уровня
+ * и специализации (`marketrules.caravanUnit` по нужным городу товарам и размаху, × заглушка `caravanSize`), пополнение — заглушка
+ * `caravanRefill`. Одна сборка на рынок с ключом (`sim/roamtown` отдаёт её `sim/market`), книгу торга сервера (`netlify/lib/roambook.ts`)
+ * и прибор. Рынка нет — кошеля нет.
+ */
+export function townCaravan(x: number, y: number, level: number): TownCaravan {
+  const wants = TOWN_SPEC_META[townSpecOf(x, y)].wants;
+  const cap = level > 0 ? Math.floor(caravanUnit(level, wants, roamStub('townSpec')) * roamStub('caravanSize')) : 0;
+  return { cap, refillMs: roamStub('caravanRefill') * 3_600_000 };
 }

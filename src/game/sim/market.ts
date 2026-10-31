@@ -18,6 +18,8 @@ import {
   BOOST_MAX,
   DEALS_KEPT,
   buyUnit,
+  caravanLeft,
+  caravanPaid,
   depthOf,
   fromPurse,
   lotOf,
@@ -56,6 +58,13 @@ export interface TownSide {
   level(key: MarketKey): number;
   /** Множитель основы товара у вольного города — его специализация (ПН-Э1, `world/townspec.specMult`). */
   spec(key: MarketKey, good: GoodId): number;
+  /**
+   * Караванный кошель вольного города (ПН-Э2в, `world/townspec.townCaravan`): полный и срок пополнения. Им — и только им — купцы
+   * вольного города платят за проданное отрядом; кошель купцов привоза (`marketrules.purseOf`) — правило рынка лорда.
+   */
+  caravan(key: MarketKey): { cap: number; refillMs: number };
+  /** Сделка у вольного города легла в партию — приказ книги торга сервера (`sim/roamtown`: `trade` в очередь отряда, ПН-Э2в). */
+  deal(s: GameState, key: MarketKey, good: GoodId, n: number, gold: number, now: number): void;
   cap(r: RoamState): number;
   keep: number;
 }
@@ -120,9 +129,17 @@ export const marketDepth = (s: GameState, def: GoodDef, now: number, key: Market
 export const marketSupply = (s: GameState, def: GoodDef, now: number, key: MarketKey = 'home'): number =>
   supplyOf(def, shiftLevel(s, now, key), shiftOf(now), key === 'home' ? stabClamp(s.stab?.level ?? 0) : 0);
 
-/** Сколько серебра купцов осталось в этот привоз (`marketrules.purseOf`) — им платят за всё, кроме невольников. */
-export const marketPurse = (s: GameState, now: number, key: MarketKey = 'home'): number =>
-  Math.max(0, purseOf(shiftLevel(s, now, key)) - marketOf(s, now, key).got);
+/**
+ * Сколько серебра купцов осталось — им платят за всё, кроме невольников. Свой город: кошель купцов привоза (`marketrules.purseOf`) за
+ * вычетом заплаченного в этот привоз. Вольный город (ПН-Э2в): караванный кошель (`marketrules.caravanLeft`) — пополняется сам, привоз
+ * его не обнуляет.
+ */
+export const marketPurse = (s: GameState, now: number, key: MarketKey = 'home'): number => {
+  if (key === 'home') return Math.max(0, purseOf(shiftLevel(s, now, key)) - marketOf(s, now, key).got);
+  if (levelOf(s, key) <= 0 || !townSide) return 0;
+  const c = townSide.caravan(key);
+  return caravanLeft(c.cap, c.refillMs, stateOf(s, key)?.cv, now);
+};
 
 /** Сколько куплено и продано этого товара в нынешний привоз. */
 export const marketBought = (s: GameState, id: GoodId, now: number, key: MarketKey = 'home'): number =>
@@ -282,7 +299,7 @@ export function saleCheck(s: GameState, good: GoodId, count: number, now: number
   else if (left <= 0) blocked = ORDER_TEXT.market.soldOut;
   else if (n > left) blocked = ORDER_TEXT.market.onlyLeft(left);
   else if (lot.last <= 0) blocked = 'Торговцы не дадут за последнюю и монеты: цена сбита.';
-  else if (purse <= 0) blocked = 'У купцов кончилось серебро до нового привоза.';
+  else if (purse <= 0) blocked = key === 'home' ? 'У купцов кончилось серебро до нового привоза.' : 'У купцов города кончилось серебро для караванов — кошель пополнится со временем.';
   else if (lot.gold > purse) blocked = `У купцов осталось ${Math.floor(purse)} серебра — столько не купят.`;
   return { def, count: n, gold: lot.gold, lot, have, left, purse, blocked };
 }
@@ -325,10 +342,18 @@ function note(s: GameState, def: GoodDef, n: number, gold: number, now: number, 
   const m = key === 'home' ? (rollShift(s, now), s.market) : townShift(s, key, now);
   if (n > 0) m.bought = { ...m.bought, [def.id]: marketBought(s, def.id, now, key) + n };
   else m.sold = { ...m.sold, [def.id]: marketSold(s, def.id, now, key) - n };
-  if (n < 0 && fromPurse(def.id)) m.got = (m.got ?? 0) + gold;
+  if (n < 0 && fromPurse(def.id)) {
+    if (key === 'home') m.got = (m.got ?? 0) + gold;
+    else if (townSide) {
+      // Вольный город (ПН-Э2в): заплачено караванным кошелём — его недостача, а не счёт привоза.
+      const c = townSide.caravan(key);
+      m.cv = caravanPaid(c.cap, c.refillMs, m.cv, now, gold);
+    }
+  }
   m.press = { ...(m.press ?? {}), [def.id]: [q + n, now] };
   m.seq = (m.seq ?? 0) + 1;
   m.deals = [...(m.deals ?? []), { seq: m.seq, at: now, good: def.id, n, gold, q }].slice(-DEALS_KEPT);
+  if (key !== 'home') townSide?.deal(s, key, def.id, n, gold, now);
 }
 
 /**

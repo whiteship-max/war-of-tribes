@@ -4,7 +4,7 @@
  * `roambook.ts`) и кусок пути (`sim/roam` — очередь приказов в сохранении). Договор лежит в первой загрузке, и разбор, который читает
  * кусок пути, уехал бы туда вместе с ним (ВП1); отсюда он едет только с сервером и с куском пути.
  */
-import { BAND_LIMITS, TROOP_KEYS, type BandBookOrder, type BandCell, type BandOrder, type RoamBookRow, type RoamDealBook, type TroopKey } from './contract.js';
+import { BAND_LIMITS, TROOP_KEYS, type BandBookOrder, type BandCell, type BandOrder, type RoamBookRow, type RoamDealBook, type RoamTradeBook, type RoamTradeTown, type TroopKey } from './contract.js';
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
@@ -12,7 +12,7 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const DEAL_MAX = 1e9;
 
 /** Виды приказов книги отряда. */
-export const BAND_BOOK_OPS = ['join', 'hire', 'captives', 'promote', 'demote', 'dismiss', 'take', 'deal', 'drop'] as const;
+export const BAND_BOOK_OPS = ['join', 'hire', 'captives', 'promote', 'demote', 'dismiss', 'take', 'deal', 'drop', 'trade'] as const;
 
 /** Приказ книги отряда, а не хода. */
 export const isBookOrder = (o: BandOrder): o is BandBookOrder => (BAND_BOOK_OPS as readonly string[]).includes(o.op);
@@ -46,7 +46,58 @@ export function readRoamBook(v: unknown): RoamBookRow | undefined {
     grant: ((g) => (g !== null && g >= 0 ? Math.floor(g) : 0))(num(r.grant)),
     keys: Array.isArray(r.keys) ? r.keys.filter((k): k is string => typeof k === 'string' && k.length <= BAND_LIMITS.key).slice(-BAND_LIMITS.keys) : [],
     ...((d) => (d ? { deals: d } : {}))(readDealBook(r.deals)),
+    ...((t) => (t ? { trade: t } : {}))(readTradeBook(r.trade)),
   };
+}
+
+/** Рынков вольных городов в книге торга — не больше стольких (`townrules.TOWN_MARKETS` — то же число у партии; здесь — без куска пути). */
+export const TRADE_TOWNS = 16;
+/** Потолок штук одной сделки — больше обоза любого отряда не бывает. */
+const TRADE_N_MAX = 1e7;
+
+/** Счёт по товарам из чужой строки: ключ товара — короткий, числа — целые от нуля. */
+function goodCounts(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!v || typeof v !== 'object') return out;
+  for (const [k, n] of Object.entries(v as Record<string, unknown>).slice(0, 64)) {
+    const x = num(n);
+    if (k.length <= 24 && x !== null && x > 0) out[k] = Math.min(TRADE_N_MAX, Math.floor(x));
+  }
+  return out;
+}
+
+/** Пара «число и минута» из чужой строки (нажим, кошель); кривая — нет. */
+const pair = (v: unknown): [number, number] | null => (Array.isArray(v) && num(v[0]) !== null && num(v[1]) !== null ? [v[0] as number, v[1] as number] : null);
+
+/** Книга торга из строки реестра (ПН-Э2в): новый объект; нет или кривая — `undefined`. */
+function readTradeBook(v: unknown): RoamTradeBook | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  const whole = (x: unknown): number => Math.max(0, Math.floor(num(x) ?? 0));
+  const towns: RoamTradeTown[] = [];
+  for (const t of (Array.isArray(r.towns) ? r.towns : []).slice(-TRADE_TOWNS)) {
+    if (!t || typeof t !== 'object') continue;
+    const o = t as Record<string, unknown>;
+    if (typeof o.at !== 'string' || !/^-?\d+:-?\d+$/.test(o.at)) continue;
+    const press: Record<string, [number, number]> = {};
+    if (o.press && typeof o.press === 'object') {
+      for (const [k, p] of Object.entries(o.press as Record<string, unknown>).slice(0, 64)) {
+        const q = pair(p);
+        if (k.length <= 24 && q) press[k] = q;
+      }
+    }
+    const cv = pair(o.cv);
+    towns.push({
+      at: o.at,
+      w: whole(o.w),
+      bought: goodCounts(o.bought),
+      sold: goodCounts(o.sold),
+      press,
+      ...(cv && cv[0] > 0 ? { cv } : {}),
+      last: whole(o.last),
+    });
+  }
+  return { towns, n: whole(r.n), sold: Math.min(DEAL_MAX, whole(r.sold)), spent: Math.min(DEAL_MAX, whole(r.spent)) };
 }
 
 /** Клетка из чужой строки: целые координаты; нет — `null`. */
@@ -95,6 +146,16 @@ export function readBookOrder(r: Record<string, unknown>): BandBookOrder | null 
     return gold !== null && fame !== null && gold >= 0 && fame >= 0
       ? { op: 'deal', key, take, gold: Math.min(DEAL_MAX, Math.round(gold)), fame: Math.min(DEAL_MAX, Math.round(fame)) }
       : null;
+  }
+  // Сделка у вольного города (ПН-Э2в): штук — целое, не ноль (покупка плюс, продажа минус), золото — целое от нуля, минута — число.
+  if (key && r.op === 'trade') {
+    const at = cellOf(r.at);
+    const good = typeof r.good === 'string' && /^[\w:]{1,24}$/.test(r.good) ? r.good : null;
+    const k = num(r.n);
+    const gold = num(r.gold);
+    const t = num(r.t);
+    if (!at || !good || k === null || !Number.isInteger(k) || k === 0 || Math.abs(k) > TRADE_N_MAX || gold === null || gold < 0 || t === null) return null;
+    return { op: 'trade', key, at, good, n: k, gold: Math.min(DEAL_MAX, Math.round(gold)), t };
   }
   const n = num(r.n);
   if (!key || n === null || !Number.isInteger(n) || n < 1 || n > BAND_LIMITS.men) return null;

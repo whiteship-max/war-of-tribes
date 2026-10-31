@@ -401,7 +401,10 @@ export type BandOrder =
  *  — `captives` — пленные дубинщиками после боя хода;
  *  — `promote`, `demote` — повышение и разжалование (дерево — `game/promoterules`); `dismiss` — роспуск;
  *  — договоры НПС (ПН-7, ГДД 3.8): `take` — взят у заказчика в клетке `at` (тир — по ступени престижа), `deal` — сдан с платой и
- *    престижем (сверка — таблицей наград дел `data/deedgain`), `drop` — сорван или брошен; `take` называет сдачу и срыв ключом взятия.
+ *    престижем (сверка — таблицей наград дел `data/deedgain`), `drop` — сорван или брошен; `take` называет сдачу и срыв ключом взятия;
+ *  — `trade` — сделка у вольного города в клетке `at` (ПН-Э2в, ГДД 3.7.1): товар, штук (покупка — плюс, продажа — минус), золото
+ *    партии и настоящая минута сделки `t`. Цену, кошель (караванный — у продажи) и товар сервер выводит сам цепочкой сделок отряда
+ *    у этого города (`roambook`); подделка — отказ и флаг.
  */
 export type BandBookOrder =
   | { op: 'join'; key: string; k: number; n: number }
@@ -411,7 +414,8 @@ export type BandBookOrder =
   | { op: 'dismiss'; key: string; kind: TroopKey; n: number }
   | { op: 'take'; key: string; at: BandCell; tier: number }
   | { op: 'deal'; key: string; take: string; gold: number; fame: number }
-  | { op: 'drop'; key: string; take: string };
+  | { op: 'drop'; key: string; take: string }
+  | { op: 'trade'; key: string; at: BandCell; good: string; n: number; gold: number; t: number };
 
 /**
  * Книга договоров отряда на сервере (ПН-7, `netlify/lib/roambook.ts`): взятые и ещё открытые договоры (ключ, тир, клетка заказчика,
@@ -423,6 +427,32 @@ export interface RoamDealBook {
   n: number;
   gold: number;
   fame: number;
+}
+
+/**
+ * Рынок вольного города в книге торга (ПН-Э2в): цепочка сделок отряда у одного города — как прилавок партии (`MarketState`): привоз и
+ * счёт купленного и проданного за него, нажим по товарам `[нажим, минута]`, караванный кошель `[недостача, минута]` и минута последней
+ * сделки (сделки — только вперёд по времени).
+ */
+export interface RoamTradeTown {
+  at: string;
+  w: number;
+  bought: Record<string, number>;
+  sold: Record<string, number>;
+  press: Record<string, [number, number]>;
+  cv?: [number, number];
+  last: number;
+}
+
+/**
+ * Книга торга отряда на сервере (ПН-Э2в, `netlify/lib/roambook.ts`): рынки вольных городов, где торговал отряд (не больше
+ * `townrules.TOWN_MARKETS`), и что сервер подтвердил — сколько сделок, выручки (из караванных кошелей) и трат.
+ */
+export interface RoamTradeBook {
+  towns: RoamTradeTown[];
+  n: number;
+  sold: number;
+  spent: number;
 }
 
 /**
@@ -443,6 +473,8 @@ export interface RoamBookRow {
   keys: string[];
   /** Книга договоров (ПН-7). Нет поля — договоров у отряда не было. */
   deals?: RoamDealBook;
+  /** Книга торга у вольных городов (ПН-Э2в). Нет поля — отряд не торговал. */
+  trade?: RoamTradeBook;
 }
 
 /** Потолки чисел приказа отряда. */

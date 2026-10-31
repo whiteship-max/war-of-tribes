@@ -7,7 +7,7 @@ import type { GoodId, TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { MINIGAMES } from '@/game/data/minigames';
-import { buyGoods, marketLot, marketOffer, ownOf, sellGoods } from '@/game/sim/market';
+import { buyGoods, marketLot, marketOffer, marketPurse, ownOf, sellGoods } from '@/game/sim/market';
 import { boardedAt, boardPerDay, buyVillageFood, hireAt, hireBill, villageBlock, villageCost, villageLeftAt, type TownPoint } from '@/game/sim/roamtown';
 import { earnBlock, earnGold, earnHaul, settleEarn } from '@/game/sim/bandearn';
 import { villageFoodPrice, townKeyOf } from '@/game/townrules';
@@ -100,6 +100,7 @@ function Market({ p, now, run }: { p: TownPoint; now: number; run: Run }) {
   if (goods.length === 0) return <p className="nx-tnote">Рынок пуст до нового привоза.</p>;
   return (
     <div className="roam-legs">
+      <p className="nx-tnote">Купцы города берут привезённое караванным серебром: сейчас {Math.floor(marketPurse(s, now, key))} — пополняется само.</p>
       {goods.map((g) => {
         const have = ownOf(s, g, key);
         const buy = marketLot(s, g, 1, now, key);

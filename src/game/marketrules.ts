@@ -133,9 +133,19 @@ export const BOOST_MAX = (1 + /* @__PURE__ */ giftCeil('treasurer')) * (1 + /* @
 export const buyUnit = (def: GoodDef, w: number, depth: number, q: number): number =>
   Math.ceil(def.price * priceFactor(w, def.id) * pressMult(Math.max(0, q), depth));
 
-/** Выручка за одну штуку при нажиме `q`: та же кривая шагом ниже — штука, купленная и проданная обратно, отдаёт разницу. */
-export const sellUnit = (def: GoodDef, w: number, depth: number, q: number, boost: number): number =>
-  Math.floor(SALE_SHARE * Math.min(BOOST_MAX, Math.max(1, boost)) * def.price * priceFactor(w, def.id) * pressMult(q - 1, depth));
+/**
+ * Выручка за одну штуку при нажиме `q`: та же кривая шагом ниже — штука, купленная и проданная обратно, отдаёт разницу. `share` — доля
+ * продажи; в игре одна, `SALE_SHARE`: другой довод — только «что если» прибора (`roam:report`, варианты владельцу ПН-Э2в).
+ */
+export const sellUnit = (def: GoodDef, w: number, depth: number, q: number, boost: number, share: number = SALE_SHARE): number =>
+  Math.floor(share * Math.min(BOOST_MAX, Math.max(1, boost)) * def.price * priceFactor(w, def.id) * pressMult(q - 1, depth));
+
+/**
+ * Вывод доли продажи (Ц1, `market:report -- --derive`) при наибольшей прибавке `boost`: продажа в самый дорогой привоз не дороже
+ * покупки в самый дешёвый, вниз до тысячных. `SALE_SHARE` — она же при `BOOST_MAX` (тест); при прибавке 1 — доля рынка без Казначея и
+ * купечества (вольный город — вариант владельцу ПН-Э2в, в игру не идёт).
+ */
+export const shareFor = (boost: number): number => Math.floor(1000 / ((1 + PRICE_SWING) * boost)) / 1000;
 
 // ---------- Кошель купцов ----------
 
@@ -193,6 +203,55 @@ export function lotOf(def: GoodDef, w: number, depth: number, q0: number, n: num
  * же `SALE_SHARE`. Единица — тот же товар (у лорда множителя нет вовсе).
  */
 export const specGood = (def: GoodDef, mult: number): GoodDef => (mult === 1 ? def : { ...def, price: def.price * mult });
+
+// ---------- Караванный кошель вольного города (ПН-Э2в) ----------
+//
+// Купцы вольного города берут у отряда бродяги привезённое своим серебром — **караванным кошелём**, отдельным от кошеля купцов привоза
+// (`PURSE`). Кошель купцов — правило рынка лорда: он выведен из налога мерочного посёлка (Ц2) и держит рынок лорда от перепродажи; его
+// не читает ни вольный город, ни торговля бродяги. Караванный кошель читает только рынок вольного города (ключ `town:x:y`, дверь
+// `sim/market`) и книга торга сервера (`netlify/lib/roambook.ts`); у лорда его нет вовсе (тест).
+//
+// Устройство (docs/gdd/path_of_sword.md, 3.7.1, 23.10):
+//  · **Размер** — от города: серебро, которое его купцы отдали бы за одну глубину рынка (`depthOf` уровня города) каждого товара,
+//    который городу нужен (`wants` специализации, `world/townspec`), по доле продажи от основы с размахом, × `size` (заглушка
+//    `caravanSize`). Больше город — глубже рынок и толще кошель; ремесло нуждается в пяти товарах — его кошель толще, чем у житницы.
+//  · **Пополнение** — по прямой до полного за `refillMs` (заглушка `caravanRefill`): запись — недостача и минута `[owe, at]`, как нажим.
+//    Круг «туда — обратно» держит пополнение: сколько ни возить, город отдаёт не больше кошеля за срок пополнения.
+//  · **Цена** — та же кривая продажи (`sellUnit`, нажим `pressAt`): каждая проданная штука одного товара в одном городе дешевле
+//    предыдущей, нажим отходит сам. Кошель цену не меняет — он кончается.
+//  · Числа детерминированы на всех движках: только сложение, умножение и деление (как нажим).
+
+/** Запись караванного кошеля: недостача до полного и настоящая минута, когда она была такой. */
+export type CaravanMark = readonly [number, number];
+
+/** Единица караванного кошеля: выручка одной глубины рынка уровня `level` каждого нужного товара по основе с размахом `swing`. */
+export function caravanUnit(level: number, wants: readonly string[], swing: number): number {
+  if (level <= 0) return 0;
+  let gold = 0;
+  for (const id of wants) {
+    const def = GOOD_BY_ID[id];
+    if (def) gold += depthOf(def, level) * def.price * (1 + swing) * SALE_SHARE;
+  }
+  return Math.floor(gold);
+}
+
+/** Недостача кошеля в минуту `now`: отходит по прямой — полный кошель за `refillMs`. Нет записи — полон. Часы назад — как была. */
+export function caravanOwe(cap: number, refillMs: number, mark: CaravanMark | undefined, now: number): number {
+  if (!mark || !(mark[0] > 0)) return 0;
+  if (!(refillMs > 0)) return 0;
+  const back = now > mark[1] ? (cap * (now - mark[1])) / refillMs : 0;
+  return Math.max(0, mark[0] - back);
+}
+
+/** Серебро караванного кошеля в минуту `now`: полный за вычетом недостачи. */
+export const caravanLeft = (cap: number, refillMs: number, mark: CaravanMark | undefined, now: number): number =>
+  Math.max(0, cap - caravanOwe(cap, refillMs, mark, now));
+
+/** Запись кошеля после выплаты `gold` в минуту `now`. */
+export const caravanPaid = (cap: number, refillMs: number, mark: CaravanMark | undefined, now: number, gold: number): [number, number] => [
+  caravanOwe(cap, refillMs, mark, now) + Math.max(0, gold),
+  now,
+];
 
 /** Товар по ключу — для сервера, который не держит своей таблицы. */
 export const goodOf = (id: string): GoodDef | null => GOOD_BY_ID[id] ?? null;

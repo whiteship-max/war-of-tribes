@@ -470,6 +470,11 @@ export interface MarketState {
   seq?: number;
   /** Последние сделки (не больше `marketrules.DEALS_KEPT`) — опись для книги рынка сервера (правило «market»). */
   deals?: MarketDeal[];
+  /**
+   * Караванный кошель вольного города (ПН-Э2в, `marketrules.caravanLeft`): недостача до полного и настоящая минута — пополняется сам.
+   * Только у рынка с ключом `town:x:y` (`RoamState.markets`); у своего города лорда поля нет никогда. Нет поля — кошель полон.
+   */
+  cv?: [number, number];
 }
 
 /**

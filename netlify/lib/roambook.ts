@@ -28,7 +28,7 @@
  * Повтор приказа с тем же ключом — прежний итог без второго прихода (`keys`). Чистая логика; хранилище — строка отряда реестра
  * (`BandRow.book`), пишет её `roster.bandOrder`.
  */
-import type { AdminGrant, BandBookOrder, BandCell, RoamBookRow, RoamDealBook, TroopKey } from './contract.js';
+import type { AdminGrant, BandBookOrder, BandCell, RoamBookRow, RoamDealBook, RoamTradeBook, RoamTradeTown, TroopKey } from './contract.js';
 import { BAND_LIMITS, TROOP_KEYS } from './contract.js';
 import { canPromote } from '../../src/game/promoterules.js';
 import { DRILL_AHEAD_MS, askCap, captiveCap, drillMs, FIGHTS_PER_MOVE } from '../../src/game/askrules.js';
@@ -41,6 +41,13 @@ import { realTime } from '../../src/game/pace.js';
 import { shiftOf } from '../../src/game/shift.js';
 import { CONTRACTS_MAX, FROM_KINDS } from '../../src/game/data/contracts.js';
 import { DEED_TABLE } from '../../src/game/data/deedgain.js';
+import { caravanLeft, caravanPaid, depthOf, fromPurse, goodOf, lotOf, pressAt, shiftOffer, specGood, supplyOf } from '../../src/game/marketrules.js';
+import { townMarketLevel } from '../../src/game/townrules.js';
+import { townAt } from '../../src/world/roampoints.js';
+import { specMult, townCaravan, townSpecOf } from '../../src/world/townspec.js';
+import { roamCell, roamMoving } from '../../src/world/roam.js';
+import type { RoamWay } from '../../src/world/roammove.js';
+import { TRADE_TOWNS } from './bandorder.js';
 
 /** Запаздывание часов: приход, наступивший у клиента на столько раньше сервера, — честный. */
 export const BOOK_SLACK_MS = realTime(2 * 60_000);
@@ -75,6 +82,12 @@ export interface BookStep {
   book: RoamBookRow;
   error: string | null;
   forged: string | null;
+  /**
+   * Отказ, после которого книгу всё же записать (ПН-Э2в): сделка у вольного города легла в партию, а сервер её не подтвердил по
+   * запаздыванию (отряд у сервера уже в пути) — цепочка нажима и кошеля идёт вместе с партией, иначе следующая честная сделка вышла бы
+   * подделкой; в подтверждённое она не идёт.
+   */
+  keep?: boolean;
 }
 
 /** Где отряд и что сервер знает о партии — входы приказа. */
@@ -85,6 +98,8 @@ export interface BookAt {
   moving: boolean;
   /** Сид партии из описи (`WatchCard.seed`); нет — описи ещё не было. */
   seed?: number;
+  /** Запись хода отряда (правда сервера): где стоял отряд в минуту сделки у вольного города (ПН-Э2в). Нет — клетка `cell` сейчас. */
+  way?: RoamWay;
 }
 
 /** Потолок пленных за бой: доля людей самого сильного отряда НПС — высшая ступень таблицы силы, логово, полная спелость. */
@@ -100,9 +115,81 @@ export const dealsPerCell = (): number => roamStub('boardSize') + FROM_KINDS.cas
 
 const noDeals = (): RoamDealBook => ({ open: [], took: [], n: 0, gold: 0, fame: 0 });
 
+const noTrade = (): RoamTradeBook => ({ towns: [], n: 0, sold: 0, spent: 0 });
+
+/** Где стоял отряд в минуту `t`: до выхода последнего хода — в его начале; дальше — по ходу. Хода нет — клетка приказа. */
+function standAt(at: BookAt, t: number): { cell: BandCell; moving: boolean } {
+  const way = at.way;
+  if (!way) return { cell: at.cell, moving: at.moving };
+  if (t < way.at) return { cell: { x: way.from.x, y: way.from.y }, moving: false };
+  return { cell: roamCell(way, t), moving: roamMoving(way, t) };
+}
+
+/**
+ * Сделка у вольного города (ПН-Э2в, ГДД 3.7.1; граница доверия, 5в): сервер ведёт цепочку сделок отряда у каждого города — привоз, счёт
+ * купленного и проданного, нажим и караванный кошель — и выводит цену той же формулой, что игра (`marketrules`: основа со
+ * специализацией `world/townspec`, глубина и запас уровня города, нажим `pressAt`, партия `lotOf`). Подделка — отказ и флаг: города нет,
+ * товара нет, минута впереди часов или раньше прежней, куплено дешевле правила или сверх привоза, продано дороже правила или сверх
+ * караванного кошеля, отряд стоял не у города. Отряд в пути (запаздывание) — отказ без флага, цепочка идёт с партией (`keep`).
+ * Подтверждённое — счёт сделок, выручки и трат (`RoamTradeBook`).
+ */
+function tradeOrder(book: RoamBookRow, o: Extract<BandBookOrder, { op: 'trade' }>, at: BookAt): BookStep {
+  const no = (error: string, forged: string | null = null): BookStep => ({ book, error, forged });
+  const where = `${o.at.x}|${o.at.y}`;
+  const NOT_RULE = 'Сделка не по правилам рынка — сервер её не принял.';
+  if (o.t > at.now + BOOK_SLACK_MS) return no(NOT_RULE, `Сделка у ${where}: минута на ${Math.round((o.t - at.now) / 1000)} с впереди часов сервера.`);
+  const town = townAt(o.at.x, o.at.y);
+  if (!town || town.tier <= 0) return no('Здесь нет вольного города.', `Сделка у ${where}: вольного города там нет.`);
+  const def = goodOf(o.good);
+  if (!def || !fromPurse(def.id)) return no('Такого товара на рынке города нет.', `Сделка у ${where}: товара «${o.good}» у вольного города нет.`);
+  const trade = book.trade ?? noTrade();
+  const cellKey = `${o.at.x}:${o.at.y}`;
+  const was = trade.towns.find((x) => x.at === cellKey);
+  if (was && o.t < was.last) return no(NOT_RULE, `Сделка у ${where}: минута раньше прежней сделки у этого города.`);
+  const w = shiftOf(o.t);
+  const level = townMarketLevel(town.tier as 1 | 2 | 3);
+  const base: RoamTradeTown =
+    was && was.w === w ? was : { at: cellKey, w, bought: {}, sold: {}, press: was?.press ?? {}, ...(was?.cv ? { cv: was.cv } : {}), last: was?.last ?? 0 };
+  const p = base.press[def.id];
+  const q0 = p ? pressAt(p[0], p[1], o.t) : 0;
+  const lot = lotOf(specGood(def, specMult(townSpecOf(town.x, town.y), def.id)), w, depthOf(def, level), q0, o.n, 1);
+  const k = Math.abs(o.n);
+  const name = def.name.toLowerCase();
+  const caravan = townCaravan(town.x, town.y, level);
+  if (o.n > 0) {
+    const supply = shiftOffer(w, level).includes(def.id) ? supplyOf(def, level, w, 0) : 0;
+    const sold = base.sold[def.id] ?? 0;
+    const bought = (base.bought[def.id] ?? 0) + k;
+    if (bought > supply + sold) return no(NOT_RULE, `Сделка у ${where}: куплено ${bought} (${name}) за привоз — привезли ${supply}, продано городу ${sold}.`);
+    if (o.gold < lot.gold) return no(NOT_RULE, `Сделка у ${where}: ${name} ${k} куплено за ${o.gold} — по правилу не меньше ${lot.gold}.`);
+  } else {
+    if (o.gold > lot.gold) return no(NOT_RULE, `Сделка у ${where}: ${name} ${k} продано за ${o.gold} — по правилу не больше ${lot.gold}.`);
+    const left = caravanLeft(caravan.cap, caravan.refillMs, base.cv, o.t);
+    if (o.gold > left) return no(NOT_RULE, `Сделка у ${where}: выручка ${o.gold}, а в караванном кошеле города ${Math.floor(left)}.`);
+  }
+  const st = standAt(at, o.t);
+  const away = Math.max(Math.abs(st.cell.x - o.at.x), Math.abs(st.cell.y - o.at.y)) > 1;
+  if (!st.moving && away) return no('Отряд не у этого города.', `Сделка у ${where}, а отряд стоял в ${st.cell.x}|${st.cell.y}.`);
+  const add = (rec: Record<string, number>): Record<string, number> => ({ ...rec, [def.id]: (rec[def.id] ?? 0) + k });
+  const town2: RoamTradeTown = {
+    ...base,
+    ...(o.n > 0 ? { bought: add(base.bought) } : { sold: add(base.sold), cv: caravanPaid(caravan.cap, caravan.refillMs, base.cv, o.t, o.gold) }),
+    press: { ...base.press, [def.id]: [q0 + o.n, o.t] },
+    last: o.t,
+  };
+  const towns = [...trade.towns.filter((x) => x.at !== cellKey), town2].slice(-TRADE_TOWNS);
+  const keys = [...book.keys, o.key].slice(-BAND_LIMITS.keys);
+  // В пути у сервера (запаздывание: сделка шла дольше хода) — цепочка с партией, подтверждения нет.
+  if (st.moving) return { book: { ...book, trade: { ...trade, towns }, keys }, error: 'Отряд уже в пути: сделка не подтверждена.', forged: null, keep: true };
+  const confirmed: RoamTradeBook =
+    o.n > 0 ? { towns, n: trade.n + 1, sold: trade.sold, spent: trade.spent + o.gold } : { towns, n: trade.n + 1, sold: trade.sold + o.gold, spent: trade.spent };
+  return { book: { ...book, trade: confirmed, keys }, error: null, forged: null };
+}
+
 /** Применить приказ книги. Повтор ключа — прежняя книга без отказа. */
 export function bookOrder(book: RoamBookRow, o: BandBookOrder, at: BookAt): BookStep {
   if (book.keys.includes(o.key)) return { book, error: null, forged: null };
+  if (o.op === 'trade') return tradeOrder(book, o, at);
   const no = (error: string, forged: string | null = null): BookStep => ({ book, error, forged });
   const t = { ...book.troops };
   const have = (k: TroopKey): number => t[k] ?? 0;

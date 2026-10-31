@@ -17,7 +17,7 @@ import { roamCell, roamMoving } from '@/world/roam';
 import { townAt } from '@/world/roampoints';
 import { marketLeft, marketLot, marketSpend, provideTownSide } from './market';
 import { TOWN_MARKETS, townMarketLevel } from '../townrules';
-import { specMult, townSpecOf } from '@/world/townspec';
+import { specMult, townCaravan, townSpecOf } from '@/world/townspec';
 import { addStock } from './stock';
 import { bandOf, bookKey, sendBook } from './bandranks';
 import { log } from './log';
@@ -44,6 +44,17 @@ provideTownSide({
     const c = /^town:(-?\d+):(-?\d+)$/.exec(key);
     const t = c ? townAt(Number(c[1]), Number(c[2])) : null;
     return t ? specMult(townSpecOf(t.x, t.y), good) : 1;
+  },
+  // Караванный кошель вольного города (ПН-Э2в): от уровня рынка ступени и специализации — одна сборка `world/townspec.townCaravan`.
+  caravan: (key) => {
+    const c = /^town:(-?\d+):(-?\d+)$/.exec(key);
+    const t = c ? townAt(Number(c[1]), Number(c[2])) : null;
+    return t && t.tier > 0 ? townCaravan(t.x, t.y, townMarketLevel(t.tier as 1 | 2 | 3)) : { cap: 0, refillMs: 0 };
+  },
+  // Сделка у вольного города — приказ книги торга сервера (ПН-Э2в): сервер выводит цену, кошель и товар сам и сверяет (`roambook`).
+  deal: (s, key, good, n, gold, now) => {
+    const c = /^town:(-?\d+):(-?\d+)$/.exec(key);
+    if (c && bandOf(s)) sendBook(s, { op: 'trade', key: bookKey(s, 'trade'), at: { x: Number(c[1]), y: Number(c[2]) }, good, n, gold, t: now });
   },
   cap: cargoCap,
   keep: TOWN_MARKETS,

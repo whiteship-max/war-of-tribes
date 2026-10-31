@@ -202,7 +202,13 @@ function readTown(r: Record<string, unknown>): Pick<RoamState, 'markets' | 'fed'
   const out: Pick<RoamState, 'markets' | 'fed' | 'drill' | 'ask' | 'captives' | 'outbox'> = {};
   if (r.markets && typeof r.markets === 'object') {
     const markets: Record<string, MarketState> = {};
-    for (const [k, v] of Object.entries(r.markets as Record<string, unknown>).slice(-TOWN_MARKETS)) if (/^town:-?\d+:-?\d+$/.test(k)) markets[k] = mergeMarket(v);
+    for (const [k, v] of Object.entries(r.markets as Record<string, unknown>).slice(-TOWN_MARKETS)) {
+      if (!/^town:-?\d+:-?\d+$/.test(k)) continue;
+      markets[k] = mergeMarket(v);
+      // Караванный кошель вольного города (ПН-Э2в): недостача и минута — конечные числа, недостача выше нуля (иначе кошель полон).
+      const cv = (v as Record<string, unknown> | null)?.cv;
+      if (Array.isArray(cv) && finite(cv[0]) && finite(cv[1]) && cv[0] > 0) markets[k].cv = [cv[0], cv[1]];
+    }
     if (Object.keys(markets).length) out.markets = markets;
   }
   if (Array.isArray(r.fed)) {
