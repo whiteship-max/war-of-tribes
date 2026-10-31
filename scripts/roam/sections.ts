@@ -7,15 +7,15 @@ import { troopTotal, type TroopStack } from '../../src/game/battle/kinds';
 import { FREE_TIERS, FREE_TIER_NAMES, freeGold, freeId, freePoolSize, freePop, freePower, freePrestige, freeTroopPower, freeTroops } from '../../src/world/freecastle';
 import { baseWage, powerOf, troopPower } from '../../src/game/battle/price';
 import { soldierFoodPerDay } from '../../src/game/build';
-import { DAY_LENGTH, RESOURCE_IDS, TEST_ARMY_FOOD } from '../../src/game/constants';
+import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS, TEST_ARMY_FOOD } from '../../src/game/constants';
 import { GOOD_BY_ID } from '../../src/game/data/market';
 import { TROOP_BY_ID, TROOP_IDS } from '../../src/game/data/troops';
-import { SALE_SHARE, buyUnit, depthOf, shiftOf } from '../../src/game/marketrules';
+import { SALE_SHARE, buyUnit, caravanUnit, depthOf, purseOf, shareFor, shiftOf } from '../../src/game/marketrules';
 import { promoteUnit } from '../../src/game/promoterules';
 import { hireBase, villageFoodPrice, villageStock } from '../../src/game/townrules';
 import { askCap, askMult, askRange, captivesOf, drillMs } from '../../src/game/askrules';
 import { awayArrival } from '../../src/game/mailgrid';
-import { boardDue } from '../../src/game/townrules';
+import { boardDue, townMarketLevel } from '../../src/game/townrules';
 import { earnGold, earnHaul } from '../../src/game/sim/bandearn';
 import { healFullSeconds, healPriceOfLeft } from '../../src/game/gemrules';
 import { MINIGAMES } from '../../src/game/data/minigames';
@@ -40,11 +40,11 @@ import type { InputId } from './inputs';
 import { CAMPS, CAMP_NAME, type Origin } from './kinds';
 import type { Ctx, Section } from './run';
 import { evenPower, rowDrops, rowMove } from './foes';
-import { RUN_STYLES, STYLES, roadHours, runPath, scaleOf, type PathFlow, type PathKnobs, type PathRun, type Style } from './path';
-import { SHIFTS_PER_DAY, bestLoop } from './trade';
+import { RUN_STYLES, STYLES, roadHours, runPath, scaleOf, type PathFlow, type PathKnobs, type PathRun, type ScaleBook, type Style } from './path';
+import { SHIFTS_PER_DAY, bestLoop, gameRules, unitOf, type TradeRules } from './trade';
 import { MAP_ARMIES, MAP_ARMY_WORDS, MAP_COARSE, ODDS_TRUTH_SEED, castleMap, castleTrace, mapBand, oddsBars, oddsCases, oddsPick, type CastleMap } from './castle';
 import { FREE_NEED_CAP, FREE_ODDS_SEEDS, freeNeedMen } from '../../src/world/freeodds';
-import { TOWN_SPEC_META, townSpecOf } from '../../src/world/townspec';
+import { TOWN_SPECS, TOWN_SPEC_META, townSpecOf } from '../../src/world/townspec';
 import { placeAll } from './pool';
 import { SIGHT_GOALS, STANCES, deriveSight, detectShare, goalCheck, writtenSight, type SightNumbers } from './sight';
 import { RUIN_BLOCK, RUIN_CAP } from '../../src/world/data/sight';
@@ -868,28 +868,32 @@ const tradeBands = (origins: readonly Origin[]): TroopStack[] => [
 const trade: Section = {
   id: 'trade',
   title: 'Торговля между городами',
-  gdd: '3.7.1, 4.8',
+  gdd: '3.7.1, 4.8, 23.10',
   doors: [
-    'world/townspec.townSpecOf, specMult',
-    'marketrules.specGood, buyUnit, sellUnit, supplyOf, shiftOffer, purseOf',
+    'world/townspec.townSpecOf, specMult, TOWN_SPEC_META',
+    'marketrules.specGood, buyUnit, sellUnit, supplyOf, shiftOffer, caravanUnit, shareFor',
     'townrules.townMarketLevel',
     'cargocap.cargoCap',
     'world/roam.roamWalkMs',
     'партии стиля «мирный» раздела «Окупаемость путей»',
   ],
-  uses: [...PILOT, 'theftDeeds', 'raidDeeds', 'townSpec', 'townMarket'],
+  uses: [...PILOT, 'theftDeeds', 'raidDeeds', 'townSpec', 'townMarket', 'caravanSize', 'caravanRefill'],
   run(ctx) {
     ctx.use('theftDeeds');
     ctx.use('raidDeeds');
     ctx.use('townMarket');
     const written = ctx.use('townSpec');
+    const size = ctx.use('caravanSize');
+    const refillH = ctx.use('caravanRefill');
     const got = ctx.take<{ edges: readonly number[]; peace: PathRun[] }>('scaleIncome');
     const p = ctx.take<Pilot>('pilot');
-    // Доход договоров на масштабе — у мирного пути (аванс, плата и добыча в час на масштабе).
-    const dealRate = (sc: number): number => {
+    // Доход договоров и содержание на масштабе — у мирного пути (аванс, плата и добыча; жалованье и хлеб — в час на масштабе).
+    const perHour = (sc: number, f: (b: ScaleBook) => number): number => {
       const h = got.peace.reduce((n, r) => n + (r.byScale[sc]?.hours ?? 0), 0);
-      return h > 0 ? got.peace.reduce((n, r) => n + (r.byScale[sc]?.income ?? 0), 0) / h : NaN;
+      return h > 0 ? got.peace.reduce((n, r) => n + (r.byScale[sc] ? f(r.byScale[sc]) : 0), 0) / h : NaN;
     };
+    const dealRate = (sc: number): number => perHour(sc, (b) => b.income);
+    const upkeepRate = (sc: number): number => perHour(sc, (b) => b.upkeep);
     // Города рейса — у мест выхода мира дороги: ближайший вольный город (доска договоров, как `path.nearestTown`); соседи — до 40 клеток.
     const homes = [
       ...new Map(
@@ -904,55 +908,116 @@ const trade: Section = {
       const n = TOWN_SPEC_META[townSpecOf(h.x, h.y)].name;
       specs.set(n, (specs.get(n) ?? 0) + 1);
     }
-    ctx.line(`города рейса: ${homes.length} (ближайшие к местам выхода), специализации — ${[...specs].map(([n, c]) => `${n} ${c}`).join(', ')}; рейс — туда и обратно, лучший товар каждой ноги, все ${SHIFTS_PER_DAY} привозов суток; засад и ожидания привоза нет — верхняя граница`);
+    ctx.line(`города рейса: ${homes.length} (ближайшие к местам выхода), специализации — ${[...specs].map(([n, c]) => `${n} ${c}`).join(', ')}; рейс — туда и обратно по кругу, нога — несколько товаров по штуке, все ${SHIFTS_PER_DAY} привозов суток; засад и ожидания привоза нет — верхняя граница`);
+    // Караванный кошель на заглушках (ПН-Э2в): по ступени и специализации — единица `marketrules.caravanUnit` × размер.
+    ctx.line(`караванный кошель на заглушках (размер ×${fix(size)}, пополнение до полного за ${fix(refillH, 0)} ч), размах ${fix(written)}: ступень — ${TOWN_SPECS.map((sp) => TOWN_SPEC_META[sp].name).join(', ')}`);
+    for (const tier of [1, 2, 3] as const) {
+      const lv = townMarketLevel(tier);
+      ctx.line(`  ${tier} (рынок ${lv}): ${TOWN_SPECS.map((sp) => Math.floor(caravanUnit(lv, TOWN_SPEC_META[sp].wants, written) * size)).join(', ')} — кошель купцов привоза лорда того же уровня ${purseOf(lv)}`);
+    }
     // Доход торговца в час (без содержания — оно то же, что у договоров того же отряда): медиана по городам и привозам.
-    const rateOf = (band: TroopStack, swing: number): { rate: number; caps: Record<string, number> } => {
+    type Rate = { rate: number; caps: Record<string, number>; feeds: (upkeep: number) => number; size: number; hours: number };
+    const memo = new Map<string, Rate>();
+    const rateOf = (band: TroopStack, rules: TradeRules): Rate => {
+      const id = `${JSON.stringify(band)}|${JSON.stringify(rules)}`;
+      const was = memo.get(id);
+      if (was) return was;
       const rates: number[] = [];
       const caps: Record<string, number> = {};
+      const fill: number[] = [];
+      const hours: number[] = [];
       for (const h of homes) {
         for (let i = 0; i < SHIFTS_PER_DAY; i++) {
-          const loop = bestLoop(h, band, swing, T0_TRADE + (i * 86_400_000) / SHIFTS_PER_DAY, 40);
+          const loop = bestLoop(h, band, rules, T0_TRADE + (i * 86_400_000) / SHIFTS_PER_DAY, 40);
           rates.push(loop ? loop.profit / loop.hours : 0);
-          for (const l of loop?.legs ?? []) if (l) caps[l.cap] = (caps[l.cap] ?? 0) + 1;
+          if (!loop) continue;
+          hours.push(loop.hours);
+          loop.legs.forEach((l, k) => {
+            if (!l) return;
+            caps[l.cap] = (caps[l.cap] ?? 0) + 1;
+            // Сколько кошелей покупателя ушло бы на ногу, будь кошель бесконечен: так выводится размер, не режущий ногу.
+            fill.push(l.gain / Math.max(1, unitOf(k === 0 ? loop.to : h, rules)));
+          });
         }
       }
-      return { rate: median(rates), caps };
+      const out: Rate = { rate: median(rates), caps, feeds: (upkeep) => rates.filter((r) => r >= upkeep).length / Math.max(1, rates.length), size: median(fill), hours: median(hours) };
+      memo.set(id, out);
+      return out;
     };
-    const swings = [written, 0.4, 0.6, 0.8];
+    const capWords = (caps: Record<string, number>): string => {
+      const all = Object.values(caps).reduce((n, v) => n + v, 0);
+      const words: Record<string, string> = { cargo: 'обоз', supply: 'запас привоза', purse: 'караванный кошель', press: 'нажим' };
+      return all > 0 ? Object.entries(caps).map(([k, v]) => `${words[k]} ${pct(v / all)}`).join(', ') : 'выгодной ноги нет';
+    };
+    const game = (swing: number): TradeRules => gameRules(swing, size, refillH);
+    const swings = [written, 0.4, 0.6, 0.9];
     ctx.line(`${padEnd('отряд', 40)} ${padEnd('масштаб', 8)} ${pad('договоры/ч', 11)} ${swings.map((w) => pad(`торг/ч при ${fix(w)}`, 17)).join('')}`);
     for (const b of tradeBands(p.origins)) {
       const sc = scaleOf(troopPower(b), got.edges);
-      ctx.line(`${padEnd(`${stackWords(b)} (${Math.round(troopPower(b))})`, 40)} ${padEnd(SCALE_NAMES[sc], 8)} ${pad(fix(dealRate(sc), 1), 11)} ${swings.map((w) => pad(fix(rateOf(b, w).rate, 1), 17)).join('')}`);
+      ctx.line(`${padEnd(`${stackWords(b)} (${Math.round(troopPower(b))})`, 40)} ${padEnd(SCALE_NAMES[sc], 8)} ${pad(fix(dealRate(sc), 1), 11)} ${swings.map((w) => pad(fix(rateOf(b, game(w)).rate, 1), 17)).join('')}`);
     }
     // Вывод размаха: доход торговца-ватаги (первый представитель масштаба «ватага») к доходу договоров ватаги = 1 (середина цели 0.8…1.25), делением пополам.
     const band = tradeBands(p.origins).find((b) => scaleOf(troopPower(b), got.edges) === 1) ?? ETALONS[1];
     const sc = scaleOf(troopPower(band), got.edges);
     const deal = dealRate(sc);
-    const ratio = (w: number): number => rateOf(band, w).rate / deal;
-    ctx.line('');
-    ctx.line(`вывод размаха (цель — доход торговца-${SCALE_NAMES[sc]} ≈ доходу её договоров, ${fix(deal, 1)} в час):`);
+    const upkeep = upkeepRate(sc);
+    const ratio = (rules: TradeRules): number => rateOf(band, rules).rate / deal;
     const top = 0.9;
-    const atTop = ratio(top);
-    const atWritten = ratio(written);
-    ctx.line(`  записано ${fix(written)}: ${fix(atWritten)} × — ${ctx.target('tradeMatch', atWritten)}`);
-    if (!(atTop >= 1)) {
-      const caps = rateOf(band, top).caps;
-      const all = Object.values(caps).reduce((n, v) => n + v, 0);
-      const words: Record<string, string> = { cargo: 'обоз', supply: 'запас привоза', purse: 'кошель купцов', press: 'нажим' };
-      ctx.line(`  НЕ СХОДИТСЯ: даже при размахе ${fix(top)} торговец даёт ${fix(atTop)} × договоров — размахом цель не достаётся`);
-      ctx.line(`  что держит ногу рейса при ${fix(top)} (доля ног): ${Object.entries(caps).map(([k, v]) => `${words[k]} ${pct(v / Math.max(1, all))}`).join(', ')}`);
-      ctx.line(`  размах остаётся заглушкой ${fix(written)} (game/roamstubs.townSpec); правка — числами пути (обоз, телеги, кошель купцов гостям) пачкой ПН-Э2, не правилом рынка лорда`);
-      return;
+    /** Наименьший размах на 0…`top`, где `f` не ниже `goal` (делением пополам, 7 шагов — до 0.01); не достаёт и на `top` — `null`. */
+    const solve = (f: (w: number) => number, goal: number): number | null => {
+      if (!(f(top) >= goal)) return null;
+      let lo = 0;
+      let hi = top;
+      for (let i = 0; i < 7; i++) {
+        const mid = (lo + hi) / 2;
+        if (f(mid) >= goal) hi = mid;
+        else lo = mid;
+      }
+      return Math.ceil(hi * 100) / 100;
+    };
+    ctx.line('');
+    ctx.line(`вывод размаха (цель — доход торговца-${SCALE_NAMES[sc]} ≈ доходу её договоров, ${fix(deal, 1)} в час; содержание ${SCALE_NAMES[sc]} мирного пути — ${fix(upkeep, 1)} в час):`);
+    ctx.line(`  записано ${fix(written)}: ${fix(ratio(game(written)))} × — ${ctx.target('tradeMatch', ratio(game(written)))}`);
+    const out = solve((w) => ratio(game(w)), 1);
+    if (out !== null) {
+      ctx.line(`  сошлось на заглушках кошеля: размах ${fix(out)} — ${fix(ratio(game(out)))} × (${ctx.target('tradeMatch', ratio(game(out)))}); записано ${fix(written)} — ${Math.abs(out - written) < 0.005 ? 'совпадает' : 'РАЗОШЛОСЬ: записать в game/roamstubs.townSpec'}`);
+    } else {
+      const free = (w: number): TradeRules => ({ ...game(w), caravan: null });
+      ctx.line(`  НЕ СХОДИТСЯ: при размахе ${fix(top)} торговец даёт ${fix(ratio(game(top)))} × договоров с караванным кошелём и ${fix(ratio(free(top)))} × — без кошеля вовсе`);
+      ctx.line(`  что держит ногу рейса при ${fix(top)}: с кошелём — ${capWords(rateOf(band, game(top)).caps)}; без кошеля — ${capWords(rateOf(band, free(top)).caps)}`);
+      ctx.line('  держит не кошель, а глубина рынка вольного города (запас привоза и нажим) и доля продажи — правила рынка, общие с лордом; размах, размер и пополнение кошеля остаются заглушками (game/roamstubs)');
     }
-    let lo = 0;
-    let hi = top;
-    for (let i = 0; i < 10; i++) {
-      const mid = (lo + hi) / 2;
-      if (ratio(mid) < 1) lo = mid;
-      else hi = mid;
+    // Варианты владельцу (ГДД 23.10): что дали бы иные правила рынка вольного города — правила лорда не меняются ни в одном (рынок `home`).
+    // Доля продажи без прибавок — тот же вывод Ц1, что `SALE_SHARE` (`market:report`), при прибавке 1: у вольного города нет ни Казначея,
+    // ни купечества (`marketBoost` с ключом — 1). Глубже рынок — уровень рынка вольного города любой ступени на потолке уровня игры.
+    const deep = [MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL] as const;
+    const variants: { name: string; share: number; levels: readonly number[] | null }[] = [
+      { name: `как есть: доля ${SALE_SHARE}, рынок ${[1, 2, 3].map((t) => townMarketLevel(t as 1 | 2 | 3)).join('/')}`, share: SALE_SHARE, levels: null },
+      { name: `В1: доля ${shareFor(1)} (Ц1 без прибавок)`, share: shareFor(1), levels: null },
+      { name: `В2: рынок ${deep.join('/')}`, share: SALE_SHARE, levels: deep },
+      { name: `В1 + В2`, share: shareFor(1), levels: deep },
+    ];
+    ctx.line('');
+    ctx.line(`варианты владельцу (ГДД 23.10) — рейс торговца-${SCALE_NAMES[sc]} при иных правилах рынка вольного города; рынок лорда — тот же во всех:`);
+    ctx.line(`  ${padEnd('вариант', 34)} ${pad('без кошеля ×дог. при 0.25 / 0.90', 34)} ${pad('размах ≈ дог.', 14)} ${pad('размах 1.2 сод.', 16)}  при выведенном размахе: размер кошеля, пополнение, торг/ч к договорам, рейс кормит ватагу`);
+    for (const v of variants) {
+      const rules = (w: number, caravan: TradeRules['caravan'] = null): TradeRules => ({ swing: w, share: v.share, levels: v.levels, caravan });
+      const toDeal = solve((w) => ratio(rules(w)), 1);
+      const toKeep = solve((w) => rateOf(band, rules(w)).rate / upkeep, 1.2);
+      const at = toDeal ?? toKeep;
+      let tail = 'размах не находится до 0.90 — ни под договоры, ни под содержание';
+      if (at !== null) {
+        // Размер кошеля — медиана кошелей покупателя на ногу ватаги без кошеля: кошель не режет её ногу и режет большую (П7);
+        // пополнение — медиана часов рейса: к приходу торговца по своему кругу кошель полон, челнок между ближними городами — нет.
+        const free = rateOf(band, rules(at));
+        const sizeOut = Math.ceil(free.size * 100) / 100;
+        const refillOut = Math.ceil(free.hours * 10) / 10;
+        const withPurse = rateOf(band, rules(at, { size: sizeOut, refillH: refillOut }));
+        tail = `${fix(at)}: ×${fix(sizeOut)}, ${fix(refillOut, 1)} ч, ${fix(withPurse.rate / deal)} ×, ${pct(withPurse.feeds(upkeep))}`;
+      }
+      ctx.line(`  ${padEnd(v.name, 34)} ${pad(`${fix(ratio(rules(0.25)))} / ${fix(ratio(rules(top)))}`, 34)} ${pad(toDeal === null ? '> 0.90' : fix(toDeal), 14)} ${pad(toKeep === null ? '> 0.90' : fix(toKeep), 16)}  ${tail}`);
     }
-    const out = Math.round(hi * 100) / 100;
-    ctx.line(`  сошлось: размах ${fix(out)} — ${fix(ratio(out))} × (${ctx.target('tradeMatch', ratio(out))}); записано ${fix(written)} — ${Math.abs(out - written) < 0.005 ? 'совпадает' : 'РАЗОШЛОСЬ: записать в game/roamstubs.townSpec'}`);
+    ctx.line(`  «рейс кормит ватагу» — доля мест выхода × привозов, где лучший рейс в час не ниже содержания ватаги мирного пути (${fix(upkeep, 1)}): без разорения торговца-автопилота нет — стиля «торговец» в автопилоте пока нет (23.10)`);
   },
 };
 
