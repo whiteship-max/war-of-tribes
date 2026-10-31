@@ -1204,8 +1204,13 @@ export interface FreeCastleView {
   prestige: { need: number; have: number };
   band: { men: number; power: number };
   near: boolean;
-  /** Что нужно, чтобы взять: условие и выполнено ли. */
+  /**
+   * Что нужно, чтобы взять, — без шанса (ПН-Э2г): престиж, «у стен», связь; строки шанса — с сервера (`WorldApi.roamFreeOdds`). Дела
+   * нет (замок наш, чужой, сожжён, лагерь стоит) — пусто.
+   */
   needs: { text: string; ok: boolean }[];
+  /** Считать ли шанс у стен: дело у замка есть — окно спросит сервер (`roamFreeOdds`). */
+  odds: boolean;
   /** Почему не идти на замок сейчас; можно — `null`. */
   block: string | null;
   held: 'mine' | 'other' | null;

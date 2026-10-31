@@ -22,6 +22,7 @@ import type { Spot } from './land';
 import { roamSeat } from './roam';
 import { castellanOf, freeId, freeName, freePrestige, freeTroops } from './freecastle';
 import { freeNeeds } from './freeodds';
+import { OddsDesk, inlineCounter, oddsAsk } from '../../netlify/lib/oddsdesk';
 import '@/game/roamdoor';
 
 vi.mock('@/game/roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
@@ -54,6 +55,7 @@ function game(s: GameState) {
   };
   const ctx = { roster, sheet: () => null, roamOpen: true };
   const lines: string[] = [];
+  const desk = new OddsDesk(inlineCounter);
   const port: RoamPort = {
     band: () => s.roam ?? null,
     apply: (m) => void setMove(s, m),
@@ -67,8 +69,13 @@ function game(s: GameState) {
     free: () => freeViews(roster, KEY, file.free ?? {}, HOME, 200, now),
     wars: () => (advance(file, now, new Map()), warsOf(file, KEY)),
     warOrder: async (o) => (advance(file, now, new Map()), applyOrder(file, KEY, o, now, ctx)),
-    // Окно замка (ПН-Э2б): в браузере — потоком окна, здесь — прямо той же дверью.
-    freeOdds: async (i) => freeNeeds(i),
+    // Шанс окна замка (ПН-Э2г) — стол расчётов сервера в памяти: состав и клетка — из реестра, счёт — той же дверью окна.
+    freeOdds: async (id) => {
+      const a = oddsAsk(roster, file, KEY, id, now);
+      if (typeof a === 'string') return a;
+      const got = await desk.ask(KEY, a, now);
+      return 'rows' in got ? got.rows.map(({ text, ok }) => ({ text, ok })) : 'error' in got ? got.error : 'считаем';
+    },
     siege: (look) => {
       const got = takeSiege(s, look);
       lines.push(...got);
@@ -76,7 +83,7 @@ function game(s: GameState) {
     },
   };
   const world = new RoamWorld({ seed: SEED, storage: null, now: () => now, home: HOME }, port);
-  return { world, file, roster, lines, at: (t: number) => void (now = t), now: () => now };
+  return { world, port, file, roster, lines, at: (t: number) => void (now = t), now: () => now };
 }
 
 describe('ПН-10: окно вольного замка — функциями правил', () => {
@@ -95,6 +102,32 @@ describe('ПН-10: окно вольного замка — функциями �
     expect(v.fates.map((f) => f.id)).toEqual(['occupy', 'plunder', 'captives', 'burn']);
     // Строки «Что нужно» — репетициями сервером войны (ПН-Э2б, `world/freeodds`): секунды счёта, срок теста — с запасом.
   }, 60_000);
+
+  it('окно открывается сразу (ПН-Э2г): шанс ещё считается — гарнизон, престиж, «у стен» и кнопки уже есть', async () => {
+    const g = game(party());
+    const never = new RoamWorld({ seed: SEED, storage: null, now: () => T0, home: HOME }, { ...g.port, freeOdds: () => new Promise(() => {}) });
+    const v = await Promise.race([never.roamFree?.(FREE), new Promise<'ждёт'>((ok) => setTimeout(() => ok('ждёт'), 2000))]);
+    if (!v || typeof v === 'string') throw new Error(`окно ждёт шанса: ${v}`);
+    expect(v.odds, 'точка внутри области: дело у замка есть — шанс считается').toBe(true);
+    expect(v.garrison.watching).toBe(true);
+    expect(v.block).toBeNull();
+    expect(v.needs.map((n) => n.text)).toEqual([`Престиж ${freePrestige(1)} — у отряда 1000`, 'Отряд у стен — в клетке замка или рядом', 'Связь с сервером войны: бой у стен считает он']);
+    const src = readFileSync(join(__dirname, '../ui/map/roam/RoamCastle.tsx'), 'utf8');
+    expect(src, 'окно рисует строки без шанса, пока сервер считает').toMatch(/odds\.length > 0 \? odds : view\.needs/);
+    expect(src).toMatch(/view\.odds && odds === null && <p className="nx-tnote">\{ODDS_WAIT\}/);
+  });
+
+  it('шанс — с сервера: строки окна — дверь freeNeeds на составе и клетке реестра', async () => {
+    const small = { spearman: 3 };
+    const g = game(party(small));
+    const rows = await g.world.roamFreeOdds?.(FREE);
+    if (!Array.isArray(rows)) throw new Error(`шанса нет: ${rows}`);
+    const a = oddsAsk(g.roster, g.file, KEY, FREE, g.now());
+    if (typeof a === 'string') throw new Error(a);
+    expect(a.input.band, 'состав — книга реестра').toEqual(small);
+    expect(rows).toEqual(freeNeeds(a.input).map(({ text, ok }) => ({ text, ok })));
+    expect(rows.some((r) => /^Штурм с ходу/.test(r.text))).toBe(true);
+  }, 120_000);
 
   it('престижа мало — окно говорит словами правила, и поход не уходит', async () => {
     const g = game(party(STRONG, freePrestige(1) - 1));

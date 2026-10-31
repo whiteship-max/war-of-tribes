@@ -22,7 +22,7 @@ import { placeBand, roamCell, roamSeat } from '../roam';
 import { browserStorage, parseWorldSave } from './state';
 import type { LocalWorldOptions } from './LocalWorld';
 import { RoamWorld, type RoamPort } from './RoamWorld';
-import { oddsWorker } from './oddsworker';
+import { freeOddsOf } from '@/net/odds';
 import { pacts, proposals, spies, spyLook, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { knownEra } from '@/net/era';
 import { revealWorld } from '@/debug';
@@ -60,7 +60,8 @@ export function roamPort(): RoamPort {
     },
     // Осада вольного замка (ПН-10) — сервером войны: замки пула — слово реестра, итоги своей стороны — одной дверью партии.
     free: freeCastles,
-    freeOdds: oddsWorker(),
+    // Шанс окна замка (ПН-Э2г) — сервер: только в Telegram и у ведущей вкладки, как приказы войны.
+    ...(online ? { freeOdds: freeOddsOf } : {}),
     wars,
     ...(online ? { warOrder } : {}),
     siege: (look) => {

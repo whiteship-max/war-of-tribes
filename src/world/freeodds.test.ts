@@ -121,15 +121,16 @@ describe('ПН-Э2б: окно видит только то, что видит �
     expect(row(window(band), 'siege').odds!.chance).toEqual([direct(band, 'siege')]);
   }, 180_000);
 
-  it('окно мира бродяги — той же дверью: что видит отряд — по его клетке и ходу, шанс — по его составу', () => {
+  it('окно мира бродяги: что видит отряд — по его клетке и ходу; шанс — сервер той же дверью, кода сервера войны в клиенте нет (ПН-Э2г)', () => {
     const world = readFileSync(join(__dirname, 'local/RoamWorld.ts'), 'utf8');
     expect(world).toMatch(/freeLook\(at, !!m && roamMoving\(m\.way, now\)/);
-    expect(world).toMatch(/const input: FreeNeedIn = \{[^;]*look, band: \{ \.\.\.\(r\?\.band/);
-    expect(world, 'счёт — портом окна (в браузере — поток `freeodds.worker`)').toMatch(/await count\(input\)/);
-    const worker = readFileSync(join(__dirname, 'freeodds.worker.ts'), 'utf8');
-    expect(worker, 'поток окна — той же дверью').toMatch(/freeNeeds\(input\)/);
+    expect(world, 'мир бродяги дверь окна не читает: шанс — сервер').not.toMatch(/from '\.\.\/freeodds'/);
+    expect(world, 'шанс — портом сервера').toMatch(/this\.port\.freeOdds\(id\)/);
     const boot = readFileSync(join(__dirname, 'local/roamboot.ts'), 'utf8');
-    expect(boot).toMatch(/freeOdds: oddsWorker\(\)/);
+    expect(boot).toMatch(/freeOdds: freeOddsOf/);
+    const desk = readFileSync(join(__dirname, '../../netlify/lib/oddsdesk.ts'), 'utf8');
+    expect(desk, 'сервер — той же дверью окна').toMatch(/freePathsSteps\(path\)/);
+    expect(desk).toMatch(/freeRowsOf\(a\.input, hit\.rows\)/);
     const rules = readFileSync(join(__dirname, 'freecastle.ts'), 'utf8');
     expect(rules, 'строки силы равенством мощи больше нет').not.toMatch(/i\.band >= i\.garrison/);
     const odds = readFileSync(join(__dirname, 'freeodds.ts'), 'utf8');

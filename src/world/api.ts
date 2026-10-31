@@ -127,11 +127,16 @@ export interface WorldApi {
   roamBoards?(): Promise<DealBoard[]>;
   /**
    * Вольный замок пула (ПН-10, ГДД 3.11): окно — гарнизон по сведениям, доступ по престижу, что нужно, чтобы взять, наша осада
-   * (`roamFree`); поход — штурм с ходу или осада с объявленной участью (`roamSiege`, приказ серверу войны); дела лагеря — штурмовать,
+   * (`roamFree`, сразу) и шанс у стен (`roamFreeOdds`, с сервера); поход — штурм с ходу или осада с объявленной участью (`roamSiege`, приказ серверу войны); дела лагеря — штурмовать,
    * отступить, принять или отклонить дань кастеляна (`roamSiegeOrder`). Замок берут только мечом: сдачи и подкупа здесь нет. null —
    * сделано, иначе причина словами.
    */
   roamFree?(id: string): Promise<FreeCastleView | string>;
+  /**
+   * Строки «Что нужно, чтобы взять» с шансом (ПН-Э2г): считает сервер (`/api/odds`, той же дверью окна, что автопилот прибора) составом
+   * отряда из своего реестра; окно открывается раньше и дописывает их по ответу. Отказ — словами; дела нет — пусто.
+   */
+  roamFreeOdds?(id: string): Promise<{ text: string; ok: boolean }[] | string>;
   roamSiege?(id: string, mode: 'storm' | 'siege', fate: Fate): Promise<string | null>;
   roamSiegeOrder?(war: string, act: 'storm' | 'retreat' | 'tribute-yes' | 'tribute-no'): Promise<string | null>;
 

@@ -413,36 +413,24 @@ function lazyDoorsPlugin(): Plugin {
 }
 
 /**
- * Сервер войны в браузере (ПН-Э2б, docs/gdd/path_of_sword.md, 23.9): окно вольного замка (`world/freeodds`) репетирует дело тем же кодом,
- * которым сервер посчитает настоящее (`netlify/lib/war.ts`), — в куске пути, не в первой загрузке. Код сервера тянет за собой две вещи
- * Node, которых у страницы нет: подпись `node:crypto` (`roster.castleIdOf` с токеном бота, `initdata`) и `process.env` (`http.botToken`).
- * В браузере токена нет и быть не должно: подпись — пустышка, которая громко падает, если её позвали; `process.env` у файлов сервера —
- * пустой (без токена `castleIdOf` идёт своим смешением, как у сервера без токена). Тесты (`VITEST`) идут в Node — им не нужно ничего.
+ * Сервер войны — только на сервере (ПН-Э2г, docs/gdd/path_of_sword.md, 23.11): шанс окна вольного замка считает адрес `/api/odds`, и
+ * ни в первую загрузку, ни в кусок пути, ни в поток код сервера войны (`netlify/lib/war.ts`, стол расчётов `oddsdesk`, дверь окна
+ * `world/freeodds`) не входит. Попал — сборка падает: до ПН-Э2г он ехал в браузер потоком окна (164 КБ по сети).
  */
-function serverInBrowserPlugin(): Plugin {
-  const CRYPTO = '\0tribe-no-crypto';
+function noWarServerPlugin(): Plugin {
+  const SERVER = /[\\/](netlify[\\/]lib[\\/](war|oddsdesk)|src[\\/]world[\\/]freeodds)\.ts$/;
   return {
-    name: 'tribe-server-in-browser',
-    enforce: 'pre',
-    apply: () => !process.env.VITEST,
-    resolveId(id, importer) {
-      if (id === 'node:crypto' && importer && /[\\/]netlify[\\/]lib[\\/]/.test(importer)) return CRYPTO;
-      return null;
-    },
-    load(id) {
-      if (id !== CRYPTO) return null;
-      const no = "() => { throw new Error('подписи сервера в браузере нет'); }";
-      return `export const createHmac = ${no};\nexport const timingSafeEqual = ${no};\n`;
-    },
-    transform(code, id) {
-      if (!/[\\/]netlify[\\/]lib[\\/][^\\/]+\.ts$/.test(id) || !code.includes('process.env')) return null;
-      return { code: `const process = { env: {} as Record<string, string | undefined> };\n${code}`, map: null };
+    name: 'tribe-no-war-server',
+    apply: 'build',
+    generateBundle() {
+      const bad = [...this.getModuleIds()].filter((id) => SERVER.test(id));
+      if (bad.length > 0) this.error(`код сервера войны в сборке клиента:\n  ${bad.join('\n  ')}`);
     },
   };
 }
 
 export default defineConfig({
-  plugins: [react(), snapPlugin(), bootMinifyPlugin(), lazyDoorsPlugin(), serverInBrowserPlugin()],
+  plugins: [react(), snapPlugin(), bootMinifyPlugin(), lazyDoorsPlugin(), noWarServerPlugin()],
   base: '/',
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
@@ -452,12 +440,6 @@ export default defineConfig({
     // Порт можно задать через PORT: так несколько dev-серверов не дерутся за 5173.
     port: process.env.PORT ? Number(process.env.PORT) : undefined,
     allowedHosts: ['.trycloudflare.com'],
-  },
-  // Потоки собираются своим сборщиком: окну вольного замка (`world/freeodds.worker`) нужен тот же сервер войны в браузере.
-  // Сервер войны тянет ленивые куски игры (`import()`): поток — один файл, они вшиваются в него (у прежних потоков ленивых кусков нет).
-  worker: {
-    plugins: () => [serverInBrowserPlugin()],
-    rollupOptions: { output: { inlineDynamicImports: true } },
   },
   build: {
     target: 'es2020',

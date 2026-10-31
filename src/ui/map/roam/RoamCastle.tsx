@@ -3,6 +3,9 @@
 // в последнюю вылазку), «Штурмовать», «Отступить», дань кастеляна. Замок взят — «Замок взят» с участью; «Сесть в замке» погашена до
 // перехода (ПН-11). Числа — функциями мира (правило 18): окно — `WorldApi.roamFree`, приказы — `roamSiege`, `roamSiegeOrder`. Кнопок
 // сдачи и подкупа нет: замок берут только мечом (решение В6).
+//
+// Окно открывается сразу (ПН-Э2г): гарнизон — что видит отряд, престиж, «у стен», кнопки; шанс у стен считает сервер (`roamFreeOdds`,
+// `/api/odds`), и строки шанса дописываются по ответу — до него «считаем шанс…». Окно шанса не ждёт ни для чего.
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { worldApi } from '@/world/api';
@@ -24,10 +27,15 @@ const END_WORDS: Record<string, string> = {
   retreat: 'Отряд отступил.',
 };
 
+/** Пока сервер считает шанс у стен. */
+export const ODDS_WAIT = 'Считаем шанс у стен…';
+
 const spanTo = (at: number | null, now: number): string => (at === null ? '—' : at <= now ? 'сейчас' : realSpan(Math.ceil((at - now) / 1000)));
 
 export function RoamCastle({ id, onClose }: { id: string; onClose: () => void }) {
   const [v, setV] = useState<FreeCastleView | string | null>(null);
+  /** Строки шанса с сервера: `null` — считаем; строка — отказ словами. */
+  const [odds, setOdds] = useState<{ text: string; ok: boolean }[] | string | null>(null);
   const [fate, setFate] = useState<Fate>('occupy');
   const [busy, setBusy] = useState(false);
   const showToast = useGame((g) => g.showToast);
@@ -38,6 +46,16 @@ export function RoamCastle({ id, onClose }: { id: string; onClose: () => void })
       .then(setV);
   };
   useEffect(read, [id]);
+  useEffect(() => {
+    let live = true;
+    setOdds(null);
+    void worldApi()
+      .roamFreeOdds?.(id)
+      .then((r) => live && setOdds(r));
+    return () => {
+      live = false;
+    };
+  }, [id]);
   const act = (p: Promise<string | null> | undefined): void => {
     if (!p) return;
     setBusy(true);
@@ -87,12 +105,14 @@ export function RoamCastle({ id, onClose }: { id: string; onClose: () => void })
                 <b>{view.garrison.lo === view.garrison.hi ? view.garrison.hi : `${view.garrison.lo}–${view.garrison.hi}`} · строй замка</b>
               </div>
               <p className="nx-tnote">Что нужно, чтобы взять:</p>
-              {view.needs.map((n) => (
+              {(Array.isArray(odds) && odds.length > 0 ? odds : view.needs).map((n) => (
                 <div key={n.text} className={`roam-leg roam-row${n.ok ? '' : ' roam-short'}`}>
                   <Icon name={n.ok ? 'ui-up' : 'ui-close'} />
                   <span>{n.text}</span>
                 </div>
               ))}
+              {view.odds && odds === null && <p className="nx-tnote">{ODDS_WAIT}</p>}
+              {view.odds && typeof odds === 'string' && <p className="nx-tnote">{odds}</p>}
               <p className="nx-tnote">
                 Только мечом: штурм с ходу — стена и лестницы; осада — фазы, машины, обстрел; когда хлеб кончится, гарнизон не сдастся, а
                 выйдет в последнюю вылазку — отбили её, замок наш.
