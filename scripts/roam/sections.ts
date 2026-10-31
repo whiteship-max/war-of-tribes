@@ -753,7 +753,7 @@ const castle: Section = {
   id: 'castle',
   title: 'Медиана до первого замка',
   gdd: '2.4, 3.11.2',
-  doors: ['партии автопилота раздела «Сила НПС»', 'freecastle.freeNeeds — окно замка'],
+  doors: ['партии автопилота раздела «Сила НПС»', 'freeodds.freeNeeds — окно замка (шанс репетицией, «сколько нужно»)'],
   uses: PILOT,
   run(ctx) {
     const p = ctx.take<Pilot>('pilot');
@@ -786,7 +786,7 @@ const castle: Section = {
     ctx.line(`  дошли за 14 сут ${pct(by(14))} — ${ctx.target('castleShare14', by(14), pct)}`);
     ctx.line(`  дошли за ${LIMIT_DAYS} сут ${pct(by(LIMIT_DAYS))} — ${ctx.target('castleShare42', by(LIMIT_DAYS), pct)}`);
     const ready = rs.filter((r) => r.storms > 0).length;
-    ctx.line(`  окно замка выполнено хоть раз (пошли на осаду): ${ready} из ${rs.length}; осад — ${rs.reduce((n, r) => n + r.storms, 0)}, пиков на одну осаду — ${rs.reduce((n, r) => n + r.peaks, 0)}, павших под стенами — ${rs.reduce((n, r) => n + r.castleLost, 0)}`);
+    ctx.line(`  окно замка выполнено хоть раз (пошли на осаду): ${ready} из ${rs.length}; осад — ${rs.reduce((n, r) => n + r.storms, 0)}, взято — ${rs.filter((r) => r.castleAt !== null).length}, пиков на одну осаду (найм до «сколько нужно» окна) — ${rs.reduce((n, r) => n + r.peaks, 0)}, окно спрошено — ${rs.reduce((n, r) => n + r.asks, 0)} раз, павших под стенами — ${rs.reduce((n, r) => n + r.castleLost, 0)}`);
   },
 };
 
