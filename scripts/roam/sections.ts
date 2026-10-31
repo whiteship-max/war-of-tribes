@@ -641,7 +641,7 @@ const castle: Section = {
     ctx.line(`  дошли за 14 сут ${pct(by(14))} — ${ctx.target('castleShare14', by(14), pct)}`);
     ctx.line(`  дошли за ${LIMIT_DAYS} сут ${pct(by(LIMIT_DAYS))} — ${ctx.target('castleShare42', by(LIMIT_DAYS), pct)}`);
     const ready = rs.filter((r) => r.storms > 0).length;
-    ctx.line(`  окно замка выполнено хоть раз (пошли на осаду): ${ready} из ${rs.length}; осад — ${rs.reduce((n, r) => n + r.storms, 0)}, павших под стенами — ${rs.reduce((n, r) => n + r.castleLost, 0)}`);
+    ctx.line(`  окно замка выполнено хоть раз (пошли на осаду): ${ready} из ${rs.length}; осад — ${rs.reduce((n, r) => n + r.storms, 0)}, пиков на одну осаду — ${rs.reduce((n, r) => n + r.peaks, 0)}, павших под стенами — ${rs.reduce((n, r) => n + r.castleLost, 0)}`);
   },
 };
 
@@ -779,8 +779,8 @@ const trade: Section = {
       const sc = scaleOf(troopPower(b), got.edges);
       ctx.line(`${padEnd(`${stackWords(b)} (${Math.round(troopPower(b))})`, 40)} ${padEnd(SCALE_NAMES[sc], 8)} ${pad(fix(dealRate(sc), 1), 11)} ${swings.map((w) => pad(fix(rateOf(b, w).rate, 1), 17)).join('')}`);
     }
-    // Вывод размаха: доход торговца ватаги (эталон тира I) к доходу договоров ватаги = 1 (середина цели 0.8…1.25), делением пополам.
-    const band = ETALONS[0];
+    // Вывод размаха: доход торговца-ватаги (первый представитель масштаба «ватага») к доходу договоров ватаги = 1 (середина цели 0.8…1.25), делением пополам.
+    const band = tradeBands(p.origins).find((b) => scaleOf(troopPower(b), got.edges) === 1) ?? ETALONS[1];
     const sc = scaleOf(troopPower(band), got.edges);
     const deal = dealRate(sc);
     const ratio = (w: number): number => rateOf(band, w).rate / deal;

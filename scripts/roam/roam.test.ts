@@ -366,3 +366,32 @@ describe('правила ГДД на числах кода', () => {
     expect(ETALONS[2]).toEqual(stackOf(70, MIX) as TroopStack);
   });
 });
+
+describe('политика автопилота пути (ПН-Э1): не таять неуплатой, не расти сверх дохода', () => {
+  const k = knobsOf({ use });
+  const table = [...ROAM_STUBS.foeTable.value];
+  const even = table.map(() => 1);
+  const origins = use('origins');
+  const peace = STYLES.find((s) => s.id === 'peace')!;
+  const runs = origins.map((o) => runPath(1, peace, o, table, even, k));
+  const sum = (f: (r: (typeof runs)[number]) => number): number => runs.reduce((n, r) => n + f(r), 0);
+
+  it('четыре стиля пути ГДД 3.7.0; вор и разбойник не гоняются, пока дел нет в коде', () => {
+    expect(STYLES.map((s) => s.id)).toEqual(['peace', 'thief', 'robber', 'castle']);
+    expect(STYLES.filter((s) => s.missing).map((s) => s.id)).toEqual(['thief', 'robber']);
+  });
+
+  it('уход неуплатой — не больше 5 % пришедших; рост мирного пути не сверх дохода — роспуск не больше трети пришедших', () => {
+    // Граница: окно 42 сут, отряд растёт — пришедших сотни, иначе доли меряли бы пустоту.
+    expect(k.limitDays).toBe(42);
+    expect(sum((r) => r.recruited)).toBeGreaterThan(100);
+    // Рост — пока содержание × запас стиля ≤ дохода: за всё окно доход дел покрывает содержание с запасом.
+    const income = sum((r) => r.byScale.reduce((n, b) => n + b.income, 0));
+    const upkeep = sum((r) => r.byScale.reduce((n, b) => n + b.upkeep, 0));
+    expect(income / upkeep, 'доход к содержанию за окно').toBeGreaterThanOrEqual(1.1);
+    expect(sum((r) => r.deserted), 'ушло неуплатой').toBeLessThanOrEqual(0.05 * sum((r) => r.recruited));
+    expect(sum((r) => r.dismissed), 'распущено политикой').toBeLessThanOrEqual(sum((r) => r.recruited) / 3);
+    // Счёт по масштабам — те же часы, что прожила партия.
+    for (const r of runs) expect(r.byScale.reduce((n, b) => n + b.hours, 0)).toBeGreaterThan(41 * 24);
+  });
+});

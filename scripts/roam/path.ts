@@ -38,7 +38,7 @@ import { cargoCap } from '../../src/game/sim/roam';
 import { prestigeAfter, prestigeStage } from '../../src/game/sim/prestige';
 import { mixSeed, seeded } from '../../src/game/sim/random';
 import { castleTry } from './castle';
-import { freeNeeds } from '../../src/world/freecastle';
+import { freeLarder, freeNeeds } from '../../src/world/freecastle';
 import { travelTime } from '../../src/world/geo';
 import { roamWalkMs } from '../../src/world/roam';
 import type { Spot } from '../../src/world/settle';
@@ -215,6 +215,8 @@ export interface PathRun {
   fallen: [number, number, number];
   ambushLost: number;
   castleLost: number;
+  /** Пиков на одну осаду (ГДД 4.4, правило 2): наймов до гарнизона, оплаченных кошелём вперёд. */
+  peaks: number;
   /** Часы, доход и содержание по масштабам (ГДД 4.4) — индекс `scaleOf`. */
   byScale: ScaleBook[];
   prestige: number;
@@ -334,6 +336,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     fallen: [0, 0, 0],
     ambushLost: 0,
     castleLost: 0,
+    peaks: 0,
     byScale: Array.from({ length: k.scales.length + 1 }, () => ({ hours: 0, income: 0, upkeep: 0 })),
     prestige: 0,
     purse: origin.gold,
@@ -469,6 +472,34 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     run.purse -= n * k.foodPrice.village;
   };
 
+  // Сбросить пик (ПН-Э1): после осады — до содержания, которое тянет устойчивый доход с запасом стиля (дубинщиков первыми).
+  const shed = (): void => {
+    for (let i = 0; i < 4000 && upkeepH() * style.keep > incomeH() && total(band) > 1; i++) {
+      const ids = (Object.keys(band) as TroopId[]).filter((id) => (band[id] ?? 0) > 0).sort((a, b) => (a === 'clubman' ? -1 : b === 'clubman' ? 1 : bandWage(a) - bandWage(b)));
+      add(band, ids[0], -1);
+      run.dismissed++;
+    }
+  };
+
+  // Войско на пике — на одну осаду (ГДД 4.4, правило 2; ПН-Э1): престиж замка есть, а сила ниже гарнизона — нанять до гарнизона, если
+  // кошель сверх запаса оплачивает вперёд и найм, и содержание пика на дорогу туда и назад и на голод замка (кладовая замка ступени при
+  // одном едоке-городе, `freecastle.freeLarder` — верхняя граница срока осады). Не хватает — копить дальше.
+  const larder = freeLarder(1);
+  const hungerH = larder.food / Math.max(1e-9, larder.townPerHour);
+  const peak = (gap: number, road: number): void => {
+    const plan: TroopStack = { ...band };
+    let cost = 0;
+    for (let i = 0; i < 4000 && troopPower(plan) < k.castle.power; i++) {
+      plan[style.grow] = (plan[style.grow] ?? 0) + 1;
+      cost += k.hire(style.grow) * origin.hire;
+    }
+    const keepCost = (bandWagesPerDay(plan) + bandRationPerDay({ band: plan, wounded: [] }, 1) * foodGold) * dayPerHour() * (2 * road + hungerH);
+    if (!(troopPower(plan) >= k.castle.power) || run.purse - reserve(gap) < cost + keepCost) return;
+    for (const [id, n] of Object.entries(plan) as [TroopId, number][]) band[id] = n;
+    run.purse -= cost;
+    run.peaks++;
+  };
+
   // Рост на заходе: повышение дубинщиков в вид стиля, потом найм в городе — пока кошель выше запаса и содержание после роста
   // с запасом стиля укладывается в устойчивый доход (ПН-Э1: не нанимать сверх дохода).
   const grow = (gap: number): void => {
@@ -520,7 +551,10 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     // бы игрок, выполнено целиком (`freecastle.freeNeeds`, ПН-Э1): престиж ступени, сила отряда не ниже гарнизона — одних единиц
     // (`troopPower`), связь; «у стен» — дойдёт дорогой (`castleRoads`). Разведки сухими делами нет — у игрока её нет. Осадой: лагерь,
     // фазы, голод — и последняя вылазка гарнизона всем, кто остался (ПН-10).
-    const ready = freeNeeds({ prestige: run.prestige, tier: 1, near: true, band: power, garrison: k.castle.power, online: true }).every((n) => n.ok);
+    if (style.castle && freeNeeds({ prestige: run.prestige, tier: 1, near: true, band: power, garrison: k.castle.power, online: true }).find((n) => n.id === 'prestige')?.ok) {
+      peak(untilNext(at), k.castleRoads[style.gait][spot]);
+    }
+    const ready = freeNeeds({ prestige: run.prestige, tier: 1, near: true, band: troopPower(band), garrison: k.castle.power, online: true }).every((n) => n.ok);
     if (style.castle && ready) {
       deed++;
       run.storms++;
@@ -537,6 +571,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
       }
       gain(-run.prestige * k.defeatPrestige);
       wiped();
+      shed();
       continue;
     }
     // Договоры (ПН-7): доска города и кастеляна дверью игры (`world/dealboard.boardsAt`), условия — `contractrules.contractTerms`
