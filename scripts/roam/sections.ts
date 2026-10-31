@@ -40,7 +40,8 @@ import type { InputId } from './inputs';
 import { CAMPS, CAMP_NAME, type Origin } from './kinds';
 import type { Ctx, Section } from './run';
 import { evenPower, rowDrops, rowMove } from './foes';
-import { RUN_STYLES, STYLES, roadHours, runPath, scaleOf, type PathFlow, type PathKnobs, type PathRun, type ScaleBook, type Style } from './path';
+import { allRuns } from './runs';
+import { RUN_STYLES, STYLES, roadHours, scaleOf, type PathFlow, type PathKnobs, type PathRun, type ScaleBook, type Style } from './path';
 import { SHIFTS_PER_DAY, bestLoop, gameRules, unitOf, type TradeRules } from './trade';
 import { MAP_ARMIES, MAP_ARMY_WORDS, MAP_COARSE, ODDS_TRUTH_SEED, castleMap, castleTrace, mapBand, oddsBars, oddsCases, oddsPick, type CastleMap } from './castle';
 import { FREE_NEED_CAP, FREE_ODDS_SEEDS, freeNeedMen } from '../../src/world/freeodds';
@@ -206,8 +207,6 @@ interface Pilot {
   origins: readonly Origin[];
 }
 
-const allRuns = (k: PathKnobs, origins: readonly Origin[], row: readonly number[], even: readonly number[], seeds: number): PathRun[] =>
-  RUN_STYLES.flatMap((st) => origins.flatMap((o) => Array.from({ length: seeds }, (_, i) => runPath(i + 1, st, o, row, even, k))));
 
 /** Эталон ступени — отряд медианной мощи в минуту входа в ступень среди партий, что в неё вошли. */
 const refsOf = (runs: readonly PathRun[], stages: number): (TroopStack | null)[] =>
@@ -571,7 +570,7 @@ const foes: Section = {
     const seen: number[][] = [row];
     let verdict = `не села за ${sz.steps} шагов`;
     for (let step = 1; step <= sz.steps; step++) {
-      const runs = allRuns(k, origins, row, even, sz.seeds);
+      const runs = await allRuns(k, origins, row, even, sz.seeds);
       const refs = refsOf(runs, k.stages.length);
       const ev = refs.map((b, i) => (b ? evenPower(b, sz.even, `st${i}`) : NaN));
       const derived = ev.map((x) => (Number.isNaN(x) ? NaN : Math.round(x / npc.edge)));
@@ -608,7 +607,7 @@ const foes: Section = {
     ctx.line(
       `таблица игры (game/roamstubs.foeTable): ${same ? 'совпадает с выведенной' : `РАЗОШЛАСЬ с выведенной — в игре ${written.join(', ')}; перенести выведенное: ${row.join(', ')}`}`,
     );
-    const runs = allRuns(k, origins, row, even, sz.seeds);
+    const runs = await allRuns(k, origins, row, even, sz.seeds);
     // Растёт ли строка по ступеням (ПН-Э2а) и откуда эталоны: медиана мощи в минуту входа и люди между входами — на выведенной строке.
     const drops = rowDrops(row);
     ctx.line(
