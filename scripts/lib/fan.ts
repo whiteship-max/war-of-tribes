@@ -38,10 +38,16 @@ import { takeSlot, type Slot } from './slots';
 
 type Task = (arg: never) => unknown;
 
-/** Сколько процессов берёт веер: `TRIBE_FAN`, а без него — бюджет ядер (бюджет железа). */
-export function fanWidth(env: NodeJS.ProcessEnv = process.env): number {
+/**
+ * Сколько процессов берёт веер: `TRIBE_FAN`, а без него — бюджет ядер (бюджет железа), и никогда не выше бюджета. Бюджет — доводом
+ * с умолчанием `budgetCores()`, как ядра и квота у `budgetCores`: так тест подставляет его явно и держит обе ветки веера — по очереди
+ * при одном ядре и по процессам при двух — на любой машине (ПН-Э2а). Отчёты бюджета не передают никогда — это тест по исходникам
+ * (`fan.test.ts`, «бюджет вееру подставляет только тест»).
+ */
+export function fanWidth(env: NodeJS.ProcessEnv = process.env, budget: number = budgetCores()): number {
+  const cap = Math.max(1, Math.floor(budget));
   const n = Math.floor(Number(env.TRIBE_FAN));
-  return n >= 1 ? Math.min(n, budgetCores()) : budgetCores();
+  return n >= 1 ? Math.min(n, cap) : cap;
 }
 
 interface Job {
@@ -109,10 +115,11 @@ export function serveFan(where: string, tasks: Record<string, Task>): void {
 
 /**
  * Прогнать `task` на каждом доводе. `task` — задача модуля `where` (его `import.meta.url`),
- * названная там в `serveFan` своим именем. Итог — в порядке доводов.
+ * названная там в `serveFan` своим именем. Итог — в порядке доводов. `budget` — бюджет ядер (`fanWidth`): отчёты его не передают,
+ * подставляет только тест.
  */
-export async function fan<A, R>(task: (arg: A) => R | Promise<R>, where: string, args: readonly A[]): Promise<R[]> {
-  const width = Math.min(fanWidth(), args.length);
+export async function fan<A, R>(task: (arg: A) => R | Promise<R>, where: string, args: readonly A[], budget: number = budgetCores()): Promise<R[]> {
+  const width = Math.min(fanWidth(process.env, budget), args.length);
   if (width <= 1) {
     const out: R[] = [];
     for (const a of args) out.push(await task(a));
