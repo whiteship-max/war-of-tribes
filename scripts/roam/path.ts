@@ -187,6 +187,20 @@ export interface ScaleBook {
   upkeep: number;
 }
 
+/**
+ * Счёт людей партии к минуте (ПН-Э2а): пришло просящимися, нанято (найм и пик), распущено, ушло неуплатой, пало в договорах, в засадах и
+ * под замком — с начала партии. Разность двух минут — куда ушли и откуда пришли люди между ними (раздел «Сила НПС», эталоны ступеней).
+ */
+export interface PathFlow {
+  asked: number;
+  hired: number;
+  dismissed: number;
+  deserted: number;
+  fallen: number;
+  ambushLost: number;
+  castleLost: number;
+}
+
 export interface PathRun {
   style: Style['id'];
   origin: Origin['id'];
@@ -197,6 +211,8 @@ export interface PathRun {
   stageAt: (number | null)[];
   /** Отряд в минуту входа в ступень — эталон ступени для силы НПС. */
   bandAt: (TroopStack | null)[];
+  /** Счёт людей в минуту входа в ступень (`PathFlow`, ПН-Э2а). */
+  flowAt: (PathFlow | null)[];
   deeds: number;
   wins: number;
   /** Договоров сорвано (срок или проигранный бой) и золота договоров получено — аванс и плата (ПН-7). */
@@ -207,6 +223,8 @@ export interface PathRun {
   storms: number;
   deserted: number;
   recruited: number;
+  /** Нанято за золото — найм на заходе и пик осады (повышение людей не прибавляет). */
+  hired: number;
   /** Час, когда неуплата увела последнего (разорение, цель 2.4); `null` — не разорился. */
   ruinedAt: number | null;
   /** Распущено политикой: кошеля не хватило бы до следующего захода (ПН-Э1). */
@@ -323,6 +341,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     castleAt: null,
     stageAt: k.stages.map((_, i) => (i === 0 ? 0 : null)),
     bandAt: k.stages.map((_, i) => (i === 0 ? { ...band } : null)),
+    flowAt: k.stages.map((_, i) => (i === 0 ? { asked: 0, hired: 0, dismissed: 0, deserted: 0, fallen: 0, ambushLost: 0, castleLost: 0 } : null)),
     deeds: 0,
     wins: 0,
     failed: 0,
@@ -331,6 +350,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     storms: 0,
     deserted: 0,
     recruited: 0,
+    hired: 0,
     ruinedAt: null,
     dismissed: 0,
     fallen: [0, 0, 0],
@@ -374,6 +394,15 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
       if (run.stageAt[s] !== null) continue;
       run.stageAt[s] = t;
       run.bandAt[s] = { ...band };
+      run.flowAt[s] = {
+        asked: run.recruited,
+        hired: run.hired,
+        dismissed: run.dismissed,
+        deserted: run.deserted,
+        fallen: run.fallen[0] + run.fallen[1] + run.fallen[2],
+        ambushLost: run.ambushLost,
+        castleLost: run.castleLost,
+      };
     }
   };
 
@@ -495,6 +524,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     }
     const keepCost = (bandWagesPerDay(plan) + bandRationPerDay({ band: plan, wounded: [] }, 1) * foodGold) * dayPerHour() * (2 * road + hungerH);
     if (!(troopPower(plan) >= k.castle.power) || run.purse - reserve(gap) < cost + keepCost) return;
+    run.hired += total(plan) - total(band);
     for (const [id, n] of Object.entries(plan) as [TroopId, number][]) band[id] = n;
     run.purse -= cost;
     run.peaks++;
@@ -517,6 +547,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
         return;
       }
       run.purse -= price;
+      if (!promote) run.hired++;
     }
   };
 
@@ -588,7 +619,9 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
       continue;
     }
     const nowMs = t0 + at * 3_600_000;
-    const boards = boardsAt(seed, town, nowMs, run.prestige, near).filter((b) => !debts.has(b.from.id));
+    // Сила целей доски — строкой шага `table`, а не таблицей игры: договоры — главный канал, которым сила НПС входит в свою выборку
+    // (правило 16; ПН-Э2а, 23.8 — без неё ступени 1–2 «садились», не двигаясь: удары договоров бились с 79, 79 игры).
+    const boards = boardsAt(seed, town, nowMs, run.prestige, near, table).filter((b) => !debts.has(b.from.id));
     const able = boards
       .flatMap((b) => b.offers)
       .filter((o) => !took.has(o.id) && (DEAL_DEFS[o.kind].fight !== 'strike' || o.power <= power * even[s] * style.edge));

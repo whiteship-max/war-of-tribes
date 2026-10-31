@@ -11,8 +11,12 @@ import { ROAM_STUBS, roamStubIds } from '../../src/game/roamstubs';
 import { campForage } from '../../src/game/roamrules';
 import { INPUTS, type InputId, type InputValue } from './inputs';
 import { ORIENTS, orientSections } from './orients';
-import { STYLES, runPath } from './path';
-import { Undeclared, render, statusLines, statusOf, type Section, type Size } from './run';
+import { RUN_STYLES, STYLES, runPath, type PathFlow } from './path';
+import { rowDrops } from './foes';
+import { mapBand, mapDrops, mapGarrison, type MapPoint } from './castle';
+import { FREE_TIERS } from '../../src/world/freecastle';
+import { troopTotal } from '../../src/game/battle/kinds';
+import { Undeclared, onlyOf, render, statusLines, statusOf, type Section, type Size } from './run';
 import { PILOT, SECTIONS, knobsOf } from './sections';
 import { GOAL_ROWS, SIGHT_GOALS, deriveSight, goalCheck, writtenSight } from './sight';
 import { SICILY } from '../../src/world/spawn';
@@ -27,7 +31,7 @@ const ROOT = path.resolve(HERE, '../..');
 const GDD = path.join(ROOT, 'docs/gdd/path_of_sword.md');
 
 /** Размер для тестов: та же машина, что у малого и полного, только мельче. */
-const TINY: Size = { name: 'малый', seeds: 1, steps: 2, even: 4, pool: 1, nft: 1, sight: 1 };
+const TINY: Size = { name: 'малый', seeds: 1, steps: 2, even: 4, pool: 1, nft: 1, sight: 1, map: { seeds: 1, fine: 0.25, man: false, tail: 1 } };
 
 const stubsOf = (uses: readonly InputId[]): InputId[] => uses.filter((k) => INPUTS[k].kind === 'stub');
 const use = <K extends InputId>(k: K): InputValue<K> => INPUTS[k].value as InputValue<K>;
@@ -46,8 +50,8 @@ describe('разделы — те, что называют ГДД 6.5 и пач�
     // ПН-5 — точки мира и встречи с НПС (`meet`): густота точек, сила НПС по ступеням, шанс засады — двери мира бродяги.
     // ПН-7 — вывод K и R видов договоров (`deals`) рядом с платой договоров.
     // ПН-Э1 (ГДД 2.0, 4.8): окупаемость путей, торговля между городами, воровство, разбой, форт, наёмники, гонка; вывод гарнизона
-    // под коридор 4–6 сут (`castleFix`) снят вместе с целью.
-    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'merc', 'race', 'parity', 'pool', 'meet', 'sight', 'people']);
+    // под коридор 4–6 сут (`castleFix`) снят вместе с целью. ПН-Э2а — карта осады вольного замка по числу нападающих (`castlemap`).
+    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'castlemap', 'merc', 'race', 'parity', 'pool', 'meet', 'sight', 'people']);
   });
 
   it('у каждого раздела — раздел ГДД и двери кода или входы', () => {
@@ -76,7 +80,7 @@ describe('заглушка не выдаётся за выведенное', () 
   it('у разделов автопилота, ценности и пула заглушки есть; у пути, у отряда и у видимости — нет ни одного входа', () => {
     // Граница: что из разделов стоит на заглушках сейчас, до пачек ПН-1…ПН-17. Пачка, заменившая вход дверью, правит эту строку
     // тем же коммитом — и раздел честно переходит в «выведено».
-    for (const id of ['camp', 'placeSpirit', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'merc', 'race', 'parity', 'pool', 'meet']) {
+    for (const id of ['camp', 'placeSpirit', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'castlemap', 'merc', 'race', 'parity', 'pool', 'meet']) {
       expect(statusOf((SECTIONS.find((s) => s.id === id) as Section).uses), id).toBe('НЕ ИЗМЕРЕНО');
     }
     expect(statusOf((SECTIONS.find((s) => s.id === 'road') as Section).uses)).toBe('выведено');
@@ -90,7 +94,7 @@ describe('заглушка не выдаётся за выведенное', () 
   });
 
   it('напечатанный статус каждого раздела — тот, что выводится из входов, и слова «выведено» у раздела на заглушках нет', async () => {
-    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'merc', 'race', 'pool', 'meet', 'sight', 'people']);
+    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'castlemap', 'merc', 'race', 'pool', 'meet', 'sight', 'people']);
     const heads = out.filter((l) => l.startsWith('━━ ') && !l.startsWith('━━ Итог'));
     const statuses = out.filter((l) => l.startsWith('статус: '));
     expect(statuses.length).toBe(heads.length);
@@ -100,7 +104,7 @@ describe('заглушка не выдаётся за выведенное', () 
       expect(heads[i], s.id).toContain(s.title);
       expect(statuses[i], `«${s.title}»: статус из входов`).toBe(`статус: ${statusOf(s.uses)}`);
     });
-    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 24 ━━$/);
+    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 25 ━━$/);
   });
 
   it('вход, не объявленный разделом, — исключение', async () => {
@@ -399,5 +403,102 @@ describe('политика автопилота пути (ПН-Э1): не тая
     expect(sum((r) => r.dismissed), 'распущено политикой').toBeLessThanOrEqual(sum((r) => r.recruited) / 3);
     // Счёт по масштабам — те же часы, что прожила партия.
     for (const r of runs) expect(r.byScale.reduce((n, b) => n + b.hours, 0)).toBeGreaterThan(41 * 24);
+  });
+});
+
+describe('сила НПС — вывод неподвижной точкой (ПН-Э2а, ГДД 23.8)', () => {
+  const k = knobsOf({ use });
+  const origins = use('origins');
+
+  it('договоры автопилота бьются со строкой шага, а не с таблицей игры: доска зовётся с `table`', () => {
+    // Сила целей доски — главный канал, которым строка силы входит в свою выборку (правило 16); засада — второй. С таблицей игры у
+    // договоров ступени «садились», не двигаясь (ПН-Э1: выведено 59 и 46 — при 79 и 79 у ударов). Вывод K и R (`deals.ts`) берёт
+    // таблицу игры нарочно: K и R выводятся на той, что в игре.
+    const src = readFileSync(path.join(HERE, 'path.ts'), 'utf8');
+    const calls = [...src.matchAll(/boardsAt\(([^)]*)\)/g)].map((m) => m[1].split(',').map((x) => x.trim()));
+    expect(calls.length, 'граница: автопилот зовёт доску').toBeGreaterThan(0);
+    for (const a of calls) expect(a[5], `boardsAt(${a.join(', ')})`).toBe('table');
+  });
+
+  it('книга людей сходится с отрядом: от входа в ступень до входа в следующую — пришедшие и нанятые минус ушедшие', () => {
+    // Строка «эталоны и люди между входами» раздела «Сила НПС» называет, что обрезало эталон ступени; правда она, только если книга
+    // (`PathRun.flowAt`) ловит каждого пришедшего и ушедшего.
+    const table = [...ROAM_STUBS.foeTable.value];
+    const even = table.map(() => 1);
+    let pairs = 0;
+    let moved = 0;
+    let peaks = 0;
+    for (const st of RUN_STYLES) {
+      for (const o of origins) {
+        for (const seed of [1, 2]) {
+          const r = runPath(seed, st, o, table, even, k);
+          peaks += r.peaks;
+          // Минуты книги: входы в ступени и конец окна (последний отряд и счётчики партии).
+          const marks = k.stages
+            .map((_, s) => (r.flowAt[s] && r.bandAt[s] ? { at: `ступень ${s}`, flow: r.flowAt[s] as PathFlow, band: r.bandAt[s] as TroopStack } : null))
+            .filter((m) => m !== null);
+          marks.push({
+            at: 'конец окна',
+            flow: { asked: r.recruited, hired: r.hired, dismissed: r.dismissed, deserted: r.deserted, fallen: r.fallen[0] + r.fallen[1] + r.fallen[2], ambushLost: r.ambushLost, castleLost: r.castleLost },
+            band: r.band,
+          });
+          for (let i = 1; i < marks.length; i++) {
+            const a = marks[i - 1].flow;
+            const b = marks[i].flow;
+            pairs++;
+            const came = b.asked - a.asked + b.hired - a.hired;
+            const left = b.dismissed - a.dismissed + b.deserted - a.deserted + b.fallen - a.fallen + b.ambushLost - a.ambushLost + b.castleLost - a.castleLost;
+            if (came + left > 0) moved++;
+            expect(troopTotal(marks[i].band) - troopTotal(marks[i - 1].band), `${st.id}/${o.id}/${seed}: ${marks[i - 1].at} → ${marks[i].at}`).toBeCloseTo(came - left, 6);
+          }
+        }
+      }
+    }
+    // Граница: пары минут есть, между ними люди правда приходят и уходят, и пики на осаду в выборке есть — иначе равенство держалось
+    // бы нулями, а найм пика мимо книги не ловился бы.
+    expect(pairs).toBeGreaterThan(20);
+    expect(moved).toBeGreaterThan(pairs / 2);
+    expect(peaks, 'граница: у стиля «к замку» в выборке есть пик на осаду').toBeGreaterThan(0);
+  });
+
+  it('строка, где выше ступень — слабее противник, называется: `rowDrops`', () => {
+    expect(rowDrops([12, 59, 47, 143, 433])).toEqual([2]);
+    expect(rowDrops([12, 79, 79, 243, 682]), 'равные соседние — не падение').toEqual([]);
+    expect(rowDrops([30, 20, 10])).toEqual([1, 2]);
+  });
+});
+
+describe('карта осады вольного замка по числу нападающих (ПН-Э2а)', () => {
+  it('отряд карты: копейщики — как есть; состав гарнизона — доли гарнизона ступени наибольшими остатками, людей ровно столько', () => {
+    for (const t of FREE_TIERS) {
+      const g = mapGarrison(t);
+      const all = troopTotal(g);
+      for (const men of [1, 7, 100, all, 999]) {
+        const b = mapBand('mirror', t, men);
+        expect(troopTotal(b), `ступень ${t}, ${men} чел.`).toBe(men);
+        for (const [id, n] of Object.entries(g) as [keyof TroopStack, number][]) expect(Math.abs((b[id] ?? 0) - (n * men) / all), `${t}/${men}/${id}`).toBeLessThan(1);
+      }
+      expect(mapBand('mirror', t, all)).toEqual(g);
+      expect(mapBand('spear', t, 42)).toEqual({ spearman: 42 });
+    }
+  });
+
+  it('падение — «взят → не взят» с ростом людей на одном сиде; монотонная карта — без падений', () => {
+    const p = (men: number, ...won: boolean[]): MapPoint => ({ men, power: men, won });
+    expect(mapDrops([p(1, false, false), p(2, true, false), p(3, true, true)])).toEqual([]);
+    expect(mapDrops([p(1, false, true), p(2, true, false), p(3, true, true)])).toEqual([{ seed: 2, won: 1, lost: 2 }]);
+    expect(mapDrops([p(1, true), p(2, false), p(3, true), p(4, false)])).toEqual([
+      { seed: 1, won: 1, lost: 2 },
+      { seed: 1, won: 3, lost: 4 },
+    ]);
+    expect(mapDrops([])).toEqual([]);
+  });
+
+  it('ROAM_ONLY: только названные разделы, неизвестный номер — ошибка, а не тихий пропуск', () => {
+    const ids = SECTIONS.map((s) => s.id);
+    expect(onlyOf(undefined, ids)).toBeUndefined();
+    expect(onlyOf('  ', ids)).toBeUndefined();
+    expect([...(onlyOf('foes, castlemap', ids) as Set<string>)]).toEqual(['foes', 'castlemap']);
+    expect(() => onlyOf('foes,castlefix', ids)).toThrow(/castlefix/);
   });
 });

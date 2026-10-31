@@ -82,6 +82,8 @@ const mix = (seed: number, period: number, who: number): number =>
 const WHO: Record<DealFrom, number> = { town: 1, castellan: 2, village: 3 };
 const dist = (a: DealPlace, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
 const place = (p: RoamPoint): DealPlace => ({ id: p.id, x: p.x, y: p.y, name: p.name });
+/** Сила НПС по ступеням престижа — строка таблицы (`foePower`). */
+type FoeTable = readonly number[];
 
 /** Номер заказчика: город — его точка, кастелян — `castle:x:y` (замок — клетка города до ПН-10), село — его точка. */
 export const customerId = (who: DealFrom, p: { x: number; y: number }): string =>
@@ -103,10 +105,13 @@ function standOf(kind: 'defend' | 'garrison', h: number): number {
   return lo + Math.min(hi - lo, Math.floor(h * (hi - lo + 1)));
 }
 
-/** Сила противника предложения: цель боя — её спелостью (та же, что у удара), засада дороги — спелостью номера; служба — 0. */
-function powerOf(kind: DealKind, prestige: number, seed: number, foeId: string): number {
+/**
+ * Сила противника предложения: цель боя — её спелостью (та же, что у удара), засада дороги — спелостью номера; служба — 0. Таблица силы
+ * НПС по ступеням — доводом, как у `foePower`: игра зовёт без неё (заглушка `foeTable`), вывод прибора пробует свою строку шага.
+ */
+function powerOf(kind: DealKind, prestige: number, seed: number, foeId: string, table: FoeTable): number {
   if (kind === 'garrison') return 0;
-  return foePower(prestige, kind === 'lair' ? 'lair' : 'band', foeRipe(seed, foeId));
+  return foePower(prestige, kind === 'lair' ? 'lair' : 'band', foeRipe(seed, foeId), table);
 }
 
 function offer(
@@ -118,11 +123,12 @@ function offer(
   kind: DealKind,
   target: DealPlace,
   h: number,
+  table: FoeTable,
   foe?: DealPlace,
 ): DealOffer {
   const id = `deal:${from.id}:${period}:${kind}:${target.x}:${target.y}`.slice(0, 64);
   const fight = DEAL_DEFS[kind].fight;
-  const power = powerOf(kind, prestige, seed, fight === 'strike' ? target.id : fight === 'defend' && foe ? foe.id : id);
+  const power = powerOf(kind, prestige, seed, fight === 'strike' ? target.id : fight === 'defend' && foe ? foe.id : id, table);
   const stand = kind === 'defend' || kind === 'garrison' ? standOf(kind, h) : 0;
   const roadMs = target.x === from.x && target.y === from.y ? 0 : roamWalkMs(from, target, 'normal');
   const out: DealOffer = { id, kind, tier, from, target, power, roadMs, stand };
@@ -131,7 +137,7 @@ function offer(
 }
 
 /** Доска вольного города в привоз `period`: `boardSize` мест, вид и цель — хешем; цели без пары вид+цель — пусто. */
-function townBoard(seed: number, town: RoamPoint, period: number, prestige: number, near: DealNear): DealOffer[] {
+function townBoard(seed: number, town: RoamPoint, period: number, prestige: number, near: DealNear, table: FoeTable): DealOffer[] {
   const tier = stageTier(foeStage(prestige));
   const from: DealCustomer = { ...place(town), who: 'town' };
   const kinds = FROM_KINDS.town.filter((k) => DEAL_DEFS[k].tier <= tier);
@@ -151,23 +157,23 @@ function townBoard(seed: number, town: RoamPoint, period: number, prestige: numb
     if (cands.length === 0) continue;
     const target = cands[Math.floor(hash2(salt, town.x * 4099 + town.y, i * 3 + 1) * cands.length) % cands.length];
     used.add(`${kind}:${target.id}`);
-    out.push(offer(seed, prestige, tier, from, period, kind, target, hash2(salt, town.x * 4099 + town.y, i * 3 + 2)));
+    out.push(offer(seed, prestige, tier, from, period, kind, target, hash2(salt, town.x * 4099 + town.y, i * 3 + 2), table));
   }
   return out;
 }
 
 /** Доска кастеляна (раз в сутки): служба у его замка (II+) и разведка чужого замка — города II–III до ПН-10. */
-function castellanBoard(seed: number, town: RoamPoint, period: number, prestige: number, near: DealNear): DealOffer[] {
+function castellanBoard(seed: number, town: RoamPoint, period: number, prestige: number, near: DealNear, table: FoeTable): DealOffer[] {
   const tier = stageTier(foeStage(prestige));
   const from: DealCustomer = { id: customerId('castellan', town), x: town.x, y: town.y, name: town.name, who: 'castellan' };
   const salt = mix(seed, period, WHO.castellan);
   const h = (k: number): number => hash2(salt, town.x * 4099 + town.y, k);
   const out: DealOffer[] = [];
-  if (DEAL_DEFS.garrison.tier <= tier) out.push(offer(seed, prestige, tier, from, period, 'garrison', { id: from.id, x: town.x, y: town.y, name: town.name }, h(0)));
+  if (DEAL_DEFS.garrison.tier <= tier) out.push(offer(seed, prestige, tier, from, period, 'garrison', { id: from.id, x: town.x, y: town.y, name: town.name }, h(0), table));
   const rivals = around(seed, town, roamStub('dealReach').target, 'town', near).filter((t) => t.id !== town.id && (townAt(t.x, t.y)?.tier ?? 0) >= 2);
   if (rivals.length > 0) {
     const t = rivals[Math.floor(h(1) * rivals.length) % rivals.length];
-    out.push(offer(seed, prestige, tier, from, period, 'scout', { id: customerId('castellan', t), x: t.x, y: t.y, name: t.name }, h(2)));
+    out.push(offer(seed, prestige, tier, from, period, 'scout', { id: customerId('castellan', t), x: t.x, y: t.y, name: t.name }, h(2), table));
   }
   return out;
 }
@@ -179,7 +185,7 @@ export function threatOf(seed: number, village: DealPlace, near: DealNear): Deal
 }
 
 /** Доска села — только при угрозе (староста просит): защитить село от этой ватаги и перехватить её. */
-function villageBoard(seed: number, village: RoamPoint, period: number, prestige: number, near: DealNear): DealOffer[] {
+function villageBoard(seed: number, village: RoamPoint, period: number, prestige: number, near: DealNear, table: FoeTable): DealOffer[] {
   const from: DealCustomer = { ...place(village), who: 'village' };
   const threat = threatOf(seed, from, near);
   if (!threat) return [];
@@ -187,16 +193,25 @@ function villageBoard(seed: number, village: RoamPoint, period: number, prestige
   const salt = mix(seed, period, WHO.village);
   const h = hash2(salt, village.x * 4099 + village.y, 0);
   return [
-    offer(seed, prestige, tier, from, period, 'defend', { id: village.id, x: village.x, y: village.y, name: village.name }, h, threat),
-    offer(seed, prestige, tier, from, period, 'vataga', threat, h),
+    offer(seed, prestige, tier, from, period, 'defend', { id: village.id, x: village.x, y: village.y, name: village.name }, h, table, threat),
+    offer(seed, prestige, tier, from, period, 'vataga', threat, h, table),
   ];
 }
 
 /**
  * Доски заказчиков у клетки `c` (сама клетка и соседние — отряд стоит в городе или лагерем у стен) в минуту мира `now`: город — по
- * привозу, кастелян — по суткам, село — по привозу и при угрозе.
+ * привозу, кастелян — по суткам, село — по привозу и при угрозе. `table` — сила НПС по ступеням: игра зовёт без неё (заглушка
+ * `foeTable`, та же, что у засад и логов мира бродяги); вывод прибора отдаёт свою строку шага — иначе договоры автопилота бились бы с
+ * таблицей игры, а не с выводимой, и неподвижная точка садилась бы ложно (ПН-Э2а, docs/gdd/path_of_sword.md, 23.8).
  */
-export function boardsAt(seed: number, c: { x: number; y: number }, now: number, prestige: number, near: DealNear): DealBoard[] {
+export function boardsAt(
+  seed: number,
+  c: { x: number; y: number },
+  now: number,
+  prestige: number,
+  near: DealNear,
+  table: FoeTable = roamStub('foeTable'),
+): DealBoard[] {
   const out: DealBoard[] = [];
   const shift = shiftOf(now);
   const day = Math.floor(now / CASTELLAN_PERIOD);
@@ -206,18 +221,18 @@ export function boardsAt(seed: number, c: { x: number; y: number }, now: number,
       const y = c.y + dy;
       const town = townAt(x, y);
       if (town) {
-        out.push({ from: { ...place(town), who: 'town' }, offers: townBoard(seed, town, shift, prestige, near), next: shiftStart(shift + 1) });
+        out.push({ from: { ...place(town), who: 'town' }, offers: townBoard(seed, town, shift, prestige, near, table), next: shiftStart(shift + 1) });
         if (town.tier >= 2) {
           out.push({
             from: { id: customerId('castellan', town), x, y, name: town.name, who: 'castellan' },
-            offers: castellanBoard(seed, town, day, prestige, near),
+            offers: castellanBoard(seed, town, day, prestige, near, table),
             next: (day + 1) * CASTELLAN_PERIOD,
           });
         }
       }
       const village = villageAt(seed, x, y);
       if (village && !near.beaten(village.id)) {
-        out.push({ from: { ...place(village), who: 'village' }, offers: villageBoard(seed, village, shift, prestige, near), next: shiftStart(shift + 1) });
+        out.push({ from: { ...place(village), who: 'village' }, offers: villageBoard(seed, village, shift, prestige, near, table), next: shiftStart(shift + 1) });
       }
     }
   }

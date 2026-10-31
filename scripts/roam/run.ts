@@ -13,6 +13,7 @@
 // то же исключение, что и у `Ctx.use`.
 import { watchStubs } from '../../src/game/roamstubs';
 import { INPUTS, TARGETS, type InputId, type InputValue, type TargetId } from './inputs';
+import type { MapSize } from './castle';
 
 /** Размер прогона: малый — облако и дом, полный — ночь на сервере (`ROAM_SIZE=full`, deploy/ci/night-inner.sh). */
 export interface Size {
@@ -29,6 +30,11 @@ export interface Size {
   nft: number;
   /** Миров выборки на вывод чисел видимости и долю обнаружений. */
   sight: number;
+  /**
+   * Карта осады вольного замка по числу нападающих (ПН-Э2а, `castle.castleMap`): сидов на точку, шаг у порога — доля гарнизона
+   * ступени, по одному ли человеку в вилке порога и сколько грубых точек после порога.
+   */
+  map: MapSize;
 }
 
 export const SIZES: Record<'small' | 'full', Size> = {
@@ -40,6 +46,7 @@ export const SIZES: Record<'small' | 'full', Size> = {
     pool: 2,
     nft: 1,
     sight: 2,
+    map: { seeds: 4, fine: 0.02, man: false, tail: 1 },
   },
   full: {
     name: 'полный',
@@ -49,8 +56,22 @@ export const SIZES: Record<'small' | 'full', Size> = {
     pool: 6,
     nft: 3,
     sight: 6,
+    map: { seeds: 6, fine: 0.01, man: true, tail: 99 },
   },
 };
+
+/**
+ * Какие разделы гнать (`ROAM_ONLY=castlemap,foes` — номера разделов `Section.id` через запятую): для работы над разделом и тяжёлого
+ * раздела полным размером отдельно. Без неё — все. Неизвестный номер — ошибка, а не тихий пропуск.
+ */
+export function onlyOf(raw: string | undefined, ids: readonly string[]): Set<string> | undefined {
+  const v = (raw ?? '').trim();
+  if (v === '') return undefined;
+  const want = v.split(',').map((x) => x.trim()).filter(Boolean);
+  const bad = want.filter((x) => !ids.includes(x));
+  if (bad.length > 0) throw new Error(`ROAM_ONLY: нет разделов ${bad.join(', ')}; есть ${ids.join(', ')}`);
+  return new Set(want);
+}
 
 export function sizeOf(raw: string | undefined): Size {
   const v = (raw ?? '').trim();

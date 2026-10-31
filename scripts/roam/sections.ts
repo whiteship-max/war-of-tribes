@@ -39,9 +39,10 @@ import { pilot, player } from '../autopilot';
 import type { InputId } from './inputs';
 import { CAMPS, CAMP_NAME, type Origin } from './kinds';
 import type { Ctx, Section } from './run';
-import { evenPower, rowMove } from './foes';
-import { RUN_STYLES, STYLES, roadHours, runPath, scaleOf, type PathKnobs, type PathRun, type Style } from './path';
+import { evenPower, rowDrops, rowMove } from './foes';
+import { RUN_STYLES, STYLES, roadHours, runPath, scaleOf, type PathFlow, type PathKnobs, type PathRun, type Style } from './path';
 import { SHIFTS_PER_DAY, bestLoop } from './trade';
+import { MAP_ARMIES, MAP_ARMY_WORDS, MAP_COARSE, castleMap, castleTrace, mapBand, type CastleMap } from './castle';
 import { TOWN_SPEC_META, townSpecOf } from '../../src/world/townspec';
 import { placeAll } from './pool';
 import { SIGHT_GOALS, STANCES, deriveSight, detectShare, goalCheck, writtenSight, type SightNumbers } from './sight';
@@ -213,6 +214,40 @@ const refsOf = (runs: readonly PathRun[], stages: number): (TroopStack | null)[]
     const sorted = [...bands].sort((a, b) => troopPower(a) - troopPower(b));
     return sorted[Math.floor((sorted.length - 1) / 2)];
   });
+
+/**
+ * Эталоны ступеней и люди между входами (ПН-Э2а): медиана мощи отряда в минуту входа в ступень и куда ушли люди от входа в одну ступень
+ * до входа в следующую — сумма по партиям, что вошли в обе (`PathRun.flowAt`). Если эталон ступени слабее прежнего, строка называет, что
+ * его обрезало.
+ */
+function flowLines(runs: readonly PathRun[], stages: number): string[] {
+  const keys: [keyof PathFlow, string][] = [
+    ['asked', 'пришло'],
+    ['hired', 'нанято'],
+    ['dismissed', 'распущено'],
+    ['deserted', 'неуплата'],
+    ['fallen', 'пало в делах'],
+    ['ambushLost', 'в засадах'],
+    ['castleLost', 'под замком'],
+  ];
+  const out = [
+    `эталоны и люди между входами в ступени (на выведенной строке; мощь — медиана в минуту входа, люди — сумма по партиям, вошедшим в обе):`,
+    `  ${padEnd('переход', 9)} ${pad('партий', 7)} ${pad('мощь до', 8)} ${pad('после', 7)} ${pad('людей до', 9)} ${pad('после', 7)}${keys.map(([, w]) => pad(w, w.length + 2)).join('')}`,
+  ];
+  for (let s = 0; s + 1 < stages; s++) {
+    const both = runs.filter((r) => r.bandAt[s] !== null && r.bandAt[s + 1] !== null && r.flowAt[s] !== null && r.flowAt[s + 1] !== null);
+    if (both.length === 0) {
+      out.push(`  ${padEnd(`${s} → ${s + 1}`, 9)} ${pad(0, 7)}  — до ступени ${s + 1} не дошёл никто`);
+      continue;
+    }
+    const at = (i: number): TroopStack[] => both.map((r) => r.bandAt[i] as TroopStack);
+    const flow = keys.map(([key, w]) => pad(both.reduce((n, r) => n + (r.flowAt[s + 1] as PathFlow)[key] - (r.flowAt[s] as PathFlow)[key], 0), w.length + 2));
+    out.push(
+      `  ${padEnd(`${s} → ${s + 1}`, 9)} ${pad(both.length, 7)} ${pad(fix(median(at(s).map(troopPower)), 1), 8)} ${pad(fix(median(at(s + 1).map(troopPower)), 1), 7)} ${pad(median(at(s).map(total)), 9)} ${pad(median(at(s + 1).map(total)), 7)}${flow.join('')}`,
+    );
+  }
+  return out;
+}
 
 // ---------- разделы ----------
 
@@ -571,6 +606,25 @@ const foes: Section = {
       `таблица игры (game/roamstubs.foeTable): ${same ? 'совпадает с выведенной' : `РАЗОШЛАСЬ с выведенной — в игре ${written.join(', ')}; перенести выведенное: ${row.join(', ')}`}`,
     );
     const runs = allRuns(k, origins, row, even, sz.seeds);
+    // Растёт ли строка по ступеням (ПН-Э2а) и откуда эталоны: медиана мощи в минуту входа и люди между входами — на выведенной строке.
+    const drops = rowDrops(row);
+    ctx.line(
+      `монотонность по ступеням: ${drops.length === 0 ? 'да — выше ступень, не слабее противник' : `НЕТ — ${drops.map((i) => `ступень ${i} (${row[i]}) слабее ступени ${i - 1} (${row[i - 1]})`).join('; ')}`}`,
+    );
+    for (const l of flowLines(runs, k.stages.length)) ctx.line(l);
+    // Ядро ли роняет строку (БЙ-1, docs/siege_v2.md, 31.8): ровный бой у каждого эталона — при одном бойце главного вида меньше и
+    // больше, той же костью (тот же `tag`). Больше того же — не слабее НПС, при котором ровный бой; иначе — ядро, и строка это скажет.
+    const mono = refsOf(runs, k.stages.length).map((b, s) => {
+      if (!b) return null;
+      const main = (Object.keys(b) as TroopId[]).sort((x, y) => (b[y] ?? 0) - (b[x] ?? 0) || (x < y ? -1 : 1))[0];
+      const at = (d: number): number => evenPower({ ...b, [main]: (b[main] ?? 0) + d }, sz.even, `mono${s}`);
+      return { s, main, n: b[main] ?? 0, row: [at(-1), at(0), at(1)] };
+    });
+    ctx.line(
+      `ровный бой у эталонов — бойцом главного вида меньше / эталон / больше, той же костью: ${mono.map((m) => (m ? `ст.${m.s} ${TROOP_BY_ID[m.main].name.toLowerCase()} ${m.n}: ${m.row.map((x) => fix(x, 1)).join(' / ')}` : '—')).join('; ')}`,
+    );
+    const bent = mono.filter((m): m is NonNullable<typeof m> => m !== null && !(m.row[0] <= m.row[1] && m.row[1] <= m.row[2]));
+    ctx.line(`  ядро у эталонов: ${bent.length === 0 ? 'монотонно — больше бойцов того же вида ни у одного эталона не опускает ровный бой' : `НЕ монотонно у ступеней ${bent.map((m) => m.s).join(', ')} — класс БЙ-1`}`);
     ctx.share('pilot', { runs, row, even, knobs: k, origins } satisfies Pilot);
   },
 };
@@ -601,6 +655,61 @@ const prestige: Section = {
     }
     const perDay = p.runs.map((r) => r.prestige / ((r.castleAt ?? LIMIT_DAYS * 24) / 24));
     ctx.line(`престижа в сутки (медиана по всем партиям, до замка или до срока): ${fix(median(perDay), 1)}`);
+  },
+};
+
+/** Строки карты осады одной ступени и состава (ПН-Э2а): сетка, порог, падения, своего отряда при пределе наёмников ВР3. */
+function mapLines(m: CastleMap, seeds: number): string[] {
+  const k = (p: { power: number }): string => fix(p.power / m.garrison);
+  const share = (p: { won: boolean[] }): string => `${p.won.filter(Boolean).length}/${seeds}`;
+  // Грубая сетка — те её точки, что карта посчитала (после порога — `tail`).
+  const grid = MAP_COARSE.map((x) => m.points.reduce((a, b) => (Math.abs(b.power / m.garrison - x) < Math.abs(a.power / m.garrison - x) ? b : a))).filter(
+    (p, i, ps) => i === 0 || p !== ps[i - 1],
+  );
+  const out = [`  ${MAP_ARMY_WORDS[m.army]}: доля гарнизона → взят на сидах: ${grid.map((p) => `${k(p)}:${share(p)}`).join(' ')}`];
+  out.push(
+    `    порог: ${m.first ? `первое взятие — ${m.first.men} чел. (${k(m.first)} гарнизона)` : 'не взят ни разу до конца сетки'}; ${m.full ? `на всех сидах дальше — с ${m.full.men} чел. (${k(m.full)})` : 'на всех сидах — нет до конца сетки'}; у порога шаг ${m.step} чел., точек ${m.points.length}`,
+  );
+  out.push(
+    `    монотонность по числу нападающих: ${m.drops.length === 0 ? 'да — больше людей того же состава ни на одном сиде не роняет взятие' : `НЕТ — ${m.drops.map((d) => `сид ${d.seed}: ${d.won} взят, ${d.lost} не взят`).join('; ')}`}`,
+  );
+  // Разбор каждого падения — обе осады бой за боем: где цепочка разошлась и чем лагерь проиграл (БЙ-1, docs/siege_v2.md, 31.8).
+  for (const d of m.drops) {
+    const [a, b] = [d.won, d.lost].map((men) => castleTrace(mapBand(m.army, m.tier, men), m.tier, d.seed));
+    out.push(`    разбор: сид ${d.seed}, ${d.won} чел. — ${a.end}, ${d.lost} чел. — ${b.end}; бой: лагерь−пало / вышли−пало / отдых лагеря / верх вышедших`);
+    for (let i = 0; i < Math.max(a.fights.length, b.fights.length); i++) {
+      const f = (x: (typeof a.fights)[number] | undefined): string =>
+        x ? `${x.camp}−${x.campLost} / ${x.sortie}−${x.sortieLost} / ${x.campRest === null ? '—' : fix(x.campRest)} / ${x.won ? 'да' : 'нет'}` : '—';
+      out.push(`      ${pad(i, 2)} ${(a.fights[i] ?? b.fights[i]).site.padEnd(7)} ${padEnd(f(a.fights[i]), 30)} │ ${f(b.fights[i])}`);
+    }
+  }
+  // ВР3 (ГДД 3.17): наёмников — не больше 0.6 гарнизона ступени доступа и не больше 1.5 своего отряда; свои — остаток до порога.
+  if (m.full) {
+    const t = m.full.power / m.garrison;
+    const own = Math.max(t - 0.6, t / 2.5);
+    out.push(`    ВР3 (наёмников ≤ 0.6 гарнизона и ≤ 1.5 своего): своего отряда для взятия на всех сидах — не меньше ${fix(own)} гарнизона (${Math.round(own * m.garrison)} мощи)`);
+  }
+  return out;
+}
+
+const castleMapSection: Section = {
+  id: 'castlemap',
+  title: 'Осада вольного замка: монотонность по числу нападающих',
+  gdd: '3.11.2, 3.17',
+  doors: ['castle.castleTry — сервер войны в памяти', 'freecastle.freeTroops, freeTroopPower', 'price.troopPower'],
+  uses: ['castleLevel', 'castlePrestige', 'castlePop', 'castleWall', 'castleTower', 'castleHall', 'castleShare'],
+  run(ctx) {
+    const size = ctx.size.map;
+    ctx.line(
+      `осада (mode «siege») у стен ступеней I–III, нападают ${MAP_ARMIES.map((a) => MAP_ARMY_WORDS[a]).join(' и ')}; сидов на точку ${size.seeds}; грубая сетка — доли мощи гарнизона ${MAP_COARSE.join(', ')} (после порога — ${size.tail >= MAP_COARSE.length ? 'вся' : `ещё ${size.tail}`}), у порога — шаг ${pct(size.fine)} гарнизона${size.man ? ', в вилке порога — по одному человеку' : ''}`,
+    );
+    ctx.line('окно замка (freecastle.freeNeeds) отвечает «да» по силе с 1.00 гарнизона — сравнить с порогом ниже');
+    for (const t of FREE_TIERS) {
+      const maps = MAP_ARMIES.map((a) => castleMap(t, a, size));
+      const g = maps[0].troops;
+      ctx.line(`${FREE_TIER_NAMES[t]} (${['', 'I', 'II', 'III'][t]}): гарнизон ${fix(maps[0].garrison, 1)} мощи, ${troopTotal(g)} бойцов строя (${stackWords(g)})`);
+      for (const m of maps) for (const l of mapLines(m, size.seeds)) ctx.line(l);
+    }
   },
 };
 
@@ -1311,4 +1420,4 @@ const placeSpirit: Section = {
   },
 };
 
-export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, deals, foes, prestige, paths, trade, theft, raid, fort, castle, merc, race, parity, pool, meet, sight, people];
+export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, deals, foes, prestige, paths, trade, theft, raid, fort, castle, castleMapSection, merc, race, parity, pool, meet, sight, people];

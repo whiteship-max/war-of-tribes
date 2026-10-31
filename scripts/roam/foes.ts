@@ -91,3 +91,11 @@ export function rowMove(seen: readonly (readonly number[])[], derived: readonly 
   if (last) return { kind: 'stuck', moving };
   return { kind: 'step', row };
 }
+
+/**
+ * Где строка силы НПС не растёт по ступеням (ПН-Э2а): номера ступеней, которые не сильнее предыдущей. Сила — от престижа (3.6.2): ступень
+ * выше — противник не слабее, и строка, где выше слабее, — находка вывода, а не баланс.
+ */
+export function rowDrops(row: readonly number[]): number[] {
+  return row.flatMap((x, i) => (i > 0 && x < row[i - 1] ? [i] : []));
+}

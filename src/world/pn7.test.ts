@@ -99,6 +99,24 @@ describe('доска договоров (ГДД 3.8.1–3.8.2)', () => {
     expect(townBoard(s).every((o) => o.tier === 2)).toBe(true);
   });
 
+  it('сила целей — таблицей доводом: игра зовёт без неё (заглушка `foeTable`), вывод прибора — своей строкой шага (ПН-Э2а)', () => {
+    // Вывод силы НПС неподвижной точкой (правило 16) пробует строку на договорах автопилота; с таблицей игры у доски строка входила
+    // бы в свою выборку только засадами, и ступени «садились», не двигаясь (ГДД 23.8).
+    const prestige = roamStub('stages')[1];
+    const fights = (bs: ReturnType<typeof boardsAt>): DealOffer[] => bs.flatMap((b) => b.offers).filter((o) => o.power > 0);
+    const game = boardsAt(SEED, TOWN, T0, prestige, NEAR);
+    expect(fights(game).length, 'граница: на досках у города есть бой').toBeGreaterThan(0);
+    expect(boardsAt(SEED, TOWN, T0, prestige, NEAR, roamStub('foeTable')), 'без довода — та же таблица игры').toEqual(game);
+    const table = roamStub('foeTable').map((x) => x * 3);
+    const tried = boardsAt(SEED, TOWN, T0, prestige, NEAR, table);
+    expect(tried.flatMap((b) => b.offers.map((o) => o.id)), 'доска та же — меняется только сила').toEqual(game.flatMap((b) => b.offers.map((o) => o.id)));
+    fights(tried).forEach((o, i) => {
+      const was = fights(game)[i].power;
+      expect(o.power, `${o.kind} ${o.id}`).toBeGreaterThan(was);
+      expect(Math.abs(o.power - 3 * was), `${o.kind} ${o.id}: втрое — до округления`).toBeLessThanOrEqual(2);
+    });
+  });
+
   it('кастелян — у города II–III (до ПН-10) раз в сутки; село — только при угрозе', () => {
     const t2 = nearest('town', (p) => p.tier >= 2)[0];
     const t1 = nearest('town', (p) => p.tier === 1)[0];

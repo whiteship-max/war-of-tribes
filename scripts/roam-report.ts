@@ -10,18 +10,21 @@
 //
 //   npm run roam:report                  малый прогон — облако и дом
 //   ROAM_SIZE=full npm run roam:report   полный — ночь на сервере (deploy/ci/night-inner.sh)
+//   ROAM_ONLY=castlemap npm run roam:report   только названные разделы (`Section.id` через запятую) — тяжёлый раздел отдельно
 import { TEST_ARMY_FOOD } from '../src/game/constants';
 import { TEST_TRAVEL_SPEED } from '../src/world/data/tuning';
 import { ORIENTS } from './roam/orients';
-import { inputLines, orientLines, render, sizeOf } from './roam/run';
+import { inputLines, onlyOf, orientLines, render, sizeOf } from './roam/run';
 import { SECTIONS } from './roam/sections';
 
 const size = sizeOf(process.env.ROAM_SIZE);
+const only = onlyOf(process.env.ROAM_ONLY, SECTIONS.map((s) => s.id));
 const TRAVEL: number = TEST_TRAVEL_SPEED;
 console.log('━━ Путь меча: прибор roam:report (ПН-0) ━━');
 console.log(
   `размер: ${size.name} (ROAM_SIZE=${size.name === 'малый' ? 'small' : 'full'}); партий на стиль и происхождение ${size.seeds}, шагов вывода силы НПС до ${size.steps}`,
 );
+if (only) console.log(`только разделы: ${[...only].join(', ')} (ROAM_ONLY) — не приёмка`);
 console.log(
   `множители теста: путь ×${TRAVEL}, паёк войска ×${TEST_ARMY_FOOD}${TRAVEL === 1 && TEST_ARMY_FOOD === 1 ? ' — обычные правила' : ' — НЕ 1: сроки пути и паёк недействительны до ПН-01 (ГДД 0.4, С1)'}`,
 );
@@ -29,7 +32,7 @@ console.log('статус раздела: «выведено» — двери к
 console.log('');
 console.log('━━ Входы прибора: правила ГДД без кода и заглушки (имя, род, раздел ГДД → пачка, которая заменит дверью) ━━');
 for (const l of inputLines()) console.log(l);
-await render(SECTIONS, size, (l) => console.log(l));
+await render(SECTIONS, size, (l) => console.log(l), only);
 console.log('');
 console.log(`━━ Реестр ориентиров ГДД: ${ORIENTS.length} разделов ━━`);
 for (const l of orientLines(ORIENTS, new Map(SECTIONS.map((s) => [s.id, s.title])))) console.log(l);
