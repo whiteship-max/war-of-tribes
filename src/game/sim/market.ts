@@ -24,6 +24,7 @@ import {
   pressAt,
   purseOf,
   sellUnit,
+  specGood,
   shiftOf,
   supplyOf,
   type Lot,
@@ -53,6 +54,8 @@ export type MarketKey = 'home' | `town:${string}`;
  */
 export interface TownSide {
   level(key: MarketKey): number;
+  /** Множитель основы товара у вольного города — его специализация (ПН-Э1, `world/townspec.specMult`). */
+  spec(key: MarketKey, good: GoodId): number;
   cap(r: RoamState): number;
   keep: number;
 }
@@ -147,17 +150,20 @@ export function marketPress(s: GameState, id: GoodId, now: number, key: MarketKe
 export const marketBoost = (s: GameState, key: MarketKey = 'home'): number =>
   key === 'home' ? Math.min(BOOST_MAX, treasurerMult(s) * merchantsMult(s) * (1 + rulerTraitNumbers(s).trade)) : 1;
 
+/** Товар с основой рынка по ключу: свой город — как есть; вольный — по его специализации (ПН-Э1, `marketrules.specGood`). */
+const priced = (def: GoodDef, key: MarketKey): GoodDef => (key === 'home' ? def : specGood(def, townSide?.spec(key, def.id) ?? 1));
+
 /** Цена следующей купленной штуки. */
 export const marketPrice = (s: GameState, def: GoodDef, now: number, key: MarketKey = 'home'): number =>
-  buyUnit(def, shiftOf(now), marketDepth(s, def, now, key), marketPress(s, def.id, now, key));
+  buyUnit(priced(def, key), shiftOf(now), marketDepth(s, def, now, key), marketPress(s, def.id, now, key));
 
 /** Выручка за следующую проданную штуку. */
 export const marketSellPrice = (s: GameState, def: GoodDef, now: number, key: MarketKey = 'home'): number =>
-  sellUnit(def, shiftOf(now), marketDepth(s, def, now, key), marketPress(s, def.id, now, key), marketBoost(s, key));
+  sellUnit(priced(def, key), shiftOf(now), marketDepth(s, def, now, key), marketPress(s, def.id, now, key), marketBoost(s, key));
 
 /** Партия из `n` штук: `n > 0` — покупка, `n < 0` — продажа; поштучно (`marketrules.lotOf`). */
 export const marketLot = (s: GameState, def: GoodDef, n: number, now: number, key: MarketKey = 'home'): Lot =>
-  lotOf(def, shiftOf(now), marketDepth(s, def, now, key), marketPress(s, def.id, now, key), n, marketBoost(s, key));
+  lotOf(priced(def, key), shiftOf(now), marketDepth(s, def, now, key), marketPress(s, def.id, now, key), n, marketBoost(s, key));
 
 /** Во что обойдётся партия из `count` штук. */
 export const marketCost = (s: GameState, def: GoodDef, count: number, now: number, key: MarketKey = 'home'): number =>

@@ -45,7 +45,9 @@ describe('разделы — те, что называют ГДД 6.5 и пач�
     // ПН-1 добавил раздел дверей отряда (`band`) — содержание, терпение, обоз и фураж бродяги; ПН-3 — лагерь и руины (`camp`).
     // ПН-5 — точки мира и встречи с НПС (`meet`): густота точек, сила НПС по ступеням, шанс засады — двери мира бродяги.
     // ПН-7 — вывод K и R видов договоров (`deals`) рядом с платой договоров.
-    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'castle', 'castleFix', 'parity', 'pool', 'meet', 'sight', 'people']);
+    // ПН-Э1 (ГДД 2.0, 4.8): окупаемость путей, торговля между городами, воровство, разбой, форт, наёмники, гонка; вывод гарнизона
+    // под коридор 4–6 сут (`castleFix`) снят вместе с целью.
+    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'merc', 'race', 'parity', 'pool', 'meet', 'sight', 'people']);
   });
 
   it('у каждого раздела — раздел ГДД и двери кода или входы', () => {
@@ -74,7 +76,7 @@ describe('заглушка не выдаётся за выведенное', () 
   it('у разделов автопилота, ценности и пула заглушки есть; у пути, у отряда и у видимости — нет ни одного входа', () => {
     // Граница: что из разделов стоит на заглушках сейчас, до пачек ПН-1…ПН-17. Пачка, заменившая вход дверью, правит эту строку
     // тем же коммитом — и раздел честно переходит в «выведено».
-    for (const id of ['camp', 'placeSpirit', 'contract', 'deals', 'foes', 'prestige', 'castle', 'castleFix', 'parity', 'pool', 'meet']) {
+    for (const id of ['camp', 'placeSpirit', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'merc', 'race', 'parity', 'pool', 'meet']) {
       expect(statusOf((SECTIONS.find((s) => s.id === id) as Section).uses), id).toBe('НЕ ИЗМЕРЕНО');
     }
     expect(statusOf((SECTIONS.find((s) => s.id === 'road') as Section).uses)).toBe('выведено');
@@ -88,17 +90,17 @@ describe('заглушка не выдаётся за выведенное', () 
   });
 
   it('напечатанный статус каждого раздела — тот, что выводится из входов, и слова «выведено» у раздела на заглушках нет', async () => {
-    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'castle', 'pool', 'meet', 'sight', 'people']);
+    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'merc', 'race', 'pool', 'meet', 'sight', 'people']);
     const heads = out.filter((l) => l.startsWith('━━ ') && !l.startsWith('━━ Итог'));
     const statuses = out.filter((l) => l.startsWith('статус: '));
     expect(statuses.length).toBe(heads.length);
-    // «Паритет» и вывод гарнизона замка (ПН-10: поиск — шесть прогонов автопилота) в выборку теста не входят — дорого.
-    const ran = SECTIONS.filter((s) => s.id !== 'parity' && s.id !== 'castleFix');
+    // «Паритет» (НФТ-старт живёт автопилотом посёлка) в выборку теста не входит — дорого.
+    const ran = SECTIONS.filter((s) => s.id !== 'parity');
     ran.forEach((s, i) => {
       expect(heads[i], s.id).toContain(s.title);
       expect(statuses[i], `«${s.title}»: статус из входов`).toBe(`статус: ${statusOf(s.uses)}`);
     });
-    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 17 ━━$/);
+    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 24 ━━$/);
   });
 
   it('вход, не объявленный разделом, — исключение', async () => {
@@ -115,7 +117,7 @@ describe('заглушка не выдаётся за выведенное', () 
   });
 
   it('разделы автопилота объявляют все входы автопилота', () => {
-    for (const id of ['foes', 'prestige', 'castle', 'parity', 'pool']) {
+    for (const id of ['foes', 'prestige', 'paths', 'trade', 'castle', 'parity', 'pool']) {
       const s = SECTIONS.find((x) => x.id === id) as Section;
       for (const k of PILOT) expect(s.uses, `«${s.title}» объявляет ${k}`).toContain(k);
     }

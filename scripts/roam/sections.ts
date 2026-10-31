@@ -4,7 +4,6 @@
 import type { Season, TroopId } from '../../src/game/types';
 import type { Terrain } from '../../src/world/types';
 import { troopTotal, type TroopStack } from '../../src/game/battle/kinds';
-import { ROAM_STUBS, type RoamStubId } from '../../src/game/roamstubs';
 import { FREE_TIERS, FREE_TIER_NAMES, freeGold, freeId, freePoolSize, freePop, freePower, freePrestige, freeTroopPower, freeTroops } from '../../src/world/freecastle';
 import { baseWage, powerOf, troopPower } from '../../src/game/battle/price';
 import { soldierFoodPerDay } from '../../src/game/build';
@@ -41,7 +40,9 @@ import type { InputId } from './inputs';
 import { CAMPS, CAMP_NAME, type Origin } from './kinds';
 import type { Ctx, Section } from './run';
 import { evenPower, rowMove } from './foes';
-import { STYLES, roadHours, runPath, type PathKnobs, type PathRun } from './path';
+import { RUN_STYLES, STYLES, roadHours, runPath, scaleOf, type PathKnobs, type PathRun, type Style } from './path';
+import { SHIFTS_PER_DAY, bestLoop } from './trade';
+import { TOWN_SPEC_META, townSpecOf } from '../../src/world/townspec';
 import { placeAll } from './pool';
 import { SIGHT_GOALS, STANCES, deriveSight, detectShare, goalCheck, writtenSight, type SightNumbers } from './sight';
 import { RUIN_BLOCK, RUIN_CAP } from '../../src/world/data/sight';
@@ -96,8 +97,8 @@ const townPrice = (r: string, level: number): number => buyUnit(GOOD_BY_ID[r], S
 /** Множитель теста пути числом: пока он литерал 3, сравнение с 1 компилятор считал бы ошибкой. */
 const TRAVEL: number = TEST_TRAVEL_SPEED;
 
-/** Окно пути — срок доли дошедших (ГДД 2.4): 14 суток. */
-const LIMIT_DAYS = 14;
+/** Окно пути (ГДД 2.0, 2.4 и 4.8): 42 суток — «замок — недели»; доли без разорения и дошедших — ещё к 7 и 14 сут. */
+const LIMIT_DAYS = 42;
 
 /** Входы автопилота пути: все, что читают `knobsOf` и происхождения, — раздел, берущий его партии, объявляет их все. */
 export const PILOT: readonly InputId[] = [
@@ -149,6 +150,8 @@ export const PILOT: readonly InputId[] = [
   'spawnGap',
   'forageHidden',
   'forageRuin',
+  // Масштабы пути по мощи (4.4) — счёт дохода и содержания по масштабу у каждой партии.
+  'scales',
 ];
 
 /** Мир дороги автопилота: вольные замки пула и места выхода бродяг — дверями (`placeAll`), один на все партии. */
@@ -187,6 +190,7 @@ export function knobsOf(ctx: Pick<Ctx, 'use'>): PathKnobs {
     upgrade: promoteUnit,
     hire: hireBase,
     limitDays: LIMIT_DAYS,
+    scales: ctx.use('scales'),
   };
 }
 
@@ -199,7 +203,7 @@ interface Pilot {
 }
 
 const allRuns = (k: PathKnobs, origins: readonly Origin[], row: readonly number[], even: readonly number[], seeds: number): PathRun[] =>
-  STYLES.flatMap((st) => origins.flatMap((o) => Array.from({ length: seeds }, (_, i) => runPath(i + 1, st, o, row, even, k))));
+  RUN_STYLES.flatMap((st) => origins.flatMap((o) => Array.from({ length: seeds }, (_, i) => runPath(i + 1, st, o, row, even, k))));
 
 /** Эталон ступени — отряд медианной мощи в минуту входа в ступень среди партий, что в неё вошли. */
 const refsOf = (runs: readonly PathRun[], stages: number): (TroopStack | null)[] =>
@@ -511,10 +515,10 @@ const foes: Section = {
     const npc = ctx.use('npcRule');
     const sz = ctx.size;
     ctx.line(
-      `автопилот: ${STYLES.map((s) => s.name).join(', ')} × ${origins.map((o) => o.name).join(', ')} × ${sz.seeds} сидов; ровный бой — ${sz.even} боёв на точку; окно ${LIMIT_DAYS} сут`,
+      `автопилот: ${RUN_STYLES.map((s) => s.name).join(', ')} × ${origins.map((o) => o.name).join(', ')} × ${sz.seeds} сидов; ровный бой — ${sz.even} боёв на точку; окно ${LIMIT_DAYS} сут`,
     );
     ctx.line(
-      `стили (договоры у всех — разбоя в Срезе 1 нет): ${STYLES.map((s) => `${s.name} — до ${s.edge} ровного боя, штурм от ${pct(s.storm)} разведки, лагерь ${CAMP_NAME[s.camp]}, марш ${s.gait}, запас — до захода и ещё ${s.margin} ч, ${s.takeAll ? 'берёт всех просящихся' : 'берёт, сколько прокормит'}, растит «${TROOP_BY_ID[s.grow].name.toLowerCase()}»`).join('; ')}`,
+      `стили пути (ГДД 3.7.0): ${STYLES.map((s) => `${s.name} — ${s.missing ? `НЕ ГОНЯЕТСЯ: дел пути нет в коде (${s.missing})` : `${s.lives}; до ${s.edge} ровного боя, лагерь ${CAMP_NAME[s.camp]}, марш ${s.gait}, запас — до захода и ещё ${s.margin} ч, рост и просящиеся — пока содержание × ${s.keep} ≤ доход 48 ч, растит «${TROOP_BY_ID[s.grow].name.toLowerCase()}»${s.castle ? ', на замок — когда окно замка выполнено (freeNeeds), осадой' : ''}`}`).join('; ')}`,
     );
     ctx.line(`вольный замок I: гарнизон ${fix(k.castle.power, 1)} мощи бойцами (${troopTotal(freeTroops(freeId(0, 0), 1))} бойцов строя), с престижа ${k.castle.prestige}`);
     // Начало — с записанной в игре (ПН-5, заглушка `foeTable`: её читают засады, логова и ватаги мира бродяги): неподвижная точка
@@ -579,14 +583,14 @@ const prestige: Section = {
   uses: PILOT,
   run(ctx) {
     const p = ctx.take<Pilot>('pilot');
-    ctx.line(`пороги ступеней: ${p.knobs.stages.join(', ')}; партий на стиль ${p.runs.length / STYLES.length}`);
+    ctx.line(`пороги ступеней: ${p.knobs.stages.join(', ')}; партий на стиль ${p.runs.length / RUN_STYLES.length}`);
     ctx.line(
       `${padEnd('стиль', 11)} ${p.knobs.stages
         .slice(1)
         .map((v, i) => pad(`ступень ${i + 1} (${v})`, 22))
         .join('')} ${pad('престиж к сроку', 16)}`,
     );
-    for (const st of STYLES) {
+    for (const st of RUN_STYLES) {
       const rs = p.runs.filter((r) => r.style === st.id);
       const cells = p.knobs.stages.slice(1).map((_, i) => {
         const at = rs.map((r) => r.stageAt[i + 1] ?? Infinity);
@@ -604,118 +608,228 @@ const castle: Section = {
   id: 'castle',
   title: 'Медиана до первого замка',
   gdd: '2.4, 3.11.2',
-  doors: ['партии автопилота раздела «Сила НПС»'],
+  doors: ['партии автопилота раздела «Сила НПС»', 'freecastle.freeNeeds — окно замка'],
   uses: PILOT,
   run(ctx) {
     const p = ctx.take<Pilot>('pilot');
     ctx.line(
-      `${padEnd('стиль', 11)} ${padEnd('происхождение', 14)} ${pad('дошли', 7)} ${pad('медиана', 12)} ${pad('быстрее всех', 13)} ${pad('дел', 5)} ${pad('побед', 6)} ${pad('сорвано', 8)} ${pad('договоры', 9)} ${pad('штурмов', 8)} ${pad('ушло', 5)} ${pad('пришло', 7)}`,
+      `${padEnd('стиль', 11)} ${padEnd('происхождение', 14)} ${pad('дошли', 7)} ${pad('медиана', 12)} ${pad('быстрее всех', 13)} ${pad('дел', 5)} ${pad('побед', 6)} ${pad('сорвано', 8)} ${pad('договоры', 9)} ${pad('осад', 5)} ${pad('ушло', 5)} ${pad('распущено', 10)} ${pad('пришло', 7)}`,
     );
-    for (const st of STYLES) {
+    for (const st of RUN_STYLES) {
       for (const o of p.origins) {
         const rs = p.runs.filter((r) => r.style === st.id && r.origin === o.id);
         const at = rs.map((r) => r.castleAt ?? Infinity);
         const n = at.filter(Number.isFinite).length;
         ctx.line(
-          `${padEnd(st.name, 11)} ${padEnd(o.name, 14)} ${pad(`${n}/${rs.length}`, 7)} ${pad(days(median(at)), 12)} ${pad(days(Math.min(...at)), 13)} ${pad(Math.round(median(rs.map((r) => r.deeds))), 5)} ${pad(Math.round(median(rs.map((r) => r.wins))), 6)} ${pad(Math.round(median(rs.map((r) => r.failed))), 8)} ${pad(Math.round(median(rs.map((r) => r.earned))), 9)} ${pad(rs.reduce((n, r) => n + r.storms, 0), 8)} ${pad(Math.round(median(rs.map((r) => r.deserted))), 5)} ${pad(Math.round(median(rs.map((r) => r.recruited))), 7)}`,
+          `${padEnd(st.name, 11)} ${padEnd(o.name, 14)} ${pad(`${n}/${rs.length}`, 7)} ${pad(days(median(at)), 12)} ${pad(days(Math.min(...at)), 13)} ${pad(Math.round(median(rs.map((r) => r.deeds))), 5)} ${pad(Math.round(median(rs.map((r) => r.wins))), 6)} ${pad(Math.round(median(rs.map((r) => r.failed))), 8)} ${pad(Math.round(median(rs.map((r) => r.earned))), 9)} ${pad(rs.reduce((n, r) => n + r.storms, 0), 5)} ${pad(Math.round(median(rs.map((r) => r.deserted))), 5)} ${pad(Math.round(median(rs.map((r) => r.dismissed))), 10)} ${pad(Math.round(median(rs.map((r) => r.recruited))), 7)}`,
         );
       }
     }
     ctx.line('');
-    for (const st of STYLES) {
+    for (const st of RUN_STYLES) {
       const power = p.runs.filter((r) => r.style === st.id).map((r) => troopPower(r.band));
       const rs = p.runs.filter((r) => r.style === st.id);
       ctx.line(
         `${st.name}: мощь отряда к концу — медиана ${fix(median(power), 1)}, лучшая ${fix(Math.max(...power), 1)}; гарнизон вольного замка I — ${p.knobs.castle.power}; кошель к концу — медиана ${Math.round(median(rs.map((r) => r.purse)))}, престиж — ${Math.round(median(rs.map((r) => r.prestige)))}`,
       );
     }
-    for (const st of STYLES) {
-      const at = p.runs.filter((r) => r.style === st.id).map((r) => (r.castleAt ?? Infinity) / 24);
-      const share = at.filter(Number.isFinite).length / at.length;
-      ctx.line(`${st.name}: медиана ${days(median(at) * 24)} — ${ctx.target('castleMedian', median(at), (v) => fix(v, 0))}`);
-      const fastest = Math.min(...at);
-      ctx.line(
-        `  быстрейший ${days(fastest * 24)} — ${Number.isFinite(fastest) ? ctx.target('castleFastest', fastest, (v) => fix(v, 0)) : 'не дошла ни одна партия'}`,
-      );
-      ctx.line(`  дошли за ${LIMIT_DAYS} сут ${pct(share)} — ${ctx.target('castleShare', share, pct)}`);
-    }
+    // Цели 2.4 (2.0) — у стиля «к замку»: путь к замку — выбор, а не обязанность (Р-1).
+    const rs = p.runs.filter((r) => STYLES.find((x) => x.id === r.style)?.castle);
+    const at = rs.map((r) => (r.castleAt ?? Infinity) / 24);
+    const by = (d: number): number => at.filter((x) => x <= d).length / Math.max(1, at.length);
+    ctx.line(`к замку: медиана ${days(median(at) * 24)} — ${ctx.target('castleMedian', median(at), (v) => fix(v, 0))}`);
+    ctx.line(`  дошли за 14 сут ${pct(by(14))} — ${ctx.target('castleShare14', by(14), pct)}`);
+    ctx.line(`  дошли за ${LIMIT_DAYS} сут ${pct(by(LIMIT_DAYS))} — ${ctx.target('castleShare42', by(LIMIT_DAYS), pct)}`);
+    const ready = rs.filter((r) => r.storms > 0).length;
+    ctx.line(`  окно замка выполнено хоть раз (пошли на осаду): ${ready} из ${rs.length}; осад — ${rs.reduce((n, r) => n + r.storms, 0)}, павших под стенами — ${rs.reduce((n, r) => n + r.castleLost, 0)}`);
   },
 };
 
-/**
- * Подменить заглушку игры на время вывода (ПН-10): прибор ищет число, которое сам и запишет в игру, — двери пути (здесь сервер войны в
- * памяти, `castle.castleTry`) читают его там же, где игра (`roamStub`). Вне вывода — записанное.
- */
-function withStub<T>(id: RoamStubId, value: unknown, fn: () => T): T {
-  const s = ROAM_STUBS[id] as { value: unknown };
-  const was = s.value;
-  s.value = value;
-  try {
-    return fn();
-  } finally {
-    s.value = was;
-  }
-}
+/** Масштабы словами (ГДД 4.4) — по номеру `scaleOf`. */
+const SCALE_NAMES = ['тать', 'ватага', 'отряд', 'войско'] as const;
 
-/** Медиана, быстрейший и доля дошедших до первого замка по всем стилям и происхождениям — сутки. */
-function castleStats(runs: readonly PathRun[]): { median: number; fastest: number; share: number } {
-  const at = runs.map((r) => (r.castleAt ?? Infinity) / 24);
-  return { median: median(at), fastest: Math.min(...at), share: at.filter(Number.isFinite).length / at.length };
-}
+/** Свои масштабы пути (ГДД 4.4, «Окупается»): мирный — ватага и отряд; вор — тать; разбойник — отряд и войско; к замку — отряд и войско. */
+const OWN_SCALES: Record<Style['id'], readonly number[]> = { peace: [1, 2], thief: [0], robber: [2, 3], castle: [2, 3] };
 
-/** Цель медианы до первого замка — середина 4…6 сут (ГДД 2.4); сошлась — в полсуток от неё. */
-const CASTLE_AIM = 5;
-const CASTLE_SETTLE = 0.5;
-
-const castleFix: Section = {
-  id: 'castleFix',
-  title: 'Вольный замок I — гарнизон под цели пути (неподвижная точка)',
-  gdd: '2.4, 3.11.1',
-  doors: ['castle.castleTry — сервер войны в памяти', 'freecastle.levelPower', 'партии автопилота раздела «Сила НПС»'],
-  uses: PILOT,
+const paths: Section = {
+  id: 'paths',
+  title: 'Окупаемость путей',
+  gdd: '2.4, 4.4, 4.8',
+  doors: ['партии автопилота раздела «Сила НПС»', 'sim/bandkeep.bandUpkeep', 'roamrules.bandWagesPerDay, forageShare'],
+  uses: [...PILOT, 'theftDeeds', 'raidDeeds'],
   run(ctx) {
+    ctx.use('theftDeeds');
+    ctx.use('raidDeeds');
     const p = ctx.take<Pilot>('pilot');
-    const written = [...ctx.use('castleLevel')];
-    // Уровень гарнизона замка I — то число, что само входит в свою выборку: от него зависит, когда автопилот берёт замок и с каким
-    // отрядом. Поиск — по медиане всех партий (три стиля × происхождения × сиды), до середины цели; II и III — те же отношения
-    // ступеней, что в ориентире 3.11.1 (ур. 4 и 6 к ур. 2): у первого замка их целей нет.
-    const ratio = written.map((l) => l / written[0]);
-    const tried: { level: number; median: number; fastest: number; share: number; power: number }[] = [];
-    const runAt = (level: number) => {
-      const levels = ratio.map((r) => r * level);
-      return withStub('castleLevel', levels, () => {
-        const k: PathKnobs = { ...p.knobs, castle: { prestige: freePrestige(1), power: freeTroopPower(freeId(0, 0), 1) } };
-        const st = castleStats(allRuns(k, p.origins, p.row, p.even, ctx.size.seeds));
-        const row = { level, ...st, power: k.castle.power };
-        tried.push(row);
+    const edges = ctx.use('scales');
+    ctx.line(`масштабы по мощи отряда (4.4): ${SCALE_NAMES.map((n, i) => `${n} ${i === 0 ? `≤ ${edges[0]}` : i < edges.length ? `${edges[i - 1]}…${edges[i]}` : `> ${edges[edges.length - 1]}`}`).join(', ')}`);
+    ctx.line('доход — аванс, плата и добыча дел; содержание — жалованье и хлеб, которого не дала земля; за настоящие сутки на том масштабе, где отряд был');
+    ctx.line(`${padEnd('путь', 11)} ${padEnd('масштаб', 8)} ${pad('доля часов', 11)} ${pad('доход/сут', 10)} ${pad('содерж./сут', 12)} ${pad('доход/содерж.', 14)}  цель (свой масштаб)`);
+    for (const st of STYLES) {
+      if (st.missing) {
+        ctx.line(`${padEnd(st.name, 11)} не измерено: дел пути нет в коде (${st.missing}) — ${st.lives}`);
+        continue;
+      }
+      const rs = p.runs.filter((r) => r.style === st.id);
+      const all = rs.reduce((n, r) => n + r.byScale.reduce((m, b) => m + b.hours, 0), 0);
+      for (let sc = 0; sc < SCALE_NAMES.length; sc++) {
+        const hours = rs.reduce((n, r) => n + (r.byScale[sc]?.hours ?? 0), 0);
+        if (!(hours > 0)) continue;
+        const income = rs.reduce((n, r) => n + (r.byScale[sc]?.income ?? 0), 0);
+        const upkeep = rs.reduce((n, r) => n + (r.byScale[sc]?.upkeep ?? 0), 0);
+        const ratio = upkeep > 0 ? income / upkeep : NaN;
+        const own = OWN_SCALES[st.id].includes(sc);
         ctx.line(
-          `  ур. ${fix(level, 3)} — гарнизон ${fix(row.power, 1)} мощи: медиана ${days(st.median * 24)}, быстрейший ${days(st.fastest * 24)}, дошли ${pct(st.share)}`,
+          `${padEnd(st.name, 11)} ${padEnd(SCALE_NAMES[sc], 8)} ${pad(pct(hours / all), 11)} ${pad(Math.round((income / hours) * 24), 10)} ${pad(Math.round((upkeep / hours) * 24), 12)} ${pad(fix(ratio), 14)}  ${own ? ctx.target('pathPay', ratio) : '— не свой масштаб'}`,
         );
-        return st.median;
-      });
-    };
-    ctx.line(`начало — записанное в игре: ур. ${fix(written[0], 3)} (II, III — ×${fix(ratio[1], 2)}, ×${fix(ratio[2], 2)})`);
-    let lo = 0;
-    let hi = Infinity;
-    let level = written[0];
-    for (let step = 0; step < 6; step++) {
-      const m = runAt(level);
-      if (Math.abs(m - CASTLE_AIM) <= CASTLE_SETTLE) break;
-      if (m > CASTLE_AIM) hi = level;
-      else lo = level;
-      level = hi < Infinity ? (lo + hi) / 2 : level * 2;
+      }
     }
-    const best = [...tried].sort((a, b) => Math.abs(a.median - CASTLE_AIM) - Math.abs(b.median - CASTLE_AIM))[0];
-    const settled = Math.abs(best.median - CASTLE_AIM) <= CASTLE_SETTLE;
-    const out = Math.round(best.level * 1000) / 1000;
-    ctx.line(
-      `${settled ? 'сошлась' : 'НЕ СОШЛАСЬ'}: ур. ${fix(out, 3)} — медиана ${days(best.median * 24)} (${ctx.target('castleMedian', best.median, (v) => fix(v, 1))}); быстрейший ${days(best.fastest * 24)} (${ctx.target('castleFastest', best.fastest, (v) => fix(v, 1))}); дошли ${pct(best.share)} (${ctx.target('castleShare', best.share, pct)})`,
-    );
-    ctx.line(
-      `вывод castleLevel: ${ratio.map((r) => fix(Math.round(r * out * 1000) / 1000, 3)).join(', ')}; записано ${written.map((v) => fix(v, 3)).join(', ')} — ${Math.abs(out - written[0]) <= 1e-9 ? 'совпадает' : 'РАЗОШЛОСЬ: записать в game/roamstubs.castleLevel'}`,
-    );
+    ctx.line('');
+    ctx.line('без разорения (неуплата не увела отряд целиком):');
+    for (const st of STYLES) {
+      if (st.missing) {
+        ctx.line(`  ${padEnd(st.name, 11)} не измерено (${st.missing})`);
+        continue;
+      }
+      const rs = p.runs.filter((r) => r.style === st.id);
+      const alive = (d: number): number => rs.filter((r) => r.ruinedAt === null || r.ruinedAt > d * 24).length / Math.max(1, rs.length);
+      ctx.line(`  ${padEnd(st.name, 11)} к 7 сут ${pct(alive(7))} — ${ctx.target('pathAlive', alive(7), pct)}; к 14 сут ${pct(alive(14))} — ${ctx.target('pathAlive', alive(14), pct)}; к ${LIMIT_DAYS} сут ${pct(alive(LIMIT_DAYS))}`);
+    }
+    ctx.line('');
+    // Почему тает отряд (ГДД 7.1, ПН-Э1: разбором прибора; правка — числами путей, а не `wageOf`): куда ушли люди — суммой по партиям.
+    ctx.line('куда уходят люди (сумма по партиям стиля): неуплата — уход дверью содержания; распущено — политикой автопилота до неуплаты;');
+    ctx.line('  пало — в боях договоров по тиру дела, в засадах в пути, под стенами замка; пришло — просящиеся');
+    ctx.line(`${padEnd('путь', 11)} ${pad('неуплата', 9)} ${pad('распущено', 10)} ${pad('бои I', 6)} ${pad('бои II', 7)} ${pad('бои III', 8)} ${pad('засады', 7)} ${pad('замок', 6)} ${pad('пришло', 7)}`);
+    for (const st of RUN_STYLES) {
+      const rs = p.runs.filter((r) => r.style === st.id);
+      const sum = (f: (r: PathRun) => number): number => Math.round(rs.reduce((n, r) => n + f(r), 0));
+      ctx.line(
+        `${padEnd(st.name, 11)} ${pad(sum((r) => r.deserted), 9)} ${pad(sum((r) => r.dismissed), 10)} ${pad(sum((r) => r.fallen[0]), 6)} ${pad(sum((r) => r.fallen[1]), 7)} ${pad(sum((r) => r.fallen[2]), 8)} ${pad(sum((r) => r.ambushLost), 7)} ${pad(sum((r) => r.castleLost), 6)} ${pad(sum((r) => r.recruited), 7)}`,
+      );
+    }
+    ctx.share('scaleIncome', { edges, peace: p.runs.filter((r) => r.style === 'peace') });
   },
 };
+
+/** Настоящая минута рейсов торговца — та же сетка, что у автопилота (01.10.2026, 00:00 UTC). */
+const T0_TRADE = Date.UTC(2026, 9, 1);
+
+/** Отряды-представители масштабов для рейса торговца: отряд происхождения медианной мощи, эталоны тира I–III (`data/contracts.ETALONS`). */
+const tradeBands = (origins: readonly Origin[]): TroopStack[] => [
+  [...origins].sort((a, b) => troopPower(a.band) - troopPower(b.band))[Math.floor((origins.length - 1) / 2)].band,
+  ...ETALONS,
+];
+
+const trade: Section = {
+  id: 'trade',
+  title: 'Торговля между городами',
+  gdd: '3.7.1, 4.8',
+  doors: [
+    'world/townspec.townSpecOf, specMult',
+    'marketrules.specGood, buyUnit, sellUnit, supplyOf, shiftOffer, purseOf',
+    'townrules.townMarketLevel',
+    'cargocap.cargoCap',
+    'world/roam.roamWalkMs',
+    'партии стиля «мирный» раздела «Окупаемость путей»',
+  ],
+  uses: [...PILOT, 'theftDeeds', 'raidDeeds', 'townSpec', 'townMarket'],
+  run(ctx) {
+    ctx.use('theftDeeds');
+    ctx.use('raidDeeds');
+    ctx.use('townMarket');
+    const written = ctx.use('townSpec');
+    const got = ctx.take<{ edges: readonly number[]; peace: PathRun[] }>('scaleIncome');
+    const p = ctx.take<Pilot>('pilot');
+    // Доход договоров на масштабе — у мирного пути (аванс, плата и добыча в час на масштабе).
+    const dealRate = (sc: number): number => {
+      const h = got.peace.reduce((n, r) => n + (r.byScale[sc]?.hours ?? 0), 0);
+      return h > 0 ? got.peace.reduce((n, r) => n + (r.byScale[sc]?.income ?? 0), 0) / h : NaN;
+    };
+    // Города рейса — у мест выхода мира дороги: ближайший вольный город (доска договоров, как `path.nearestTown`); соседи — до 40 клеток.
+    const homes = [
+      ...new Map(
+        p.knobs.spawns
+          .map((sp) => pointsIn(0, sp.x - 40, sp.y - 40, sp.x + 41, sp.y + 41).filter((q) => q.kind === 'town' && q.tier > 0).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0])
+          .filter((t) => t !== undefined)
+          .map((t) => [t.id, t] as const),
+      ).values(),
+    ];
+    const specs = new Map<string, number>();
+    for (const h of homes) {
+      const n = TOWN_SPEC_META[townSpecOf(h.x, h.y)].name;
+      specs.set(n, (specs.get(n) ?? 0) + 1);
+    }
+    ctx.line(`города рейса: ${homes.length} (ближайшие к местам выхода), специализации — ${[...specs].map(([n, c]) => `${n} ${c}`).join(', ')}; рейс — туда и обратно, лучший товар каждой ноги, все ${SHIFTS_PER_DAY} привозов суток; засад и ожидания привоза нет — верхняя граница`);
+    // Доход торговца в час (без содержания — оно то же, что у договоров того же отряда): медиана по городам и привозам.
+    const rateOf = (band: TroopStack, swing: number): { rate: number; caps: Record<string, number> } => {
+      const rates: number[] = [];
+      const caps: Record<string, number> = {};
+      for (const h of homes) {
+        for (let i = 0; i < SHIFTS_PER_DAY; i++) {
+          const loop = bestLoop(h, band, swing, T0_TRADE + (i * 86_400_000) / SHIFTS_PER_DAY, 40);
+          rates.push(loop ? loop.profit / loop.hours : 0);
+          for (const l of loop?.legs ?? []) if (l) caps[l.cap] = (caps[l.cap] ?? 0) + 1;
+        }
+      }
+      return { rate: median(rates), caps };
+    };
+    const swings = [written, 0.4, 0.6, 0.8];
+    ctx.line(`${padEnd('отряд', 40)} ${padEnd('масштаб', 8)} ${pad('договоры/ч', 11)} ${swings.map((w) => pad(`торг/ч при ${fix(w)}`, 17)).join('')}`);
+    for (const b of tradeBands(p.origins)) {
+      const sc = scaleOf(troopPower(b), got.edges);
+      ctx.line(`${padEnd(`${stackWords(b)} (${Math.round(troopPower(b))})`, 40)} ${padEnd(SCALE_NAMES[sc], 8)} ${pad(fix(dealRate(sc), 1), 11)} ${swings.map((w) => pad(fix(rateOf(b, w).rate, 1), 17)).join('')}`);
+    }
+    // Вывод размаха: доход торговца ватаги (эталон тира I) к доходу договоров ватаги = 1 (середина цели 0.8…1.25), делением пополам.
+    const band = ETALONS[0];
+    const sc = scaleOf(troopPower(band), got.edges);
+    const deal = dealRate(sc);
+    const ratio = (w: number): number => rateOf(band, w).rate / deal;
+    ctx.line('');
+    ctx.line(`вывод размаха (цель — доход торговца-${SCALE_NAMES[sc]} ≈ доходу её договоров, ${fix(deal, 1)} в час):`);
+    const top = 0.9;
+    const atTop = ratio(top);
+    const atWritten = ratio(written);
+    ctx.line(`  записано ${fix(written)}: ${fix(atWritten)} × — ${ctx.target('tradeMatch', atWritten)}`);
+    if (!(atTop >= 1)) {
+      const caps = rateOf(band, top).caps;
+      const all = Object.values(caps).reduce((n, v) => n + v, 0);
+      const words: Record<string, string> = { cargo: 'обоз', supply: 'запас привоза', purse: 'кошель купцов', press: 'нажим' };
+      ctx.line(`  НЕ СХОДИТСЯ: даже при размахе ${fix(top)} торговец даёт ${fix(atTop)} × договоров — размахом цель не достаётся`);
+      ctx.line(`  что держит ногу рейса при ${fix(top)} (доля ног): ${Object.entries(caps).map(([k, v]) => `${words[k]} ${pct(v / Math.max(1, all))}`).join(', ')}`);
+      ctx.line(`  размах остаётся заглушкой ${fix(written)} (game/roamstubs.townSpec); правка — числами пути (обоз, телеги, кошель купцов гостям) пачкой ПН-Э2, не правилом рынка лорда`);
+      return;
+    }
+    let lo = 0;
+    let hi = top;
+    for (let i = 0; i < 10; i++) {
+      const mid = (lo + hi) / 2;
+      if (ratio(mid) < 1) lo = mid;
+      else hi = mid;
+    }
+    const out = Math.round(hi * 100) / 100;
+    ctx.line(`  сошлось: размах ${fix(out)} — ${fix(ratio(out))} × (${ctx.target('tradeMatch', ratio(out))}); записано ${fix(written)} — ${Math.abs(out - written) < 0.005 ? 'совпадает' : 'РАЗОШЛОСЬ: записать в game/roamstubs.townSpec'}`);
+  },
+};
+
+/** Раздел пути, дел которого в коде нет: печатает «не измерено», что меряет и цель (правило 12). */
+const missing = (id: string, title: string, gdd: string, input: InputId, what: string, target: string): Section => ({
+  id,
+  title,
+  gdd,
+  doors: [],
+  uses: [input],
+  run(ctx) {
+    ctx.use(input);
+    ctx.line(`не измерено: ${what}`);
+    ctx.line(`цель (ГДД 2.4, 4.8): ${target}`);
+  },
+});
+
+const theft = missing('theft', 'Воровство', '3.7.8, 4.8', 'theftDeeds', 'доля удач и поимок по делу × тень × дозор, доход вора за сутки против содержания тати — кода кражи нет (ПН-В)', 'окупается при ≤ 10 людях, не окупается при ≥ 40');
+const raid = missing('raid', 'Разбой: окупаемость по мощи', '3.7.2, 3.7.3, 3.7.9, 4.8', 'raidDeeds', 'набег на село, караван, земли лорда (город мерки уровня): добыча − потери по мощи отряда — кода разбоя нет (ПН-8в, ПН-Н)', 'порог окупаемости — масштаб «отряд» для сёл, «войско» для лорда');
+const fort = missing('fort', 'Форт против банды', '3.16.4, 4.8', 'fortDeeds', 'чистый доход за 14 / 28 сут по путям; потери, если форт найден и осаждён — кода форта нет (ПН-Ф)', 'ни один не лучше всегда (3.16.4)');
+const merc = missing('merc', 'Наёмники', '3.17, 4.8', 'mercDeeds', 'медиана до замка с наёмниками 0 / N / 2N алмазов в неделю — кода наёмников нет (ПН-М); предел — 0,6 гарнизона ступени доступа (ВР3)', '1–2 недели; быстрейший ≥ 5 сут');
+const race = missing('race', 'Гонка нападения и защиты', '4.6, 4.8', 'mercDeeds', 'доля взятых городов игроков при равной трате на наёмников и стражу — кода наёмников и стражи нет (ПН-М), захвата города игрока нет (ПН-11б)', '≤ 25 %');
 
 const parity: Section = {
   id: 'parity',
@@ -795,7 +909,7 @@ const parity: Section = {
       ctx.line('замка не взяла ни одна партия — паритет нечем мерить');
       return;
     }
-    for (const st of STYLES) {
+    for (const st of RUN_STYLES) {
       const rs = took.filter((r) => r.style === st.id);
       if (rs.length === 0) {
         ctx.line(`${st.name}: замка не взяла ни одна партия`);
@@ -1197,4 +1311,4 @@ const placeSpirit: Section = {
   },
 };
 
-export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, deals, foes, prestige, castle, castleFix, parity, pool, meet, sight, people];
+export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, deals, foes, prestige, paths, trade, theft, raid, fort, castle, merc, race, parity, pool, meet, sight, people];

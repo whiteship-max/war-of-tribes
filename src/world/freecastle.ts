@@ -146,6 +146,35 @@ export function freeAccess(prestige: number, tier: FreeTier): string | null {
   return prestige >= need ? null : `Кастелян не примет бой от безвестных: нужен престиж ${need}, у отряда ${Math.floor(prestige)}.`;
 }
 
+/** Что окно замка знает о деле (ПН-10, ГДД 5.4): престиж и ступень, у стен ли отряд, мощь отряда и гарнизона — `troopPower`, связь. */
+export interface FreeNeedIn {
+  prestige: number;
+  tier: FreeTier;
+  near: boolean;
+  /** Мощь отряда бойцами (`troopPower`). */
+  band: number;
+  /** Мощь гарнизона бойцами (`freeTroopPower`) — тех же единиц. */
+  garrison: number;
+  online: boolean;
+}
+
+export type FreeNeedId = 'prestige' | 'near' | 'force' | 'online';
+
+/**
+ * Что нужно, чтобы взять замок (ПН-10, ГДД 5.4): строки окна и выполнено ли каждое. Одна дверь на окно замка (`RoamWorld.roamFree`) и
+ * на автопилот прибора (`roam:report`, ПН-Э1): автопилот идёт на замок, когда окно, которое увидел бы игрок, выполнено целиком. Мощь
+ * отряда и гарнизона — одних единиц (`troopPower`).
+ */
+export function freeNeeds(i: FreeNeedIn): { id: FreeNeedId; text: string; ok: boolean }[] {
+  const need = freePrestige(i.tier);
+  return [
+    { id: 'prestige', text: `Престиж ${need} — у отряда ${Math.floor(i.prestige)}`, ok: i.prestige >= need },
+    { id: 'near', text: 'Отряд у стен — в клетке замка или рядом', ok: i.near },
+    { id: 'force', text: `Сила отряда ${Math.round(i.band)} против гарнизона ${Math.round(i.garrison)}: штурм — стеной и лестницами, осада — пока не кончится хлеб`, ok: i.band >= i.garrison },
+    { id: 'online', text: 'Связь с сервером войны: бой у стен считает он', ok: i.online },
+  ];
+}
+
 const FREE_SALT = 0xf3ee;
 
 const nameOf = (list: readonly string[], salt: number, x: number, y: number): string => list[Math.floor(hash2(salt, x, y) * list.length) % list.length];

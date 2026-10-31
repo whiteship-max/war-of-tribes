@@ -187,6 +187,13 @@ export function lotOf(def: GoodDef, w: number, depth: number, q0: number, n: num
   return { gold, q, first, last };
 }
 
+/**
+ * Товар с основой, умноженной на `mult`, — специализация вольного города (ПН-Э1, `world/townspec.specMult`): одна дверь для покупки,
+ * продажи и партии. Множитель один на обе стороны сделки в одном городе, поэтому «перепродажа не в плюс» внутри города держится тем
+ * же `SALE_SHARE`. Единица — тот же товар (у лорда множителя нет вовсе).
+ */
+export const specGood = (def: GoodDef, mult: number): GoodDef => (mult === 1 ? def : { ...def, price: def.price * mult });
+
 /** Товар по ключу — для сервера, который не держит своей таблицы. */
 export const goodOf = (id: string): GoodDef | null => GOOD_BY_ID[id] ?? null;
 

@@ -15,7 +15,7 @@
 // войну — мир про партию не знает).
 import type { BandOrder, BandRow, FreeView, WarOrder, WarView } from '../../../netlify/lib/contract';
 import type { SiegeLook } from '@/game/sim/roamcastle';
-import { FREE_FATE_IDS, castellanOf, freeAccess, freeFateBlock, freeName, freePrestige, freeTierWords, freeTroops, isFreeKey } from '../freecastle';
+import { FREE_FATE_IDS, castellanOf, freeAccess, freeFateBlock, freeName, freeNeeds, freePrestige, freeTierWords, freeTroops, isFreeKey } from '../freecastle';
 import { FATE_META } from '../data/fates';
 import { troopPower } from '@/game/battle/price';
 import { breachesOf } from '../siegeroll';
@@ -521,12 +521,8 @@ export class RoamWorld extends LocalWorld {
     const live = this.siegeNow();
     const held = f.held ? (f.held.mine ? 'mine' : 'other') : null;
     const burntUntil = f.burnt !== undefined && f.burnt > now ? f.burnt : null;
-    const needs = [
-      { text: `Престиж ${need} — у отряда ${Math.floor(have)}`, ok: have >= need },
-      { text: 'Отряд у стен — в клетке замка или рядом', ok: near },
-      { text: `Сила отряда ${Math.round(band.power)} против гарнизона ${Math.round(power)}: штурм — стеной и лестницами, осада — пока не кончится хлеб`, ok: band.power >= power },
-      { text: 'Связь с сервером войны: бой у стен считает он', ok: !!this.port.warOrder },
-    ];
+    // Строки окна — дверью правил замка (одной с автопилотом прибора, ПН-Э1): мощь отряда и гарнизона — `troopPower`.
+    const needs = freeNeeds({ prestige: have, tier: f.tier, near, band: band.power, garrison: power, online: !!this.port.warOrder }).map(({ text, ok }) => ({ text, ok }));
     const block =
       held === 'mine'
         ? 'Замок уже наш.'

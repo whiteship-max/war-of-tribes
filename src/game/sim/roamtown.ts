@@ -17,6 +17,7 @@ import { roamCell, roamMoving } from '@/world/roam';
 import { townAt } from '@/world/roampoints';
 import { marketLeft, marketLot, marketSpend, provideTownSide } from './market';
 import { TOWN_MARKETS, townMarketLevel } from '../townrules';
+import { specMult, townSpecOf } from '@/world/townspec';
 import { addStock } from './stock';
 import { bandOf, bookKey, sendBook } from './bandranks';
 import { log } from './log';
@@ -37,6 +38,12 @@ provideTownSide({
     const c = /^town:(-?\d+):(-?\d+)$/.exec(key);
     const t = c ? townAt(Number(c[1]), Number(c[2])) : null;
     return t && t.tier > 0 ? townMarketLevel(t.tier as 1 | 2 | 3) : 0;
+  },
+  // Специализация вольного города (ПН-Э1): множитель основы по товару — постоянной солью клетки (`world/townspec`).
+  spec: (key, good) => {
+    const c = /^town:(-?\d+):(-?\d+)$/.exec(key);
+    const t = c ? townAt(Number(c[1]), Number(c[2])) : null;
+    return t ? specMult(townSpecOf(t.x, t.y), good) : 1;
   },
   cap: cargoCap,
   keep: TOWN_MARKETS,
