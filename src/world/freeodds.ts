@@ -24,6 +24,7 @@
 // (40 сидов полного прогона). Модуль не в `freecastle`: его читает сервер войны при загрузке (`FATES.occupy`), а этот модуль читает
 // сервер войны — кольцо импортов уронило бы загрузку.
 import { advance, applyOrder, emptyWars, type WarRow } from '../../netlify/lib/war';
+import { unsealed } from '../../netlify/lib/warseal';
 import { emptyRoster } from '../../netlify/lib/roster';
 import type { RosterFile, WarBattle } from '../../netlify/lib/contract';
 import { freePrestige, freeTroopPower, freeTroops } from './freecastle';
@@ -71,6 +72,11 @@ type OrderCtx = Parameters<typeof applyOrder>[4];
 
 /** Война у стен вольного замка целиком — запись сервера войны в памяти (одна дверь у репетиции и разбора карты прибора). */
 export function rehearseWar(band: TroopStack, at: FreeAt, mode: FreeMode, seed: number, share = 1): { w: WarRow; troops: Record<string, number>; t0: number; starveAt: number | null } {
+  // Репетиция — не живая война: сиды окна без секрета сервера (БЕЗ-1, `warseal.unsealed`), те же у сервера и у прибора.
+  return unsealed(() => rehearseBare(band, at, mode, seed, share));
+}
+
+function rehearseBare(band: TroopStack, at: FreeAt, mode: FreeMode, seed: number, share: number): { w: WarRow; troops: Record<string, number>; t0: number; starveAt: number | null } {
   const t0 = Date.UTC(2026, 9, 30) + (Math.abs(seed) % 46_656) * 60_000;
   const troops = Object.fromEntries(Object.entries(band).filter(([, n]) => (n ?? 0) > 0)) as Record<string, number>;
   const row = (born: number, men: Record<string, number>) => ({

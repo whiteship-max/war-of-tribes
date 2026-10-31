@@ -55,6 +55,12 @@ export const ENV = {
   tonUsdtDecimals: 'TON_USDT_DECIMALS',
   tonApiKey: 'TON_API_KEY',
   tonApiUrl: 'TON_API_URL',
+  /**
+   * Секрет сидов войны (БЕЗ-1, docs/trust-boundary.md, 6в): из него и номера дела сервер выводит сид боя, фазы осады, падения и дела
+   * лазутчика (`lib/warseal`). Читает его общий код войны сам — одинаково на Netlify и здесь. Пусто — сиды из номера, который видит
+   * клиент: сервер поднимается, но говорит об этом при запуске (`launchNotes`). Значение — длинная случайная строка, только в `.env`.
+   */
+  warSecret: 'TRIBE_WAR_SECRET',
   /** Номер сайта Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
   netlifySite: 'NETLIFY_SITE_ID',
   /** Личный токен Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
@@ -141,8 +147,13 @@ export const pathsOf = (dir: string) => ({
  * и пустой `ADMIN_IDS` не мешают подняться — игра работает и без бота, — но молча выключают команды админа и кнопки
  * уведомлений, и причину без этой строки не найти. Только имена и включено ли — значений переменных в журнале нет.
  */
-export function launchNotes(o: { secret: boolean; admins: number; spawn: string | null; pace: number; pay: boolean; deliver: boolean }): string[] {
+export function launchNotes(o: { secret: boolean; admins: number; spawn: string | null; pace: number; pay: boolean; deliver: boolean; seal: boolean }): string[] {
   const out: string[] = [];
+  // Громко и первой строкой (БЕЗ-1): без секрета исход войны можно просчитать на клиенте заранее, а игра этого не покажет ничем.
+  if (!o.seal)
+    out.push(
+      `внимание: ${ENV.warSecret} пуст — СИДЫ ВОЙНЫ ИЗ НОМЕРА, КОТОРЫЙ ВИДИТ КЛИЕНТ: исход боя и фазы осады можно просчитать заранее (docs/trust-boundary.md, 6в; docs/SERVER.md, «Переменные»)`,
+    );
   if (!o.secret) out.push('внимание: TELEGRAM_WEBHOOK_SECRET пуст — вебхук бота закрыт: команд админа и кнопок под уведомлениями нет');
   if (o.admins === 0) out.push('внимание: ADMIN_IDS пуст — команд админа не слушает никто');
   out.push(

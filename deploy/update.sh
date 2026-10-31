@@ -23,6 +23,11 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
   state="$(docker inspect --format '{{.State.Health.Status}}' "$app" 2>/dev/null || echo unknown)"
   if [ "$state" = "healthy" ]; then
     echo "приложение отвечает — обновление готово"
+    # Секрет сидов войны (БЕЗ-1, docs/trust-boundary.md, 6в): проверяется внутри контейнера, значение не печатается. Нет — выкладка
+    # не падает, но говорит громко: без него исход войны можно просчитать на клиенте заранее.
+    if ! docker compose exec -T app sh -c 'test -n "$TRIBE_WAR_SECRET"'; then
+      echo "ВНИМАНИЕ: TRIBE_WAR_SECRET не задан — сиды войны предсказуемы. Задать: docs/SERVER.md, «Переменные»"
+    fi
     exit 0
   fi
   sleep 5

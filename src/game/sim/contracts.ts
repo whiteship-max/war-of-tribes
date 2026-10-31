@@ -93,7 +93,8 @@ export function takeDeal(s: GameState, o: DealOffer, now: number): string | null
   r.purse += t.advance;
   r.deals = [...(r.deals ?? []), deal];
   r.took = [o.id, ...(r.took ?? [])].slice(0, TOOK_MAX);
-  sendBook(s, { op: 'take', key: deal.key, at: { x: o.from.x, y: o.from.y }, tier: o.tier });
+  // Груз «довезти» — в приказе (БЕЗ-1): он ложится в обоз книги сервера, и его можно сдать или (сорвав договор) продать.
+  sendBook(s, { op: 'take', key: deal.key, at: { x: o.from.x, y: o.from.y }, tier: o.tier, ...(o.goods ? { goods: { id: o.goods.id, n: o.goods.n } } : {}) });
   log(s, `Договор взят у ${o.from.name}: ${dealLine(t)}. Аванс ${t.advance} — в кошель.`, 'info', `deal:${o.id}`);
   return null;
 }

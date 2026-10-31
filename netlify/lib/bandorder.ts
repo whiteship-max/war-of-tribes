@@ -12,7 +12,7 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const DEAL_MAX = 1e9;
 
 /** Виды приказов книги отряда. */
-export const BAND_BOOK_OPS = ['join', 'hire', 'captives', 'promote', 'demote', 'dismiss', 'take', 'deal', 'drop', 'trade'] as const;
+export const BAND_BOOK_OPS = ['join', 'hire', 'captives', 'promote', 'demote', 'dismiss', 'take', 'deal', 'drop', 'trade', 'bread'] as const;
 
 /** Приказ книги отряда, а не хода. */
 export const isBookOrder = (o: BandOrder): o is BandBookOrder => (BAND_BOOK_OPS as readonly string[]).includes(o.op);
@@ -47,7 +47,35 @@ export function readRoamBook(v: unknown): RoamBookRow | undefined {
     keys: Array.isArray(r.keys) ? r.keys.filter((k): k is string => typeof k === 'string' && k.length <= BAND_LIMITS.key).slice(-BAND_LIMITS.keys) : [],
     ...((d) => (d ? { deals: d } : {}))(readDealBook(r.deals)),
     ...((t) => (t ? { trade: t } : {}))(readTradeBook(r.trade)),
+    // Книга обоза (БЕЗ-1): поле есть — книга заведена, даже пустая.
+    ...(r.cargo && typeof r.cargo === 'object' ? { cargo: goodCounts(r.cargo) } : {}),
+    ...(Array.isArray(r.hauls) ? { hauls: r.hauls.filter((k): k is string => typeof k === 'string' && k.length <= BAND_LIMITS.key).slice(-BAND_LIMITS.keys) } : {}),
+    ...((f) => (f.length ? { fed: f } : {}))(readFed(r.fed)),
   };
+}
+
+/** Сёл в книге хлеба — не больше стольких (`sim/roamtown.FED_MAX` у партии — то же правило памяти). */
+export const FED_CELLS = 16;
+
+/** Хлеб сёл из строки реестра (БЕЗ-1): клетка `x:y`, взято, минута. */
+function readFed(v: unknown): NonNullable<RoamBookRow['fed']> {
+  const out: NonNullable<RoamBookRow['fed']> = [];
+  for (const o of (Array.isArray(v) ? v : []).slice(-FED_CELLS)) {
+    if (!o || typeof o !== 'object') continue;
+    const x = o as Record<string, unknown>;
+    const took = num(x.took);
+    const t = num(x.t);
+    if (typeof x.at === 'string' && /^-?\d+:-?\d+$/.test(x.at) && took !== null && took >= 0 && t !== null) out.push({ at: x.at, took, t });
+  }
+  return out;
+}
+
+/** Груз договора из чужой строки: товар — короткий номер, штук — целое от единицы. */
+function goodsOf(v: unknown): { id: string; n: number } | null {
+  if (!v || typeof v !== 'object') return null;
+  const g = v as Record<string, unknown>;
+  const n = num(g.n);
+  return typeof g.id === 'string' && /^[\w:]{1,24}$/.test(g.id) && n !== null && n >= 1 ? { id: g.id, n: Math.min(TRADE_N_MAX, Math.floor(n)) } : null;
 }
 
 /** Рынков вольных городов в книге торга — не больше стольких (`townrules.TOWN_MARKETS` — то же число у партии; здесь — без куска пути). */
@@ -56,7 +84,7 @@ export const TRADE_TOWNS = 16;
 const TRADE_N_MAX = 1e7;
 
 /** Счёт по товарам из чужой строки: ключ товара — короткий, числа — целые от нуля. */
-function goodCounts(v: unknown): Record<string, number> {
+export function goodCounts(v: unknown): Record<string, number> {
   const out: Record<string, number> = {};
   if (!v || typeof v !== 'object') return out;
   for (const [k, n] of Object.entries(v as Record<string, unknown>).slice(0, 64)) {
@@ -115,7 +143,7 @@ function readDealBook(v: unknown): RoamDealBook | undefined {
   const whole = (x: unknown): number => Math.max(0, Math.floor(num(x) ?? 0));
   const open = (Array.isArray(r.open) ? r.open : [])
     .map((o) => (o && typeof o === 'object' ? (o as Record<string, unknown>) : {}))
-    .map((o) => ({ key: bandKey(o.key), tier: whole(o.tier), at: cellOf(o.at), w: whole(o.w) }))
+    .map((o) => ({ key: bandKey(o.key), tier: whole(o.tier), at: cellOf(o.at), w: whole(o.w), ...((g) => (g ? { goods: g } : {}))(goodsOf(o.goods)) }))
     .filter((o): o is RoamDealBook['open'][number] => o.key !== null && o.at !== null)
     .slice(-BAND_LIMITS.keys);
   const took = (Array.isArray(r.took) ? r.took : [])
@@ -135,7 +163,17 @@ export function readBookOrder(r: Record<string, unknown>): BandBookOrder | null 
   if (key && r.op === 'take') {
     const at = cellOf(r.at);
     const tier = num(r.tier);
-    return at && tier !== null && Number.isInteger(tier) ? { op: 'take', key, at, tier } : null;
+    if (!at || tier === null || !Number.isInteger(tier)) return null;
+    // Груз «довезти» (БЕЗ-1): кривой груз — кривой приказ.
+    if (r.goods === undefined) return { op: 'take', key, at, tier };
+    const goods = goodsOf(r.goods);
+    return goods ? { op: 'take', key, at, tier, goods } : null;
+  }
+  // Хлеб у села (БЕЗ-1): клетка и штук — целое от единицы.
+  if (key && r.op === 'bread') {
+    const at = cellOf(r.at);
+    const n = num(r.n);
+    return at && n !== null && Number.isInteger(n) && n >= 1 && n <= TRADE_N_MAX ? { op: 'bread', key, at, n } : null;
   }
   if (key && (r.op === 'deal' || r.op === 'drop')) {
     const take = bandKey(r.take);

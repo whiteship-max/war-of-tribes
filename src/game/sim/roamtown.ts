@@ -256,6 +256,8 @@ export function buyVillageFood(s: GameState, p: TownPoint, n: number, now: numbe
   const gold = villageCost(n);
   takeVillage(r, p.id, n, now);
   addStock(s, 'food', n, cargoCap(r), 'cargo');
+  // Хлеб в обозе — приказом книги (БЕЗ-1): сервер кладёт его в обоз книги не больше запаса дня села, и его можно продать.
+  sendBook(s, { op: 'bread', key: bookKey(s, 'bread'), at: { x: p.x, y: p.y }, n });
   log(s, `Хлеб у села ${p.name}: ${n} за ${gold} золота.`, 'info', `village:${p.id}`, 'trade');
   return null;
 }

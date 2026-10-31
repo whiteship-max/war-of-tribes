@@ -171,6 +171,13 @@ echo "ended=$(date +%s)" >> "$dir/meta"
 
 docker run --rm --user "$(id -u):$(id -g)" -v "$CI:$CI" tribe-ci node "$BIN/night-message.mjs" "$dir" > /dev/null 2> "$dir/message.err"
 [ -s "$dir/message.txt" ] || printf 'Ночная приёмка TRIBE: master %s — весть не собралась, см. лог.\nЛог: %s\n' "$(echo "$master" | cut -c1-7)" "$dir" > "$dir/message.txt"
+# Секрет сидов войны боевого сервера (БЕЗ-1, docs/trust-boundary.md, 6в): приёмка проверяет, что он задан в ~/tribe/.env, — значение не
+# читается в переменную и не печатается. Нет — первой строкой вести.
+if ! grep -Eq '^TRIBE_WAR_SECRET=["'"'"']?[^"'"'"'[:space:]]' "$HOME/tribe/.env" 2> /dev/null; then
+  { echo 'Внимание: на боевом сервере не задан TRIBE_WAR_SECRET — сиды войны предсказуемы (docs/SERVER.md, «Переменные»).'; cat "$dir/message.txt"; } > "$dir/message.tmp"
+  mv "$dir/message.tmp" "$dir/message.txt"
+  log "TRIBE_WAR_SECRET не задан"
+fi
 if [ "$(cat "$dir/verdict" 2> /dev/null)" = "принят" ]; then
   git -C "$R" update-ref refs/ci/accepted "$head"
   printf '%s\t%s\t%s\n' "$master" "$(date -u +%F)" "$mode" >> "$N/accepted.tsv"

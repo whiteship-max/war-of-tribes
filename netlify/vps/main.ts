@@ -23,6 +23,7 @@ import { blobsStores } from '../lib/blobs.js';
 import { botSecret, botToken, deliverOn, spawnMode, warPace } from '../lib/http.js';
 import { adminIds } from '../lib/admin.js';
 import { payConfig } from '../lib/ton.js';
+import { warSecret } from '../lib/warseal.js';
 import { ALL_STORES, type Stores } from '../lib/kv.js';
 import { ROUTES } from '../lib/routes/index.js';
 import { resetParty } from '../lib/partyreset.js';
@@ -83,7 +84,7 @@ async function serve(): Promise<void> {
   );
   const address = server.address();
   say(`слушаю порт ${typeof address === 'object' && address ? address.port : cfg.port}; адреса: ${Object.keys(ROUTES).join(' ')}`);
-  for (const line of launchNotes({ secret: botSecret() !== '', admins: adminIds().size, spawn: spawnMode(), pace: warPace(), pay: typeof payConfig() !== 'string', deliver: deliverOn() })) say(line);
+  for (const line of launchNotes({ secret: botSecret() !== '', admins: adminIds().size, spawn: spawnMode(), pace: warPace(), pay: typeof payConfig() !== 'string', deliver: deliverOn(), seal: warSecret() !== '' })) say(line);
 
   const schedule = startSchedule({ config: cfg, stores, db, paths });
 

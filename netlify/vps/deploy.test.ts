@@ -56,12 +56,13 @@ describe('секреты не уезжают в образ и в репозит�
     expect(values.TELEGRAM_BOT_TOKEN).toBe('');
     expect(values.TELEGRAM_WEBHOOK_SECRET).toBe('');
     expect(values.NETLIFY_AUTH_TOKEN).toBe('');
+    expect(values.TRIBE_WAR_SECRET).toBe('');
     expect(values.TRIBE_DOMAIN).toBe('');
   });
 
   it('в compose значения только из окружения: ни одного вписанного токена', () => {
     for (const line of compose.split('\n')) {
-      const m = /^\s+(TELEGRAM_BOT_TOKEN|TELEGRAM_WEBHOOK_SECRET|NETLIFY_AUTH_TOKEN|NETLIFY_SITE_ID):\s*(.*)$/.exec(line);
+      const m = /^\s+(TELEGRAM_BOT_TOKEN|TELEGRAM_WEBHOOK_SECRET|TRIBE_WAR_SECRET|NETLIFY_AUTH_TOKEN|NETLIFY_SITE_ID):\s*(.*)$/.exec(line);
       if (m) expect(m[2], m[1]).toMatch(/^\$\{\w+(:[-?][^}]*)?\}$/);
     }
   });
@@ -203,6 +204,9 @@ describe('образ собирается теми же командами, чт
 
   it('обновление: только быстрый git pull, копия базы — до перезапуска', () => {
     expect(update).toMatch(/git pull --ff-only/);
+    // Секрет сидов войны (БЕЗ-1): проверка — в контейнере и без вывода значения; нет секрета — предупреждение, а не падение.
+    expect(update).toMatch(/docker compose exec -T app sh -c 'test -n "\$TRIBE_WAR_SECRET"'/);
+    expect(update).not.toMatch(/echo[^\n]*\$TRIBE_WAR_SECRET/);
     const backup = update.indexOf('docker compose run --rm app backup');
     expect(backup).toBeGreaterThan(0);
     expect(update.indexOf('docker compose up -d')).toBeGreaterThan(backup);

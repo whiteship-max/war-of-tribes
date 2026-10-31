@@ -32,10 +32,10 @@ import { eraGate } from '../era.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, spawnMode, type Route } from '../http.js';
 import { readBandOrder, readClaim, type CastleClaim, type RosterFile, type RosterResponse } from '../contract.js';
 import { ROSTER_KEY, bandOrder, fillFree, freeViews, prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting, type FreeHold } from '../roster.js';
-import { WARS_KEY, readWars } from '../war.js';
+import { WARS_KEY, readWars, type WarRow } from '../war.js';
+import type { BookHaul } from '../roambook.js';
 import { STORES } from '../kv.js';
 import { isFreeKey } from '../../../src/world/freecastle.js';
-import type { SiegeHold } from '../../../src/world/roam.js';
 import { addFlags, confirmedOf, observe, readWatchRecord } from '../watch.js';
 import { bandsSeen, clockAt, seenOf } from '../bandsight.js';
 import { roamOpenFor } from '../../../src/game/roamflag.js';
@@ -209,7 +209,10 @@ async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, no
   const holds = await holdsOf(io);
   // Осады этого отряда (ПН-Э1, 6а): ход при осаде — отказ тем же правилом, что у клиента. Запись войн — строгим чтением: поход к стенам
   // мог лечь минуту назад.
-  const sieges = order.op === 'go' ? await siegesOf(io, key) : [];
+  // Добыча и дань вольных замков этого отряда (БЕЗ-1) — в обоз книги: той же строгой записью войн, что осады.
+  const free = order.op === 'camp' ? [] : await freeWarsOf(io, key);
+  const sieges = order.op === 'go' ? free.map((w) => ({ phase: w.phase, defCity: w.defCity, sentAt: w.sentAt })) : [];
+  const hauls = haulsOf(free);
   let grants: StoredGrant[] = [];
   try {
     grants = (await grantsOf(io.stores, key)).list;
@@ -223,7 +226,7 @@ async function bandRoute(req: Request, io: Parameters<Route>[1], key: string, no
     // Вход админа в путь новой партией: своя строка замка уходит с первым «встать» отрядом (см. выше).
     const file = admin && order.op === 'seat' && read.rows[key] && !read.bands?.[key] ? dropCastle(read, key) : read;
     const time = clockAt(file.bands?.[key]?.clock, card.card, card.at);
-    const done = bandOrder(file, key, order, now, mode, time.clock, { ...(card.card?.seed !== undefined ? { seed: card.card.seed } : {}), grants, sieges });
+    const done = bandOrder(file, key, order, now, mode, time.clock, { ...(card.card?.seed !== undefined ? { seed: card.card.seed } : {}), grants, sieges, hauls });
     const flag = async (): Promise<void> => {
       const f = [...(done.forged ? [done.forged] : []), ...(time.flag && !done.error ? [time.flag] : [])];
       if (f.length > 0) await observe(io.stores, key, (rec) => addFlags(rec, now, f));
@@ -276,15 +279,26 @@ async function confirmedClaim(io: Parameters<Route>[1], player: string, said: Ca
  * Осады вольных замков отряда `key` из записи войн (ПН-Э1, граница доверия 6а) — те, что клиент видит своими (`RoamWorld.sieges`: он
  * нападает, защитник — вольный замок). Не прочиталась — осад нет на вид, как у `holdsOf`: ход запрёт следующий приказ.
  */
-async function siegesOf(io: Parameters<Route>[1], key: string): Promise<SiegeHold[]> {
+async function freeWarsOf(io: Parameters<Route>[1], key: string): Promise<WarRow[]> {
   try {
     const got = await io.stores(STORES.world, 'strong').getWithMetadata(WARS_KEY);
-    return readWars(got ? parseJson(String(got.data)) : null)
-      .wars.filter((w) => w.atk === key && isFreeKey(w.defCastle))
-      .map((w) => ({ phase: w.phase, defCity: w.defCity, sentAt: w.sentAt }));
+    return readWars(got ? parseJson(String(got.data)) : null).wars.filter((w) => w.atk === key && isFreeKey(w.defCastle));
   } catch {
     return [];
   }
+}
+
+/**
+ * Добыча и дань вольных замков (БЕЗ-1) — то, что партия кладёт в обоз из записи войн (`sim/roamcastle.takeSiege`): взятый замок (не
+ * сожжённый) — увезённое `fall.taken`, откуп кастеляна — `tribute.taken`. Номер — война с приставкой: каждая ложится в книгу один раз.
+ */
+export function haulsOf(wars: readonly WarRow[]): BookHaul[] {
+  const out: BookHaul[] = [];
+  for (const w of wars) {
+    if (w.fall && w.fall.fate !== 'burn') out.push({ id: `fall:${w.id}`, goods: w.fall.taken });
+    if (w.end === 'paid' && w.tribute) out.push({ id: `paid:${w.id}`, goods: w.tribute.taken });
+  }
+  return out;
 }
 
 /**

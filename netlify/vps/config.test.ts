@@ -46,12 +46,14 @@ describe('настройки своего сервера', () => {
 
 describe('строки запуска', () => {
   it('пустой секрет вебхука и пустые админы — предупреждение словами', () => {
-    const quiet = launchNotes({ secret: false, admins: 0, spawn: 'sicily', pace: 60, pay: false, deliver: true });
-    expect(quiet.filter((l) => l.startsWith('внимание:'))).toHaveLength(2);
+    const quiet = launchNotes({ secret: false, admins: 0, spawn: 'sicily', pace: 60, pay: false, deliver: true, seal: false });
+    expect(quiet.filter((l) => l.startsWith('внимание:'))).toHaveLength(3);
+    // Без секрета сидов войны (БЕЗ-1) — первой строкой и с именем переменной; значения в строке нет — его и нет.
+    expect(quiet[0]).toMatch(/^внимание: TRIBE_WAR_SECRET пуст/);
     expect(quiet.join('\n')).toMatch(/TELEGRAM_WEBHOOK_SECRET/);
     expect(quiet.join('\n')).toMatch(/ADMIN_IDS/);
     expect(quiet.at(-1)).toBe('режим: места sicily, темп войны ×60, админов 0, оплата выключена, доставка уведомлений включена');
-    const ready = launchNotes({ secret: true, admins: 2, spawn: null, pace: 1, pay: true, deliver: false });
+    const ready = launchNotes({ secret: true, admins: 2, spawn: null, pace: 1, pay: true, deliver: false, seal: true });
     expect(ready.some((l) => l.startsWith('внимание:'))).toBe(false);
   });
 });

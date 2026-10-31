@@ -24,7 +24,7 @@ import { ATLAS_HASH } from '../../src/world/atlas/data.js';
 import { readArms } from '../../src/heraldry/arms.js';
 import { energyForged, isNewcomer, placeBand, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamSeat, siegeForged, siegeHoldBlock, untilForged, ROAM_SLACK_MS, type RoamMove, type SiegeHold } from '../../src/world/roam.js';
 import { readMove } from '../../src/world/roammove.js';
-import { bookClaim, bookGrants, bookMen, bookMoved, bookOrder, firstBook, startBook } from './roambook.js';
+import { bookClaim, bookGrants, bookHauls, bookMen, bookMoved, bookOrder, cargoClaim, firstBook, startBook, type BookHaul } from './roambook.js';
 import { isBookOrder, readRoamBook } from './bandorder.js';
 import { readGait } from '../../src/world/data/gait.js';
 import { freeId, freePoolSize, freeTierOf } from '../../src/world/freecastle.js';
@@ -403,7 +403,12 @@ export function placeBandNew(file: RosterFile, key: string, now: number, mode: S
 /** Что сервер знает о партии для книги отряда (ПН-6): сид из описи и указы админа. */
 export interface BookKnown {
   seed?: number;
-  grants?: readonly Pick<AdminGrant, 'n' | 'troops'>[];
+  grants?: readonly (Pick<AdminGrant, 'n' | 'troops'> & { stock?: AdminGrant['stock'] })[];
+  /**
+   * Добыча и дань вольных замков этого отряда из записи войн (БЕЗ-1): ложатся в обоз книги, каждая один раз (`roambook.bookHauls`).
+   * Нет поля — их нет.
+   */
+  hauls?: readonly BookHaul[];
   /**
    * Осады вольных замков этого отряда из записи войн (ПН-Э1, граница доверия 6а): идущая — ход отказан тем же правилом, что у клиента
    * (`world/roam.siegeHoldBlock`). Нет поля — осад нет.
@@ -445,11 +450,14 @@ export function bandOrder(
     // а сверх книги — флаг. Людей строки (видимость, рогатки) — по книге.
     // Клиент до ПН-6 у строки до книги (troops не шлёт) — по-старому, словами клиента.
     const base = had ? (had.book ?? (o.troops ? firstBook(o.troops) : null)) : startBook();
-    const granted = base ? bookGrants(base, known.grants ?? []) : null;
+    const granted = base ? bookHauls(bookGrants(base, known.grants ?? []), known.hauls ?? []) : null;
     const claimed = granted && o.troops ? bookClaim(granted, o.troops) : { book: granted, forged: null };
-    const book = claimed.book;
+    // Обоз (БЕЗ-1): отметка с обозом опускает книгу обоза или заводит её — у нового отряда только хлебом старта.
+    const carried = claimed.book && o.cargo ? cargoClaim(claimed.book, o.cargo, !had) : { book: claimed.book, forged: null };
+    const book = carried.book;
     const banner = { name: o.name, ...(o.arms ? { arms: o.arms } : {}), prestige: o.prestige, men: book ? bookMen(book) : o.men, seenAt: now, ...(book ? { book } : {}) };
-    const forged = claimed.forged ? { kind: 'forged' as const, text: claimed.forged } : null;
+    const said = [claimed.forged, carried.forged].filter(Boolean).join(' ');
+    const forged = said ? { kind: 'forged' as const, text: said } : null;
     if (had) {
       const { arms: _old, ...kept } = had;
       return { file: put({ ...kept, ...banner }), error: null, forged };
@@ -461,7 +469,7 @@ export function bandOrder(
   const m = moveOfRow(had);
   if (isBookOrder(o)) {
     if (!had.book) return no('Отряд ещё не отметился: книга не заведена.');
-    const step = bookOrder(bookGrants(had.book, known.grants ?? []), o, { now, cell: roamCell(m.way, now), moving: roamMoving(m.way, now), seed: known.seed, way: m.way });
+    const step = bookOrder(bookHauls(bookGrants(had.book, known.grants ?? []), known.hauls ?? []), o, { now, cell: roamCell(m.way, now), moving: roamMoving(m.way, now), seed: known.seed, way: m.way });
     // Отказ, после которого книга всё же пишется (ПН-Э2в: сделка у вольного города по запаздыванию — цепочка идёт с партией).
     if (step.error && step.keep) return { file: put({ ...had, book: step.book, seenAt: now }), error: step.error, forged: step.forged ? { kind: 'forged', text: step.forged } : null };
     if (step.error) return no(step.error, step.forged ? { kind: 'forged', text: step.forged } : null);

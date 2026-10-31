@@ -16,6 +16,7 @@
  * ни в каком виде.
  */
 import { castleIdOf, freeHeld, type FreeHold } from './roster.js';
+import { sealed } from './warseal.js';
 import { FREE_FATE_IDS, OCCUPY_RULE, freeAccess, freeFateBlock, isFreeKey, freeGold, freeLarder, freeLevels, freeName, freePop, freeTroops, type FreeTier } from '../../src/world/freecastle.js';
 import { roamCell, roamMoving } from '../../src/world/roam.js';
 import {
@@ -779,7 +780,13 @@ function plus(a: Counts, b: Counts): Counts {
 
 const fits = (want: Counts, have: Counts): boolean => Object.entries(want).every(([k, v]) => (v ?? 0) <= (own(have, k) ?? 0));
 
-/** Сид боя войны: номер войны и номер боя — одна и та же война даёт один и тот же бой у кого угодно. */
+/**
+ * Сид боя живой войны (БЕЗ-1): номер войны, закрытый секретом сервера для боя `n` (`warseal.sealed`), — клиент номер видит, а бой
+ * вперёд не досчитает. Сид боя наружу уходит только с решённым боем (`WarBattle.input`). Секрета нет — `warSeed(id, n)`, как до БЕЗ-1.
+ */
+export const battleSeed = (id: string, n: number): number => warSeed(sealed(id, `battle#${n}`), n);
+
+/** Хеш номера и номера боя — одна и та же строка даёт один и тот же сид у кого угодно. Живая война зовёт его через `battleSeed`. */
 export function warSeed(id: string, n: number): number {
   let h = 0x811c9dc5 ^ n;
   for (let i = 0; i < id.length; i++) {
@@ -1310,7 +1317,7 @@ function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly Machin
   const front = wallFront(w.camp ? assaultOf(breachesOf(w.camp as SiegeWindow), machines) : SCALING);
   if (w.camp && machines.length > 0) w.camp = { ...w.camp, machines: machinesSpent(w.camp as SiegeWindow, at, machines) as WarCamp['machines'] };
   const { input, field } = wallFight({
-    seed: warSeed(w.id, n),
+    seed: battleSeed(w.id, n),
     // Башня города бьёт по лагерю (docs/siege_v2.md, раздел 5): на штурм идут те, кого обстрел не выбил.
     attacker: {
       kinds: thinned(kindsOf(asTroops(w.army.troops)), thinOf(w, at)),
@@ -1383,7 +1390,7 @@ function fateOfWar(w: WarRow, at: number, sheet: WarSheet, fated: WarRow['fate']
     carry: stackCarry({ warrior: survivors }) * gaitHaul(w.gait) * (FATES[fated]?.castleOnly ? 0 : 1),
     escort: stackEscort({ warrior: survivors }),
     levels: sheet.levels,
-    seed: fallSeed(warSeed(w.id, 0xfa11), at),
+    seed: fallSeed(warSeed(sealed(w.id, 'fall'), 0xfa11), at),
   });
 }
 
@@ -1666,11 +1673,13 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
     }
   }
   const k = rowsOf(camp).length + 1;
-  const row = rollPhase(camp, k, atkHungry);
+  // Кость фазы — сидом живой осады (БЕЗ-1): номер лагеря у клиента есть, а секрета нет — фазу вперёд он не бросит.
+  const sealedCamp = { ...camp, campId: sealed(camp.campId, 'siege') };
+  const row = rollPhase(sealedCamp, k, atkHungry);
   camp.phases = [...rowsOf(camp), row];
   shotsStep(w, row, at);
   // Истощение фазы — доля вида, дробь костью сида осады (АУ-8, п. 3): та же дверь, что у мира.
-  if (row.waste > 0) w.army = { ...w.army, troops: minus(w.army.troops, wasteLosses(w.army.troops, row.waste, rollSeed(camp), k)) };
+  if (row.waste > 0) w.army = { ...w.army, troops: minus(w.army.troops, wasteLosses(w.army.troops, row.waste, rollSeed(sealedCamp), k)) };
   if (troopTotal(asTroops(w.army.troops)) <= 0) {
     turnBack(w, at, w.to, 'lifted');
     return;
@@ -1783,7 +1792,7 @@ function burnMachine(w: WarRow, at: number, sheet: WarSheet, id: MachineId, troo
   const n = w.battles.length;
   const side = campSide(w, at);
   const { input, field } = machineFight({
-    seed: warSeed(w.id, n),
+    seed: battleSeed(w.id, n),
     guard: { kinds: guardKinds(side.kinds, GUARD_SHARE), resolve: side.resolve, pips: side.pips, flanks: side.flanks, rest: side.rest, scars: side.scars },
     sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
     resolve: sheet.resolve,
@@ -1850,7 +1859,7 @@ function breakout(w: WarRow, at: number, sheet: WarSheet, troops: Counts): strin
   const n = w.battles.length;
   const side = campSide(w, at);
   const { input, field } = machineFight({
-    seed: warSeed(w.id, n),
+    seed: battleSeed(w.id, n),
     guard: { kinds: guardKinds(side.kinds, BREAKOUT_SHARE), resolve: side.resolve, pips: side.pips, flanks: side.flanks, rest: side.rest, scars: side.scars },
     sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
     resolve: sheet.resolve,
@@ -1973,7 +1982,7 @@ function hitCamp(
   if (!camp) return 'Лагеря уже нет.';
   const n = w.battles.length;
   const fight = campFight({
-    seed: warSeed(w.id, n),
+    seed: battleSeed(w.id, n),
     at,
     sight: sightOf(camp),
     camp: campSide(w, at),
@@ -2103,7 +2112,7 @@ function meetBattle(file: WarFile, w: WarRow, m: WarMeet): void {
   const n = w.battles.length;
   const spot = cell(m.spot);
   const { input, field } = meetFight({
-    seed: warSeed(w.id, n),
+    seed: battleSeed(w.id, n),
     chaser: meetSide(m.army, m.at),
     march: { ...campSide(w, m.at), kinds: kindsOf(asTroops(w.army.troops)) },
     // Земля клетки встречи — та, на которую шагнул перехватчик (бой на воде — переправа), по земле пути войны.
@@ -3548,7 +3557,7 @@ function resolveSpy(file: WarFile, x: SpyRow, s: SheetAt | null): void {
     return;
   }
   const sheet = liveSheet(file, x.def, s, at);
-  const f = rivalFate(x.chance, x.peril, x.stealth, rivalRolls(x.id));
+  const f = rivalFate(x.chance, x.peril, x.stealth, rivalRolls(sealed(x.id, 'spy')));
   const harm = f.ok ? rivalHarm(x.deed, { stock: sheet.stock, gold: sheet.gold, stash: sheet.stash, pop: sheet.pop }, x.power ?? 1) : {};
   x.out = {
     at,

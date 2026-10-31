@@ -18,7 +18,7 @@ import { wholeNonNeg } from '../../src/game/guard.js';
 import type { ProposalAct, ProposalView } from '../../src/world/proposals.js';
 import { GAIT_SPEED, type Gait } from '../../src/world/data/gait.js';
 import type { FightMark } from '../../src/game/scarrules.js';
-import { BAND_BOOK_OPS, readBookOrder, readTroopKeys } from './bandorder.js';
+import { BAND_BOOK_OPS, goodCounts, readBookOrder, readTroopKeys } from './bandorder.js';
 
 /** Краткая опись партии — на случай, когда игрок выбирает между двумя. */
 export interface SaveCard {
@@ -388,6 +388,12 @@ export type BandOrder =
        * и книга не растёт; меньше — убыль (бой, уход, голод), книга опускается. Нет поля — клиент до ПН-6: книга не тронута.
        */
       troops?: Partial<Record<TroopKey, number>>;
+      /**
+       * Обоз отряда по товарам рынка (БЕЗ-1, книга обоза `roambook`): ресурсы и снаряжение номерами `GoodDef.id`, целыми вниз. Шлёт его
+       * клиент, только когда очередь приказов книги пуста (всё, чем обоз прирос, сервер уже принял). Меньше книги — убыль (еда, бой,
+       * сброс, найм), книга опускается; больше — флаг, книга не растёт. Нет поля — книга обоза не тронута.
+       */
+      cargo?: Record<string, number>;
     }
   | { op: 'go'; to: BandCell; gait?: WarGait; until?: number }
   | { op: 'camp'; kind: 'open' | 'hidden' | 'ruin' | null; men: number }
@@ -404,7 +410,9 @@ export type BandOrder =
  *    престижем (сверка — таблицей наград дел `data/deedgain`), `drop` — сорван или брошен; `take` называет сдачу и срыв ключом взятия;
  *  — `trade` — сделка у вольного города в клетке `at` (ПН-Э2в, ГДД 3.7.1): товар, штук (покупка — плюс, продажа — минус), золото
  *    партии и настоящая минута сделки `t`. Цену, кошель (караванный — у продажи) и товар сервер выводит сам цепочкой сделок отряда
- *    у этого города (`roambook`); подделка — отказ и флаг.
+ *    у этого города (`roambook`); подделка — отказ и флаг. Продажа сверх обоза книги (БЕЗ-1) — отказ и флаг;
+ *  — `take` с грузом (`goods`, договор «довезти», БЕЗ-1): груз ложится в обоз книги — не больше груза тира (`contractrules.cargoGoods`);
+ *  — `bread` — хлеб у села в клетке `at` (БЕЗ-1, ГДД 3.3.4): штук — не больше запаса дня села (`townrules.villageLeft` по клетке).
  */
 export type BandBookOrder =
   | { op: 'join'; key: string; k: number; n: number }
@@ -412,17 +420,19 @@ export type BandBookOrder =
   | { op: 'captives'; key: string; n: number }
   | { op: 'promote' | 'demote'; key: string; from: TroopKey; to: TroopKey; n: number }
   | { op: 'dismiss'; key: string; kind: TroopKey; n: number }
-  | { op: 'take'; key: string; at: BandCell; tier: number }
+  | { op: 'take'; key: string; at: BandCell; tier: number; goods?: { id: string; n: number } }
   | { op: 'deal'; key: string; take: string; gold: number; fame: number }
   | { op: 'drop'; key: string; take: string }
-  | { op: 'trade'; key: string; at: BandCell; good: string; n: number; gold: number; t: number };
+  | { op: 'trade'; key: string; at: BandCell; good: string; n: number; gold: number; t: number }
+  | { op: 'bread'; key: string; at: BandCell; n: number };
 
 /**
  * Книга договоров отряда на сервере (ПН-7, `netlify/lib/roambook.ts`): взятые и ещё открытые договоры (ключ, тир, клетка заказчика,
  * привоз), сколько взято у каждой клетки за привоз и что сдано — сколько договоров, платы и престижа сервер подтвердил.
  */
 export interface RoamDealBook {
-  open: { key: string; tier: number; at: BandCell; w: number }[];
+  /** Открытые договоры; `goods` — груз «довезти», легший в обоз книги при взятии (БЕЗ-1): сдача снимает его с обоза книги. */
+  open: { key: string; tier: number; at: BandCell; w: number; goods?: { id: string; n: number } }[];
   took: { at: string; w: number; n: number }[];
   n: number;
   gold: number;
@@ -475,6 +485,17 @@ export interface RoamBookRow {
   deals?: RoamDealBook;
   /** Книга торга у вольных городов (ПН-Э2в). Нет поля — отряд не торговал. */
   trade?: RoamTradeBook;
+  /**
+   * Книга обоза (БЕЗ-1): сколько каждого товара рынка (`GoodDef.id` — ресурсы и снаряжение) сервер подтверждает в обозе — потолок, а
+   * не правда. Растёт только тем, что решает сервер (покупка, указ админа, груз договора, хлеб села, снаряжение разжалованных и
+   * распущенных, добыча и дань вольного замка); убывает продажей, сдачей груза и отметкой обоза. Продажа сверх книги — отказ и флаг.
+   * Нет поля — книга до БЕЗ-1: её заведёт первая отметка с обозом.
+   */
+  cargo?: Record<string, number>;
+  /** Добыча и дань вольных замков, уже легшие в книгу обоза: номера войн с приставкой (`fall:`, `paid:`), последние `BAND_LIMITS.keys`. */
+  hauls?: string[];
+  /** Хлеб сёл (БЕЗ-1): клетка села, сколько взято и минута (часы сервера) — запас дня отходит той же формулой, что у партии. */
+  fed?: { at: string; took: number; t: number }[];
 }
 
 /** Потолки чисел приказа отряда. */
@@ -496,6 +517,7 @@ export function readBandOrder(v: unknown): BandOrder | null {
       prestige: cap(r.prestige, BAND_LIMITS.prestige),
       men: cap(r.men, BAND_LIMITS.men),
       ...(r.troops && typeof r.troops === 'object' ? { troops: readTroopKeys(r.troops) } : {}),
+      ...(r.cargo && typeof r.cargo === 'object' ? { cargo: goodCounts(r.cargo) } : {}),
     };
   }
   if (r.op === 'go') {
