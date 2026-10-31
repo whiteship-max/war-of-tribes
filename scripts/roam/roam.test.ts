@@ -376,6 +376,12 @@ describe('политика автопилота пути (ПН-Э1): не тая
   const runs = origins.map((o) => runPath(1, peace, o, table, even, k));
   const sum = (f: (r: (typeof runs)[number]) => number): number => runs.reduce((n, r) => n + f(r), 0);
 
+  it('на замок — по окну замка одной дверью (`freecastle.freeNeeds`), без сухой разведки', () => {
+    const src = readFileSync(path.join(HERE, 'path.ts'), 'utf8');
+    expect(src).toMatch(/freeNeeds\(\{/);
+    expect(src, 'сухой разведки у автопилота нет — у игрока её нет').not.toMatch(/dry\(/);
+  });
+
   it('четыре стиля пути ГДД 3.7.0; вор и разбойник не гоняются, пока дел нет в коде', () => {
     expect(STYLES.map((s) => s.id)).toEqual(['peace', 'thief', 'robber', 'castle']);
     expect(STYLES.filter((s) => s.missing).map((s) => s.id)).toEqual(['thief', 'robber']);

@@ -40,13 +40,11 @@ describe('окно вольного замка одной дверью (ПН-Э1
     expect(freeNeeds({ ...at, prestige: 149 }).find((n) => n.id === 'prestige')?.ok).toBe(false);
   });
 
-  it('окно мира бродяги и автопилот прибора зовут одну дверь — своих строк у них нет', () => {
+  it('окно мира бродяги зовёт дверь правил замка — своих строк у него нет', () => {
     const world = readFileSync(join(__dirname, 'local/RoamWorld.ts'), 'utf8');
     expect(world).toMatch(/freeNeeds\(\{/);
     expect(world, 'строк «Что нужно» в окне больше нет').not.toMatch(/text: `Престиж \$\{need\}/);
-    const pilot = readFileSync(join(__dirname, '../../scripts/roam/path.ts'), 'utf8');
-    expect(pilot).toMatch(/freeNeeds\(\{/);
-    expect(pilot, 'сухой разведки у автопилота нет — у игрока её нет').not.toMatch(/dry\(/);
+    // Автопилот прибора зовёт ту же дверь — держит тест прибора (`roam.test.ts`, «политика автопилота»): код игры прибор не читает.
   });
 });
 
