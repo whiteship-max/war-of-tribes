@@ -1,7 +1,5 @@
-// ПН-Э1 (docs/gdd/path_of_sword.md, «Решения ПН-Э1»): окно вольного замка одной дверью; специализация вольных городов постоянной солью и
+// ПН-Э1 (docs/gdd/path_of_sword.md, «Решения ПН-Э1»): специализация вольных городов постоянной солью и
 // рынок с ключом — одной дверью основы товара (`marketrules.specGood`); у лорда рынок прежний.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
@@ -14,7 +12,6 @@ import { roamStub } from '@/game/roamstubs';
 import { standWay } from './roammove';
 import { pointsIn, type RoamPoint } from './roampoints';
 import { TOWN_SPECS, TOWN_SPEC_META, specMult, townSpecOf, type TownSpec } from './townspec';
-import { freeNeeds } from './freecastle';
 import '@/game/roamdoor';
 
 vi.mock('@/game/roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
@@ -30,23 +27,7 @@ function party(): GameState {
   return s;
 }
 
-describe('окно вольного замка одной дверью (ПН-Э1, `freecastle.freeNeeds`)', () => {
-  it('строки окна — престиж, у стен, сила в одних единицах, связь; выполнено — по каждой', () => {
-    const at = { prestige: 150, tier: 1 as const, near: true, band: 1000, garrison: 1000, online: true };
-    expect(freeNeeds(at).map((n) => n.id)).toEqual(['prestige', 'near', 'force', 'online']);
-    expect(freeNeeds(at).every((n) => n.ok)).toBe(true);
-    // Граница строки «сила»: ровно гарнизон — да, на единицу меньше — нет.
-    expect(freeNeeds({ ...at, band: 999.9 }).find((n) => n.id === 'force')?.ok).toBe(false);
-    expect(freeNeeds({ ...at, prestige: 149 }).find((n) => n.id === 'prestige')?.ok).toBe(false);
-  });
-
-  it('окно мира бродяги зовёт дверь правил замка — своих строк у него нет', () => {
-    const world = readFileSync(join(__dirname, 'local/RoamWorld.ts'), 'utf8');
-    expect(world).toMatch(/freeNeeds\(\{/);
-    expect(world, 'строк «Что нужно» в окне больше нет').not.toMatch(/text: `Престиж \$\{need\}/);
-    // Автопилот прибора зовёт ту же дверь — держит тест прибора (`roam.test.ts`, «политика автопилота»): код игры прибор не читает.
-  });
-});
+// Окно вольного замка — с ПН-Э2б своей дверью `world/freeodds` (шанс репетицией сервером войны): тесты — `freeodds.test.ts`.
 
 describe('специализация вольного города (ГДД 3.7.1)', () => {
   it('постоянной солью клетки: у одного города одна специализация, у городов мира — все пять', () => {

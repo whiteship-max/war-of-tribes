@@ -14,6 +14,7 @@
 import { watchStubs } from '../../src/game/roamstubs';
 import { INPUTS, TARGETS, type InputId, type InputValue, type TargetId } from './inputs';
 import type { MapSize } from './castle';
+import type { FreeTier } from '../../src/world/freecastle';
 
 /** Размер прогона: малый — облако и дом, полный — ночь на сервере (`ROAM_SIZE=full`, deploy/ci/night-inner.sh). */
 export interface Size {
@@ -35,6 +36,10 @@ export interface Size {
    * ступени, по одному ли человеку в вилке порога и сколько грубых точек после порога.
    */
   map: MapSize;
+  /**
+   * Порог шанса окна замка (ПН-Э2б, `castle.oddsCases`): сидов настоящего шанса (отдельных от сидов окна) и ступени замка в выводе.
+   */
+  odds: { truth: number; tiers: readonly FreeTier[] };
 }
 
 export const SIZES: Record<'small' | 'full', Size> = {
@@ -47,6 +52,7 @@ export const SIZES: Record<'small' | 'full', Size> = {
     nft: 1,
     sight: 2,
     map: { seeds: 4, fine: 0.02, man: false, tail: 1 },
+    odds: { truth: 8, tiers: [1, 2, 3] },
   },
   full: {
     name: 'полный',
@@ -57,6 +63,7 @@ export const SIZES: Record<'small' | 'full', Size> = {
     nft: 3,
     sight: 6,
     map: { seeds: 6, fine: 0.01, man: true, tail: 99 },
+    odds: { truth: 40, tiers: [1, 2, 3] },
   },
 };
 

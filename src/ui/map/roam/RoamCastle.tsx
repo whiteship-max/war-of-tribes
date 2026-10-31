@@ -67,7 +67,7 @@ export function RoamCastle({ id, onClose }: { id: string; onClose: () => void })
           </button>
         </div>
         <div className="nx-am-body er-confirm">
-          {v === null && <p className="nx-tnote">Смотрим на стены…</p>}
+          {v === null && <p className="nx-tnote">Смотрим на стены и прикидываем дело…</p>}
           {typeof v === 'string' && <p className="nx-tnote">{v}</p>}
           {view && mine && (
             <div className="roam-legs">
@@ -83,8 +83,8 @@ export function RoamCastle({ id, onClose }: { id: string; onClose: () => void })
           {view && !mine && (
             <div className="roam-legs">
               <div className="roam-leg roam-row">
-                <span>Гарнизон по сведениям</span>
-                <b>около {view.garrison.men} · строй замка</b>
+                <span>{view.garrison.watching ? 'Гарнизон — видим стены' : 'Гарнизон издали — не больше правила ступени'}</span>
+                <b>{view.garrison.lo === view.garrison.hi ? view.garrison.hi : `${view.garrison.lo}–${view.garrison.hi}`} · строй замка</b>
               </div>
               <p className="nx-tnote">Что нужно, чтобы взять:</p>
               {view.needs.map((n) => (

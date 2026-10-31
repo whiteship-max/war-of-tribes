@@ -1,22 +1,18 @@
 // Вольный замок автопилотом (ПН-10, docs/gdd/path_of_sword.md, 3.11 и 2.4): штурм с ходу или осада — **сервером войны в памяти**
 // (`netlify/lib/war.ts`: поход отряда `marchFree`, НПС-слепок, стена, фазы, голод → последняя вылазка), теми же дверями, что у игрока.
 // Своей арифметики боя здесь нет: замок, гарнизон и хлеб — `world/freecastle`, исход — запись войны.
-import { advance, applyOrder, emptyWars, type WarRow } from '../../netlify/lib/war';
-import { emptyRoster } from '../../netlify/lib/roster';
-import type { RosterFile } from '../../netlify/lib/contract';
-import { freeId, freePrestige, freeTroopPower, freeTroops, type FreeTier } from '../../src/world/freecastle';
+import { freeAt, rehearse, rehearseWar, scaleBand, type FreeMode } from '../../src/world/freeodds';
+import { freeId, freeTroopPower, freeTroops, type FreeTier } from '../../src/world/freecastle';
 import { troopPower } from '../../src/game/battle/price';
-import { roamSeat } from '../../src/world/roam';
 import { SICILY } from '../../src/world/spawn';
 import { troopTotal, type TroopStack } from '../../src/game/battle/kinds';
 
 /** Где стоит замок прибора: клетка Сицилии (земля места боя — та же дверь `place.groundAt`, что у игрока). */
 const AT = SICILY[0];
-const FREE = freeId(AT.x, AT.y);
-const KEY = 'tg-pilot';
-const HOUR = 3_600_000;
-/** Дольше осада автопилота не стоит: замок без хлеба выходит раньше (прибор печатает часы). */
-const SIEGE_MAX_H = 24 * 14;
+export const FREE = freeId(AT.x, AT.y);
+
+/** Замок прибора ступени `tier` — тем же видом, что у окна замка (`freeodds.FreeAt`). */
+export const castleAt = (tier: FreeTier) => freeAt(FREE, tier);
 
 export interface CastleTry {
   won: boolean;
@@ -27,46 +23,12 @@ export interface CastleTry {
 }
 
 /**
- * Одно дело у стен вольного замка ступени `tier`: штурм с ходу (`storm`) или осада (`siege`). Отряд стоит у стен; минута приказа —
- * от `seed` (номер войны и кость фаз — от неё, как у сервера). Победа — замок взят (штурмом или отбитой последней вылазкой).
+ * Одно дело у стен вольного замка ступени `tier`: штурм с ходу (`storm`) или осада (`siege`) — репетицией окна замка
+ * (`freeodds.rehearse`, сервер войны в памяти; одна дверь у окна, автопилота и карты). Минута приказа — от `seed`.
  */
-export function castleTry(band: TroopStack, tier: FreeTier, mode: 'storm' | 'siege', seed: number): CastleTry {
-  if (troopTotal(band) <= 0) return { won: false, lost: {}, hours: 0 };
-  const { w, troops, t0 } = castleWar(band, tier, mode, seed);
-  const lost: TroopStack = {};
-  for (const [k, n] of Object.entries(troops)) {
-    const d = n - ((w.army.troops as Record<string, number>)[k] ?? 0);
-    if (d > 0) lost[k as keyof TroopStack] = d;
-  }
-  return { won: w.end === 'taken', lost, hours: ((w.endAt ?? t0) - t0) / HOUR };
-}
-
-/** Война у стен вольного замка целиком — запись сервера войны в памяти (одна дверь у `castleTry` и разбора карты). */
-function castleWar(band: TroopStack, tier: FreeTier, mode: 'storm' | 'siege', seed: number): { w: WarRow; troops: Record<string, number>; t0: number } {
-  const t0 = Date.UTC(2026, 9, 30) + (Math.abs(seed) % 46_656) * 60_000;
-  const troops = Object.fromEntries(Object.entries(band).filter(([, n]) => (n ?? 0) > 0)) as Record<string, number>;
-  const roster: RosterFile = {
-    ...emptyRoster(),
-    bands: {
-      [KEY]: {
-        way: roamSeat({ x: AT.x + 1, y: AT.y }, t0).way,
-        born: t0,
-        name: 'Прибор',
-        prestige: freePrestige(tier),
-        men: troopTotal(band),
-        seenAt: t0,
-        book: { troops, join: -1, drill: 0, fights: 0, grant: 0, keys: [] },
-      },
-    },
-    free: { [FREE]: { x: AT.x, y: AT.y, tier, born: t0 } },
-  };
-  const file = emptyWars();
-  const no = applyOrder(file, KEY, { op: 'march', target: FREE, mode, fate: 'occupy', army: { troops, resolve: 0, pips: {} } }, t0, { roster, sheet: () => null, roamOpen: true });
-  if (no) throw new Error(`прибор: приказ на вольный замок не принят — ${no}`);
-  const w = file.wars[0];
-  for (let t = w.arriveAt + 1; w.phase !== 'done' && t <= t0 + SIEGE_MAX_H * HOUR; t += HOUR) advance(file, t, new Map());
-  if (w.phase === 'march' || w.phase === 'camp') applyOrder(file, KEY, { op: 'retreat', id: w.id }, t0 + SIEGE_MAX_H * HOUR, { roster, sheet: () => null, roamOpen: true });
-  return { w, troops, t0 };
+export function castleTry(band: TroopStack, tier: FreeTier, mode: FreeMode, seed: number): CastleTry {
+  const r = rehearse(band, castleAt(tier), mode, seed);
+  return { won: r.won, lost: r.lost, hours: r.hours };
 }
 
 /** Бой войны у стен для разбора карты: где, кто взял верх, лагерь и вышедшие — сколько было и сколько пало, доля отдыха лагеря. */
@@ -84,7 +46,7 @@ export interface CastleFight {
 
 /** Разбор осады карты: исход и бои по порядку — тем же сервером войны, что `castleTry`. */
 export function castleTrace(band: TroopStack, tier: FreeTier, seed: number): { end: string; fights: CastleFight[] } {
-  const { w } = castleWar(band, tier, 'siege', seed);
+  const { w } = rehearseWar(band, castleAt(tier), 'siege', seed);
   const fights = w.battles.map((b) => {
     const input = b.input as { defender?: { rest?: number } } | undefined;
     return {
@@ -235,4 +197,91 @@ export function castleMap(tier: FreeTier, army: MapArmy, size: MapSize): CastleM
   let full: MapPoint | null = null;
   for (let i = points.length - 1; i >= 0 && all(points[i]); i--) full = points[i];
   return { tier, army, garrison, troops: mapGarrison(tier), step: size.man ? 1 : step, points, first, full, drops };
+}
+
+// ---------- порог шанса окна замка (ПН-Э2б) ----------
+//
+// Окно замка (`freeodds.freeNeeds`) говорит «да», когда репетиция на сидах окна берёт замок не реже порога, а «сколько нужно» — с какого
+// числа людей того же состава это держится. Порог выводится из структуры (правило 19): тот, при котором доверие окну стоит меньше всего
+// людей на одно взятие. Каждая неудачная осада — пик, оплаченный вперёд и пропавший (ГДД 4.4, правило 2): если окно при пороге `p`
+// велит взять `m(p)` людей, а настоящий шанс при них — `q`, то людей на один взятый замок в среднем `m(p) / q`. Настоящий шанс — на
+// сидах прибора, **отдельных от сидов окна** (`ODDS_TRUTH_SEED` и дальше): окно не проверяет само себя.
+
+/** Порогов-кандидатов столько, сколько сидов у окна: доли `k / FREE_ODDS_SEEDS`. */
+export const oddsBars = (seeds: number): number[] => Array.from({ length: seeds }, (_, i) => (i + 1) / seeds);
+
+/** Первый сид прибора для настоящего шанса — далеко от сидов окна `1…FREE_ODDS_SEEDS`. */
+export const ODDS_TRUTH_SEED = 101;
+
+/** Точка порога в одном деле: «сколько нужно» окна, падение, настоящий шанс при нём и людей на одно взятие. */
+export interface OddsPoint {
+  bar: number;
+  need: number | null;
+  drop: boolean;
+  truth: number | null;
+  perCastle: number | null;
+}
+
+export interface OddsCase {
+  tier: FreeTier;
+  army: MapArmy;
+  mode: FreeMode;
+  garrisonMen: number;
+  points: OddsPoint[];
+}
+
+/**
+ * Дела вывода порога: ступени × составы карты (копейщики, состав гарнизона) × пути (штурм, измор). Окно спрашивается отрядом в число
+ * людей гарнизона; настоящий шанс — `truth` сидов от `ODDS_TRUTH_SEED`.
+ */
+export function oddsCases(tiers: readonly FreeTier[], truth: number, bars: readonly number[], need: (band: TroopStack, at: ReturnType<typeof castleAt>, mode: FreeMode, bar: number) => { need: number | null; drop: boolean }): OddsCase[] {
+  const out: OddsCase[] = [];
+  for (const tier of tiers) {
+    const at = castleAt(tier);
+    const garrisonMen = troopTotal(mapGarrison(tier));
+    for (const army of MAP_ARMIES) {
+      const band = mapBand(army, tier, garrisonMen);
+      for (const mode of ['storm', 'siege'] as const) {
+        const real = new Map<number, number>();
+        const truthAt = (m: number): number => {
+          let q = real.get(m);
+          if (q === undefined) {
+            const b = scaleBand(band, m);
+            let won = 0;
+            for (let s = 0; s < truth; s++) if (rehearse(b, at, mode, ODDS_TRUTH_SEED + s).won) won++;
+            q = won / truth;
+            real.set(m, q);
+          }
+          return q;
+        };
+        const points = bars.map((bar) => {
+          const n = need(band, at, mode, bar);
+          const q = n.need === null ? null : truthAt(n.need);
+          return { bar, need: n.need, drop: n.drop, truth: q, perCastle: n.need === null || !q ? null : n.need / q };
+        });
+        out.push({ tier, army, mode, garrisonMen, points });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Порог: у каждого дела людей на одно взятие при пороге — доля от лучшего порога этого дела; порог — с наименьшей средней долей по
+ * делам, где хоть один порог берёт замок (при равных — больший: окно честнее). Дело, где порог замка не берёт (`perCastle === null`),
+ * а другой берёт, считается штрафом — долей 2 (не меньше вдвое хуже лучшего).
+ */
+export function oddsPick(cases: readonly OddsCase[], bars: readonly number[]): { bar: number; score: Map<number, number>; used: number } {
+  const score = new Map<number, number>(bars.map((b) => [b, 0]));
+  let used = 0;
+  for (const c of cases) {
+    const best = Math.min(...c.points.map((p) => p.perCastle ?? Infinity));
+    if (!Number.isFinite(best)) continue;
+    used++;
+    for (const p of c.points) score.set(p.bar, (score.get(p.bar) ?? 0) + (p.perCastle === null ? 2 : Math.min(2, p.perCastle / best)));
+  }
+  for (const b of bars) score.set(b, (score.get(b) ?? 0) / Math.max(1, used));
+  let bar = bars[0];
+  for (const b of bars) if ((score.get(b) ?? Infinity) <= (score.get(bar) ?? Infinity) + 1e-12) bar = b;
+  return { bar, score, used };
 }

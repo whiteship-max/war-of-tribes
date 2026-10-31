@@ -1196,8 +1196,11 @@ export interface FreeCastleView {
   tier: 1 | 2 | 3;
   tierWords: string;
   castellan: string;
-  /** Гарнизон по сведениям: людей около (до десятка) и мощь строя замка. */
-  garrison: { men: number; power: number };
+  /**
+   * Гарнизон, каким его видит отряд (ПН-Э2б, `freeodds.freeSeen`): людей и мощь строя замка — точкой (`lo === hi`), когда стоящий
+   * отряд видит стены (`watching`), иначе вилкой вниз от правила ступени (чужие осады могли его потрепать).
+   */
+  garrison: { lo: number; hi: number; power: { lo: number; hi: number }; watching: boolean };
   prestige: { need: number; have: number };
   band: { men: number; power: number };
   near: boolean;

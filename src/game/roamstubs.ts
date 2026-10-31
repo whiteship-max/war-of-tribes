@@ -364,6 +364,13 @@ export const ROAM_STUBS = {
     batch: 'ПН-17',
     orient: true,
   },
+  freeOdds: {
+    value: 0.8,
+    gdd: '3.11.2, 5.4',
+    what: 'порог шанса окна вольного замка: строка пути (штурм, измор) говорит «да», когда репетиция сервером войны берёт замок не реже этой доли сидов',
+    batch: 'ПН-Э2б',
+    orient: false,
+  },
 } as const satisfies Record<string, RoamStub>;
 
 export type RoamStubId = keyof typeof ROAM_STUBS;

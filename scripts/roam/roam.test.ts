@@ -31,7 +31,7 @@ const ROOT = path.resolve(HERE, '../..');
 const GDD = path.join(ROOT, 'docs/gdd/path_of_sword.md');
 
 /** Размер для тестов: та же машина, что у малого и полного, только мельче. */
-const TINY: Size = { name: 'малый', seeds: 1, steps: 2, even: 4, pool: 1, nft: 1, sight: 1, map: { seeds: 1, fine: 0.25, man: false, tail: 1 } };
+const TINY: Size = { name: 'малый', seeds: 1, steps: 2, even: 4, pool: 1, nft: 1, sight: 1, map: { seeds: 1, fine: 0.25, man: false, tail: 1 }, odds: { truth: 1, tiers: [1] } };
 
 const stubsOf = (uses: readonly InputId[]): InputId[] => uses.filter((k) => INPUTS[k].kind === 'stub');
 const use = <K extends InputId>(k: K): InputValue<K> => INPUTS[k].value as InputValue<K>;
@@ -431,7 +431,13 @@ describe('сила НПС — вывод неподвижной точкой (П
     for (const st of RUN_STYLES) {
       for (const o of origins) {
         for (const seed of [1, 2]) {
-          const r = runPath(seed, st, o, table, even, k);
+          // Пик стиля «к замку» — найм до «сколько нужно» окна замка (ПН-Э2б): при ценах прибора кошель его не тянет ни в одной из
+          // этих партий (людей окно велит втрое больше гарнизона, а их содержание на дорогу к замку — дороже найма). Граница «пики есть»
+          // держится одной партией «к замку» с наймом в пятьдесят раз дешевле и замком у доски — книга должна поймать и такого пришедшего.
+          const castle = st.id === 'castle';
+          if (castle && (o !== origins[0] || seed !== 1)) continue;
+          const roads = Object.fromEntries(Object.entries(k.castleRoads).map(([g, r]) => [g, r.map(() => 0)])) as unknown as typeof k.castleRoads;
+          const r = runPath(seed, st, o, table, even, castle ? { ...k, hire: (id) => k.hire(id) / 50, castleRoads: roads } : k);
           peaks += r.peaks;
           // Минуты книги: входы в ступени и конец окна (последний отряд и счётчики партии).
           const marks = k.stages

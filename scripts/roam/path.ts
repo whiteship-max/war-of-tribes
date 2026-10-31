@@ -37,8 +37,9 @@ import { bandUpkeep } from '../../src/game/sim/bandkeep';
 import { cargoCap } from '../../src/game/sim/roam';
 import { prestigeAfter, prestigeStage } from '../../src/game/sim/prestige';
 import { mixSeed, seeded } from '../../src/game/sim/random';
-import { castleTry } from './castle';
-import { freeLarder, freeNeeds } from '../../src/world/freecastle';
+import { castleAt, castleTry } from './castle';
+import { freeAccess } from '../../src/world/freecastle';
+import { freeLook, freeNeeds, freeReady, freeWay, scaleBand, type FreeNeedRow } from '../../src/world/freeodds';
 import { travelTime } from '../../src/world/geo';
 import { roamWalkMs } from '../../src/world/roam';
 import type { Spot } from '../../src/world/settle';
@@ -233,8 +234,10 @@ export interface PathRun {
   fallen: [number, number, number];
   ambushLost: number;
   castleLost: number;
-  /** Пиков на одну осаду (ГДД 4.4, правило 2): наймов до гарнизона, оплаченных кошелём вперёд. */
+  /** Пиков на одну осаду (ГДД 4.4, правило 2): наймов до «сколько нужно» окна замка, оплаченных кошелём вперёд. */
   peaks: number;
+  /** Сколько раз автопилот спросил окно замка (`freeodds.freeNeeds`, ПН-Э2б). */
+  asks: number;
   /** Часы, доход и содержание по масштабам (ГДД 4.4) — индекс `scaleOf`. */
   byScale: ScaleBook[];
   prestige: number;
@@ -258,6 +261,8 @@ export const roadHours = (dist: number, gait: Gait): number => realMs(travelTime
 
 /** Игровых дней в настоящем часе — дверь времени. */
 const dayPerHour = (): number => 3600 / dayRealSeconds();
+/** Окно замка сказало «этим составом не взять» — автопилот спрашивает его снова не раньше, чем через неделю партии (ПН-Э2б). */
+const ASK_AGAIN_H = 24 * 7;
 
 /** Настоящая минута начала сетки: 01.10.2026, 00:00 UTC — часы первого захода прибавляются к ней (сетка привоза доски — UTC). */
 export const T0 = Date.UTC(2026, 9, 1);
@@ -357,6 +362,7 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     ambushLost: 0,
     castleLost: 0,
     peaks: 0,
+    asks: 0,
     byScale: Array.from({ length: k.scales.length + 1 }, () => ({ hours: 0, income: 0, upkeep: 0 })),
     prestige: 0,
     purse: origin.gold,
@@ -510,20 +516,34 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     }
   };
 
-  // Войско на пике — на одну осаду (ГДД 4.4, правило 2; ПН-Э1): престиж замка есть, а сила ниже гарнизона — нанять до гарнизона, если
-  // кошель сверх запаса оплачивает вперёд и найм, и содержание пика на дорогу туда и назад и на голод замка (кладовая замка ступени при
-  // одном едоке-городе, `freecastle.freeLarder` — верхняя граница срока осады). Не хватает — копить дальше.
-  const larder = freeLarder(1);
-  const hungerH = larder.food / Math.max(1e-9, larder.townPerHour);
+  // Войско на пике — на одну осаду (ГДД 4.4, правило 2; ПН-Э1, ПН-Э2б): престиж замка есть — спросить окно замка (`freeodds.freeNeeds`,
+  // та же дверь, что у игрока: репетиция сервером войны при составе отряда) и нанять **тем же составом** до его «сколько нужно» (`aim` —
+  // меньшее из штурма и измора), если кошель сверх запаса оплачивает вперёд и найм, и содержание пика на дорогу туда и назад и на дело
+  // (часы дела — того же окна). Не хватает — копить дальше. Окно спрашивается заново после пика и после неудачной осады: состав сменился.
+  const keep = castleAt(1);
+  const sight = freeLook({ x: keep.x, y: keep.y }, false, keep);
+  let aim: number | null = null;
+  let aimHours = 0;
+  let askedAt = -Infinity;
+  const ask = (): FreeNeedRow[] => {
+    askedAt = t;
+    const rows = freeNeeds({ prestige: run.prestige, at: keep, near: true, look: sight, band, online: true });
+    run.asks++;
+    const ways = rows.filter((r) => r.odds && r.odds.need[0].need !== null).map((r) => r.odds!);
+    ways.sort((a, b) => (a.need[0].need as number) - (b.need[0].need as number));
+    aim = ways.length ? (ways[0].need[0].need as number) : Infinity;
+    aimHours = ways.length ? ways[0].hours : 0;
+    return rows;
+  };
+  // Окно сказало «этим составом не взять» — спросить снова через неделю: состав растёт делами и наймом (`grow`).
   const peak = (gap: number, road: number): void => {
-    const plan: TroopStack = { ...band };
+    if (aim === null || (aim === Infinity && t - askedAt >= ASK_AGAIN_H)) ask();
+    if (aim === null || !Number.isFinite(aim) || total(band) <= 0 || total(band) >= aim) return;
+    const plan = scaleBand(band, aim);
     let cost = 0;
-    for (let i = 0; i < 4000 && troopPower(plan) < k.castle.power; i++) {
-      plan[style.grow] = (plan[style.grow] ?? 0) + 1;
-      cost += k.hire(style.grow) * origin.hire;
-    }
-    const keepCost = (bandWagesPerDay(plan) + bandRationPerDay({ band: plan, wounded: [] }, 1) * foodGold) * dayPerHour() * (2 * road + hungerH);
-    if (!(troopPower(plan) >= k.castle.power) || run.purse - reserve(gap) < cost + keepCost) return;
+    for (const [id, n] of Object.entries(plan) as [TroopId, number][]) cost += Math.max(0, n - (band[id] ?? 0)) * k.hire(id) * origin.hire;
+    const keepCost = (bandWagesPerDay(plan) + bandRationPerDay({ band: plan, wounded: [] }, 1) * foodGold) * dayPerHour() * (2 * road + aimHours);
+    if (run.purse - reserve(gap) < cost + keepCost) return;
     run.hired += total(plan) - total(band);
     for (const [id, n] of Object.entries(plan) as [TroopId, number][]) band[id] = n;
     run.purse -= cost;
@@ -579,31 +599,33 @@ export function runPath(seed: number, style: Style, origin: Origin, table: reado
     const s = stage();
     const power = troopPower(band);
     // Вольный замок I (ПН-10) — сервером войны в памяти (`castle.castleTry`). Идёт стиль «к замку», когда окно замка, которое увидел
-    // бы игрок, выполнено целиком (`freecastle.freeNeeds`, ПН-Э1): престиж ступени, сила отряда не ниже гарнизона — одних единиц
-    // (`troopPower`), связь; «у стен» — дойдёт дорогой (`castleRoads`). Разведки сухими делами нет — у игрока её нет. Осадой: лагерь,
-    // фазы, голод — и последняя вылазка гарнизона всем, кто остался (ПН-10).
-    if (style.castle && freeNeeds({ prestige: run.prestige, tier: 1, near: true, band: power, garrison: k.castle.power, online: true }).find((n) => n.id === 'prestige')?.ok) {
-      peak(untilNext(at), k.castleRoads[style.gait][spot]);
-    }
-    const ready = freeNeeds({ prestige: run.prestige, tier: 1, near: true, band: troopPower(band), garrison: k.castle.power, online: true }).every((n) => n.ok);
-    if (style.castle && ready) {
-      deed++;
-      run.storms++;
+    // бы игрок, выполнено (`freeodds.freeReady`, ПН-Э2б): престиж ступени, у стен — дойдёт дорогой (`castleRoads`), связь и шанс пути не
+    // ниже порога при составе отряда; путь — тот, что окно назвало лучшим (`freeWay`). Окно спрашивается, когда людей не меньше его
+    // прежнего «сколько нужно»: иначе оно скажет то же. Разведки сухими делами нет — у игрока её нет.
+    if (style.castle && freeAccess(run.prestige, 1) === null) {
       const road = k.castleRoads[style.gait][spot];
-      live(at + road);
-      const r = castleTry(band, 1, 'siege', mixSeed(root, 5000 + deed));
-      run.castleLost += total(r.lost);
-      minus(band, r.lost);
-      busyUntil = at + 2 * road + r.hours;
-      live(at + road + r.hours);
-      if (r.won) {
-        run.castleAt = t;
-        break;
+      peak(untilNext(at), road);
+      const rows = aim !== null && total(band) >= aim ? ask() : null;
+      const way = rows && freeReady(rows) ? freeWay(rows) : null;
+      if (way) {
+        deed++;
+        run.storms++;
+        live(at + road);
+        const r = castleTry(band, 1, way, mixSeed(root, 5000 + deed));
+        run.castleLost += total(r.lost);
+        minus(band, r.lost);
+        busyUntil = at + 2 * road + r.hours;
+        live(at + road + r.hours);
+        if (r.won) {
+          run.castleAt = t;
+          break;
+        }
+        gain(-run.prestige * k.defeatPrestige);
+        wiped();
+        shed();
+        aim = null;
+        continue;
       }
-      gain(-run.prestige * k.defeatPrestige);
-      wiped();
-      shed();
-      continue;
     }
     // Договоры (ПН-7): доска города и кастеляна дверью игры (`world/dealboard.boardsAt`), условия — `contractrules.contractTerms`
     // (через `sim/contracts.termsOf`). Долг заказчику закрывает его доску — сначала уплатить. По силам — бой до `edge` ровного боя

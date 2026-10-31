@@ -181,6 +181,8 @@ export const INPUTS = {
   castleHall: fromGame('castleHall'),
   castleShare: fromGame('castleShare'),
   castlePool: fromGame('castlePool'),
+  // Порог шанса окна вольного замка (ПН-Э2б): заглушка игры, вывод — раздел «Окно замка: порог шанса».
+  freeOdds: fromGame('freeOdds'),
   // ---------- ПН-Э1: торговля между городами — размах специализации, заглушка игры ----------
   townSpec: fromGame('townSpec'),
 

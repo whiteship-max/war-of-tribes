@@ -82,7 +82,8 @@ describe('ПН-10: окно вольного замка — функциями �
     const v = await g.world.roamFree?.(FREE);
     if (!v || typeof v === 'string') throw new Error(`окна нет: ${v}`);
     const men = troopTotal(freeTroops(FREE, 1));
-    expect(v.garrison.men, 'около — до десятка').toBe(Math.max(10, Math.round(men / 10) * 10));
+    // Отряд стоит у стен (точка внутри области: стоит и замок в круге обзора) — гарнизон точкой, правилом ступени (ПН-Э2б, `freeLook`).
+    expect(v.garrison, 'видим стены — точкой').toMatchObject({ lo: men, hi: men, watching: true });
     expect(v.castellan).toBe(castellanOf(FREE_AT.x, FREE_AT.y));
     expect(v.name).toBe(freeName(FREE_AT.x, FREE_AT.y));
     expect(v.prestige.need).toBe(freePrestige(1));

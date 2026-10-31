@@ -42,7 +42,8 @@ import type { Ctx, Section } from './run';
 import { evenPower, rowDrops, rowMove } from './foes';
 import { RUN_STYLES, STYLES, roadHours, runPath, scaleOf, type PathFlow, type PathKnobs, type PathRun, type Style } from './path';
 import { SHIFTS_PER_DAY, bestLoop } from './trade';
-import { MAP_ARMIES, MAP_ARMY_WORDS, MAP_COARSE, castleMap, castleTrace, mapBand, type CastleMap } from './castle';
+import { MAP_ARMIES, MAP_ARMY_WORDS, MAP_COARSE, ODDS_TRUTH_SEED, castleMap, castleTrace, mapBand, oddsBars, oddsCases, oddsPick, type CastleMap } from './castle';
+import { FREE_NEED_CAP, FREE_ODDS_SEEDS, freeNeedMen } from '../../src/world/freeodds';
 import { TOWN_SPEC_META, townSpecOf } from '../../src/world/townspec';
 import { placeAll } from './pool';
 import { SIGHT_GOALS, STANCES, deriveSight, detectShare, goalCheck, writtenSight, type SightNumbers } from './sight';
@@ -146,6 +147,8 @@ export const PILOT: readonly InputId[] = [
   'castleHall',
   'castleShare',
   'castlePool',
+  // Окно замка (ПН-Э2б): автопилот идёт на замок по окну `freeodds.freeNeeds` — порог шанса заглушкой игры.
+  'freeOdds',
   // Мир дороги (`placeAll`): пул замков, место выхода дверью ПН-3 и его заглушка (зазор; руины — вывод ПН-4у); фураж лагеря стиля — дверью.
   'pool',
   'spawnGap',
@@ -703,13 +706,46 @@ const castleMapSection: Section = {
     ctx.line(
       `осада (mode «siege») у стен ступеней I–III, нападают ${MAP_ARMIES.map((a) => MAP_ARMY_WORDS[a]).join(' и ')}; сидов на точку ${size.seeds}; грубая сетка — доли мощи гарнизона ${MAP_COARSE.join(', ')} (после порога — ${size.tail >= MAP_COARSE.length ? 'вся' : `ещё ${size.tail}`}), у порога — шаг ${pct(size.fine)} гарнизона${size.man ? ', в вилке порога — по одному человеку' : ''}`,
     );
-    ctx.line('окно замка (freecastle.freeNeeds) отвечает «да» по силе с 1.00 гарнизона — сравнить с порогом ниже');
+    ctx.line('окно замка (freeodds.freeNeeds, ПН-Э2б) — шанс репетицией тем же сервером войны при составе отряда; порог шанса — раздел «Окно замка: порог шанса»');
     for (const t of FREE_TIERS) {
       const maps = MAP_ARMIES.map((a) => castleMap(t, a, size));
       const g = maps[0].troops;
       ctx.line(`${FREE_TIER_NAMES[t]} (${['', 'I', 'II', 'III'][t]}): гарнизон ${fix(maps[0].garrison, 1)} мощи, ${troopTotal(g)} бойцов строя (${stackWords(g)})`);
       for (const m of maps) for (const l of mapLines(m, size.seeds)) ctx.line(l);
     }
+  },
+};
+
+const MODE_WORDS = { storm: 'штурм', siege: 'измор' } as const;
+
+const oddsSection: Section = {
+  id: 'odds',
+  title: 'Окно замка: порог шанса',
+  gdd: '3.11.2, 5.4',
+  doors: ['freeodds.freeNeedMen — «сколько нужно» окна', 'freeodds.rehearse — сервер войны в памяти', 'castle.mapBand — составы карты'],
+  uses: ['castleLevel', 'castlePrestige', 'castlePop', 'castleWall', 'castleTower', 'castleHall', 'castleShare', 'freeOdds'],
+  run(ctx) {
+    const size = ctx.size.odds;
+    const bars = oddsBars(FREE_ODDS_SEEDS);
+    ctx.line(
+      `окно: шанс — доля взятий на сидах 1…${FREE_ODDS_SEEDS}, «сколько нужно» — до ${FREE_NEED_CAP} мощей гарнизона; настоящий шанс — ${size.truth} сидов от ${ODDS_TRUTH_SEED} (не сиды окна); пороги-кандидаты ${bars.map((b) => pct(b)).join(', ')}`,
+    );
+    ctx.line('вывод (правило 19, из структуры): неудачная осада — пропавший пик (ГДД 4.4, правило 2); людей на один взятый замок = «сколько нужно» окна / настоящий шанс при нём; порог — с наименьшей средней долей от лучшего порога дела (порог, не берущий замок, — доля 2)');
+    const cases = oddsCases(size.tiers, size.truth, bars, (band, at, mode, bar) => freeNeedMen(band, at, mode, 1, bar));
+    for (const c of cases) {
+      ctx.line(
+        `${['', 'I', 'II', 'III'][c.tier].padEnd(3)} ${padEnd(MAP_ARMY_WORDS[c.army], 17)} ${padEnd(MODE_WORDS[c.mode], 6)} (гарнизон ${c.garrisonMen} чел.) порог: нужно / настоящий шанс: ${c.points
+          .map((p) => `${pct(p.bar)} ${p.need === null ? '—' : `${p.need}${p.drop ? '*' : ''}/${pct(p.truth ?? 0)}`}`)
+          .join(' · ')}`,
+      );
+    }
+    const pick = oddsPick(cases, bars);
+    ctx.line(`* — точка падения у «сколько нужно» (больший отряд того же состава ниже порога); дел с взятием хоть при одном пороге — ${pick.used} из ${cases.length}`);
+    ctx.line(`средняя доля людей на одно взятие от лучшего порога дела: ${bars.map((b) => `${pct(b)} ${fix(pick.score.get(b) ?? NaN)}`).join(', ')}`);
+    const broken = (b: number): number => cases.filter((c) => c.points.some((p) => p.bar === b && p.truth !== null && p.truth < b)).length;
+    ctx.line(`настоящий шанс ниже порога при «сколько нужно» окна (дел): ${bars.map((b) => `${pct(b)} ${broken(b)}`).join(', ')}`);
+    const written = ctx.use('freeOdds');
+    ctx.line(`порог выведен: ${pct(pick.bar)}; записан в игре (заглушка freeOdds): ${pct(written)} — ${Math.abs(written - pick.bar) < 1e-9 ? 'сходится' : 'РАЗОШЁЛСЯ'}`);
   },
 };
 
@@ -1420,4 +1456,4 @@ const placeSpirit: Section = {
   },
 };
 
-export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, deals, foes, prestige, paths, trade, theft, raid, fort, castle, castleMapSection, merc, race, parity, pool, meet, sight, people];
+export const SECTIONS: readonly Section[] = [pay, band, camp, place, placeSpirit, rate, upgrade, road, contract, deals, foes, prestige, paths, trade, theft, raid, fort, castle, castleMapSection, oddsSection, merc, race, parity, pool, meet, sight, people];
