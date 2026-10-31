@@ -3516,6 +3516,23 @@ export interface PerfResponse {
   now: number;
 }
 
+/**
+ * Шанс окна вольного замка (`GET /api/odds?castle=free:x:y`, ПН-Э2г; `netlify/lib/oddsdesk.ts`): строки «Что нужно, чтобы взять» —
+ * слова и выполнено ли; чисел репетиций наружу нет. `wait` — сервер ещё считает, спросить снова; `error` — отказ словами. Отвечает только
+ * тому, кому Путь меча открыт (`roamflag.roamOpenFor`), иначе 403.
+ */
+export interface OddsResponse {
+  now: number;
+  rows?: { text: string; ok: boolean }[];
+  wait?: true;
+  error?: string;
+}
+
+/** Ключ замка в запросе окна: только `free:x:y` целыми; иначе — `null` (400). */
+export function readOddsCastle(raw: string | null): string | null {
+  return raw && raw.length <= 32 && /^free:-?\d{1,5}:-?\d{1,5}$/.test(raw) ? raw : null;
+}
+
 const own = (v: unknown, keys: readonly string[], need: readonly string[] = keys): Record<string, unknown> | null => {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   const r = v as Record<string, unknown>;

@@ -11,6 +11,7 @@ import { castles } from './castles.js';
 import { feed } from './feed.js';
 import { gems } from './gems.js';
 import { notify } from './notify.js';
+import { odds } from './odds.js';
 import { pay } from './pay.js';
 import { perf } from './perf.js';
 import { rating } from './rating.js';
@@ -32,4 +33,5 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   '/api/pay': pay,
   '/api/feed': feed,
   '/api/perf': perf,
+  '/api/odds': odds,
 };

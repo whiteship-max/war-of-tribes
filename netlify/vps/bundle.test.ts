@@ -1,8 +1,15 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TEST_TOKEN, signInit, tempDir } from './testkit.js';
+import { openDb, sqliteStores } from './sqlite.js';
+import { STORES } from '../lib/kv.js';
+import { ROSTER_KEY, emptyRoster } from '../lib/roster.js';
+import type { BandRow, OddsResponse, RosterFile } from '../lib/contract.js';
+import { roamSeat } from '../../src/world/roam.js';
+import { SPAWNS } from '../../src/world/spawn.js';
+import { freeId } from '../../src/world/freecastle.js';
 
 /**
  * Собранный сервер — тот самый файл, что ляжет в образ. Собирается тем же путём, что в
@@ -18,14 +25,29 @@ let child: ChildProcess;
 let base: string;
 let log = '';
 
+/** Окно замка (ПН-Э2г): админ с отрядом у стен вольного замка пула — реестр кладётся в базу до подъёма сервера. */
+const ODDS_ADMIN = 9002;
+const C = SPAWNS[5];
+const FREE = freeId(C.x, C.y);
+/** Отряд в 260 чел. — как в замере окна в Chromium (ГДД 23.9.7). */
+const ODDS_BAND = { spearman: 160, archer: 60, clubman: 40 };
+
 beforeAll(async () => {
   dir = tempDir('bundle');
   file = join(dir, 'server.mjs');
   const built = spawnSync(process.execPath, [join(ROOT, 'netlify', 'vps', 'build.mjs'), file], { cwd: ROOT, encoding: 'utf8' });
   expect(built.status, built.stderr).toBe(0);
 
+  mkdirSync(join(dir, 'data'), { recursive: true });
+  const db = openDb(join(dir, 'data', 'tribe.sqlite'));
+  const t0 = Date.now() - 3_600_000;
+  const row: BandRow = { way: roamSeat({ x: C.x + 1, y: C.y }, t0).way, born: t0, name: 'Ватага', prestige: 1000, men: 260, seenAt: t0, book: { troops: ODDS_BAND, join: -1, drill: 0, fights: 0, grant: 0, keys: [] } };
+  const roster: RosterFile = { ...emptyRoster(), bands: { [`tg-${ODDS_ADMIN}`]: row }, free: { [FREE]: { x: C.x, y: C.y, tier: 1, born: t0 } } };
+  await sqliteStores(db)(STORES.world, 'strong').setJSON(ROSTER_KEY, roster);
+  db.close();
+
   child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', file, 'serve'], {
-    env: { ...process.env, PORT: '0', TRIBE_DATA: join(dir, 'data'), TELEGRAM_BOT_TOKEN: TEST_TOKEN },
+    env: { ...process.env, PORT: '0', TRIBE_DATA: join(dir, 'data'), TELEGRAM_BOT_TOKEN: TEST_TOKEN, ADMIN_IDS: String(ODDS_ADMIN) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const port = await new Promise<number>((resolve, reject) => {
@@ -82,6 +104,30 @@ describe('собранный сервер', () => {
     const got = (await (await fetch(`${base}/api/save`, { headers: auth })).json()) as { record: { game: string } };
     expect(got.record.game).toBe('{"pop":30}');
   });
+
+  it('шанс окна замка (ПН-Э2г): считает поток сервера, ответ — строки; повтор — из кэша сразу', async () => {
+    const auth = { 'x-telegram-init-data': signInit(ODDS_ADMIN, Math.floor(Date.now() / 1000) - 60) };
+    const url = `${base}/api/odds?castle=${encodeURIComponent(FREE)}`;
+    expect((await fetch(url, { headers: { 'x-telegram-init-data': signInit(9003, Math.floor(Date.now() / 1000) - 60) } })).status, 'не-админу — 403').toBe(403);
+    const start = Date.now();
+    let got: OddsResponse = { now: 0, wait: true };
+    let polls = 0;
+    while (got.wait && Date.now() - start < 90_000) {
+      if (polls++ > 0) await new Promise((r) => setTimeout(r, 500));
+      const res = await fetch(url, { headers: auth });
+      expect(res.status).toBe(200);
+      got = (await res.json()) as OddsResponse;
+    }
+    const spent = Date.now() - start;
+    expect(got.error, log).toBeUndefined();
+    expect(got.rows?.map((r) => r.text).join('\n')).toMatch(/Штурм с ходу[\s\S]*Измор/);
+    const again = Date.now();
+    const cached = (await (await fetch(url, { headers: auth })).json()) as OddsResponse;
+    const hit = Date.now() - again;
+    expect(cached.rows).toEqual(got.rows);
+    // Замер (правило 12 — этот тест): время расчёта окна на собранном сервере, отряд в 260 чел. у стен замка I.
+    console.log(`шанс окна замка на собранном сервере: ${(spent / 1000).toFixed(1)} с (${polls} запросов), повтор из кэша — ${hit} мс`);
+  }, 120_000);
 
   it('без токена бота не поднимается и говорит почему', () => {
     const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', file, 'serve'], {

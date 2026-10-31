@@ -26,7 +26,7 @@ import { advance, applyOrder, emptyWars, type WarRow } from '../../netlify/lib/w
 import { emptyRoster } from '../../netlify/lib/roster';
 import type { RosterFile, WarBattle } from '../../netlify/lib/contract';
 import { freePrestige, freeTroopPower, freeTroops } from './freecastle';
-import type { FreeAt, FreeLook } from './freelook';
+import { freeHeadRows, freeOnlineRow, type FreeAt, type FreeLook, type FreeNeedId } from './freelook';
 import { roamSeat } from './roam';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { troopPower } from '@/game/battle/price';
@@ -51,7 +51,7 @@ export const FREE_NEED_STEP = 0.05;
 /** Точность поиска [код]: число людей — до доли (и не мельче человека). */
 export const FREE_NEED_RES = 0.01;
 
-export { freeAt, freeLook, freeSeen, type FreeAt, type FreeLook } from './freelook';
+export { freeAt, freeLook, freeSeen, type FreeAt, type FreeLook, type FreeNeedId } from './freelook';
 
 export type FreeMode = 'storm' | 'siege';
 export const FREE_MODES: readonly FreeMode[] = ['storm', 'siege'];
@@ -321,8 +321,6 @@ export interface FreeNeedIn {
   seasonFood?: number;
 }
 
-export type FreeNeedId = 'prestige' | 'near' | 'storm' | 'siege' | 'online';
-
 /** Строка окна; у строк пути — числа, которыми она сказана (автопилот и тесты читают их, а не слова). */
 export interface FreeNeedRow {
   id: FreeNeedId;
@@ -362,7 +360,7 @@ function needWords(ns: readonly FreeNeedMen[]): string {
   return `нужно ${span(known, String)} чел. этим составом${note}`;
 }
 
-function* oddsG(i: FreeNeedIn, mode: FreeMode, bar: number): Generator<void, FreeOddsRow> {
+function* oddsG(i: FreePathIn, mode: FreeMode, bar: number): Generator<void, FreeOddsRow> {
   const chance: number[] = [];
   const need: FreeNeedMen[] = [];
   let hours = 0;
@@ -392,18 +390,18 @@ function oddsText(o: FreeOddsRow, men: number): string {
   return `Измор — осада до голода: ${starve}, тогда гарнизон выйдет в последнюю вылазку${keep}; ${odds}; ${need}`;
 }
 
+/** Что строки пути знают о деле: замок, что видит отряд, отряд бойцами, множитель еды сезона (ключ кэша сервера — `oddsdesk`). */
+export type FreePathIn = Pick<FreeNeedIn, 'at' | 'look' | 'band' | 'seasonFood'>;
+
 /**
- * Что нужно, чтобы взять замок (ГДД 3.11.2, 5.4): строки окна и выполнено ли каждое — шагами генератора (окно считает кусками).
- * Строка пути выполнена, когда шанс не ниже порога **при любом гарнизоне из вилки** (худший край — правило ступени).
+ * Строки пути — штурм и измор — шагами генератора: шанс и «сколько нужно» репетициями. Строка выполнена, когда шанс не ниже порога
+ * **при любом гарнизоне из вилки** (худший край — правило ступени). Это тяжёлая часть окна: сервер считает её своим потоком и держит в
+ * кэше (`netlify/lib/oddsdesk`), голову и хвост кладёт свежими.
  */
-export function* freeNeedsSteps(i: FreeNeedIn): Generator<void, FreeNeedRow[]> {
-  const need = freePrestige(i.at.tier);
+export function* freePathsSteps(i: FreePathIn): Generator<void, FreeNeedRow[]> {
   const bar = freeBar();
   const men = troopTotal(i.band);
-  const rows: FreeNeedRow[] = [
-    { id: 'prestige', text: `Престиж ${need} — у отряда ${Math.floor(i.prestige)}`, ok: i.prestige >= need },
-    { id: 'near', text: 'Отряд у стен — в клетке замка или рядом', ok: i.near },
-  ];
+  const rows: FreeNeedRow[] = [];
   for (const mode of FREE_MODES) {
     if (men <= 0) {
       rows.push({ id: mode, text: mode === 'storm' ? 'Штурм с ходу: в отряде нет бойцов' : 'Измор: в отряде нет бойцов', ok: false });
@@ -412,8 +410,22 @@ export function* freeNeedsSteps(i: FreeNeedIn): Generator<void, FreeNeedRow[]> {
     const odds = yield* oddsG(i, mode, bar);
     rows.push({ id: mode, text: oddsText(odds, men), ok: odds.chance[0] >= bar, odds });
   }
-  rows.push({ id: 'online', text: 'Связь с сервером войны: бой у стен считает он', ok: i.online });
   return rows;
+}
+
+/** Строки окна целиком: голова (престиж, у стен), строки пути, связь — порядок окна. */
+export const freeRowsOf = (i: Pick<FreeNeedIn, 'prestige' | 'at' | 'near' | 'online'>, paths: readonly FreeNeedRow[]): FreeNeedRow[] => [
+  ...freeHeadRows(i.prestige, i.at.tier, i.near),
+  ...paths,
+  freeOnlineRow(i.online),
+];
+
+/**
+ * Что нужно, чтобы взять замок (ГДД 3.11.2, 5.4): строки окна и выполнено ли каждое — шагами генератора (окно считает кусками).
+ * Строка пути выполнена, когда шанс не ниже порога **при любом гарнизоне из вилки** (худший край — правило ступени).
+ */
+export function* freeNeedsSteps(i: FreeNeedIn): Generator<void, FreeNeedRow[]> {
+  return freeRowsOf(i, yield* freePathsSteps(i));
 }
 
 /** Строки окна синхронно — автопилот прибора и тесты. */

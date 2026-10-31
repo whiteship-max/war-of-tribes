@@ -8,6 +8,7 @@ import * as feedRoute from '../lib/routes/feed.js';
 import * as perfRoute from '../lib/routes/perf.js';
 import * as gemsRoute from '../lib/routes/gems.js';
 import * as notifyRoute from '../lib/routes/notify.js';
+import * as oddsRoute from '../lib/routes/odds.js';
 import * as payRoute from '../lib/routes/pay.js';
 import * as ratingRoute from '../lib/routes/rating.js';
 import * as reportRoute from '../lib/routes/report.js';
@@ -39,6 +40,7 @@ const ROUTE_MODULES: Record<string, Record<string, unknown>> = {
   pay: payRoute,
   feed: feedRoute,
   perf: perfRoute,
+  odds: oddsRoute,
 };
 
 /** Функции с адресом. Функция по расписанию (`deliver.mts`) адреса не имеет: её держит `lib/server.test.ts`. */

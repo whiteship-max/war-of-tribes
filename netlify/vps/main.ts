@@ -33,6 +33,8 @@ import { listen } from './listen.js';
 import { say, sayFail } from './log.js';
 import { startSchedule } from './schedule.js';
 import { countRows, openDb, sqliteStores } from './sqlite.js';
+import { oddsThread, serveOddsThread } from './oddsthread.js';
+import { setOddsCounter } from '../lib/oddsdesk.js';
 
 const USAGE = `Команды: serve | backup | backups | restore <имя копии> | import-blobs [--dry-run] [--replace] | reset-party <tg-номер> ДА`;
 
@@ -71,6 +73,9 @@ async function serve(): Promise<void> {
     stores = blobsStores(cfg.netlify!);
     say('хранилище: Netlify Blobs');
   }
+
+  // Шанс окна вольного замка (ПН-Э2г) — своим потоком того же файла с низким приоритетом: адреса игры не ждут ядра боя.
+  setOddsCounter(oddsThread(new URL(import.meta.url), (e) => sayFail('поток шанса окна замка', e)));
 
   const server: Server = await listen(
     { routes: ROUTES, stores, onError: (path) => say(`обработчик ${path} упал — ответ 500`) },
@@ -163,15 +168,18 @@ async function resetOne(args: string[]): Promise<void> {
 }
 
 const [cmd = 'serve', ...rest] = process.argv.slice(2);
-try {
-  if (cmd === 'serve') await serve();
-  else if (cmd === 'backup') backupNow();
-  else if (cmd === 'backups') showBackups();
-  else if (cmd === 'restore') restoreFrom(rest[0]);
-  else if (cmd === 'import-blobs') await importFromBlobs(rest);
-  else if (cmd === 'reset-party') await resetOne(rest);
-  else fail(`не знаю команды «${cmd}». ${USAGE}`);
-} catch (e) {
-  sayFail(cmd, e);
-  process.exit(1);
+// Поток шанса окна замка (`oddsthread.ts`) — тот же файл: он становится потоком и команд не исполняет.
+if (!serveOddsThread()) {
+  try {
+    if (cmd === 'serve') await serve();
+    else if (cmd === 'backup') backupNow();
+    else if (cmd === 'backups') showBackups();
+    else if (cmd === 'restore') restoreFrom(rest[0]);
+    else if (cmd === 'import-blobs') await importFromBlobs(rest);
+    else if (cmd === 'reset-party') await resetOne(rest);
+    else fail(`не знаю команды «${cmd}». ${USAGE}`);
+  } catch (e) {
+    sayFail(cmd, e);
+    process.exit(1);
+  }
 }

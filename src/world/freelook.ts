@@ -5,7 +5,7 @@
 // Гарнизон ступени — правило, видное всем (3.11.1), выше него гарнизона не бывает; ниже — бывает, если замок потрепали чужие осады
 // (`war.npcSheet` вычитает их потери). Стоящий отряд, в чьём круге обзора замок (`world/sight`, наблюдатель «отряд»), видит стены и людей
 // на них — гарнизон точкой; иначе — вилкой вниз на долю `INTEL_ROUGH_SPREAD` (ступень «примерно» разведданных, `world/intel`).
-import { freeCellOf, freeTroopPower, freeTroops, type FreeTier } from './freecastle';
+import { freeCellOf, freePrestige, freeTroopPower, freeTroops, type FreeTier } from './freecastle';
 import { sees } from './sight';
 import { INTEL_ROUGH_SPREAD } from './data/tuning';
 import { troopTotal } from '@/game/battle/kinds';
@@ -49,3 +49,29 @@ export function freeSeen(at: FreeAt, look: FreeLook): { lo: number; hi: number; 
   const k = 1 - look.spread;
   return { lo: Math.floor(men * k), hi: men, power: { lo: Math.round(power * k), hi: Math.round(power) } };
 }
+
+// ---------- голова и хвост строк окна (ПН-Э2г) ----------
+//
+// Строки «Что нужно, чтобы взять», которые не считают шанса: престиж, «у стен» и связь. Их окно рисует сразу, не дожидаясь шанса, а
+// сервер (`netlify/lib/oddsdesk`) кладёт их к строкам пути из своего кэша свежими — та же функция, что у двери окна (`freeodds.freeNeeds`).
+
+export type FreeNeedId = 'prestige' | 'near' | 'storm' | 'siege' | 'online';
+
+/** Строка окна без чисел пути. */
+export interface FreePlainRow {
+  id: FreeNeedId;
+  text: string;
+  ok: boolean;
+}
+
+/** Престиж доступа и «у стен» — первые строки окна. */
+export function freeHeadRows(prestige: number, tier: FreeTier, near: boolean): FreePlainRow[] {
+  const need = freePrestige(tier);
+  return [
+    { id: 'prestige', text: `Престиж ${need} — у отряда ${Math.floor(prestige)}`, ok: prestige >= need },
+    { id: 'near', text: 'Отряд у стен — в клетке замка или рядом', ok: near },
+  ];
+}
+
+/** Связь с сервером войны — последняя строка окна. */
+export const freeOnlineRow = (online: boolean): FreePlainRow => ({ id: 'online', text: 'Связь с сервером войны: бой у стен считает он', ok: online });
