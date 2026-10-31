@@ -7,12 +7,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROUTES } from './routes/index.js';
 import { STORES } from './kv.js';
+import { WARS_KEY } from './war.js';
 import { ROSTER_KEY, bandOrder, emptyRoster, readRoster } from './roster.js';
 import { readWatchRecord, type FlagKind } from './watch.js';
 import type { BandRow, RosterResponse } from './contract.js';
 import { TEST_TOKEN, signInit, sqliteHome, type Home } from '../vps/testkit.js';
 import { ROAM_STUBS } from '../../src/game/roamstubs.js';
-import { roamSeat, roamWalkMs, roamWhere, shelterAt } from '../../src/world/roam.js';
+import { ROAM_SLACK_MS, roamSeat, roamWalkMs, roamWhere, shelterAt } from '../../src/world/roam.js';
 import { distance } from '../../src/world/geo.js';
 import { fitToSettle } from '../../src/world/settle.js';
 import { isWaterAt, settleable } from '../../src/world/land.js';
@@ -204,5 +205,48 @@ describe('приказ отряда — чистая функция реестр
     const late = bandOrder(f(walking), 'k', { op: 'go', to }, NOW, 'sicily');
     expect(late.error).toMatch(/^Не хватит сил на дорогу/);
     expect(late.forged).toBeNull();
+  });
+});
+
+describe('отряд в осаде заперт и у сервера (ПН-Э1, граница доверия 6а)', () => {
+  const at = SPAWNS[0];
+  const to = { x: at.x + 3, y: at.y };
+  const row: BandRow = { ...roamSeat(at, NOW), born: NOW, name: 'x', prestige: 0, men: 5, seenAt: NOW } as BandRow;
+  const f = { ...emptyRoster(), bands: { k: row } };
+  const camp = (phase: string, sentAt: number) => [{ phase, defCity: 'Усадьба', sentAt }];
+
+  it('поход к стенам и лагерь — ход отказан; давняя осада — флаг, свежая (моложе запаздывания) — без флага; кончилась — идти можно', () => {
+    expect(settleable(to.x, to.y)).toBe(true);
+    // Без осады ход принят — граница: отказ ниже даёт осада, а не клетка.
+    expect(bandOrder(f, 'k', { op: 'go', to }, NOW + 1000, 'sicily').error).toBeNull();
+    for (const phase of ['march', 'camp']) {
+      const old = bandOrder(f, 'k', { op: 'go', to }, NOW + 1000, 'sicily', undefined, { sieges: camp(phase, NOW - ROAM_SLACK_MS - 1) });
+      expect(old.error).toBe('Отряд в осаде у Усадьба: сперва отступить.');
+      expect(old.forged?.kind).toBe('forged');
+      expect(old.forged?.text).toMatch(/из осады мимо отступления/);
+      expect(old.file).toBe(f);
+    }
+    // Поход лёг только что: честный клиент мог отправить ход раньше, чем узнал о нём, — отказ без флага.
+    const fresh = bandOrder(f, 'k', { op: 'go', to }, NOW + 1000, 'sicily', undefined, { sieges: camp('camp', NOW + 1000 - ROAM_SLACK_MS) });
+    expect(fresh.error).toBe('Отряд в осаде у Усадьба: сперва отступить.');
+    expect(fresh.forged).toBeNull();
+    for (const phase of ['back', 'done']) expect(bandOrder(f, 'k', { op: 'go', to }, NOW + 1000, 'sicily', undefined, { sieges: camp(phase, NOW - 3_600_000) }).error).toBeNull();
+  });
+
+  it('маршрут реестра читает осаду из записи войн: ход из лагеря — отказ и флаг, строка отряда не тронута', async () => {
+    const s = (await seat(311, NOW)).data.band!;
+    const from = s.way.to;
+    let go = from;
+    for (let d = 3; d < 12 && go === from; d++) for (const c of [{ x: from.x + d, y: from.y }, { x: from.x - d, y: from.y }, { x: from.x, y: from.y + d }]) if (go === from && settleable(c.x, c.y) && inSicilyTheatre(c)) go = c;
+    expect(go).not.toBe(from);
+    const war = { id: 'w1', atk: 'tg-311', def: 'free:1:1', atkCastle: 'band', defCastle: 'free:1:1', atkCity: 'x', defCity: 'Усадьба', phase: 'camp', sentAt: NOW };
+    await home.stores(STORES.world, 'strong').setJSON(WARS_KEY, { v: 1, seq: 1, wars: [war] });
+    const held = await call(311, NOW + 600_000, 'POST', { op: 'go', to: go });
+    expect(held.data.error).toBe('Отряд в осаде у Усадьба: сперва отступить.');
+    expect(held.data.band?.way).toEqual(s.way);
+    expect(await flags(311)).toContain('forged');
+    // Чужая осада того же замка этот отряд не держит.
+    await home.stores(STORES.world, 'strong').setJSON(WARS_KEY, { v: 1, seq: 2, wars: [{ ...war, atk: 'tg-999' }] });
+    expect((await call(311, NOW + 700_000, 'POST', { op: 'go', to: go })).data.error).toBeUndefined();
   });
 });

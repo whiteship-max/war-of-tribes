@@ -25,7 +25,7 @@ import type { RoamState } from '@/game/types';
 import type { FightOut } from '@/game/sim/roamfight';
 import type { Coord, Fate, FigureView, FreeCastleView, FreeMark, FreeSiegeView, PlayerProfile, Rect, RegionChunk, RoamAimView, RoamCampGain, RoamCampView, RoamPlanView, WorldInfo, WorldPulse } from '../types';
 import { HOME_ID, LocalWorld, type LocalWorldOptions } from './LocalWorld';
-import { CAMP_KINDS, CAMP_NAME, campWorks, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamWhere, type CampKind, type RoamMove } from '../roam';
+import { CAMP_KINDS, CAMP_NAME, campWorks, liveSiege, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamWhere, siegeHoldBlock, type CampKind, type RoamMove } from '../roam';
 import { wayGait, type RoamTrip, type RoamWay } from '../roammove';
 import { pointAt, pointsIn, pointWords, type RoamPoint } from '../roampoints';
 import { FOE_WORDS, foePower, foeRipe, type FoeKind } from '../roamfoes';
@@ -205,7 +205,9 @@ export class RoamWorld extends LocalWorld {
     const m = this.move();
     if (!m) return NO_SEAT;
     const now = this.clock();
-    const p = roamPlan(m, to, now);
+    const plan = roamPlan(m, to, now);
+    // Отряд в осаде (ПН-Э1): окно хода называет отказ до приказа — тем же правилом, что исполнит приказ (и сервер).
+    const p = { ...plan, block: plan.block ?? siegeHoldBlock(this.sieges()) };
     const have = energyAt(m.energy, now);
     const r = this.port.band();
     const men = troopTotal(r?.band ?? {});
@@ -289,8 +291,8 @@ export class RoamWorld extends LocalWorld {
     // Встречи прежнего хода и набеги на сёла договоров, чья минута прошла, — до того, как ход сменится.
     this.settleTrip(now);
     this.settleDeals(now);
-    const held = this.siegeNow();
-    if (held) return `Отряд в осаде у ${held.defCity}: сперва отступить.`;
+    const held = siegeHoldBlock(this.sieges());
+    if (held) return held;
     const next = roamGo(m, to, gait, now);
     if (typeof next === 'string') return next;
     // Удар по цели (ПН-5): только логово и ватага, и не раненым героем; сила — та, что показало окно (престиж той же минуты).
@@ -432,7 +434,7 @@ export class RoamWorld extends LocalWorld {
 
   /** Осада, что идёт (поход к стенам или лагерь); нет — `null`. */
   private siegeNow(): WarView | null {
-    return this.sieges().find((w) => w.phase === 'march' || w.phase === 'camp') ?? null;
+    return liveSiege(this.sieges());
   }
 
   /** Наша осада замка `id`: идущая, иначе последняя кончившаяся; нет — `null`. */

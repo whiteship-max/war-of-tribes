@@ -22,7 +22,7 @@ import { placeCastle, settleRandom, type Spot } from '../../src/world/settle.js'
 import { SPAWNS, inSicilyTheatre, type SpawnMode } from '../../src/world/spawn.js';
 import { ATLAS_HASH } from '../../src/world/atlas/data.js';
 import { readArms } from '../../src/heraldry/arms.js';
-import { energyForged, isNewcomer, placeBand, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamSeat, untilForged, ROAM_SLACK_MS, type RoamMove } from '../../src/world/roam.js';
+import { energyForged, isNewcomer, placeBand, roamCamp, roamCell, roamGo, roamMoving, roamPlan, roamSeat, siegeForged, siegeHoldBlock, untilForged, ROAM_SLACK_MS, type RoamMove, type SiegeHold } from '../../src/world/roam.js';
 import { readMove } from '../../src/world/roammove.js';
 import { bookClaim, bookGrants, bookMen, bookMoved, bookOrder, firstBook, startBook } from './roambook.js';
 import { isBookOrder, readRoamBook } from './bandorder.js';
@@ -404,6 +404,11 @@ export function placeBandNew(file: RosterFile, key: string, now: number, mode: S
 export interface BookKnown {
   seed?: number;
   grants?: readonly Pick<AdminGrant, 'n' | 'troops'>[];
+  /**
+   * Осады вольных замков этого отряда из записи войн (ПН-Э1, граница доверия 6а): идущая — ход отказан тем же правилом, что у клиента
+   * (`world/roam.siegeHoldBlock`). Нет поля — осад нет.
+   */
+  sieges?: readonly SiegeHold[];
 }
 
 /** Итог приказа отряда: реестр после него, отказ словами и флаг для наблюдения игрока. */
@@ -464,6 +469,9 @@ export function bandOrder(
   // Отряд стоял и минуту назад: клетка у клиента и у сервера одна — отказ клетки честный клиент не получает.
   const still = !roamMoving(m.way, now) && !roamMoving(m.way, now - ROAM_SLACK_MS);
   if (o.op === 'go') {
+    // Отряд в осаде у сервера заперт (ПН-Э1): уйти от стен — только приказом осады «Отступить»; честный клиент хода не шлёт.
+    const held = siegeHoldBlock(known.sieges ?? []);
+    if (held) return no(held, siegeForged(known.sieges ?? [], now) ? { kind: 'forged', text: `Ход отряда в ${spot(o.to)} из осады мимо отступления: ${held}` } : null);
     const gait = readGait(o.gait);
     const next = roamGo(m, o.to, gait, now);
     if (typeof next === 'string') {

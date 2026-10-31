@@ -234,6 +234,38 @@ export const isNewcomer = (born: number, now: number): boolean => now - born < N
  */
 export const ROAM_SLACK_MS = MEET_SLACK_MS;
 
+/**
+ * Осада вольного замка отрядом, как её видит правило хода: фаза войны, город у стен и минута выхода к стенам (ПН-10). Поля — те, что
+ * есть и у записи войн сервера (`WarRow`), и у вида войны клиента (`WarView`).
+ */
+export interface SiegeHold {
+  phase: string;
+  defCity: string;
+  sentAt: number;
+}
+
+/** Идущая осада отряда — поход к стенам или лагерь (фазы `march`, `camp`); нет — `null`. Одна мерка на мир бродяги и на сервер. */
+export const liveSiege = <T extends SiegeHold>(list: readonly T[]): T | null => list.find((w) => w.phase === 'march' || w.phase === 'camp') ?? null;
+
+/**
+ * Отряд в осаде у стен не уходит мимо отступления (ПН-Э1, граница доверия 6а; docs/trust-boundary.md): «Идти сюда» — отказ, пока поход к
+ * стенам или лагерь стоят; снять лагерь — приказом осады «Отступить» (сервер войны, правила осады). Одно правило на мир бродяги
+ * (`RoamWorld.roamTo`) и на реестр сервера (`roster.bandOrder`); `null` — идти можно.
+ */
+export const siegeHoldBlock = (list: readonly SiegeHold[]): string | null => {
+  const s = liveSiege(list);
+  return s ? `Отряд в осаде у ${s.defCity}: сперва отступить.` : null;
+};
+
+/**
+ * Отказ осадой, которого честный клиент не получил бы: осада шла уже дольше запаздывания приказа — клиент знал о ней (ответ сервера
+ * войны на приказ похода несёт войну). Осада моложе — отказ без флага: приказ хода мог уйти раньше, чем пришёл ответ о походе.
+ */
+export const siegeForged = (list: readonly SiegeHold[], now: number): boolean => {
+  const s = liveSiege(list);
+  return !!s && s.sentAt + ROAM_SLACK_MS < now;
+};
+
 /** Срок прихода, названный приказом, раньше выведенного дальше запаздывания приказа: так честный клиент не считает. */
 export const untilForged = (claimed: number, until: number): boolean => Number.isFinite(claimed) && claimed + ROAM_SLACK_MS < until;
 

@@ -128,7 +128,11 @@ describe('ПН-10: штурм с ходу у бродяги — «Замок в�
     const g = game(party());
     expect(await g.world.roamSiege?.(FREE, 'siege', 'occupy')).toBeNull();
     g.at(g.file.wars[0].arriveAt + 1);
-    expect(await g.world.roamTo?.({ x: HOME.x + 5, y: HOME.y }, 'normal')).toMatch(/в осаде/);
+    const said = await g.world.roamTo?.({ x: HOME.x + 5, y: HOME.y }, 'normal');
+    expect(said).toMatch(/в осаде/);
+    // Окно хода называет тот же отказ до приказа — одним правилом с приказом и сервером (ПН-Э1, `world/roam.siegeHoldBlock`).
+    const plan = await g.world.roamPlan?.({ x: HOME.x + 5, y: HOME.y });
+    expect(typeof plan === 'object' && plan ? plan.block : plan).toBe(said);
   });
 });
 
