@@ -21,6 +21,7 @@ import { SICILY } from './spawn';
 import type { Spot } from './land';
 import { roamSeat } from './roam';
 import { castellanOf, freeId, freeName, freePrestige, freeTroops } from './freecastle';
+import { freeNeeds } from './freeodds';
 import '@/game/roamdoor';
 
 vi.mock('@/game/roamflag', () => ({ ROAM_ON: true, roamOpenFor: () => true, roamOn: () => true, setRoamOpen: () => {} }));
@@ -66,6 +67,8 @@ function game(s: GameState) {
     free: () => freeViews(roster, KEY, file.free ?? {}, HOME, 200, now),
     wars: () => (advance(file, now, new Map()), warsOf(file, KEY)),
     warOrder: async (o) => (advance(file, now, new Map()), applyOrder(file, KEY, o, now, ctx)),
+    // Окно замка (ПН-Э2б): в браузере — потоком окна, здесь — прямо той же дверью.
+    freeOdds: async (i) => freeNeeds(i),
     siege: (look) => {
       const got = takeSiege(s, look);
       lines.push(...got);
@@ -90,7 +93,8 @@ describe('ПН-10: окно вольного замка — функциями �
     expect(v.near, 'точка внутри области: отряд у стен').toBe(true);
     expect(v.block).toBeNull();
     expect(v.fates.map((f) => f.id)).toEqual(['occupy', 'plunder', 'captives', 'burn']);
-  });
+    // Строки «Что нужно» — репетициями сервером войны (ПН-Э2б, `world/freeodds`): секунды счёта, срок теста — с запасом.
+  }, 60_000);
 
   it('престижа мало — окно говорит словами правила, и поход не уходит', async () => {
     const g = game(party(STRONG, freePrestige(1) - 1));

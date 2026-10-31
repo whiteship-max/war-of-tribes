@@ -51,7 +51,8 @@ describe('разделы — те, что называют ГДД 6.5 и пач�
     // ПН-7 — вывод K и R видов договоров (`deals`) рядом с платой договоров.
     // ПН-Э1 (ГДД 2.0, 4.8): окупаемость путей, торговля между городами, воровство, разбой, форт, наёмники, гонка; вывод гарнизона
     // под коридор 4–6 сут (`castleFix`) снят вместе с целью. ПН-Э2а — карта осады вольного замка по числу нападающих (`castlemap`).
-    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'castlemap', 'merc', 'race', 'parity', 'pool', 'meet', 'sight', 'people']);
+    // ПН-Э2б — порог шанса окна замка (`odds`).
+    expect(SECTIONS.map((s) => s.id)).toEqual(['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'castlemap', 'odds', 'merc', 'race', 'parity', 'pool', 'meet', 'sight', 'people']);
   });
 
   it('у каждого раздела — раздел ГДД и двери кода или входы', () => {
@@ -94,7 +95,7 @@ describe('заглушка не выдаётся за выведенное', () 
   });
 
   it('напечатанный статус каждого раздела — тот, что выводится из входов, и слова «выведено» у раздела на заглушках нет', async () => {
-    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'castlemap', 'merc', 'race', 'pool', 'meet', 'sight', 'people']);
+    const out = await lines(SECTIONS, ['pay', 'band', 'camp', 'place', 'placeSpirit', 'rate', 'upgrade', 'road', 'contract', 'deals', 'foes', 'prestige', 'paths', 'trade', 'theft', 'raid', 'fort', 'castle', 'castlemap', 'odds', 'merc', 'race', 'pool', 'meet', 'sight', 'people']);
     const heads = out.filter((l) => l.startsWith('━━ ') && !l.startsWith('━━ Итог'));
     const statuses = out.filter((l) => l.startsWith('статус: '));
     expect(statuses.length).toBe(heads.length);
@@ -104,7 +105,7 @@ describe('заглушка не выдаётся за выведенное', () 
       expect(heads[i], s.id).toContain(s.title);
       expect(statuses[i], `«${s.title}»: статус из входов`).toBe(`статус: ${statusOf(s.uses)}`);
     });
-    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 25 ━━$/);
+    expect(out[out.length - 2]).toMatch(/^━━ Итог: выведено \d+, по формуле ГДД \d+, не измерено \d+ из 26 ━━$/);
   });
 
   it('вход, не объявленный разделом, — исключение', async () => {

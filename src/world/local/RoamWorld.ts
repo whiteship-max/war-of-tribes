@@ -16,7 +16,8 @@
 import type { BandOrder, BandRow, FreeView, WarOrder, WarView } from '../../../netlify/lib/contract';
 import type { SiegeLook } from '@/game/sim/roamcastle';
 import { FREE_FATE_IDS, castellanOf, freeAccess, freeFateBlock, freeName, freePrestige, freeTierWords, isFreeKey } from '../freecastle';
-import { freeAt, freeLook, freeNeedsSteps, freeSeen, type FreeNeedRow } from '../freeodds';
+import { freeAt, freeLook, freeSeen } from '../freelook';
+import type { FreeNeedIn, FreeNeedRow } from '../freeodds';
 import { SEASON_MODIFIERS } from '@/game/data/seasons';
 import { seasonOf } from '@/game/derived';
 import { FATE_META } from '../data/fates';
@@ -83,19 +84,15 @@ export interface RoamPort {
   warOrder?: (o: WarOrder) => Promise<string | null>;
   /** Положить итог осады вольного замка одной дверью партии (`sim/roamcastle.takeSiege`); строки летописи. */
   siege?: (look: SiegeLook) => string[];
+  /**
+   * Строки окна «Что нужно, чтобы взять» (ПН-Э2б, `world/freeodds.freeNeeds` — репетиции сервером войны): в браузере — потоком окна
+   * (`oddsWorker`), в тестах — прямо. Нет — окно без шанса (`ODDS_OFF`).
+   */
+  freeOdds?: (input: FreeNeedIn) => Promise<FreeNeedRow[]>;
 }
 
-/**
- * Счёт окна замка кусками (ПН-Э2б): репетиции сервером войны идут по одной, и между кусками кадр отдаётся странице — окно не держит
- * экран, пока считает. Тот же генератор, что синхронно гоняет автопилот прибора (`freeodds.freeNeeds`).
- */
-async function stepped<T>(g: Generator<void, T>): Promise<T> {
-  for (let n = 0; ; n++) {
-    const r = g.next();
-    if (r.done) return r.value;
-    if (n % 2 === 1) await new Promise<void>((ok) => setTimeout(ok, 0));
-  }
-}
+/** Окно замка без счёта шанса (нет потока окна или он упал): строк пути нет — шанс не выдумывается. */
+export const ODDS_OFF = 'Шанс у стен не посчитан: счёт окна недоступен.';
 
 /** Осада вольного замка — только сервером войны (ПН-10): без связи её не начать. */
 export const SIEGE_OFFLINE = 'Осада вольного замка идёт на сервере войны: нужна связь.';
@@ -541,14 +538,17 @@ export class RoamWorld extends LocalWorld {
     const live = this.siegeNow();
     const held = f.held ? (f.held.mine ? 'mine' : 'other') : null;
     const burntUntil = f.burnt !== undefined && f.burnt > now ? f.burnt : null;
-    // Строки окна — дверью окна замка (`world/freeodds`, одной с автопилотом прибора, ПН-Э2б): шанс — репетицией сервером войны при
-    // составе отряда, гарнизон — тем, что видит отряд (`freeLook`: стоит и замок в круге обзора — точкой, иначе вилкой).
+    // Строки окна — дверью окна замка (`world/freeodds`, одной с автопилотом прибора, ПН-Э2б; в браузере — своим потоком, порт
+    // `freeOdds`): шанс — репетицией сервером войны при составе отряда, гарнизон — тем, что видит отряд (`freeLook`: стоит и замок в круге
+    // обзора — точкой, иначе вилкой).
     const castle = freeAt(id, f.tier);
     const look = freeLook(at, !!m && roamMoving(m.way, now), { x: f.x, y: f.y });
     const seen = freeSeen(castle, look);
     const season = SEASON_MODIFIERS[seasonOf(Math.max(0, this.port.partyTime()))].food;
-    const steps = freeNeedsSteps({ prestige: have, at: castle, near, look, band: r?.band ?? {}, online: !!this.port.warOrder, seasonFood: season });
-    const needs = !odds || held || burntUntil || live ? [] : (await stepped(steps)).map(({ text, ok }: FreeNeedRow) => ({ text, ok }));
+    const input: FreeNeedIn = { prestige: have, at: castle, near, look, band: { ...(r?.band ?? {}) }, online: !!this.port.warOrder, seasonFood: season };
+    const count = this.port.freeOdds;
+    const needs =
+      !odds || held || burntUntil || live ? [] : count ? await count(input).then((rows: FreeNeedRow[]) => rows.map(({ text, ok }) => ({ text, ok })), () => [{ text: ODDS_OFF, ok: false }]) : [{ text: ODDS_OFF, ok: false }];
     const block =
       held === 'mine'
         ? 'Замок уже наш.'
