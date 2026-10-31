@@ -207,7 +207,6 @@ interface Pilot {
   origins: readonly Origin[];
 }
 
-
 /** Эталон ступени — отряд медианной мощи в минуту входа в ступень среди партий, что в неё вошли. */
 const refsOf = (runs: readonly PathRun[], stages: number): (TroopStack | null)[] =>
   Array.from({ length: stages }, (_, s) => {
